@@ -116,6 +116,16 @@ export interface FireWeaponAction {
   targetX: number;
   targetY: number;
   weaponType: WeaponType;
+  chargeRatio?: number;
+}
+
+export interface WelderAoeAction {
+  type: 'WELDER_AOE';
+  originX: number;
+  originY: number;
+  facingAngle: number;
+  damage: number;
+  range?: number;
 }
 
 export interface EquipWeaponAction {
@@ -149,5 +159,6 @@ export type ClientAction =
   | EngageIntruderAction
   | DeploySentryAction
   | FireWeaponAction
+  | WelderAoeAction
   | EquipWeaponAction
   | ToggleDoorAction;

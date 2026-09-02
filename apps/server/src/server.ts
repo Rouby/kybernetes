@@ -6,6 +6,7 @@ import type {
   ShipAlertBroadcast,
 } from '@kybernetes/protocol';
 import {
+  applyWelderAoeDamage,
   createInitialVesselState,
   createNavalDamageEvent,
   createProjectile,
@@ -138,12 +139,23 @@ export class VesselServer {
         action.targetX,
         action.targetY,
         action.weaponType,
-        true
+        true,
+        action.chargeRatio ?? 1.0
       );
       this.vesselState.boarding.projectiles = [
         ...(this.vesselState.boarding.projectiles || []),
         proj,
       ];
+    } else if (action.type === 'WELDER_AOE') {
+      const res = applyWelderAoeDamage(
+        this.vesselState.boarding.intruders,
+        action.originX,
+        action.originY,
+        action.facingAngle,
+        action.damage,
+        action.range || 135
+      );
+      this.vesselState.boarding.intruders = res.nextIntruders;
     } else if (action.type === 'TOGGLE_DOOR') {
       this.vesselState.boarding.doors = toggleDoor(
         this.vesselState.boarding.doors,

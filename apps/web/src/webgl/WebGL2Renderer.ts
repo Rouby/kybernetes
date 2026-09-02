@@ -4,6 +4,7 @@ import type {
   PawnState,
   ProjectileState,
   StationFixture,
+  WeaponType,
 } from '@kybernetes/protocol';
 import {
   createInitialDoors,
@@ -32,6 +33,14 @@ export interface WebGLRenderState {
   mouseWorld: { x: number; y: number };
   timeMs: number;
   impacts?: Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>;
+  chargingState?: { active: boolean; ratio: number; weaponType: WeaponType };
+  welderState?: {
+    active: boolean;
+    originX: number;
+    originY: number;
+    facingAngle: number;
+    range: number;
+  };
 }
 
 interface ImpactParticle {
@@ -197,12 +206,32 @@ export class WebGL2Renderer {
   }
 
   // fallow-ignore-next-line complexity
-  private updateLights(projectiles?: ProjectileState[]): void {
+  private updateLights(
+    projectiles?: ProjectileState[],
+    welder?: WebGLRenderState['welderState']
+  ): void {
     this.currentLights.fill(0);
     this.currentLightColors.fill(0);
-    if (!projectiles) return;
 
     let lightIdx = 0;
+
+    // 1. Welder continuous electric arc lighting
+    if (welder?.active && lightIdx < 6) {
+      const arcMidX = welder.originX + Math.cos(welder.facingAngle) * 55;
+      const arcMidY = welder.originY + Math.sin(welder.facingAngle) * 55;
+      this.currentLights[lightIdx * 4 + 0] = arcMidX;
+      this.currentLights[lightIdx * 4 + 1] = arcMidY;
+      this.currentLights[lightIdx * 4 + 2] = 110.0;
+      this.currentLights[lightIdx * 4 + 3] = 1.6;
+
+      this.currentLightColors[lightIdx * 3 + 0] = 0.1;
+      this.currentLightColors[lightIdx * 3 + 1] = 0.9;
+      this.currentLightColors[lightIdx * 3 + 2] = 1.0;
+      lightIdx++;
+    }
+
+    if (!projectiles) return;
+
     for (const p of projectiles) {
       if (lightIdx >= 6) break;
       // Bullets do not emit ambient glow/light; only energy bolts do
@@ -211,8 +240,9 @@ export class WebGL2Renderer {
       const isLaser = p.weaponType === 'pulse_laser' || p.color === '#00f0ff';
       const isWelder = p.weaponType === 'arc_welder';
 
-      const radius = isLaser ? 85.0 : isWelder ? 65.0 : 75.0;
-      const intensity = isLaser ? 1.4 : isWelder ? 1.0 : 0.9;
+      const charge = p.chargeRatio ?? 1.0;
+      const radius = isLaser ? 70.0 + charge * 45.0 : isWelder ? 65.0 : 75.0;
+      const intensity = isLaser ? 0.9 + charge * 1.0 : isWelder ? 1.0 : 0.9;
 
       this.currentLights[lightIdx * 4 + 0] = p.x;
       this.currentLights[lightIdx * 4 + 1] = p.y;
@@ -263,8 +293,8 @@ export class WebGL2Renderer {
       }
     }
 
-    // Update dynamic lights from active projectiles
-    this.updateLights(state.boarding?.projectiles);
+    // Update dynamic lights from active projectiles & continuous welder
+    this.updateLights(state.boarding?.projectiles, state.welderState);
 
     // 1. Procedural deep space parallax starfield
     this.renderStarfield(width, height, state.camera, timeSec);
@@ -290,7 +320,23 @@ export class WebGL2Renderer {
     // 6. Projectiles with Additive Glow Shader
     this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec);
 
-    // 6.5. Impact spark particles
+    // 6.5. Continuous Welder Arc
+    if (state.welderState?.active) {
+      this.renderWelderArc(matrix, state.welderState);
+    }
+
+    // 6.6. Charging Energy Reticle (for Laser charge-up)
+    if (state.chargingState?.active && state.chargingState.weaponType === 'pulse_laser') {
+      this.renderChargingReticle(
+        matrix,
+        state.pawn,
+        state.mouseWorld,
+        state.chargingState,
+        timeSec
+      );
+    }
+
+    // 6.7. Impact spark particles
     this.renderParticles(matrix, 0.016);
 
     // 7. Tactical Laser Aiming Reticle
@@ -590,13 +636,14 @@ export class WebGL2Renderer {
         b = 0.25;
         beamLen = 28;
         halfW = 2.0;
-      } else if (proj.weaponType === 'arc_welder') {
-        style = 2; // electric zap
+      } else if (proj.weaponType === 'pulse_laser') {
+        const charge = proj.chargeRatio ?? 1.0;
+        style = 1;
         r = 0.0;
-        g = 0.9;
+        g = 0.95;
         b = 1.0;
-        beamLen = 38;
-        halfW = 9.0;
+        beamLen = Math.round(18 + charge * 24);
+        halfW = Number((4.5 + charge * 4.5).toFixed(1));
       } else if (proj.weaponType === 'raider_plasma' || proj.color === '#ff1744') {
         style = 3;
         r = 1.0;
@@ -660,6 +707,105 @@ export class WebGL2Renderer {
       gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderWelderArc(
+    matrix: Float32Array,
+    welder: NonNullable<WebGLRenderState['welderState']>
+  ): void {
+    const gl = this.gl;
+    this.bindFlatProgram(matrix);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+    const startX = welder.originX + Math.cos(welder.facingAngle) * 14;
+    const startY = welder.originY + Math.sin(welder.facingAngle) * 14;
+    const endX = startX + Math.cos(welder.facingAngle) * welder.range;
+    const endY = startY + Math.sin(welder.facingAngle) * welder.range;
+
+    const segments = 10;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const perpX = -Math.sin(welder.facingAngle);
+    const perpY = Math.cos(welder.facingAngle);
+
+    const mainVerts: number[] = [];
+    let curX = startX;
+    let curY = startY;
+
+    for (let i = 1; i <= segments; i++) {
+      const prog = i / segments;
+      const baseNextX = startX + dx * prog;
+      const baseNextY = startY + dy * prog;
+      const jitter = i === segments ? 0 : (Math.random() - 0.5) * 22 * Math.sin(prog * Math.PI);
+      const nextX = baseNextX + perpX * jitter;
+      const nextY = baseNextY + perpY * jitter;
+
+      this.addThickSegment(mainVerts, curX, curY, nextX, nextY, 3.2);
+      curX = nextX;
+      curY = nextY;
+    }
+
+    // Outer cyan electric halo
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.9, 1.0, 0.85);
+    this.bufferAndDraw(new Float32Array(mainVerts));
+
+    // Inner white-hot core
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 1.0, 1.0, 0.95);
+    this.bufferAndDraw(new Float32Array(mainVerts));
+
+    this.addImpact(curX, curY, 'welder');
+
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderChargingReticle(
+    matrix: Float32Array,
+    pawn: PawnState,
+    mouse: { x: number; y: number },
+    charging: NonNullable<WebGLRenderState['chargingState']>,
+    time: number
+  ): void {
+    const gl = this.gl;
+    this.bindFlatProgram(matrix);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+    // Glowing energy orb at pawn muzzle
+    const mx = pawn.x + Math.cos(pawn.facingAngle) * 16;
+    const my = pawn.y + Math.sin(pawn.facingAngle) * 16;
+    const orbRadius = 3.0 + charging.ratio * 8.0;
+    const pulse = 0.85 + 0.15 * Math.sin(time * 30.0);
+
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.95, 1.0, 0.85 * pulse);
+    this.drawCircle(mx, my, orbRadius, 16);
+
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 1.0, 1.0, 0.95);
+    this.drawCircle(mx, my, orbRadius * 0.45, 12);
+
+    // Circular radial charge meter around crosshair
+    const arcSegs: number[] = [];
+    const steps = Math.max(4, Math.floor(charging.ratio * 24));
+    for (let i = 0; i < steps; i++) {
+      const a1 = (i / 24) * Math.PI * 2 - Math.PI / 2;
+      const a2 = ((i + 1) / 24) * Math.PI * 2 - Math.PI / 2;
+      this.addThickSegment(
+        arcSegs,
+        mouse.x + Math.cos(a1) * 14,
+        mouse.y + Math.sin(a1) * 14,
+        mouse.x + Math.cos(a2) * 14,
+        mouse.y + Math.sin(a2) * 14,
+        2.2
+      );
+    }
+    if (arcSegs.length > 0) {
+      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.95, 1.0, 0.9);
+      this.bufferAndDraw(new Float32Array(arcSegs));
     }
 
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

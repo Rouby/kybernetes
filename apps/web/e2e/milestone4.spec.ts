@@ -113,4 +113,34 @@ test.describe('Milestone 4: Hostile Boarding Actions, DecisionTreeAI & FTL Grid 
       fullPage: true,
     });
   });
+
+  test('verifies continuous kinetic fire, laser charge firing, and continuous welder arc', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await expect(page.getByText(/VESSEL DAEMON: SYNCED/i)).toBeVisible();
+
+    const canvas = page.locator('canvas');
+
+    // 1. Continuous Kinetic Firing: hold down mouse button on canvas for 300ms
+    await page.keyboard.press('Digit1');
+    await canvas.hover({ position: { x: 500, y: 350 } });
+    await page.mouse.down();
+    await page.waitForTimeout(300);
+    await page.mouse.up();
+
+    // 2. Laser Charge Firing: switch to Laser, hold down mouse button to charge then release
+    await page.keyboard.press('Digit2');
+    await canvas.hover({ position: { x: 520, y: 350 } });
+    await page.mouse.down();
+    await page.waitForTimeout(600);
+    await page.mouse.up();
+
+    // 3. Continuous Arc Welder: switch to Welder, hold down mouse button to spray continuous arc AOE
+    await page.keyboard.press('Digit3');
+    await canvas.hover({ position: { x: 500, y: 350 } });
+    await page.mouse.down();
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+  });
 });

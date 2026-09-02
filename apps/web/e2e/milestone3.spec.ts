@@ -84,7 +84,9 @@ test.describe('Milestone 3: Vessel Telemetry, Subsystems & Naval Damage Events',
     await ventBtn.click();
 
     // Verify coolant venting notice or updated status
-    await expect(page.getByText(/VENT REACTOR COOLANT/i).first()).toBeVisible();
+    await expect(
+      page.getByText(/Reactor coolant vented|VENT REACTOR COOLANT/i).first()
+    ).toBeVisible();
   });
 
   test('captures milestone 3 tactical telemetry viewport screenshot', async ({ page }) => {

@@ -7,6 +7,7 @@ import type {
   WeaponType,
 } from '@kybernetes/protocol';
 import {
+  applyWelderAoeDamage,
   createInitialDoors,
   createProjectile,
   HESPERIA_WALLS,
@@ -34,7 +35,15 @@ interface VesselCanvasProps {
     originY: number,
     targetX: number,
     targetY: number,
-    weaponType: WeaponType
+    weaponType: WeaponType,
+    chargeRatio?: number
+  ) => void;
+  onWelderAoe?: (
+    originX: number,
+    originY: number,
+    facingAngle: number,
+    damage: number,
+    range?: number
   ) => void;
   onToggleDoor?: (doorId: string, open: boolean) => void;
 }
@@ -138,25 +147,17 @@ function getActiveBoarding(
 }
 
 // fallow-ignore-next-line complexity
-function handleCanvasClick(
+function handleCanvasMouseDown(
   e: React.MouseEvent<HTMLCanvasElement>,
   canvas: HTMLCanvasElement | null,
   camera: { x: number; y: number },
-  pawn: PawnState,
-  equippedWeapon: WeaponType,
   doors: DoorState[] | undefined,
   nearestStation: StationFixture | null,
   onStationClick?: (station: StationFixture) => void,
   onToggleDoor?: (doorId: string, open: boolean) => void,
-  onFire?: (
-    originX: number,
-    originY: number,
-    targetX: number,
-    targetY: number,
-    weaponType: WeaponType
-  ) => void
+  startFiring?: () => void
 ) {
-  if (!canvas) return;
+  if (e.button !== 0 || !canvas) return;
   const rect = canvas.getBoundingClientRect();
   const clickX = e.clientX - rect.left;
   const clickY = e.clientY - rect.top;
@@ -176,16 +177,14 @@ function handleCanvasClick(
   }
 
   if (nearestStation && onStationClick) {
-    const distToStation = Math.hypot(nearestStation.x - worldX, nearestStation.y - worldY);
-    if (distToStation < nearestStation.radius + 10) {
+    const dist = Math.hypot(nearestStation.x - worldX, nearestStation.y - worldY);
+    if (dist < nearestStation.radius + 10) {
       onStationClick(nearestStation);
       return;
     }
   }
 
-  if (onFire) {
-    onFire(pawn.x, pawn.y, worldX, worldY, equippedWeapon);
-  }
+  startFiring?.();
 }
 
 // fallow-ignore-next-line complexity
@@ -198,6 +197,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   equippedWeapon = 'kinetic_carbine',
   onStationClick,
   onFireWeapon,
+  onWelderAoe,
   onToggleDoor,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -212,29 +212,75 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>
   >([]);
 
+  const isFiringRef = useRef(false);
+  const laserChargeStartRef = useRef<number | null>(null);
+  const lastKineticFireRef = useRef<number>(0);
+  const lastWelderTickRef = useRef<number>(0);
+
   const handleInstantFire = useCallback(
     (
       originX: number,
       originY: number,
       targetX: number,
       targetY: number,
-      weaponType: WeaponType
+      weaponType: WeaponType,
+      chargeRatio = 1.0
     ) => {
-      // 1. Primary projectile instant prediction
-      const proj = createProjectile(originX, originY, targetX, targetY, weaponType, true);
-      localProjectilesRef.current.push({ ...proj, spawnTime: performance.now() });
-      onFireWeapon?.(originX, originY, targetX, targetY, weaponType);
+      // Welder uses continuous frontal AOE cone, not projectiles
+      if (weaponType === 'arc_welder') return;
 
-      // 2. Pulse Laser fires a rapid 2-shot burst of energy!
-      if (weaponType === 'pulse_laser') {
-        setTimeout(() => {
-          const secondProj = createProjectile(originX, originY, targetX, targetY, weaponType, true);
-          localProjectilesRef.current.push({ ...secondProj, spawnTime: performance.now() });
-        }, 65);
-      }
+      const proj = createProjectile(
+        originX,
+        originY,
+        targetX,
+        targetY,
+        weaponType,
+        true,
+        chargeRatio
+      );
+      localProjectilesRef.current.push({ ...proj, spawnTime: performance.now() });
+      onFireWeapon?.(originX, originY, targetX, targetY, weaponType, chargeRatio);
     },
     [onFireWeapon]
   );
+
+  const startFiring = useCallback(() => {
+    isFiringRef.current = true;
+    const now = performance.now();
+    if (equippedWeapon === 'kinetic_carbine') {
+      handleInstantFire(
+        pawn.x,
+        pawn.y,
+        mouseWorldRef.current.x,
+        mouseWorldRef.current.y,
+        'kinetic_carbine'
+      );
+      lastKineticFireRef.current = now;
+    } else if (equippedWeapon === 'pulse_laser') {
+      laserChargeStartRef.current = now;
+    } else if (equippedWeapon === 'arc_welder') {
+      lastWelderTickRef.current = now;
+    }
+  }, [equippedWeapon, pawn.x, pawn.y, handleInstantFire]);
+
+  const stopFiring = useCallback(() => {
+    if (!isFiringRef.current) return;
+    const now = performance.now();
+    if (equippedWeapon === 'pulse_laser' && laserChargeStartRef.current !== null) {
+      const elapsed = (now - laserChargeStartRef.current) / 1000;
+      const charge = Math.max(0.2, Math.min(1.0, elapsed / 0.9));
+      handleInstantFire(
+        pawn.x,
+        pawn.y,
+        mouseWorldRef.current.x,
+        mouseWorldRef.current.y,
+        'pulse_laser',
+        charge
+      );
+      laserChargeStartRef.current = null;
+    }
+    isFiringRef.current = false;
+  }, [equippedWeapon, pawn.x, pawn.y, handleInstantFire]);
 
   useEffect(() => {
     if (!boarding?.projectiles) return;
@@ -264,20 +310,31 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
+      if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
-        handleInstantFire(
-          pawn.x,
-          pawn.y,
-          mouseWorldRef.current.x,
-          mouseWorldRef.current.y,
-          equippedWeapon
-        );
+        startFiring();
       }
     };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        stopFiring();
+      }
+    };
+    const handleWindowMouseUp = () => {
+      stopFiring();
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pawn.x, pawn.y, equippedWeapon, handleInstantFire]);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [startFiring, stopFiring]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -327,6 +384,54 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         localProjectilesRef.current
       );
 
+      // 1. Continuous Kinetic Carbine firing
+      if (isFiringRef.current && equippedWeapon === 'kinetic_carbine') {
+        if (now - lastKineticFireRef.current >= 105) {
+          handleInstantFire(
+            pawn.x,
+            pawn.y,
+            mouseWorldRef.current.x,
+            mouseWorldRef.current.y,
+            'kinetic_carbine'
+          );
+          lastKineticFireRef.current = now;
+        }
+      }
+
+      // 2. Pulse Laser charge ratio
+      let laserChargeRatio = 0;
+      if (
+        isFiringRef.current &&
+        equippedWeapon === 'pulse_laser' &&
+        laserChargeStartRef.current !== null
+      ) {
+        const elapsed = (now - laserChargeStartRef.current) / 1000;
+        laserChargeRatio = Math.max(0.1, Math.min(1.0, elapsed / 0.9));
+      }
+
+      // 3. Continuous Arc Welder AOE Cone
+      const isWelderActive = isFiringRef.current && equippedWeapon === 'arc_welder';
+      if (isWelderActive && now - lastWelderTickRef.current >= 100) {
+        lastWelderTickRef.current = now;
+        const aoe = applyWelderAoeDamage(
+          activeBoarding.intruders,
+          pawn.x,
+          pawn.y,
+          aimAngle,
+          10,
+          135
+        );
+        if (aoe.hitIntruders.length > 0) {
+          onWelderAoe?.(pawn.x, pawn.y, aimAngle, 10, 135);
+          for (const hit of aoe.hitIntruders) {
+            const intru = activeBoarding.intruders.find((i) => i.id === hit.id);
+            if (intru) {
+              queuedImpactsRef.current.push({ x: intru.x, y: intru.y, type: 'welder' });
+            }
+          }
+        }
+      }
+
       const impacts = queuedImpactsRef.current;
       queuedImpactsRef.current = [];
 
@@ -340,6 +445,18 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           mouseWorld: mouseWorldRef.current,
           timeMs: now,
           impacts,
+          chargingState: {
+            active: isFiringRef.current && equippedWeapon === 'pulse_laser',
+            ratio: laserChargeRatio,
+            weaponType: equippedWeapon,
+          },
+          welderState: {
+            active: isWelderActive,
+            originX: pawn.x,
+            originY: pawn.y,
+            facingAngle: aimAngle,
+            range: 135,
+          },
         },
         canvas.width,
         canvas.height
@@ -350,7 +467,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [pawn, nearestStation, alertLevel, boarding]);
+  }, [pawn, nearestStation, alertLevel, boarding, equippedWeapon, handleInstantFire, onWelderAoe]);
 
   const activeDoors = boarding?.doors || defaultDoorsRef.current;
 
@@ -378,20 +495,19 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             y: clickY - canvas.height / 2 + cameraRef.current.y,
           };
         }}
-        onClick={(e) =>
-          handleCanvasClick(
+        onMouseDown={(e) =>
+          handleCanvasMouseDown(
             e,
             canvasRef.current,
             cameraRef.current,
-            pawn,
-            equippedWeapon,
             activeDoors,
             nearestStation,
             onStationClick,
             onToggleDoor,
-            handleInstantFire
+            startFiring
           )
         }
+        onMouseUp={stopFiring}
       />
 
       {nearestStation && (

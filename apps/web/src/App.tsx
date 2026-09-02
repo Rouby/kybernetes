@@ -242,7 +242,8 @@ export const App: React.FC = () => {
     originY: number,
     targetX: number,
     targetY: number,
-    weaponType: WeaponType
+    weaponType: WeaponType,
+    chargeRatio = 1.0
   ) => {
     sendAction({
       type: 'FIRE_WEAPON',
@@ -251,6 +252,24 @@ export const App: React.FC = () => {
       targetX,
       targetY,
       weaponType,
+      chargeRatio,
+    });
+  };
+
+  const handleWelderAoe = (
+    originX: number,
+    originY: number,
+    facingAngle: number,
+    damage: number,
+    range = 135
+  ) => {
+    sendAction({
+      type: 'WELDER_AOE',
+      originX,
+      originY,
+      facingAngle,
+      damage,
+      range,
     });
   };
 
@@ -435,6 +454,7 @@ export const App: React.FC = () => {
               setInGameNotice('[!] FIRED WEAPON AT INTRUDER');
             }}
             onFireWeapon={handleFireWeapon}
+            onWelderAoe={handleWelderAoe}
             onToggleDoor={handleToggleDoor}
           />
 

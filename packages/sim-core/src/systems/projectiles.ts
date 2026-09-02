@@ -14,7 +14,8 @@ export function createProjectile(
   targetX: number,
   targetY: number,
   weaponType: WeaponType | 'raider_plasma',
-  fromPlayer: boolean
+  fromPlayer: boolean,
+  chargeRatio = 1.0
 ): ProjectileState {
   const dx = targetX - originX;
   const dy = targetY - originY;
@@ -25,8 +26,9 @@ export function createProjectile(
   let lifeSeconds = 1.2;
 
   if (weaponType === 'pulse_laser') {
-    speed = 540;
-    damage = 35;
+    const clampedCharge = Math.max(0.2, Math.min(1.0, chargeRatio));
+    speed = Math.round(480 + clampedCharge * 120);
+    damage = Math.round(20 + clampedCharge * 70); // 20 to 90 damage based on charge!
     color = '#00f0ff'; // Electric cyan energy burst
     lifeSeconds = 0.85;
   } else if (weaponType === 'arc_welder') {
@@ -53,7 +55,46 @@ export function createProjectile(
     lifeSeconds,
     maxLife: lifeSeconds,
     weaponType,
+    chargeRatio,
   };
+}
+
+// fallow-ignore-next-line complexity
+export function applyWelderAoeDamage(
+  intruders: IntruderState[],
+  originX: number,
+  originY: number,
+  facingAngle: number,
+  damage: number,
+  range = 135
+): { nextIntruders: IntruderState[]; hitIntruders: Array<{ id: string; damage: number }> } {
+  const hitIntruders: Array<{ id: string; damage: number }> = [];
+  const halfCone = (40 * Math.PI) / 180; // 40-degree cone
+
+  const nextIntruders = intruders.map((i) => {
+    if (i.state === 'neutralized') return i;
+    const dx = i.x - originX;
+    const dy = i.y - originY;
+    const dist = Math.hypot(dx, dy);
+    if (dist > range) return i;
+
+    const angleToIntruder = Math.atan2(dy, dx);
+    let diff = Math.abs(angleToIntruder - facingAngle);
+    while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI);
+
+    if (diff <= halfCone) {
+      hitIntruders.push({ id: i.id, damage });
+      const nextHealth = Math.max(0, i.health - damage);
+      return {
+        ...i,
+        health: nextHealth,
+        state: nextHealth <= 0 ? ('neutralized' as const) : i.state,
+      };
+    }
+    return i;
+  });
+
+  return { nextIntruders, hitIntruders };
 }
 
 export interface ProjectileTickResult {
