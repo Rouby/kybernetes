@@ -1,4 +1,5 @@
 import type {
+  BoardingTacticsTelemetry,
   DefenseTelemetry,
   HullTelemetry,
   LifeSupportTelemetry,
@@ -8,6 +9,7 @@ import type {
   ShieldTelemetry,
   TelemetryDeltaBroadcast,
 } from '@kybernetes/protocol';
+import { createInitialBoardingState, tickBoardingCombat } from './systems/boardingCombat';
 import { createInitialHull, createInitialShields, tickShields } from './systems/hull';
 import { createInitialLifeSupport, tickLifeSupport } from './systems/lifeSupport';
 import { createInitialDefense, resolveEventImpact } from './systems/navalCombat';
@@ -30,6 +32,7 @@ export interface VesselSimulationState {
   defense: DefenseTelemetry;
   activeEvents: NavalDamageEvent[];
   activeFires: string[];
+  boarding: BoardingTacticsTelemetry;
 }
 
 export function createInitialVesselState(): VesselSimulationState {
@@ -38,6 +41,7 @@ export function createInitialVesselState(): VesselSimulationState {
   const hull = createInitialHull();
   const shields = createInitialShields();
   const defense = createInitialDefense();
+  const boarding = createInitialBoardingState();
 
   return {
     shipName: 'CSS Hesperia',
@@ -62,6 +66,7 @@ export function createInitialVesselState(): VesselSimulationState {
     defense,
     activeEvents: [],
     activeFires: [],
+    boarding,
   };
 }
 
@@ -106,6 +111,7 @@ function processEventsTick(
   return { nextEvents, reactor, lifeSupport, hull, shields, activeFires };
 }
 
+// fallow-ignore-next-line complexity
 export function tickVesselState(
   state: VesselSimulationState,
   dtSeconds: number
@@ -136,11 +142,23 @@ export function tickVesselState(
   shields = eventRes.shields;
   activeFires = eventRes.activeFires;
 
+  let boarding = state.boarding || createInitialBoardingState();
+  const boardingRes = tickBoardingCombat(boarding, dtSeconds);
+  boarding = boardingRes.nextState;
+
+  if (boardingRes.sabotageDetonated) {
+    hull = {
+      ...hull,
+      integrityPercent: Math.max(0, hull.integrityPercent - boardingRes.hullDamageInflicted),
+    };
+  }
+
   // Escalate alert level if critical conditions occur
   let alertLevel = state.alertLevel;
   if (
     activeFires.length > 0 ||
     hull.breaches.length > 0 ||
+    boarding.intruders.some((i) => i.state !== 'neutralized') ||
     eventRes.nextEvents.some((e) => e.status === 'incoming' && e.severity === 'critical')
   ) {
     alertLevel = 'red';
@@ -159,6 +177,7 @@ export function tickVesselState(
     shields,
     activeEvents: eventRes.nextEvents,
     activeFires,
+    boarding,
   };
 }
 
@@ -182,5 +201,6 @@ export function stateToTelemetryBroadcast(state: VesselSimulationState): Telemet
     defense: state.defense,
     activeEvents: state.activeEvents,
     activeFires: state.activeFires,
+    boarding: state.boarding,
   };
 }

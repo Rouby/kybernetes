@@ -409,7 +409,7 @@ graph TD
   - Damage triage mechanics: Point-Defense Turret interception, fire suppression, emergency hull welding.
   - Real-time HUD gauges with nominal/degraded/critical alarms.
 
-- [ ] **Milestone 4: Hostile Boarding Actions & 2D Tactical Deck Combat**
+- [x] **Milestone 4: Hostile Boarding Actions & 2D Tactical Deck Combat**
   - Implement boarding pod breach events and intruder squad AI pathfinding in 2D space.
   - Tactical compartment controls: bulkhead lockdown, atmospheric depressurization/venting, sentry guns.
   - Close-quarters repel mechanics (marines, weapons, damage mitigation, sabotage timers).

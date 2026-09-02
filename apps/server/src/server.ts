@@ -9,11 +9,16 @@ import {
   createInitialVesselState,
   createNavalDamageEvent,
   deployFireSuppression,
+  deploySentryGun,
+  engageIntruder,
   GameLoop,
   interceptNavalEvent,
   repairHullPlating,
+  spawnBoardingEvent,
   stateToTelemetryBroadcast,
   tickVesselState,
+  toggleBulkheadLock,
+  toggleRoomVenting,
   type VesselSimulationState,
   ventReactorCoolant,
 } from '@kybernetes/sim-core';
@@ -114,6 +119,16 @@ export class VesselServer {
       this.handleVentCoolant();
     } else if (action.type === 'TRIGGER_NAVAL_EVENT') {
       this.handleTriggerNavalEvent(action.eventType);
+    } else if (action.type === 'TRIGGER_BOARDING_EVENT') {
+      this.handleTriggerBoarding(action.breachRoomId);
+    } else if (action.type === 'ENGAGE_INTRUDER') {
+      this.handleEngageIntruder(action.intruderId, action.weaponType);
+    } else if (action.type === 'BULKHEAD_LOCK') {
+      this.handleBulkheadLock(action.bulkheadId, action.locked);
+    } else if (action.type === 'VENT_COMPARTMENT') {
+      this.handleVentCompartment(action.compartmentId, action.venting);
+    } else if (action.type === 'DEPLOY_SENTRY') {
+      this.handleDeploySentry(action.roomId);
     }
     this.broadcast(stateToTelemetryBroadcast(this.vesselState));
   }
@@ -227,6 +242,63 @@ export class VesselServer {
       timestamp: Date.now(),
     };
     this.broadcast(alert);
+  }
+
+  private handleTriggerBoarding(breachRoomId?: string): void {
+    this.vesselState.boarding = spawnBoardingEvent(
+      this.vesselState.boarding,
+      breachRoomId || 'cargo'
+    );
+    this.vesselState.alertLevel = 'red';
+
+    const alert: ShipAlertBroadcast = {
+      type: 'SHIP_ALERT',
+      id: `alert_${Date.now()}`,
+      severity: 'critical',
+      title: 'INTRUDER ALERT: HOSTILE BREACH',
+      message: 'Boarding pod drilled through hull in CARGO BAY! Repel intruders!',
+      timestamp: Date.now(),
+    };
+    this.broadcast(alert);
+  }
+
+  private handleEngageIntruder(
+    intruderId: string,
+    weaponType?: 'kinetic_rifle' | 'arc_welder' | 'shock_baton'
+  ): void {
+    const res = engageIntruder(
+      this.vesselState.boarding,
+      intruderId,
+      weaponType || 'kinetic_rifle'
+    );
+    this.vesselState.boarding = res.nextState;
+
+    if (res.neutralized) {
+      const triage: DamageTriageBroadcast = {
+        type: 'DAMAGE_TRIAGE_RESULT',
+        actionType: 'INTRUDER_NEUTRALIZED',
+        success: true,
+        message: `Raider neutralized! (+${res.creditsReward} Credits, +${res.xpReward} XP)`,
+        timestamp: Date.now(),
+      };
+      this.broadcast(triage);
+    }
+  }
+
+  private handleBulkheadLock(bulkheadId: string, locked: boolean): void {
+    this.vesselState.boarding = toggleBulkheadLock(this.vesselState.boarding, bulkheadId, locked);
+  }
+
+  private handleVentCompartment(compartmentId: string, venting: boolean): void {
+    this.vesselState.boarding = toggleRoomVenting(
+      this.vesselState.boarding,
+      compartmentId,
+      venting
+    );
+  }
+
+  private handleDeploySentry(roomId: string): void {
+    this.vesselState.boarding = deploySentryGun(this.vesselState.boarding, roomId);
   }
 
   private broadcast(broadcast: ServerBroadcast): void {

@@ -1,5 +1,6 @@
 export { renderAlertOverlay } from './renderAlertOverlay';
 export { renderBackground } from './renderBackground';
+export { renderBoarding } from './renderBoarding';
 export { renderBulkheads } from './renderBulkheads';
 export { renderDeckFloors } from './renderDeckFloors';
 export { renderFixture } from './renderFixtures';

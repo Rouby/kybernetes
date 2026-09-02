@@ -1,3 +1,4 @@
+import type { BoardingTacticsTelemetry } from './boarding';
 import type { BulkheadState, PawnState } from './spatial';
 import type {
   DefenseTelemetry,
@@ -35,6 +36,7 @@ export interface TelemetryDeltaBroadcast {
   defense: DefenseTelemetry;
   activeEvents: NavalDamageEvent[];
   activeFires: string[];
+  boarding?: BoardingTacticsTelemetry;
 }
 
 export interface VitalsDeltaBroadcast {

@@ -92,6 +92,22 @@ export interface TriggerNavalDamageEventAction {
   eventType: NavalDamageEventType;
 }
 
+export interface TriggerBoardingEventAction {
+  type: 'TRIGGER_BOARDING_EVENT';
+  breachRoomId?: string;
+}
+
+export interface EngageIntruderAction {
+  type: 'ENGAGE_INTRUDER';
+  intruderId: string;
+  weaponType?: 'kinetic_rifle' | 'arc_welder' | 'shock_baton';
+}
+
+export interface DeploySentryAction {
+  type: 'DEPLOY_SENTRY';
+  roomId: string;
+}
+
 export type ClientAction =
   | JoinVesselAction
   | PlayerMoveIntent
@@ -107,4 +123,7 @@ export type ClientAction =
   | DeployFireSuppressionAction
   | EmergencyHullRepairAction
   | VentReactorCoolantAction
-  | TriggerNavalDamageEventAction;
+  | TriggerNavalDamageEventAction
+  | TriggerBoardingEventAction
+  | EngageIntruderAction
+  | DeploySentryAction;

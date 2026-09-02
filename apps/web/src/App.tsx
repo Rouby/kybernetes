@@ -280,6 +280,12 @@ export const App: React.FC = () => {
         } else if (nearestStation) {
           startInteraction(nearestStation);
         }
+      } else if (e.code === 'KeyF') {
+        const active = telemetry.boarding?.intruders.find((i) => i.state !== 'neutralized');
+        if (active) {
+          sendAction({ type: 'ENGAGE_INTRUDER', intruderId: active.id });
+          setInGameNotice(`[!] FIRED WEAPON AT ${active.name.toUpperCase()}`);
+        }
       } else if (e.code === 'Escape') {
         if (interaction) {
           abortInteraction();
@@ -289,7 +295,15 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [interaction, nearestStation, showRoleSelect, startInteraction, abortInteraction]);
+  }, [
+    interaction,
+    nearestStation,
+    showRoleSelect,
+    startInteraction,
+    abortInteraction,
+    telemetry.boarding,
+    sendAction,
+  ]);
 
   // Main simulation tick loop
   useEffect(() => {
@@ -358,9 +372,14 @@ export const App: React.FC = () => {
             alertLevel={telemetry.alertLevel}
             activeFires={telemetry.activeFires}
             breaches={telemetry.hull?.breaches}
+            boarding={telemetry.boarding}
             onStationClick={(st) => {
               if (interaction) abortInteraction();
               else startInteraction(st);
+            }}
+            onEngageIntruder={(id) => {
+              sendAction({ type: 'ENGAGE_INTRUDER', intruderId: id });
+              setInGameNotice('[!] FIRED WEAPON AT INTRUDER');
             }}
           />
 
@@ -408,6 +427,9 @@ export const App: React.FC = () => {
                   : 'Interact'}
             </span>
             <span>
+              <strong>[F]</strong> Fire
+            </span>
+            <span>
               <strong>[ESC]</strong> Abort
             </span>
           </div>
@@ -431,6 +453,20 @@ export const App: React.FC = () => {
           onTriggerNavalEvent={(eventType: NavalDamageEventType) =>
             sendAction({ type: 'TRIGGER_NAVAL_EVENT', eventType })
           }
+          onTriggerBoarding={(roomId) =>
+            sendAction({ type: 'TRIGGER_BOARDING_EVENT', breachRoomId: roomId })
+          }
+          onEngageIntruder={(id) => {
+            sendAction({ type: 'ENGAGE_INTRUDER', intruderId: id });
+            setInGameNotice('[!] ENGAGING HOSTILE RAIDER');
+          }}
+          onBulkheadLock={(roomId, locked) =>
+            sendAction({ type: 'BULKHEAD_LOCK', bulkheadId: roomId, locked })
+          }
+          onVentCompartment={(roomId, venting) =>
+            sendAction({ type: 'VENT_COMPARTMENT', compartmentId: roomId, venting })
+          }
+          onDeploySentry={(roomId) => sendAction({ type: 'DEPLOY_SENTRY', roomId })}
         />
       </main>
 

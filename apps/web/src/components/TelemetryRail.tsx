@@ -1,4 +1,5 @@
 import type {
+  BoardingTacticsTelemetry,
   NavalDamageEvent,
   NavalDamageEventType,
   SubsystemStatus,
@@ -459,6 +460,117 @@ const ThreatTickerSection: React.FC<{
   );
 };
 
+// fallow-ignore-next-line complexity
+function BoardingTacticsSection({
+  boarding,
+  onSimBoarding,
+  onEngage,
+  onBulkheadLock,
+  onVentCompartment,
+  onDeploySentry,
+}: {
+  boarding?: BoardingTacticsTelemetry;
+  onSimBoarding?: (breachRoomId?: string) => void;
+  onEngage?: (intruderId: string) => void;
+  onBulkheadLock?: (roomId: string, locked: boolean) => void;
+  onVentCompartment?: (roomId: string, venting: boolean) => void;
+  onDeploySentry?: (roomId: string) => void;
+}) {
+  const activeIntruders = boarding?.intruders.filter((i) => i.state !== 'neutralized') || [];
+  const locked = boarding?.lockedBulkheads || [];
+  const vented = boarding?.ventedRooms || [];
+
+  return (
+    <div>
+      <div {...stylex.props(styles.sectionHeader)}>
+        <span>Tactical Security Defense</span>
+        <span
+          {...stylex.props(styles.statusBadge)}
+          style={getStatusStyle(activeIntruders.length > 0 ? 'critical' : 'nominal')}
+        >
+          {activeIntruders.length > 0 ? `${activeIntruders.length} INTRUDERS` : 'SECURED'}
+        </span>
+      </div>
+
+      {activeIntruders.map((intruder) => (
+        <div key={intruder.id} {...stylex.props(styles.threatCard)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#ff5252', fontWeight: 700 }}>{intruder.name}</span>
+            <span style={{ fontSize: 10, color: hudColors.textSecondary }}>
+              {intruder.currentRoomId.toUpperCase()}
+            </span>
+          </div>
+          <div style={{ fontSize: 10, color: hudColors.textSecondary, marginBottom: 4 }}>
+            HP: {Math.round(intruder.health)}/{intruder.maxHealth} | State:{' '}
+            {intruder.state.toUpperCase()}
+            {intruder.state === 'sabotaging' && (
+              <span style={{ color: '#ff1744', fontWeight: 700 }}>
+                {' '}
+                • SABOTAGE: {intruder.sabotageSecondsRemaining}s
+              </span>
+            )}
+          </div>
+          {onEngage && (
+            <button {...stylex.props(styles.threatActionBtn)} onClick={() => onEngage(intruder.id)}>
+              ENGAGE WITH KINETIC CARBINE
+            </button>
+          )}
+        </div>
+      ))}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={
+              locked.includes('cargo') ? { borderColor: '#ff1744', color: '#ff1744' } : undefined
+            }
+            onClick={() => onBulkheadLock?.('cargo', !locked.includes('cargo'))}
+          >
+            {locked.includes('cargo') ? 'UNLOCK CARGO' : 'LOCK CARGO GATES'}
+          </button>
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={
+              locked.includes('engineering')
+                ? { borderColor: '#ff1744', color: '#ff1744' }
+                : undefined
+            }
+            onClick={() => onBulkheadLock?.('engineering', !locked.includes('engineering'))}
+          >
+            {locked.includes('engineering') ? 'UNLOCK ENG' : 'LOCK ENG GATES'}
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={
+              vented.includes('cargo') ? { borderColor: '#00e5ff', color: '#00e5ff' } : undefined
+            }
+            onClick={() => onVentCompartment?.('cargo', !vented.includes('cargo'))}
+          >
+            {vented.includes('cargo') ? 'SEAL CARGO O2' : 'VENT CARGO O2'}
+          </button>
+          <button {...stylex.props(styles.simBtn)} onClick={() => onDeploySentry?.('cargo')}>
+            DEPLOY SENTRY (CARGO)
+          </button>
+        </div>
+
+        <div {...stylex.props(styles.simBtnRow)}>
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={{ width: '100%', borderColor: '#ff5252', color: '#ff5252' }}
+            onClick={() => onSimBoarding?.('cargo')}
+          >
+            + SIM BOARDING SQUAD
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface TelemetryRailProps {
   telemetry: TelemetryDeltaBroadcast;
   roleDef: RoleDefinition;
@@ -468,6 +580,11 @@ interface TelemetryRailProps {
   onEmergencyHullRepair: (roomId: string) => void;
   onVentReactorCoolant: () => void;
   onTriggerNavalEvent: (type: NavalDamageEventType) => void;
+  onTriggerBoarding?: (breachRoomId?: string) => void;
+  onEngageIntruder?: (intruderId: string) => void;
+  onBulkheadLock?: (roomId: string, locked: boolean) => void;
+  onVentCompartment?: (roomId: string, venting: boolean) => void;
+  onDeploySentry?: (roomId: string) => void;
 }
 
 export const TelemetryRail: React.FC<TelemetryRailProps> = ({
@@ -479,6 +596,11 @@ export const TelemetryRail: React.FC<TelemetryRailProps> = ({
   onEmergencyHullRepair,
   onVentReactorCoolant,
   onTriggerNavalEvent,
+  onTriggerBoarding,
+  onEngageIntruder,
+  onBulkheadLock,
+  onVentCompartment,
+  onDeploySentry,
 }) => (
   <aside {...stylex.props(styles.panel)}>
     <div {...stylex.props(styles.title)}>Telemetry & Subsystems</div>
@@ -491,6 +613,14 @@ export const TelemetryRail: React.FC<TelemetryRailProps> = ({
       onIntercept={onTriggerPdtIntercept}
       onSuppressFire={onDeployFireSuppression}
       onSimEvent={onTriggerNavalEvent}
+    />
+    <BoardingTacticsSection
+      boarding={telemetry.boarding}
+      onSimBoarding={onTriggerBoarding}
+      onEngage={onEngageIntruder}
+      onBulkheadLock={onBulkheadLock}
+      onVentCompartment={onVentCompartment}
+      onDeploySentry={onDeploySentry}
     />
     <div style={{ marginTop: 'auto' }}>
       <div {...stylex.props(styles.sectionHeader)}>Station Assignment</div>

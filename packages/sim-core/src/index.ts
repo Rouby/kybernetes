@@ -6,6 +6,7 @@ export * from './spatial/deck';
 export * from './spatial/visibility';
 export * from './state';
 export * from './survival';
+export * from './systems/boardingCombat';
 export * from './systems/hull';
 export * from './systems/lifeSupport';
 export * from './systems/navalCombat';

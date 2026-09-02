@@ -1,4 +1,4 @@
-import type { PawnState, StationFixture } from '@kybernetes/protocol';
+import type { BoardingTacticsTelemetry, PawnState, StationFixture } from '@kybernetes/protocol';
 import {
   HESPERIA_ROOMS,
   HESPERIA_STATIONS,
@@ -11,6 +11,7 @@ import {
   type ActiveInteraction,
   renderAlertOverlay,
   renderBackground,
+  renderBoarding,
   renderBulkheads,
   renderDeckFloors,
   renderFixture,
@@ -72,7 +73,9 @@ interface VesselCanvasProps {
   alertLevel?: 'nominal' | 'yellow' | 'red';
   activeFires?: string[];
   breaches?: string[];
+  boarding?: BoardingTacticsTelemetry;
   onStationClick?: (station: StationFixture) => void;
+  onEngageIntruder?: (intruderId: string) => void;
 }
 
 // fallow-ignore-next-line complexity
@@ -84,7 +87,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   alertLevel = 'nominal',
   activeFires = [],
   breaches = [],
+  boarding,
   onStationClick,
+  onEngageIntruder,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef({ x: pawn.x, y: pawn.y });
@@ -152,6 +157,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       // Layer 5: Active hazards (multi-particle fires & breach decompression)
       renderHazards(ctx, activeFires, breaches);
 
+      // Layer 5.5: Hostile boarding pods, raiders, and sentry guns
+      renderBoarding(ctx, boarding, performance.now());
+
       // Layer 6: Rimworld-style capsule pawn with directional hands
       renderPawn(ctx, pawn);
 
@@ -183,7 +191,38 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     alertLevel,
     activeFires,
     breaches,
+    boarding,
   ]);
+
+  // fallow-ignore-next-line complexity
+  function handleCanvasClick(
+    e: React.MouseEvent<HTMLCanvasElement>,
+    canvas: HTMLCanvasElement | null,
+    camera: { x: number; y: number },
+    boarding: BoardingTacticsTelemetry | undefined,
+    nearestStation: StationFixture | null,
+    onEngageIntruder?: (intruderId: string) => void,
+    onStationClick?: (station: StationFixture) => void
+  ) {
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    const worldX = clickX - canvas.width / 2 + camera.x;
+    const worldY = clickY - canvas.height / 2 + camera.y;
+
+    const clickedIntruder = boarding?.intruders.find(
+      (i) => i.state !== 'neutralized' && Math.hypot(i.x - worldX, i.y - worldY) < 30
+    );
+    if (clickedIntruder && onEngageIntruder) {
+      onEngageIntruder(clickedIntruder.id);
+      return;
+    }
+
+    if (nearestStation && onStationClick) {
+      onStationClick(nearestStation);
+    }
+  }
 
   return (
     <canvas
@@ -197,11 +236,17 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         display: 'block',
         cursor: nearestStation ? 'pointer' : 'crosshair',
       }}
-      onClick={() => {
-        if (nearestStation && onStationClick) {
-          onStationClick(nearestStation);
-        }
-      }}
+      onClick={(e) =>
+        handleCanvasClick(
+          e,
+          canvasRef.current,
+          cameraRef.current,
+          boarding,
+          nearestStation,
+          onEngageIntruder,
+          onStationClick
+        )
+      }
     />
   );
 };
