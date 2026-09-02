@@ -1,0 +1,28 @@
+{
+  "name": "kybernetes-monorepo",
+  "private": true,
+  "packageManager": "yarn@4.13.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "turbo run build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.1",
+    "turbo": "^2.10.12",
+    "typescript": "^7.0.2"
+  },
+  "resolutions": {
+    "typescript": "patch:typescript@npm%3A7.0.2#./empty.patch"
+  }
+}
