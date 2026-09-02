@@ -19,20 +19,26 @@ export function createProjectile(
   const dx = targetX - originX;
   const dy = targetY - originY;
   const angle = Math.atan2(dy, dx);
-  const speed = fromPlayer ? 450 : 350;
-
+  let speed = fromPlayer ? 620 : 360;
   let damage = 25;
-  let color = '#00e5ff';
+  let color = '#ffd166'; // Hot metallic brass bullet
+  let lifeSeconds = 1.2;
 
   if (weaponType === 'pulse_laser') {
-    damage = 40;
-    color = '#ffea00';
+    speed = 540;
+    damage = 35;
+    color = '#00f0ff'; // Electric cyan energy burst
+    lifeSeconds = 0.85;
   } else if (weaponType === 'arc_welder') {
+    speed = 850; // Ultra-fast electric zap
     damage = 65;
-    color = '#76ff03';
+    color = '#00e5ff'; // Electric arc
+    lifeSeconds = 0.16; // Short-range reach (~135px)
   } else if (weaponType === 'raider_plasma') {
+    speed = 360;
     damage = 15;
     color = '#ff1744';
+    lifeSeconds = 1.4;
   }
 
   return {
@@ -44,7 +50,9 @@ export function createProjectile(
     damage,
     color,
     fromPlayer,
-    lifeSeconds: 1.6,
+    lifeSeconds,
+    maxLife: lifeSeconds,
+    weaponType,
   };
 }
 
@@ -52,6 +60,31 @@ export interface ProjectileTickResult {
   nextProjectiles: ProjectileState[];
   damagedIntruders: Array<{ id: string; damage: number }>;
   playerDamageTaken: number;
+}
+
+function findHitIntruder(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  intruders: IntruderState[]
+): IntruderState | null {
+  let firstHit: IntruderState | null = null;
+  let minT = Infinity;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const l2 = dx * dx + dy * dy;
+
+  for (const i of intruders) {
+    if (i.state === 'neutralized') continue;
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((i.x - p1.x) * dx + (i.y - p1.y) * dy) / l2));
+    const cx = p1.x + t * dx;
+    const cy = p1.y + t * dy;
+    const distSq = (i.x - cx) ** 2 + (i.y - cy) ** 2;
+    if (distSq < 18 * 18 && t < minT) {
+      minT = t;
+      firstHit = i;
+    }
+  }
+  return firstHit;
 }
 
 // fallow-ignore-next-line complexity
@@ -94,10 +127,7 @@ export function tickProjectiles(
     if (nextX < 50 || nextX > 1150 || nextY < 50 || nextY > 750) continue;
 
     if (proj.fromPlayer) {
-      // Check collision with intruders
-      const hitIntruder = intruders.find(
-        (i) => i.state !== 'neutralized' && Math.hypot(i.x - nextX, i.y - nextY) < 18
-      );
+      const hitIntruder = findHitIntruder(p1, p2, intruders);
       if (hitIntruder) {
         damagedIntruders.push({ id: hitIntruder.id, damage: proj.damage });
         continue; // Projectile absorbed

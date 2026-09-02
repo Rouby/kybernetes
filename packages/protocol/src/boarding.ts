@@ -72,6 +72,8 @@ export interface ProjectileState {
   color: string;
   fromPlayer: boolean;
   lifeSeconds: number;
+  weaponType?: WeaponType | 'raider_plasma';
+  maxLife?: number;
 }
 
 export interface BoardingTacticsTelemetry {

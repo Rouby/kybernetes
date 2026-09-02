@@ -31,6 +31,20 @@ export interface WebGLRenderState {
   camera: { x: number; y: number };
   mouseWorld: { x: number; y: number };
   timeMs: number;
+  impacts?: Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>;
+}
+
+interface ImpactParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  g: number;
+  b: number;
+  size: number;
+  life: number;
+  maxLife: number;
 }
 
 export class WebGL2Renderer {
@@ -48,6 +62,10 @@ export class WebGL2Renderer {
   private flatVAO: WebGLVertexArrayObject;
   private projVAO: WebGLVertexArrayObject;
   private vignetteVAO: WebGLVertexArrayObject;
+
+  private currentLights = new Float32Array(24);
+  private currentLightColors = new Float32Array(18);
+  private particles: ImpactParticle[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -120,6 +138,111 @@ export class WebGL2Renderer {
   }
 
   // fallow-ignore-next-line complexity
+  private addImpact(x: number, y: number, type: 'kinetic' | 'laser' | 'welder'): void {
+    if (type === 'kinetic') {
+      // Normal bullet impact: 10 metallic ricochet sparks spraying outward
+      for (let i = 0; i < 10; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const spd = 70 + Math.random() * 160;
+        this.particles.push({
+          x,
+          y,
+          vx: Math.cos(a) * spd,
+          vy: Math.sin(a) * spd,
+          r: 1.0,
+          g: 0.65 + Math.random() * 0.35,
+          b: 0.15,
+          size: 2.5 + Math.random() * 2.0,
+          life: 0.2 + Math.random() * 0.15,
+          maxLife: 0.35,
+        });
+      }
+    } else if (type === 'laser') {
+      // Laser burst impact: bright cyan plasma dissipation
+      for (let i = 0; i < 6; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const spd = 40 + Math.random() * 90;
+        this.particles.push({
+          x,
+          y,
+          vx: Math.cos(a) * spd,
+          vy: Math.sin(a) * spd,
+          r: 0.0,
+          g: 0.95,
+          b: 1.0,
+          size: 4.0,
+          life: 0.16,
+          maxLife: 0.16,
+        });
+      }
+    } else {
+      // Welder electric zap: erratic electrical sparks
+      for (let i = 0; i < 8; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const spd = 90 + Math.random() * 150;
+        this.particles.push({
+          x,
+          y,
+          vx: Math.cos(a) * spd,
+          vy: Math.sin(a) * spd,
+          r: Math.random() > 0.5 ? 0.0 : 0.75,
+          g: 0.85,
+          b: 1.0,
+          size: 3.5,
+          life: 0.15,
+          maxLife: 0.15,
+        });
+      }
+    }
+  }
+
+  // fallow-ignore-next-line complexity
+  private updateLights(projectiles?: ProjectileState[]): void {
+    this.currentLights.fill(0);
+    this.currentLightColors.fill(0);
+    if (!projectiles) return;
+
+    for (let i = 0; i < Math.min(6, projectiles.length); i++) {
+      const p = projectiles[i];
+      const isLaser = p.weaponType === 'pulse_laser' || p.color === '#00f0ff';
+      const isWelder = p.weaponType === 'arc_welder';
+      const isKinetic = p.weaponType === 'kinetic_carbine';
+
+      const radius = isLaser ? 85.0 : isWelder ? 65.0 : isKinetic ? 30.0 : 75.0;
+      const intensity = isLaser ? 1.4 : isWelder ? 1.0 : isKinetic ? 0.35 : 0.9;
+
+      this.currentLights[i * 4 + 0] = p.x;
+      this.currentLights[i * 4 + 1] = p.y;
+      this.currentLights[i * 4 + 2] = radius;
+      this.currentLights[i * 4 + 3] = intensity;
+
+      let r = 0.0;
+      let g = 0.9;
+      let b = 1.0;
+      if (p.color === '#ff1744') {
+        r = 1.0;
+        g = 0.1;
+        b = 0.25;
+      } else if (p.color === '#ffd166' || isKinetic) {
+        r = 1.0;
+        g = 0.8;
+        b = 0.3;
+      } else if (p.color === '#00f0ff' || isLaser) {
+        r = 0.0;
+        g = 0.95;
+        b = 1.0;
+      } else if (isWelder) {
+        r = 0.4;
+        g = 0.7;
+        b = 1.0;
+      }
+      this.currentLightColors[i * 3 + 0] = r;
+      this.currentLightColors[i * 3 + 1] = g;
+      this.currentLightColors[i * 3 + 2] = b;
+    }
+  }
+
+  // fallow-ignore-next-line complexity
   public render(state: WebGLRenderState, width: number, height: number): void {
     const gl = this.gl;
     gl.viewport(0, 0, width, height);
@@ -133,6 +256,16 @@ export class WebGL2Renderer {
     const matrix = createCameraMatrix(width, height, state.camera.x, state.camera.y);
     const timeSec = state.timeMs * 0.001;
 
+    // Process queued impacts
+    if (state.impacts) {
+      for (const imp of state.impacts) {
+        this.addImpact(imp.x, imp.y, imp.type);
+      }
+    }
+
+    // Update dynamic lights from active projectiles
+    this.updateLights(state.boarding?.projectiles);
+
     // 1. Procedural deep space parallax starfield
     this.renderStarfield(width, height, state.camera, timeSec);
 
@@ -140,9 +273,9 @@ export class WebGL2Renderer {
     this.renderOuterHull(matrix, timeSec);
 
     // 2. FTL Grid Deck Floors with diagonal vacuum stripes and dynamic laser lighting
-    this.renderDeckFloors(matrix, timeSec, state.boarding, state.boarding?.projectiles);
+    this.renderDeckFloors(matrix, timeSec, state.boarding);
 
-    // 3. Bulkhead walls & blast doors
+    // 3. Bulkhead walls & blast doors (with dynamic laser glow on walls)
     this.renderBulkheads(matrix);
     this.renderDoors(matrix, state.boarding?.doors || createInitialDoors());
 
@@ -155,7 +288,10 @@ export class WebGL2Renderer {
     this.renderSentries(matrix, state.boarding?.sentries || []);
 
     // 6. Projectiles with Additive Glow Shader
-    this.renderProjectiles(matrix, state.boarding?.projectiles || []);
+    this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec);
+
+    // 6.5. Impact spark particles
+    this.renderParticles(matrix, 0.016);
 
     // 7. Tactical Laser Aiming Reticle
     this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
@@ -188,8 +324,7 @@ export class WebGL2Renderer {
   private renderDeckFloors(
     matrix: Float32Array,
     time: number,
-    boarding?: BoardingTacticsTelemetry,
-    projectiles?: ProjectileState[]
+    boarding?: BoardingTacticsTelemetry
   ): void {
     const gl = this.gl;
     gl.useProgram(this.deckProg);
@@ -197,40 +332,8 @@ export class WebGL2Renderer {
     gl.uniformMatrix3fv(gl.getUniformLocation(this.deckProg, 'u_matrix'), false, matrix);
     gl.uniform1f(gl.getUniformLocation(this.deckProg, 'u_time'), time);
 
-    // Dynamic projectile lights (up to 6 lights)
-    const lights = new Float32Array(24);
-    const colors = new Float32Array(18);
-    if (projectiles) {
-      for (let i = 0; i < Math.min(6, projectiles.length); i++) {
-        const p = projectiles[i];
-        lights[i * 4 + 0] = p.x;
-        lights[i * 4 + 1] = p.y;
-        lights[i * 4 + 2] = 110.0; // lighting radius
-        lights[i * 4 + 3] = 1.0;
-
-        let r = 0.0;
-        let g = 0.9;
-        let b = 1.0;
-        if (p.color === '#ff1744') {
-          r = 1.0;
-          g = 0.1;
-          b = 0.25;
-        } else if (p.color === '#ffea00') {
-          r = 1.0;
-          g = 0.92;
-          b = 0.0;
-        } else if (p.color === '#76ff03') {
-          r = 0.45;
-          g = 1.0;
-          b = 0.05;
-        }
-        colors[i * 3 + 0] = r;
-        colors[i * 3 + 1] = g;
-        colors[i * 3 + 2] = b;
-      }
-    }
-    gl.uniform4fv(gl.getUniformLocation(this.deckProg, 'u_projLights'), lights);
-    gl.uniform3fv(gl.getUniformLocation(this.deckProg, 'u_projColors'), colors);
+    gl.uniform4fv(gl.getUniformLocation(this.deckProg, 'u_projLights'), this.currentLights);
+    gl.uniform3fv(gl.getUniformLocation(this.deckProg, 'u_projColors'), this.currentLightColors);
 
     for (const room of HESPERIA_ROOMS) {
       const o2 = boarding?.roomO2?.[room.id] ?? 100;
@@ -258,6 +361,8 @@ export class WebGL2Renderer {
     gl.useProgram(this.flatProg);
     gl.bindVertexArray(this.flatVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(this.flatProg, 'u_matrix'), false, matrix);
+    gl.uniform4fv(gl.getUniformLocation(this.flatProg, 'u_projLights'), this.currentLights);
+    gl.uniform3fv(gl.getUniformLocation(this.flatProg, 'u_projColors'), this.currentLightColors);
   }
 
   private bufferAndDraw(verts: Float32Array, mode?: number): void {
@@ -457,42 +562,58 @@ export class WebGL2Renderer {
   }
 
   // fallow-ignore-next-line complexity
-  private renderProjectiles(matrix: Float32Array, projectiles: ProjectileState[]): void {
+  private renderProjectiles(
+    matrix: Float32Array,
+    projectiles: ProjectileState[],
+    time: number
+  ): void {
     const gl = this.gl;
     gl.useProgram(this.projProg);
     gl.bindVertexArray(this.projVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(this.projProg, 'u_matrix'), false, matrix);
+    gl.uniform1f(gl.getUniformLocation(this.projProg, 'u_time'), time);
 
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
     for (const proj of projectiles) {
       let r = 0.0;
-      let g = 0.9;
+      let g = 0.95;
       let b = 1.0;
-      if (proj.color === '#ff1744') {
+      let style = 1;
+      let beamLen = 22;
+      let halfW = 6.5;
+
+      if (proj.weaponType === 'kinetic_carbine') {
+        style = 0; // normal bullet
+        r = 1.0;
+        g = 0.82;
+        b = 0.25;
+        beamLen = 10;
+        halfW = 3.2;
+      } else if (proj.weaponType === 'arc_welder') {
+        style = 2; // electric zap
+        r = 0.0;
+        g = 0.9;
+        b = 1.0;
+        beamLen = 38;
+        halfW = 9.0;
+      } else if (proj.weaponType === 'raider_plasma' || proj.color === '#ff1744') {
+        style = 3;
         r = 1.0;
         g = 0.09;
         b = 0.27;
-      } else if (proj.color === '#ffea00') {
-        r = 1.0;
-        g = 0.92;
-        b = 0.0;
-      } else if (proj.color === '#76ff03') {
-        r = 0.46;
-        g = 1.0;
-        b = 0.01;
+        beamLen = 22;
+        halfW = 6.5;
       }
 
       gl.uniform4f(gl.getUniformLocation(this.projProg, 'u_color'), r, g, b, 1.0);
+      gl.uniform1i(gl.getUniformLocation(this.projProg, 'u_style'), style);
 
       const speed = Math.hypot(proj.vx, proj.vy);
       const fx = speed > 0 ? proj.vx / speed : 1;
       const fy = speed > 0 ? proj.vy / speed : 0;
       const nx = -fy;
       const ny = fx;
-
-      const beamLen = 32;
-      const halfW = 7;
 
       const headX = proj.x + fx * 4;
       const headY = proj.y + fy * 4;
@@ -539,6 +660,33 @@ export class WebGL2Renderer {
       gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderParticles(matrix: Float32Array, dt: number): void {
+    if (this.particles.length === 0) return;
+    const gl = this.gl;
+    this.bindFlatProgram(matrix);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      p.life -= dt;
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+      const alpha = p.life / p.maxLife;
+      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), p.r, p.g, p.b, alpha);
+      this.drawQuad(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     }
 
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

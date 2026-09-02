@@ -2,17 +2,35 @@ export const FLAT_VS = `#version 300 es
 precision highp float;
 in vec2 a_position;
 uniform mat3 u_matrix;
+out vec2 v_worldPos;
 void main() {
+  v_worldPos = a_position;
   gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
 }
 `;
 
 export const FLAT_FS = `#version 300 es
 precision highp float;
+in vec2 v_worldPos;
 uniform vec4 u_color;
+uniform vec4 u_projLights[6]; // xy = pos, z = radius, w = intensity
+uniform vec3 u_projColors[6];
 out vec4 fragColor;
+
 void main() {
-  fragColor = u_color;
+  // Dynamic bright glow on walls, blast doors, and pawns from passing laser energy
+  vec3 lightAccum = vec3(0.0);
+  for (int i = 0; i < 6; i++) {
+    if (u_projLights[i].z <= 0.0) continue;
+    float d = length(v_worldPos - u_projLights[i].xy);
+    if (d < u_projLights[i].z) {
+      float atten = 1.0 - d / u_projLights[i].z;
+      lightAccum += u_projColors[i] * (atten * atten * u_projLights[i].w);
+    }
+  }
+
+  vec3 litRgb = u_color.rgb + lightAccum * 0.85;
+  fragColor = vec4(litRgb, u_color.a);
 }
 `;
 
@@ -108,7 +126,7 @@ void main() {
     baseColor = mix(u_floorColor, vec3(0.70, 0.76, 0.84), clamp(line * 0.9, 0.0, 1.0));
   }
 
-  // Dynamic 2D point lighting from glowing laser bolts and plasma
+  // Subtle localized floor glow from nearby laser fire
   vec3 lightAccum = vec3(0.0);
   for (int i = 0; i < 6; i++) {
     if (u_projLights[i].z <= 0.0) continue;
@@ -120,7 +138,8 @@ void main() {
     }
   }
 
-  vec3 finalColor = baseColor + lightAccum * 0.45;
+  // A subtle glow on the floor (~28% intensity)
+  vec3 finalColor = baseColor + lightAccum * 0.28;
   fragColor = vec4(finalColor, 1.0);
 }
 `;
@@ -141,30 +160,58 @@ export const PROJECTILE_FS = `#version 300 es
 precision highp float;
 in vec2 v_uv;
 uniform vec4 u_color;
+uniform int u_style; // 0 = kinetic bullet, 1 = pulse laser, 2 = arc welder, 3 = raider plasma
+uniform float u_time;
 out vec4 fragColor;
 
 void main() {
-  // v_uv.x in [-1.0 (tail), 1.0 (head)]
-  // v_uv.y in [-1.0 (bottom edge), 1.0 (top edge)]
   float u = v_uv.x;
   float v = v_uv.y;
 
-  // Exact analytical 2D capsule Signed Distance Field (SDF)
+  if (u_style == 0) {
+    // KINETIC CARBINE: Sleek normal bullet (solid metallic slug with hot nose)
+    float bulletDist = sqrt(max(0.0, abs(u) - 0.4) / 0.6 * max(0.0, abs(u) - 0.4) / 0.6 + v * v);
+    if (bulletDist > 1.0) discard;
+
+    float tip = clamp((u + 1.0) * 0.5, 0.0, 1.0);
+    vec3 brass = vec3(0.98, 0.76, 0.22);
+    vec3 hotNose = vec3(1.0, 0.98, 0.85);
+    vec3 col = mix(brass, hotNose, pow(tip, 3.0));
+    float edge = 1.0 - smoothstep(0.7, 1.0, bulletDist);
+    fragColor = vec4(col, edge * u_color.a);
+    return;
+  }
+
+  if (u_style == 2) {
+    // ARC WELDER: Short-range crackling electric ZAP
+    float jitter = sin(u * 28.0 + u_time * 45.0) * 0.35 + cos(u * 55.0 - u_time * 30.0) * 0.2;
+    float arcDist = abs(v - jitter);
+    if (arcDist > 0.8) discard;
+
+    float core = exp(-arcDist * arcDist * 20.0);
+    float glow = exp(-arcDist * 3.5);
+    vec3 elecBlue = vec3(0.1, 0.85, 1.0);
+    vec3 violet = vec3(0.75, 0.4, 1.0);
+    vec3 whiteHot = vec3(1.0, 1.0, 1.0);
+    vec3 arcCol = mix(elecBlue, violet, sin(u * 10.0 + u_time * 20.0) * 0.5 + 0.5);
+    vec3 emissive = arcCol * (glow * 2.5) + whiteHot * (core * 3.0);
+    float alpha = clamp(core * 1.8 + glow, 0.0, 1.0) * u_color.a;
+    fragColor = vec4(emissive, alpha);
+    return;
+  }
+
+  // PULSE LASER & RAIDER PLASMA: Intense glowing capsule energy slug
   float segDist = max(0.0, abs(u) - 0.55) / 0.45;
   float d = sqrt(segDist * segDist + v * v);
-
   if (d > 1.0) discard;
 
-  // Multi-band analytical blooming energy emission
   float core = exp(-d * d * 10.0);
   float innerGlow = exp(-d * d * 3.5);
   float outerHalo = exp(-d * 1.8);
 
-  // Blinding white-hot core mixed into vibrant laser hue
   vec3 whiteHot = vec3(1.0, 1.0, 1.0);
   vec3 laserColor = mix(u_color.rgb, whiteHot, clamp(core * 1.5, 0.0, 1.0));
-
-  vec3 emissive = laserColor * (innerGlow * 2.0 + outerHalo * 0.8) + whiteHot * (core * 2.5);
+  vec3 emissive = laserColor * (innerGlow * 2.2 + outerHalo * 0.9) + whiteHot * (core * 2.5);
   float alpha = clamp(core * 1.5 + innerGlow + outerHalo * 0.4, 0.0, 1.0) * u_color.a;
 
   fragColor = vec4(emissive, alpha);

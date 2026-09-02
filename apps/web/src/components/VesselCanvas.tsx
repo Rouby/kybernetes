@@ -6,7 +6,12 @@ import type {
   StationFixture,
   WeaponType,
 } from '@kybernetes/protocol';
-import { createInitialDoors, createProjectile } from '@kybernetes/sim-core';
+import {
+  createInitialDoors,
+  createProjectile,
+  HESPERIA_WALLS,
+  segmentsIntersect,
+} from '@kybernetes/sim-core';
 import type React from 'react';
 import { useCallback, useEffect, useRef } from 'react';
 import type { ActiveInteraction } from '../types';
@@ -61,16 +66,55 @@ function reconcileProjectiles(
   return preserved;
 }
 
+// fallow-ignore-next-line complexity
 function integrateProjectiles(
   projectiles: PredictedProjectile[],
-  dt: number
+  dt: number,
+  doors: DoorState[],
+  onImpact?: (x: number, y: number, type: 'kinetic' | 'laser' | 'welder') => void
 ): PredictedProjectile[] {
   const result: PredictedProjectile[] = [];
   for (const p of projectiles) {
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    p.lifeSeconds -= dt;
-    if (p.lifeSeconds > 0) result.push(p);
+    const nextX = p.x + p.vx * dt;
+    const nextY = p.y + p.vy * dt;
+    const nextLife = p.lifeSeconds - dt;
+
+    if (nextLife <= 0) {
+      if (p.weaponType === 'arc_welder') {
+        onImpact?.(nextX, nextY, 'welder');
+      }
+      continue;
+    }
+
+    const p1 = { x: p.x, y: p.y };
+    const p2 = { x: nextX, y: nextY };
+
+    // Line-segment collision with ship bulkheads
+    const hitWall = HESPERIA_WALLS.some(
+      (w) =>
+        !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
+    );
+
+    // Line-segment collision with closed blast doors
+    const hitDoor = doors.some(
+      (d) => !d.isOpen && segmentsIntersect(p1, p2, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 })
+    );
+
+    if (hitWall || hitDoor) {
+      const type =
+        p.weaponType === 'pulse_laser'
+          ? 'laser'
+          : p.weaponType === 'arc_welder'
+            ? 'welder'
+            : 'kinetic';
+      onImpact?.(nextX, nextY, type);
+      continue;
+    }
+
+    p.x = nextX;
+    p.y = nextY;
+    p.lifeSeconds = nextLife;
+    result.push(p);
   }
   return result;
 }
@@ -164,6 +208,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
   const localProjectilesRef = useRef<PredictedProjectile[]>([]);
   const lastFrameTimeRef = useRef<number>(performance.now());
+  const queuedImpactsRef = useRef<
+    Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>
+  >([]);
 
   const handleInstantFire = useCallback(
     (
@@ -173,9 +220,18 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       targetY: number,
       weaponType: WeaponType
     ) => {
+      // 1. Primary projectile instant prediction
       const proj = createProjectile(originX, originY, targetX, targetY, weaponType, true);
       localProjectilesRef.current.push({ ...proj, spawnTime: performance.now() });
       onFireWeapon?.(originX, originY, targetX, targetY, weaponType);
+
+      // 2. Pulse Laser fires a rapid 2-shot burst of energy!
+      if (weaponType === 'pulse_laser') {
+        setTimeout(() => {
+          const secondProj = createProjectile(originX, originY, targetX, targetY, weaponType, true);
+          localProjectilesRef.current.push({ ...secondProj, spawnTime: performance.now() });
+        }, 65);
+      }
     },
     [onFireWeapon]
   );
@@ -238,6 +294,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
     let animId: number;
 
+    // fallow-ignore-next-line complexity
     const render = () => {
       if (canvas.width === 0 || canvas.height === 0) {
         animId = requestAnimationFrame(render);
@@ -248,7 +305,13 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       const dt = Math.min((now - lastFrameTimeRef.current) / 1000, 0.05);
       lastFrameTimeRef.current = now;
 
-      localProjectilesRef.current = integrateProjectiles(localProjectilesRef.current, dt);
+      const doors = boarding?.doors || defaultDoorsRef.current;
+      localProjectilesRef.current = integrateProjectiles(
+        localProjectilesRef.current,
+        dt,
+        doors,
+        (hitX, hitY, type) => queuedImpactsRef.current.push({ x: hitX, y: hitY, type })
+      );
 
       cameraRef.current.x += (pawn.x - cameraRef.current.x) * 0.12;
       cameraRef.current.y += (pawn.y - cameraRef.current.y) * 0.12;
@@ -264,6 +327,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         localProjectilesRef.current
       );
 
+      const impacts = queuedImpactsRef.current;
+      queuedImpactsRef.current = [];
+
       rendererRef.current?.render(
         {
           pawn: activePawn,
@@ -273,6 +339,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           camera: cameraRef.current,
           mouseWorld: mouseWorldRef.current,
           timeMs: now,
+          impacts,
         },
         canvas.width,
         canvas.height
