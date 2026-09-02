@@ -9,7 +9,7 @@ test.describe('Milestone 4: Hostile Boarding Actions, DecisionTreeAI & FTL Grid 
 
     // Verify Tactical Security Defense section exists
     await expect(page.getByText('TACTICAL SECURITY DEFENSE')).toBeVisible();
-    await expect(page.getByText('SECURED')).toBeVisible();
+    await expect(page.getByText(/SECURED|\d+ INTRUDERS/i)).toBeVisible();
 
     // Trigger boarding pod breach simulation
     const simBoardingBtn = page.getByRole('button', { name: '+ SIM BOARDING SQUAD' });

@@ -46,7 +46,7 @@ test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking'
     await expect(page.getByText(/Reactor Core Monitor/i)).toBeVisible();
 
     // In-world prompt shows direct action without modals
-    await expect(page.getByText(/Scrub Plasma Grids/i)).toBeVisible();
+    await expect(page.getByText(/Scrub Plasma Grids/i).first()).toBeVisible();
 
     // Press 'e' to start interaction immediately with round progress bar (no modals)
     await page.keyboard.press('KeyE');

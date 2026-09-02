@@ -1,7 +1,7 @@
 import type { StartingRole, StationFixture } from '@kybernetes/protocol';
 import { getDutiesForStation } from '@kybernetes/sim-core';
 import { useCallback, useState } from 'react';
-import type { ActiveInteraction } from '../canvas';
+import type { ActiveInteraction } from '../types';
 
 export interface StationActionConfig {
   actionName: string;
