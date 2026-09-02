@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 test.describe('Kybernetes HUD Smoke Test', () => {
   test('renders tactical dashboard and vessel designation', async ({ page }) => {

@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'Linting web...'"
+    "lint": "biome check ."
   },
   "dependencies": {
     "@kybernetes/protocol": "workspace:*",

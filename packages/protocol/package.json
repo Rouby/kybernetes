@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'Linting protocol...'"
+    "lint": "biome check ."
   },
   "devDependencies": {
     "@kybernetes/tsconfig": "workspace:*",

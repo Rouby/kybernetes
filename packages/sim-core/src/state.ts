@@ -1,4 +1,4 @@
-import { TelemetryDeltaBroadcast, MacroCrewSupplies } from '@kybernetes/protocol';
+import type { MacroCrewSupplies, TelemetryDeltaBroadcast } from '@kybernetes/protocol';
 
 export interface VesselSimulationState {
   shipName: string;
@@ -53,9 +53,7 @@ export function tickVesselState(
   };
 }
 
-export function stateToTelemetryBroadcast(
-  state: VesselSimulationState
-): TelemetryDeltaBroadcast {
+export function stateToTelemetryBroadcast(state: VesselSimulationState): TelemetryDeltaBroadcast {
   return {
     type: 'TELEMETRY_DELTA',
     timestamp: Date.now(),

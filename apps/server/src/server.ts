@@ -1,12 +1,12 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import type { ClientAction, ServerBroadcast } from '@kybernetes/protocol';
 import {
   createInitialVesselState,
-  tickVesselState,
-  stateToTelemetryBroadcast,
   GameLoop,
-  VesselSimulationState,
+  stateToTelemetryBroadcast,
+  tickVesselState,
+  type VesselSimulationState,
 } from '@kybernetes/sim-core';
-import { ServerBroadcast, ClientAction } from '@kybernetes/protocol';
+import { WebSocket, WebSocketServer } from 'ws';
 
 export class VesselServer {
   private wss: WebSocketServer | null = null;
@@ -29,7 +29,9 @@ export class VesselServer {
 
       this.wss.on('connection', (ws: WebSocket) => {
         this.clients.add(ws);
-        console.log(`[Kybernetes Server] Client connected. Total active crew: ${this.clients.size}`);
+        console.log(
+          `[Kybernetes Server] Client connected. Total active crew: ${this.clients.size}`
+        );
 
         // Send initial telemetry immediately
         const initialTelemetry = stateToTelemetryBroadcast(this.vesselState);
@@ -90,10 +92,12 @@ export class VesselServer {
     this.broadcast(telemetry);
   }
 
-  private handleClientAction(ws: WebSocket, action: ClientAction): void {
+  private handleClientAction(_ws: WebSocket, action: ClientAction): void {
     if (action.type === 'TOGGLE_BATTLE_STATIONS') {
       this.vesselState.alertLevel = action.alertLevel;
-      console.log(`[Kybernetes Server] Battle stations changed to ${action.alertLevel.toUpperCase()}`);
+      console.log(
+        `[Kybernetes Server] Battle stations changed to ${action.alertLevel.toUpperCase()}`
+      );
     }
   }
 

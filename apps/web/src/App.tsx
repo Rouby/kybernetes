@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import * as stylex from '@stylexjs/stylex';
+import type { TelemetryDeltaBroadcast } from '@kybernetes/protocol';
+import { createInitialPlayerVitals, createInitialVesselState } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
-import { TelemetryDeltaBroadcast } from '@kybernetes/protocol';
-import { createInitialVesselState, createInitialPlayerVitals } from '@kybernetes/sim-core';
-import { Activity, Shield, Flame, Wind, Radio, User, Coffee, Utensils, Moon } from 'lucide-react';
+import * as stylex from '@stylexjs/stylex';
+import { Coffee, Flame, Moon, Radio, Shield, Utensils, Wind } from 'lucide-react';
+import type React from 'react';
+import { useState } from 'react';
 
 const styles = stylex.create({
   container: {
@@ -167,7 +168,7 @@ const styles = stylex.create({
 });
 
 export const App: React.FC = () => {
-  const [telemetry, setTelemetry] = useState<TelemetryDeltaBroadcast>(() => ({
+  const [telemetry] = useState<TelemetryDeltaBroadcast>(() => ({
     type: 'TELEMETRY_DELTA',
     timestamp: Date.now(),
     ...createInitialVesselState(),
@@ -195,10 +196,12 @@ export const App: React.FC = () => {
         {/* Left Rail: Vitals & Survival */}
         <aside {...stylex.props(styles.leftPanel)}>
           <div {...stylex.props(styles.panelTitle)}>Crew Vitals</div>
-          
+
           <div>
             <div {...stylex.props(styles.statRow)}>
-              <span><Utensils size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Nutrition</span>
+              <span>
+                <Utensils size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Nutrition
+              </span>
               <span>{Math.round(vitals.hunger)}%</span>
             </div>
             <div {...stylex.props(styles.progressBarBg)}>
@@ -217,7 +220,9 @@ export const App: React.FC = () => {
 
           <div>
             <div {...stylex.props(styles.statRow)}>
-              <span><Coffee size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Hydration</span>
+              <span>
+                <Coffee size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Hydration
+              </span>
               <span>{Math.round(vitals.thirst)}%</span>
             </div>
             <div {...stylex.props(styles.progressBarBg)}>
@@ -236,7 +241,9 @@ export const App: React.FC = () => {
 
           <div>
             <div {...stylex.props(styles.statRow)}>
-              <span><Moon size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Fatigue</span>
+              <span>
+                <Moon size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Fatigue
+              </span>
               <span>{Math.round(vitals.fatigue)}%</span>
             </div>
             <div {...stylex.props(styles.progressBarBg)}>
@@ -273,7 +280,10 @@ export const App: React.FC = () => {
 
           <div>
             <div {...stylex.props(styles.statRow)}>
-              <span><Flame size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Reactor Thermal</span>
+              <span>
+                <Flame size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Reactor
+                Thermal
+              </span>
               <span>{telemetry.reactorTemp} K</span>
             </div>
             <div {...stylex.props(styles.progressBarBg)}>
@@ -289,7 +299,9 @@ export const App: React.FC = () => {
 
           <div>
             <div {...stylex.props(styles.statRow)}>
-              <span><Wind size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Atmosphere O2</span>
+              <span>
+                <Wind size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Atmosphere O2
+              </span>
               <span>{telemetry.oxygenLevelPercent}%</span>
             </div>
             <div {...stylex.props(styles.progressBarBg)}>
@@ -305,7 +317,10 @@ export const App: React.FC = () => {
 
           <div>
             <div {...stylex.props(styles.statRow)}>
-              <span><Shield size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Hull Plating</span>
+              <span>
+                <Shield size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Hull
+                Plating
+              </span>
               <span>{telemetry.hullIntegrityPercent}%</span>
             </div>
             <div {...stylex.props(styles.progressBarBg)}>

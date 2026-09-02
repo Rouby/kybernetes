@@ -1,5 +1,5 @@
-import { PawnState, BulkheadState } from './spatial';
-import { PlayerVitals, MacroCrewSupplies } from './survival';
+import type { BulkheadState, PawnState } from './spatial';
+import type { MacroCrewSupplies, PlayerVitals } from './survival';
 
 export interface SpatialSnapshotBroadcast {
   type: 'SPATIAL_SNAPSHOT';
@@ -12,7 +12,7 @@ export interface TelemetryDeltaBroadcast {
   type: 'TELEMETRY_DELTA';
   timestamp: number;
   shipName: string;
-  reactorTemp: number;       // Kelvin or %
+  reactorTemp: number; // Kelvin or %
   reactorMaxTemp: number;
   reactorOutputMw: number;
   oxygenLevelPercent: number;

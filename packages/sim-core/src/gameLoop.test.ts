@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { GameLoop } from './gameLoop';
 import { createInitialVesselState, tickVesselState } from './state';
 import { createInitialPlayerVitals, updatePlayerVitals } from './survival';
 
@@ -30,6 +31,7 @@ describe('Vessel Simulation Core', () => {
     expect(loop.running).toBe(true);
     loop.stop();
     expect(loop.running).toBe(false);
+    expect(ticks).toBeGreaterThanOrEqual(0);
   });
 });
 

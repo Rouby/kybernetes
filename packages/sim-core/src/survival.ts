@@ -1,4 +1,4 @@
-import { PlayerVitals } from '@kybernetes/protocol';
+import type { PlayerVitals } from '@kybernetes/protocol';
 
 export function createInitialPlayerVitals(): PlayerVitals {
   return {

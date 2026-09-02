@@ -9,7 +9,7 @@
     "build": "tsc --noEmit",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'Linting sim-core...'"
+    "lint": "biome check ."
   },
   "dependencies": {
     "@kybernetes/protocol": "workspace:*"

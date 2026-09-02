@@ -378,6 +378,9 @@ graph TD
 | **Networking / WebSockets** | `ws` (Node.js 24) | High-throughput, low-latency WebSocket server managing vessel sessions, real-time spatial pawn replication (15-20Hz), telemetry streaming, and crew actions in `apps/server`. |
 | **Unit Testing** | Vitest | Lightning-fast parallel test runner for packages (`@kybernetes/sim-core`, `@kybernetes/protocol`). |
 | **Browser / E2E Testing** | Playwright (`@playwright/test`) | Multi-context browser testing simulating concurrent crew members acting on the same ship, WASD movement validation, shift completion, and visual regression. |
+| **Linter & Formatter** | **Biome** (`@biomejs/biome` v2.5) | Sub-millisecond Rust-native linter and formatter replacing ESLint and Prettier across all monorepo workspaces. |
+| **Code Quality & Intelligence** | **Fallow** (`fallow` v3.22) | Rust-native structural intelligence analyzing dead code, code duplication, and maintainability index across the dependency graph. |
+| **Release & Versioning** | **Changesets** (`@changesets/cli` v3.0) | Multi-package semantic versioning and changelog generator. |
 
 ---
 

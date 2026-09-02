@@ -1,4 +1,4 @@
-import { StartingRole } from './actions';
+import type { StartingRole } from './actions';
 
 export interface PawnState {
   id: string;
