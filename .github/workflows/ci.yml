@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: 🛡️ Kybernetes Tactical Quality Gates
 
 on:
   push:
@@ -12,48 +12,50 @@ concurrency:
 
 jobs:
   quality-pipeline:
-    name: 6-Gate Quality Pipeline
+    name: ⚡ 6-Gate Orbital Verification Protocol
     runs-on: ubuntu-latest
+    # Skip CI for automated changeset versioning and release branches to conserve runner minutes
+    if: "!startsWith(github.head_ref, 'changeset-release/') && !startsWith(github.head_ref, 'release/')"
 
     steps:
-      - name: Checkout repository
+      - name: 📡 Intercept Repository Signal (Checkout)
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js 24
+      - name: ⬡ Calibrate Node.js 24 Runtime
         uses: actions/setup-node@v7
         with:
           node-version: 24
 
-      - name: Enable Corepack
+      - name: 📦 Enable Corepack
         run: corepack enable
 
-      - name: Install dependencies
+      - name: 🔒 Provision Manifest Modules (Yarn Immutable)
         run: yarn install --immutable
 
-      - name: Gate 1 - Biome Lint & Format
+      - name: 🧹 Gate 1 — Biome Tactical Lint & Format Check
         run: yarn lint
 
-      - name: Gate 2 - Fallow Code Quality & Health
+      - name: 🔬 Gate 2 — Fallow Structural Health & Anti-Decay Audit
         run: yarn quality
 
-      - name: Gate 3 - TypeScript Strict Typecheck
+      - name: 📐 Gate 3 — TypeScript 7 Strict Hull & Type Matrix
         run: yarn typecheck
 
-      - name: Gate 4 - Vitest Unit Tests
+      - name: 🧪 Gate 4 — Vitest Core Simulation & Vitals Suite
         run: yarn test
 
-      - name: Gate 5 - Turborepo Production Build
+      - name: 🏗️ Gate 5 — Turborepo Production Matrix Build
         run: yarn build
 
-      - name: Install Playwright Chromium with dependencies
+      - name: 🎭 Provision Chromium Tactical Sensor Rig
         run: npx playwright install --with-deps chromium
 
-      - name: Gate 6 - Playwright E2E Tests
+      - name: 🎮 Gate 6 — Playwright Neural Deck Viewport E2E
         run: yarn test:e2e
 
-      - name: Upload Playwright Test Artifacts on Failure
+      - name: 💾 Transmit Blackbox Diagnostics on Failure
         uses: actions/upload-artifact@v7
         if: failure()
         with:

@@ -1,4 +1,4 @@
-name: Release
+name: 🚀 Kybernetes Fleet Release
 
 on:
   push:
@@ -9,33 +9,33 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   release:
-    name: Changesets Release & Versioning
+    name: 📦 Changesets Shipyard & Dispatch
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
 
     steps:
-      - name: Checkout repository
+      - name: 📡 Intercept Fleet Repository (Checkout)
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js 24
+      - name: ⬡ Calibrate Node.js 24 Runtime
         uses: actions/setup-node@v7
         with:
           node-version: 24
 
-      - name: Enable Corepack
+      - name: 📦 Enable Corepack
         run: corepack enable
 
-      - name: Install dependencies
+      - name: 🔒 Provision Shipyard Modules (Yarn Immutable)
         run: yarn install --immutable
 
-      - name: Build packages
+      - name: 🏗️ Synthesize Production Builds
         run: yarn build
 
-      - name: Create Version PR or Publish GitHub Release
+      - name: 🏷️ Dispatch Version Manifest or Launch Release
         id: changesets
         uses: changesets/action@v2
         with:
