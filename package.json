@@ -12,6 +12,7 @@
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "typecheck": "turbo run typecheck",
+    "quality": "fallow",
     "clean": "turbo run clean",
     "changeset": "changeset",
     "version-packages": "changeset version",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",
+    "fallow": "^3.22.0",
     "turbo": "^2.10.12",
     "typescript": "^7.0.2"
   },

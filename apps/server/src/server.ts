@@ -52,22 +52,14 @@ export class VesselServer {
     });
   }
 
-  public stop(): Promise<void> {
-    return new Promise((resolve) => {
-      this.loop.stop();
+  public async stop(): Promise<void> {
+    if (!this.loop.running) return;
+    this.loop.stop();
+    this.terminateClients();
 
-      // Immediately terminate any active client connections to allow port release
-      for (const client of this.clients) {
-        try {
-          client.terminate();
-        } catch {
-          // ignore already closed
-        }
-      }
-      this.clients.clear();
-
-      if (this.wss) {
-        this.wss.close((err) => {
+    if (this.wss) {
+      await new Promise<void>((resolve) => {
+        this.wss?.close((err) => {
           if (err) {
             console.error('[Kybernetes Server] Error closing WebSocket server:', err);
           }
@@ -75,10 +67,19 @@ export class VesselServer {
           console.log('[Kybernetes Server] Daemon stopped cleanly. Port released.');
           resolve();
         });
-      } else {
-        resolve();
+      });
+    }
+  }
+
+  private terminateClients(): void {
+    for (const client of this.clients) {
+      try {
+        client.terminate();
+      } catch {
+        // ignore already closed
       }
-    });
+    }
+    this.clients.clear();
   }
 
   private onSimulationTick(dtSeconds: number): void {

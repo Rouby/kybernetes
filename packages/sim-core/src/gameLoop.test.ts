@@ -19,6 +19,18 @@ describe('Vessel Simulation Core', () => {
     expect(updated.reactorTemp).toBeGreaterThan(300);
     expect(updated.oxygenLevelPercent).toBeLessThan(vessel.oxygenLevelPercent);
   });
+
+  it('runs GameLoop with running getter reflecting active status', () => {
+    let ticks = 0;
+    const loop = new GameLoop(10, () => {
+      ticks++;
+    });
+    expect(loop.running).toBe(false);
+    loop.start();
+    expect(loop.running).toBe(true);
+    loop.stop();
+    expect(loop.running).toBe(false);
+  });
 });
 
 describe('Player Survival Vitals', () => {
