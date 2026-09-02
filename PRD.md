@@ -403,7 +403,7 @@ graph TD
   - Implement personal vitals (Hunger, Thirst, Fatigue) and bunk rest recovery.
   - Unit tests for spatial collision math, visibility polygon generation, vitals decay curves, and duty completion rewards.
 
-- [ ] **Milestone 3: Vessel Telemetry, Subsystems & Naval Damage Events**
+- [x] **Milestone 3: Vessel Telemetry, Subsystems & Naval Damage Events**
   - Add ship reactor thermal dynamics, life support scrubbers, and hull stress systems.
   - Implement Battle Stations Red Alert state and naval damage events (torpedo runs, radiation bursts).
   - Damage triage mechanics: Point-Defense Turret interception, fire suppression, emergency hull welding.
