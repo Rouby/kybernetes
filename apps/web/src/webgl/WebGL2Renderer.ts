@@ -56,6 +56,21 @@ interface ImpactParticle {
   maxLife: number;
 }
 
+// fallow-ignore-next-line complexity
+function getRaycastIntersectionT(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  p3: { x: number; y: number },
+  p4: { x: number; y: number }
+): number | null {
+  const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+  if (d === 0) return null;
+  const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+  const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return t;
+  return null;
+}
+
 export class WebGL2Renderer {
   private gl: WebGL2RenderingContext;
   private flatProg: WebGLProgram;
@@ -217,11 +232,11 @@ export class WebGL2Renderer {
 
     // 1. Welder continuous electric arc lighting
     if (welder?.active && lightIdx < 6) {
-      const arcMidX = welder.originX + Math.cos(welder.facingAngle) * 55;
-      const arcMidY = welder.originY + Math.sin(welder.facingAngle) * 55;
+      const arcMidX = welder.originX + Math.cos(welder.facingAngle) * 24;
+      const arcMidY = welder.originY + Math.sin(welder.facingAngle) * 24;
       this.currentLights[lightIdx * 4 + 0] = arcMidX;
       this.currentLights[lightIdx * 4 + 1] = arcMidY;
-      this.currentLights[lightIdx * 4 + 2] = 110.0;
+      this.currentLights[lightIdx * 4 + 2] = 60.0;
       this.currentLights[lightIdx * 4 + 3] = 1.6;
 
       this.currentLightColors[lightIdx * 3 + 0] = 0.1;
@@ -322,7 +337,11 @@ export class WebGL2Renderer {
 
     // 6.5. Continuous Welder Arc
     if (state.welderState?.active) {
-      this.renderWelderArc(matrix, state.welderState);
+      this.renderWelderArc(
+        matrix,
+        state.welderState,
+        state.boarding?.doors || createInitialDoors()
+      );
     }
 
     // 6.6. Charging Energy Reticle (for Laser charge-up)
@@ -634,7 +653,7 @@ export class WebGL2Renderer {
         r = 1.0;
         g = 0.82;
         b = 0.25;
-        beamLen = 28;
+        beamLen = 32;
         halfW = 2.0;
       } else if (proj.weaponType === 'pulse_laser') {
         const charge = proj.chargeRatio ?? 1.0;
@@ -716,7 +735,8 @@ export class WebGL2Renderer {
   // fallow-ignore-next-line complexity
   private renderWelderArc(
     matrix: Float32Array,
-    welder: NonNullable<WebGLRenderState['welderState']>
+    welder: NonNullable<WebGLRenderState['welderState']>,
+    doors?: DoorState[]
   ): void {
     const gl = this.gl;
     this.bindFlatProgram(matrix);
@@ -724,10 +744,42 @@ export class WebGL2Renderer {
 
     const startX = welder.originX + Math.cos(welder.facingAngle) * 14;
     const startY = welder.originY + Math.sin(welder.facingAngle) * 14;
-    const endX = startX + Math.cos(welder.facingAngle) * welder.range;
-    const endY = startY + Math.sin(welder.facingAngle) * welder.range;
+    const nominalDist = welder.range || 48;
+    const nominalEndX = startX + Math.cos(welder.facingAngle) * nominalDist;
+    const nominalEndY = startY + Math.sin(welder.facingAngle) * nominalDist;
 
-    const segments = 10;
+    let minT = 1.0;
+    const p1 = { x: startX, y: startY };
+    const p2 = { x: nominalEndX, y: nominalEndY };
+
+    for (const wall of HESPERIA_WALLS) {
+      if (wall.isTraversable) continue;
+      const t = getRaycastIntersectionT(
+        p1,
+        p2,
+        { x: wall.x1, y: wall.y1 },
+        { x: wall.x2, y: wall.y2 }
+      );
+      if (t !== null && t < minT) minT = t;
+    }
+
+    if (doors) {
+      for (const door of doors) {
+        if (door.isOpen) continue;
+        const t = getRaycastIntersectionT(
+          p1,
+          p2,
+          { x: door.x1, y: door.y1 },
+          { x: door.x2, y: door.y2 }
+        );
+        if (t !== null && t < minT) minT = t;
+      }
+    }
+
+    const endX = startX + (nominalEndX - startX) * minT;
+    const endY = startY + (nominalEndY - startY) * minT;
+
+    const segments = 8;
     const dx = endX - startX;
     const dy = endY - startY;
     const perpX = -Math.sin(welder.facingAngle);
@@ -741,7 +793,7 @@ export class WebGL2Renderer {
       const prog = i / segments;
       const baseNextX = startX + dx * prog;
       const baseNextY = startY + dy * prog;
-      const jitter = i === segments ? 0 : (Math.random() - 0.5) * 22 * Math.sin(prog * Math.PI);
+      const jitter = i === segments ? 0 : (Math.random() - 0.5) * 14 * Math.sin(prog * Math.PI);
       const nextX = baseNextX + perpX * jitter;
       const nextY = baseNextY + perpY * jitter;
 
@@ -758,7 +810,7 @@ export class WebGL2Renderer {
     gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 1.0, 1.0, 0.95);
     this.bufferAndDraw(new Float32Array(mainVerts));
 
-    this.addImpact(curX, curY, 'welder');
+    this.addImpact(endX, endY, 'welder');
 
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.bindVertexArray(null);

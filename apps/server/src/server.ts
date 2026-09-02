@@ -153,7 +153,8 @@ export class VesselServer {
         action.originY,
         action.facingAngle,
         action.damage,
-        action.range || 135
+        action.range || 48,
+        this.vesselState.boarding.doors
       );
       this.vesselState.boarding.intruders = res.nextIntruders;
     } else if (action.type === 'TOGGLE_DOOR') {

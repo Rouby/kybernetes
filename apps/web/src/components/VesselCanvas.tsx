@@ -11,6 +11,7 @@ import {
   createInitialDoors,
   createProjectile,
   HESPERIA_WALLS,
+  isSegmentBlockedByDoors,
   segmentsIntersect,
 } from '@kybernetes/sim-core';
 import type React from 'react';
@@ -105,9 +106,7 @@ function integrateProjectiles(
     );
 
     // Line-segment collision with closed blast doors
-    const hitDoor = doors.some(
-      (d) => !d.isOpen && segmentsIntersect(p1, p2, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 })
-    );
+    const hitDoor = isSegmentBlockedByDoors(p1, p2, doors);
 
     if (hitWall || hitDoor) {
       const type =
@@ -248,13 +247,14 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     isFiringRef.current = true;
     const now = performance.now();
     if (equippedWeapon === 'kinetic_carbine') {
-      handleInstantFire(
-        pawn.x,
-        pawn.y,
-        mouseWorldRef.current.x,
-        mouseWorldRef.current.y,
-        'kinetic_carbine'
-      );
+      const spreadAngle = (Math.random() - 0.5) * 0.1;
+      const dx = mouseWorldRef.current.x - pawn.x;
+      const dy = mouseWorldRef.current.y - pawn.y;
+      const baseAngle = Math.atan2(dy, dx);
+      const finalAngle = baseAngle + spreadAngle;
+      const targetX = pawn.x + Math.cos(finalAngle) * 300;
+      const targetY = pawn.y + Math.sin(finalAngle) * 300;
+      handleInstantFire(pawn.x, pawn.y, targetX, targetY, 'kinetic_carbine');
       lastKineticFireRef.current = now;
     } else if (equippedWeapon === 'pulse_laser') {
       laserChargeStartRef.current = now;
@@ -387,13 +387,14 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       // 1. Continuous Kinetic Carbine firing
       if (isFiringRef.current && equippedWeapon === 'kinetic_carbine') {
         if (now - lastKineticFireRef.current >= 105) {
-          handleInstantFire(
-            pawn.x,
-            pawn.y,
-            mouseWorldRef.current.x,
-            mouseWorldRef.current.y,
-            'kinetic_carbine'
-          );
+          const spreadAngle = (Math.random() - 0.5) * 0.1;
+          const dx = mouseWorldRef.current.x - pawn.x;
+          const dy = mouseWorldRef.current.y - pawn.y;
+          const baseAngle = Math.atan2(dy, dx);
+          const finalAngle = baseAngle + spreadAngle;
+          const targetX = pawn.x + Math.cos(finalAngle) * 300;
+          const targetY = pawn.y + Math.sin(finalAngle) * 300;
+          handleInstantFire(pawn.x, pawn.y, targetX, targetY, 'kinetic_carbine');
           lastKineticFireRef.current = now;
         }
       }
@@ -409,7 +410,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         laserChargeRatio = Math.max(0.1, Math.min(1.0, elapsed / 0.9));
       }
 
-      // 3. Continuous Arc Welder AOE Cone
+      // 3. Continuous Arc Welder AOE Cone (reduced ~48px range with bulkhead/door collision)
       const isWelderActive = isFiringRef.current && equippedWeapon === 'arc_welder';
       if (isWelderActive && now - lastWelderTickRef.current >= 100) {
         lastWelderTickRef.current = now;
@@ -419,10 +420,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           pawn.y,
           aimAngle,
           10,
-          135
+          48,
+          doors
         );
         if (aoe.hitIntruders.length > 0) {
-          onWelderAoe?.(pawn.x, pawn.y, aimAngle, 10, 135);
+          onWelderAoe?.(pawn.x, pawn.y, aimAngle, 10, 48);
           for (const hit of aoe.hitIntruders) {
             const intru = activeBoarding.intruders.find((i) => i.id === hit.id);
             if (intru) {
@@ -455,7 +457,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             originX: pawn.x,
             originY: pawn.y,
             facingAngle: aimAngle,
-            range: 135,
+            range: 48,
           },
         },
         canvas.width,

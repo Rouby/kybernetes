@@ -150,3 +150,14 @@ export function segmentsIntersect(p1: Point2D, p2: Point2D, q1: Point2D, q2: Poi
     (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
   return ccw(p1, q1, q2) !== ccw(p2, q1, q2) && ccw(p1, p2, q1) !== ccw(p1, p2, q2);
 }
+
+export function isSegmentBlockedByDoors(
+  p1: Point2D,
+  p2: Point2D,
+  doors?: Array<{ isOpen: boolean; x1: number; y1: number; x2: number; y2: number }>
+): boolean {
+  if (!doors) return false;
+  return doors.some(
+    (d) => !d.isOpen && segmentsIntersect(p1, p2, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 })
+  );
+}

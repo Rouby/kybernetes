@@ -5,7 +5,7 @@ import type {
   WallSegment,
   WeaponType,
 } from '@kybernetes/protocol';
-import { segmentsIntersect } from '../spatial/collision';
+import { isSegmentBlockedByDoors, segmentsIntersect } from '../spatial/collision';
 import { HESPERIA_WALLS } from '../spatial/deck';
 
 export function createProjectile(
@@ -20,10 +20,10 @@ export function createProjectile(
   const dx = targetX - originX;
   const dy = targetY - originY;
   const angle = Math.atan2(dy, dx);
-  let speed = fromPlayer ? 620 : 360;
+  let speed = fromPlayer ? (weaponType === 'kinetic_carbine' ? 1050 : 620) : 360;
   let damage = 25;
   let color = '#ffd166'; // Hot metallic brass bullet
-  let lifeSeconds = 1.2;
+  let lifeSeconds = weaponType === 'kinetic_carbine' ? 0.9 : 1.2;
 
   if (weaponType === 'pulse_laser') {
     const clampedCharge = Math.max(0.2, Math.min(1.0, chargeRatio));
@@ -35,7 +35,7 @@ export function createProjectile(
     speed = 850; // Ultra-fast electric zap
     damage = 65;
     color = '#00e5ff'; // Electric arc
-    lifeSeconds = 0.16; // Short-range reach (~135px)
+    lifeSeconds = 0.16; // Short-range reach (~48px)
   } else if (weaponType === 'raider_plasma') {
     speed = 360;
     damage = 15;
@@ -66,10 +66,12 @@ export function applyWelderAoeDamage(
   originY: number,
   facingAngle: number,
   damage: number,
-  range = 135
+  range = 48,
+  doors?: DoorState[]
 ): { nextIntruders: IntruderState[]; hitIntruders: Array<{ id: string; damage: number }> } {
   const hitIntruders: Array<{ id: string; damage: number }> = [];
   const halfCone = (40 * Math.PI) / 180; // 40-degree cone
+  const p1 = { x: originX, y: originY };
 
   const nextIntruders = intruders.map((i) => {
     if (i.state === 'neutralized') return i;
@@ -81,17 +83,26 @@ export function applyWelderAoeDamage(
     const angleToIntruder = Math.atan2(dy, dx);
     let diff = Math.abs(angleToIntruder - facingAngle);
     while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI);
+    if (diff > halfCone) return i;
 
-    if (diff <= halfCone) {
-      hitIntruders.push({ id: i.id, damage });
-      const nextHealth = Math.max(0, i.health - damage);
-      return {
-        ...i,
-        health: nextHealth,
-        state: nextHealth <= 0 ? ('neutralized' as const) : i.state,
-      };
-    }
-    return i;
+    // Check line-of-sight collision against bulkheads
+    const p2 = { x: i.x, y: i.y };
+    const hitWall = HESPERIA_WALLS.some(
+      (w) =>
+        !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
+    );
+    if (hitWall) return i;
+
+    // Check line-of-sight collision against closed blast doors
+    if (isSegmentBlockedByDoors(p1, p2, doors)) return i;
+
+    hitIntruders.push({ id: i.id, damage });
+    const nextHealth = Math.max(0, i.health - damage);
+    return {
+      ...i,
+      health: nextHealth,
+      state: nextHealth <= 0 ? ('neutralized' as const) : i.state,
+    };
   });
 
   return { nextIntruders, hitIntruders };
@@ -159,10 +170,7 @@ export function tickProjectiles(
     if (hitWall) continue; // Projectile stopped and absorbed by wall
 
     // 2. Line-segment collision with closed blast doors
-    const hitDoor = doors.some(
-      (d) => !d.isOpen && segmentsIntersect(p1, p2, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 })
-    );
-    if (hitDoor) continue; // Projectile stopped and absorbed by closed door
+    if (isSegmentBlockedByDoors(p1, p2, doors)) continue;
 
     // Check collision with outer boundaries
     if (nextX < 50 || nextX > 1150 || nextY < 50 || nextY > 750) continue;
