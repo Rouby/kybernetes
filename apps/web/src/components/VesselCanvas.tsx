@@ -2,12 +2,13 @@ import type {
   BoardingTacticsTelemetry,
   DoorState,
   PawnState,
+  ProjectileState,
   StationFixture,
   WeaponType,
 } from '@kybernetes/protocol';
-import { createInitialDoors, HESPERIA_STATIONS } from '@kybernetes/sim-core';
+import { createInitialDoors, createProjectile } from '@kybernetes/sim-core';
 import type React from 'react';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { ActiveInteraction } from '../types';
 import { WebGL2Renderer } from '../webgl';
 
@@ -33,6 +34,65 @@ interface VesselCanvasProps {
   onToggleDoor?: (doorId: string, open: boolean) => void;
 }
 
+interface PredictedProjectile extends ProjectileState {
+  spawnTime: number;
+}
+
+// fallow-ignore-next-line complexity
+function reconcileProjectiles(
+  current: PredictedProjectile[],
+  incoming: ProjectileState[],
+  now: number
+): PredictedProjectile[] {
+  const serverMap = new Map(incoming.map((p) => [p.id, p]));
+  const preserved = current.filter(
+    (p) => (p.fromPlayer && now - p.spawnTime < 350) || serverMap.has(p.id)
+  );
+
+  for (const sp of incoming) {
+    const existing = preserved.find((lp) => lp.id === sp.id);
+    if (!existing) {
+      preserved.push({ ...sp, spawnTime: now });
+    } else if (Math.hypot(existing.x - sp.x, existing.y - sp.y) > 25) {
+      existing.x = sp.x;
+      existing.y = sp.y;
+    }
+  }
+  return preserved;
+}
+
+function integrateProjectiles(
+  projectiles: PredictedProjectile[],
+  dt: number
+): PredictedProjectile[] {
+  const result: PredictedProjectile[] = [];
+  for (const p of projectiles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.lifeSeconds -= dt;
+    if (p.lifeSeconds > 0) result.push(p);
+  }
+  return result;
+}
+
+function getActiveBoarding(
+  boarding: BoardingTacticsTelemetry | undefined,
+  defaultDoors: DoorState[],
+  projectiles: PredictedProjectile[]
+): BoardingTacticsTelemetry {
+  if (boarding) return { ...boarding, projectiles };
+  return {
+    intruders: [],
+    boardingPods: [],
+    sentries: [],
+    lockedBulkheads: [],
+    ventedRooms: [],
+    doors: defaultDoors,
+    projectiles,
+    roomO2: {},
+  };
+}
+
 // fallow-ignore-next-line complexity
 function handleCanvasClick(
   e: React.MouseEvent<HTMLCanvasElement>,
@@ -44,7 +104,7 @@ function handleCanvasClick(
   nearestStation: StationFixture | null,
   onStationClick?: (station: StationFixture) => void,
   onToggleDoor?: (doorId: string, open: boolean) => void,
-  onFireWeapon?: (
+  onFire?: (
     originX: number,
     originY: number,
     targetX: number,
@@ -59,7 +119,6 @@ function handleCanvasClick(
   const worldX = clickX - canvas.width / 2 + camera.x;
   const worldY = clickY - canvas.height / 2 + camera.y;
 
-  // 1. Check if clicked an in-world door
   if (doors && onToggleDoor) {
     const clickedDoor = doors.find((d) => {
       const mx = (d.x1 + d.x2) / 2;
@@ -72,7 +131,6 @@ function handleCanvasClick(
     }
   }
 
-  // 2. Check if clicked nearest station
   if (nearestStation && onStationClick) {
     const distToStation = Math.hypot(nearestStation.x - worldX, nearestStation.y - worldY);
     if (distToStation < nearestStation.radius + 10) {
@@ -81,9 +139,8 @@ function handleCanvasClick(
     }
   }
 
-  // 3. Else: Fire equipped weapon towards mouse click coordinates!
-  if (onFireWeapon) {
-    onFireWeapon(pawn.x, pawn.y, worldX, worldY, equippedWeapon);
+  if (onFire) {
+    onFire(pawn.x, pawn.y, worldX, worldY, equippedWeapon);
   }
 }
 
@@ -105,6 +162,33 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   const mouseWorldRef = useRef({ x: pawn.x + 50, y: pawn.y });
   const defaultDoorsRef = useRef(createInitialDoors());
 
+  const localProjectilesRef = useRef<PredictedProjectile[]>([]);
+  const lastFrameTimeRef = useRef<number>(performance.now());
+
+  const handleInstantFire = useCallback(
+    (
+      originX: number,
+      originY: number,
+      targetX: number,
+      targetY: number,
+      weaponType: WeaponType
+    ) => {
+      const proj = createProjectile(originX, originY, targetX, targetY, weaponType, true);
+      localProjectilesRef.current.push({ ...proj, spawnTime: performance.now() });
+      onFireWeapon?.(originX, originY, targetX, targetY, weaponType);
+    },
+    [onFireWeapon]
+  );
+
+  useEffect(() => {
+    if (!boarding?.projectiles) return;
+    localProjectilesRef.current = reconcileProjectiles(
+      localProjectilesRef.current,
+      boarding.projectiles,
+      performance.now()
+    );
+  }, [boarding?.projectiles]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas?.parentElement) return;
@@ -122,12 +206,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Handle Space key to fire towards mouse crosshair
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && onFireWeapon) {
+      if (e.code === 'Space') {
         e.preventDefault();
-        onFireWeapon(
+        handleInstantFire(
           pawn.x,
           pawn.y,
           mouseWorldRef.current.x,
@@ -138,9 +221,8 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pawn.x, pawn.y, equippedWeapon, onFireWeapon]);
+  }, [pawn.x, pawn.y, equippedWeapon, handleInstantFire]);
 
-  // WebGL 2 Rendering Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -162,19 +244,35 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         return;
       }
 
-      // Smooth camera lerp tracking pawn
+      const now = performance.now();
+      const dt = Math.min((now - lastFrameTimeRef.current) / 1000, 0.05);
+      lastFrameTimeRef.current = now;
+
+      localProjectilesRef.current = integrateProjectiles(localProjectilesRef.current, dt);
+
       cameraRef.current.x += (pawn.x - cameraRef.current.x) * 0.12;
       cameraRef.current.y += (pawn.y - cameraRef.current.y) * 0.12;
 
+      const aimAngle = Math.atan2(
+        mouseWorldRef.current.y - pawn.y,
+        mouseWorldRef.current.x - pawn.x
+      );
+      const activePawn = { ...pawn, facingAngle: aimAngle };
+      const activeBoarding = getActiveBoarding(
+        boarding,
+        defaultDoorsRef.current,
+        localProjectilesRef.current
+      );
+
       rendererRef.current?.render(
         {
-          pawn,
+          pawn: activePawn,
           nearestStation,
-          boarding,
+          boarding: activeBoarding,
           alertLevel,
           camera: cameraRef.current,
           mouseWorld: mouseWorldRef.current,
-          timeMs: performance.now(),
+          timeMs: now,
         },
         canvas.width,
         canvas.height
@@ -224,14 +322,14 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             nearestStation,
             onStationClick,
             onToggleDoor,
-            onFireWeapon
+            handleInstantFire
           )
         }
       />
 
-      {/* Diegetic In-World Station Prompt Overlay */}
       {nearestStation && (
         <div
+          data-testid="station-prompt"
           style={{
             position: 'absolute',
             left: `${Math.round((canvasRef.current ? canvasRef.current.clientWidth / 2 : 500) + (nearestStation.x - cameraRef.current.x))}px`,

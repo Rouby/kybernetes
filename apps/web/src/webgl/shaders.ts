@@ -89,24 +89,39 @@ in vec2 v_worldPos;
 uniform vec3 u_floorColor;
 uniform float u_isVacuum;
 uniform float u_time;
+uniform vec4 u_projLights[6]; // xy = pos, z = radius, w = intensity
+uniform vec3 u_projColors[6];
+
 out vec4 fragColor;
 
 void main() {
+  vec3 baseColor;
   if (u_isVacuum > 0.5) {
     // FTL signature diagonal hazard vacuum stripes
     float stripe = step(0.5, fract((v_worldPos.x + v_worldPos.y - u_time * 24.0) / 28.0));
-    vec3 vacColor = mix(vec3(1.0, 0.78, 0.82), vec3(0.92, 0.48, 0.52), stripe);
-    fragColor = vec4(vacColor, 1.0);
-    return;
+    baseColor = mix(vec3(1.0, 0.78, 0.82), vec3(0.92, 0.48, 0.52), stripe);
+  } else {
+    // 35px FTL grid tiles
+    vec2 coord = v_worldPos / 35.0;
+    vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
+    float line = 1.0 - min(min(grid.x, grid.y), 1.0);
+    baseColor = mix(u_floorColor, vec3(0.70, 0.76, 0.84), clamp(line * 0.9, 0.0, 1.0));
   }
 
-  // 35px FTL grid tiles
-  vec2 coord = v_worldPos / 35.0;
-  vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
-  float line = 1.0 - min(min(grid.x, grid.y), 1.0);
+  // Dynamic 2D point lighting from glowing laser bolts and plasma
+  vec3 lightAccum = vec3(0.0);
+  for (int i = 0; i < 6; i++) {
+    if (u_projLights[i].z <= 0.0) continue;
+    float d = length(v_worldPos - u_projLights[i].xy);
+    if (d < u_projLights[i].z) {
+      float atten = 1.0 - d / u_projLights[i].z;
+      atten = atten * atten * u_projLights[i].w;
+      lightAccum += u_projColors[i] * atten;
+    }
+  }
 
-  vec3 col = mix(u_floorColor, vec3(0.70, 0.76, 0.84), clamp(line * 0.9, 0.0, 1.0));
-  fragColor = vec4(col, 1.0);
+  vec3 finalColor = baseColor + lightAccum * 0.45;
+  fragColor = vec4(finalColor, 1.0);
 }
 `;
 
@@ -127,11 +142,31 @@ precision highp float;
 in vec2 v_uv;
 uniform vec4 u_color;
 out vec4 fragColor;
+
 void main() {
-  float dist = length(v_uv - vec2(0.5));
-  float alpha = clamp(1.0 - dist * 2.0, 0.0, 1.0);
-  float core = pow(alpha, 2.5);
-  vec3 glow = u_color.rgb + vec3(core * 0.8);
-  fragColor = vec4(glow, alpha * u_color.a);
+  // v_uv.x in [-1.0 (tail), 1.0 (head)]
+  // v_uv.y in [-1.0 (bottom edge), 1.0 (top edge)]
+  float u = v_uv.x;
+  float v = v_uv.y;
+
+  // Exact analytical 2D capsule Signed Distance Field (SDF)
+  float segDist = max(0.0, abs(u) - 0.55) / 0.45;
+  float d = sqrt(segDist * segDist + v * v);
+
+  if (d > 1.0) discard;
+
+  // Multi-band analytical blooming energy emission
+  float core = exp(-d * d * 10.0);
+  float innerGlow = exp(-d * d * 3.5);
+  float outerHalo = exp(-d * 1.8);
+
+  // Blinding white-hot core mixed into vibrant laser hue
+  vec3 whiteHot = vec3(1.0, 1.0, 1.0);
+  vec3 laserColor = mix(u_color.rgb, whiteHot, clamp(core * 1.5, 0.0, 1.0));
+
+  vec3 emissive = laserColor * (innerGlow * 2.0 + outerHalo * 0.8) + whiteHot * (core * 2.5);
+  float alpha = clamp(core * 1.5 + innerGlow + outerHalo * 0.4, 0.0, 1.0) * u_color.a;
+
+  fragColor = vec4(emissive, alpha);
 }
 `;

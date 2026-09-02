@@ -139,8 +139,8 @@ export class WebGL2Renderer {
     // 1.5. FTL-style outer ship armor hull & thrusters
     this.renderOuterHull(matrix, timeSec);
 
-    // 2. FTL Grid Deck Floors with diagonal vacuum stripes
-    this.renderDeckFloors(matrix, timeSec, state.boarding);
+    // 2. FTL Grid Deck Floors with diagonal vacuum stripes and dynamic laser lighting
+    this.renderDeckFloors(matrix, timeSec, state.boarding, state.boarding?.projectiles);
 
     // 3. Bulkhead walls & blast doors
     this.renderBulkheads(matrix);
@@ -188,13 +188,49 @@ export class WebGL2Renderer {
   private renderDeckFloors(
     matrix: Float32Array,
     time: number,
-    boarding?: BoardingTacticsTelemetry
+    boarding?: BoardingTacticsTelemetry,
+    projectiles?: ProjectileState[]
   ): void {
     const gl = this.gl;
     gl.useProgram(this.deckProg);
     gl.bindVertexArray(this.deckVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(this.deckProg, 'u_matrix'), false, matrix);
     gl.uniform1f(gl.getUniformLocation(this.deckProg, 'u_time'), time);
+
+    // Dynamic projectile lights (up to 6 lights)
+    const lights = new Float32Array(24);
+    const colors = new Float32Array(18);
+    if (projectiles) {
+      for (let i = 0; i < Math.min(6, projectiles.length); i++) {
+        const p = projectiles[i];
+        lights[i * 4 + 0] = p.x;
+        lights[i * 4 + 1] = p.y;
+        lights[i * 4 + 2] = 110.0; // lighting radius
+        lights[i * 4 + 3] = 1.0;
+
+        let r = 0.0;
+        let g = 0.9;
+        let b = 1.0;
+        if (p.color === '#ff1744') {
+          r = 1.0;
+          g = 0.1;
+          b = 0.25;
+        } else if (p.color === '#ffea00') {
+          r = 1.0;
+          g = 0.92;
+          b = 0.0;
+        } else if (p.color === '#76ff03') {
+          r = 0.45;
+          g = 1.0;
+          b = 0.05;
+        }
+        colors[i * 3 + 0] = r;
+        colors[i * 3 + 1] = g;
+        colors[i * 3 + 2] = b;
+      }
+    }
+    gl.uniform4fv(gl.getUniformLocation(this.deckProg, 'u_projLights'), lights);
+    gl.uniform3fv(gl.getUniformLocation(this.deckProg, 'u_projColors'), colors);
 
     for (const room of HESPERIA_ROOMS) {
       const o2 = boarding?.roomO2?.[room.id] ?? 100;
@@ -217,7 +253,7 @@ export class WebGL2Renderer {
     gl.bindVertexArray(null);
   }
 
-  private useFlatProgram(matrix: Float32Array): void {
+  private bindFlatProgram(matrix: Float32Array): void {
     const gl = this.gl;
     gl.useProgram(this.flatProg);
     gl.bindVertexArray(this.flatVAO);
@@ -233,7 +269,7 @@ export class WebGL2Renderer {
 
   private renderBulkheads(matrix: Float32Array): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    this.bindFlatProgram(matrix);
     gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.12, 0.16, 0.22, 1.0);
 
     const lines: number[] = [];
@@ -246,7 +282,7 @@ export class WebGL2Renderer {
 
   private renderOuterHull(matrix: Float32Array, time: number): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    this.bindFlatProgram(matrix);
 
     // Dark armor hull base enclosing the ship
     gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
@@ -275,10 +311,48 @@ export class WebGL2Renderer {
   }
 
   // fallow-ignore-next-line complexity
-  private renderDoors(matrix: Float32Array, doors: DoorState[]): void {
+  private renderOpenDoor(x: number, y: number, w: number, h: number, isHoriz: boolean): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.13, 0.77, 0.36, 1.0);
+    this.drawQuad(isHoriz ? x : x + 2, isHoriz ? y + 2 : y, 6, 6);
+    this.drawQuad(isHoriz ? x + w - 6 : x + 2, isHoriz ? y + 2 : y + h - 6, 6, 6);
+  }
 
+  // fallow-ignore-next-line complexity
+  private renderClosedDoor(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    isHoriz: boolean,
+    mx: number,
+    my: number
+  ): void {
+    const gl = this.gl;
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.92, 0.7, 0.03, 1.0);
+    this.drawQuad(x, y, w, h);
+
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.1, 0.1, 0.12, 1.0);
+    const count = isHoriz ? Math.floor(w / 14) : Math.floor(h / 14);
+    for (let i = 0; i < count; i += 2) {
+      this.drawQuad(
+        isHoriz ? x + i * 14 : x,
+        isHoriz ? y : y + i * 14,
+        isHoriz ? 7 : w,
+        isHoriz ? h : 7
+      );
+    }
+
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.15, 0.18, 0.24, 1.0);
+    this.drawQuad(mx - 14, my - 5, 28, 10);
+
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.94, 0.27, 0.27, 1.0);
+    this.drawQuad(mx - 6, my - 3, 12, 6);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderDoors(matrix: Float32Array, doors: DoorState[]): void {
+    this.bindFlatProgram(matrix);
     for (const door of doors) {
       const isHoriz = Math.abs(door.y2 - door.y1) < Math.abs(door.x2 - door.x1);
       const minX = Math.min(door.x1, door.x2);
@@ -289,44 +363,20 @@ export class WebGL2Renderer {
       const y = isHoriz ? door.y1 - 6 : minY;
 
       if (door.isOpen) {
-        // Hollow opening with side posts and green status lights
-        gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.13, 0.77, 0.36, 1.0);
-        this.drawQuad(isHoriz ? x : x + 2, isHoriz ? y + 2 : y, 6, 6);
-        this.drawQuad(isHoriz ? x + w - 6 : x + 2, isHoriz ? y + 2 : y + h - 6, 6, 6);
+        this.renderOpenDoor(x, y, w, h, isHoriz);
       } else {
-        // High-contrast yellow base
-        gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.92, 0.7, 0.03, 1.0);
-        this.drawQuad(x, y, w, h);
-
-        // Diagonal alternating black hazard stripes
-        gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.1, 0.1, 0.12, 1.0);
-        const count = isHoriz ? Math.floor(w / 14) : Math.floor(h / 14);
-        for (let i = 0; i < count; i += 2) {
-          if (isHoriz) {
-            this.drawQuad(x + i * 14, y, 7, h);
-          } else {
-            this.drawQuad(x, y + i * 14, w, 7);
-          }
-        }
-
-        // Heavy central frame
         const mx = (door.x1 + door.x2) / 2;
         const my = (door.y1 + door.y2) / 2;
-        gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.15, 0.18, 0.24, 1.0);
-        this.drawQuad(mx - 14, my - 5, 28, 10);
-
-        // Glowing red locked center indicator
-        gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.94, 0.27, 0.27, 1.0);
-        this.drawQuad(mx - 6, my - 3, 12, 6);
+        this.renderClosedDoor(x, y, w, h, isHoriz, mx, my);
       }
     }
-    gl.bindVertexArray(null);
+    this.gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity
   private renderStations(matrix: Float32Array, nearestId?: string): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    this.bindFlatProgram(matrix);
 
     for (const st of HESPERIA_STATIONS) {
       const isNear = st.id === nearestId;
@@ -344,7 +394,7 @@ export class WebGL2Renderer {
 
   private renderPawn(matrix: Float32Array, pawn: PawnState): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    this.bindFlatProgram(matrix);
 
     // Body
     gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 0.69, 0.0, 1.0);
@@ -364,7 +414,7 @@ export class WebGL2Renderer {
     intruders: NonNullable<BoardingTacticsTelemetry['intruders']>
   ): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    this.bindFlatProgram(matrix);
 
     for (const intruder of intruders) {
       if (intruder.state === 'neutralized') continue;
@@ -392,7 +442,7 @@ export class WebGL2Renderer {
     sentries: NonNullable<BoardingTacticsTelemetry['sentries']>
   ): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    this.bindFlatProgram(matrix);
 
     for (const sentry of sentries) {
       gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.2, 0.25, 0.35, 1.0);
@@ -435,37 +485,54 @@ export class WebGL2Renderer {
 
       gl.uniform4f(gl.getUniformLocation(this.projProg, 'u_color'), r, g, b, 1.0);
 
-      const s = 14;
-      const x1 = proj.x - s;
-      const y1 = proj.y - s;
-      const x2 = proj.x + s;
-      const y2 = proj.y + s;
+      const speed = Math.hypot(proj.vx, proj.vy);
+      const fx = speed > 0 ? proj.vx / speed : 1;
+      const fy = speed > 0 ? proj.vy / speed : 0;
+      const nx = -fy;
+      const ny = fx;
+
+      const beamLen = 32;
+      const halfW = 7;
+
+      const headX = proj.x + fx * 4;
+      const headY = proj.y + fy * 4;
+      const tailX = proj.x - fx * beamLen;
+      const tailY = proj.y - fy * beamLen;
+
+      const c0x = tailX - nx * halfW;
+      const c0y = tailY - ny * halfW;
+      const c1x = tailX + nx * halfW;
+      const c1y = tailY + ny * halfW;
+      const c2x = headX - nx * halfW;
+      const c2y = headY - ny * halfW;
+      const c3x = headX + nx * halfW;
+      const c3y = headY + ny * halfW;
 
       const verts = new Float32Array([
-        x1,
-        y1,
-        0,
-        0,
-        x2,
-        y1,
-        1,
-        0,
-        x1,
-        y2,
-        0,
-        1,
-        x1,
-        y2,
-        0,
-        1,
-        x2,
-        y1,
-        1,
-        0,
-        x2,
-        y2,
-        1,
-        1,
+        c0x,
+        c0y,
+        -1.0,
+        -1.0,
+        c2x,
+        c2y,
+        1.0,
+        -1.0,
+        c1x,
+        c1y,
+        -1.0,
+        1.0,
+        c1x,
+        c1y,
+        -1.0,
+        1.0,
+        c2x,
+        c2y,
+        1.0,
+        -1.0,
+        c3x,
+        c3y,
+        1.0,
+        1.0,
       ]);
 
       gl.bindBuffer(gl.ARRAY_BUFFER, this.dynamicBuffer);
@@ -484,7 +551,7 @@ export class WebGL2Renderer {
     mouse: { x: number; y: number }
   ): void {
     const gl = this.gl;
-    this.useFlatProgram(matrix);
+    this.bindFlatProgram(matrix);
 
     gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.9, 1.0, 0.35);
     const lineVerts: number[] = [];
