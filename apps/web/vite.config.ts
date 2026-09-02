@@ -5,7 +5,9 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      disableOxcRecommendation: true,
+    }),
     styleX({
       aliases: {
         '@kybernetes/ui-tokens/*': [
