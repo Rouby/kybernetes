@@ -1,10 +1,18 @@
 import type {
   BoardingPodState,
   BoardingTacticsTelemetry,
+  DoorState,
+  IntruderAiState,
   IntruderState,
+  ProjectileState,
   SentryGunState,
   StartingRole,
+  WeaponType,
 } from '@kybernetes/protocol';
+import { createInitialDoors, toggleDoor } from '../spatial/doors';
+import { findWaypointPath } from '../spatial/navigation';
+import { applySuctionToPosition, createInitialRoomO2, tickAirVenting } from './airVenting';
+import { createProjectile, tickProjectiles } from './projectiles';
 
 export function createInitialBoardingState(): BoardingTacticsTelemetry {
   return {
@@ -13,6 +21,9 @@ export function createInitialBoardingState(): BoardingTacticsTelemetry {
     sentries: [],
     lockedBulkheads: [],
     ventedRooms: [],
+    doors: createInitialDoors(),
+    projectiles: [],
+    roomO2: createInitialRoomO2(),
   };
 }
 
@@ -20,13 +31,12 @@ const ROOM_CENTERS: Record<string, { x: number; y: number }> = {
   bridge: { x: 220, y: 170 },
   quarters: { x: 590, y: 170 },
   mess: { x: 970, y: 170 },
-  corridor: { x: 600, y: 340 },
+  corridor: { x: 590, y: 340 },
   armory: { x: 220, y: 570 },
   cargo: { x: 590, y: 570 },
   engineering: { x: 970, y: 570 },
 };
 
-// fallow-ignore-next-line complexity
 export function spawnBoardingEvent(
   state: BoardingTacticsTelemetry,
   breachRoomId = 'cargo'
@@ -54,7 +64,9 @@ export function spawnBoardingEvent(
     currentRoomId: breachRoomId,
     targetRoomId: 'engineering',
     state: 'advancing',
+    aiState: 'advancing',
     sabotageSecondsRemaining: 20,
+    lastShotTime: 0,
   };
 
   const raiderBeta: IntruderState = {
@@ -68,7 +80,9 @@ export function spawnBoardingEvent(
     currentRoomId: breachRoomId,
     targetRoomId: 'bridge',
     state: 'advancing',
+    aiState: 'advancing',
     sabotageSecondsRemaining: 20,
+    lastShotTime: 0,
   };
 
   return {
@@ -78,49 +92,7 @@ export function spawnBoardingEvent(
   };
 }
 
-// fallow-ignore-next-line complexity
-function updateIntruderMovement(
-  intruder: IntruderState,
-  target: { x: number; y: number },
-  dtSeconds: number,
-  isBlockedByLock: boolean
-): { x: number; y: number; facingAngle: number; state: IntruderState['state'] } {
-  if (isBlockedByLock) {
-    return {
-      x: intruder.x,
-      y: intruder.y,
-      facingAngle: intruder.facingAngle,
-      state: 'advancing',
-    };
-  }
-
-  const dx = target.x - intruder.x;
-  const dy = target.y - intruder.y;
-  const dist = Math.hypot(dx, dy);
-
-  if (dist < 15) {
-    return {
-      x: target.x,
-      y: target.y,
-      facingAngle: intruder.facingAngle,
-      state: 'sabotaging',
-    };
-  }
-
-  const speed = 40 * dtSeconds;
-  const step = Math.min(speed, dist);
-  const angle = Math.atan2(dy, dx);
-
-  return {
-    x: Number((intruder.x + Math.cos(angle) * step).toFixed(2)),
-    y: Number((intruder.y + Math.sin(angle) * step).toFixed(2)),
-    facingAngle: angle,
-    state: 'advancing',
-  };
-}
-
-// fallow-ignore-next-line complexity
-function determineRoomFromCoords(x: number, y: number): string {
+export function determineRoomFromCoords(x: number, y: number): string {
   if (y < 280) {
     if (x < 400) return 'bridge';
     if (x < 800) return 'quarters';
@@ -132,30 +104,233 @@ function determineRoomFromCoords(x: number, y: number): string {
   return 'engineering';
 }
 
+// fallow-ignore-next-line complexity
+function moveAlongWaypoints(
+  intruder: IntruderState,
+  targetRoomId: string,
+  dtSeconds: number,
+  doors: DoorState[],
+  isLocked: boolean
+): { x: number; y: number; facingAngle: number; atTarget: boolean; blockedDoorId?: string } {
+  if (isLocked) {
+    return { x: intruder.x, y: intruder.y, facingAngle: intruder.facingAngle, atTarget: false };
+  }
+
+  const path = findWaypointPath(intruder.x, intruder.y, targetRoomId);
+  if (path.length === 0) {
+    return { x: intruder.x, y: intruder.y, facingAngle: intruder.facingAngle, atTarget: true };
+  }
+
+  // Next waypoint to head towards
+  const nextNode = path[0];
+  const dist = Math.hypot(nextNode.x - intruder.x, nextNode.y - intruder.y);
+
+  if (dist < 12 && path.length === 1) {
+    return { x: nextNode.x, y: nextNode.y, facingAngle: intruder.facingAngle, atTarget: true };
+  }
+
+  const targetNode = dist < 12 && path.length > 1 ? path[1] : nextNode;
+
+  // Check if target node is a closed door
+  const isClosedDoor = doors.some(
+    (d) =>
+      !d.isOpen &&
+      Math.hypot((d.x1 + d.x2) / 2 - targetNode.x, (d.y1 + d.y2) / 2 - targetNode.y) < 25
+  );
+
+  if (isClosedDoor) {
+    const door = doors.find(
+      (d) =>
+        !d.isOpen &&
+        Math.hypot((d.x1 + d.x2) / 2 - targetNode.x, (d.y1 + d.y2) / 2 - targetNode.y) < 25
+    );
+    return {
+      x: intruder.x,
+      y: intruder.y,
+      facingAngle: intruder.facingAngle,
+      atTarget: false,
+      blockedDoorId: door?.id,
+    };
+  }
+
+  const dx = targetNode.x - intruder.x;
+  const dy = targetNode.y - intruder.y;
+  const angle = Math.atan2(dy, dx);
+  const speed = 45 * dtSeconds;
+  const step = Math.min(speed, Math.hypot(dx, dy));
+
+  return {
+    x: Number((intruder.x + Math.cos(angle) * step).toFixed(2)),
+    y: Number((intruder.y + Math.sin(angle) * step).toFixed(2)),
+    facingAngle: angle,
+    atTarget: false,
+  };
+}
+
+// fallow-ignore-next-line complexity
+function updateSingleIntruderAI(
+  intruder: IntruderState,
+  state: BoardingTacticsTelemetry,
+  roomO2: Record<string, number>,
+  ventingRes: ReturnType<typeof tickAirVenting>,
+  nextSentries: SentryGunState[],
+  doors: DoorState[],
+  playerPos: { x: number; y: number },
+  dtSeconds: number,
+  spawnedProjectiles: ProjectileState[]
+): {
+  nextObj: IntruderState;
+  sabotageDetonated: boolean;
+  hullDamage: number;
+} {
+  if (intruder.state === 'neutralized') {
+    return { nextObj: intruder, sabotageDetonated: false, hullDamage: 0 };
+  }
+
+  const currentRoom = determineRoomFromCoords(intruder.x, intruder.y);
+  let health = intruder.health;
+  const currentO2 = roomO2[currentRoom] ?? 100;
+  const isVented =
+    state.ventedRooms.includes(currentRoom) || ventingRes.ventedRooms.includes(currentRoom);
+
+  if (isVented || currentO2 < 25) {
+    health = Math.max(0, health - 15 * dtSeconds);
+  }
+
+  const sentry = nextSentries.find((s) => s.isFiring && s.targetIntruderId === intruder.id);
+  if (sentry) {
+    health = Math.max(0, health - 25 * dtSeconds);
+  }
+
+  if (health <= 0) {
+    return {
+      nextObj: { ...intruder, health: 0, state: 'neutralized', aiState: 'neutralized' },
+      sabotageDetonated: false,
+      hullDamage: 0,
+    };
+  }
+
+  const suckedPos = applySuctionToPosition(
+    intruder.x,
+    intruder.y,
+    ventingRes.activeSuctions,
+    currentRoom,
+    dtSeconds
+  );
+
+  let aiState: IntruderAiState = intruder.state === 'sabotaging' ? 'sabotaging' : 'advancing';
+  let targetRoom = intruder.targetRoomId;
+
+  if (currentO2 < 25 || isVented) {
+    aiState = 'fleeing_vacuum';
+    const safeRoom =
+      Object.entries(roomO2).find(([r, o2]) => o2 > 60 && r !== currentRoom)?.[0] || 'corridor';
+    targetRoom = safeRoom;
+  } else if (Math.hypot(playerPos.x - suckedPos.x, playerPos.y - suckedPos.y) < 220) {
+    aiState = 'attacking_player';
+    const angle = Math.atan2(playerPos.y - suckedPos.y, playerPos.x - suckedPos.x);
+
+    const now = Date.now();
+    const lastShot = intruder.lastShotTime || 0;
+    if (now - lastShot > 1200) {
+      spawnedProjectiles.push(
+        createProjectile(suckedPos.x, suckedPos.y, playerPos.x, playerPos.y, 'raider_plasma', false)
+      );
+      intruder.lastShotTime = now;
+    }
+
+    return {
+      nextObj: {
+        ...intruder,
+        x: suckedPos.x,
+        y: suckedPos.y,
+        facingAngle: angle,
+        health: Number(health.toFixed(1)),
+        currentRoomId: currentRoom,
+        aiState,
+      },
+      sabotageDetonated: false,
+      hullDamage: 0,
+    };
+  }
+
+  const isLocked = state.lockedBulkheads.includes(currentRoom);
+  const moveRes = moveAlongWaypoints(intruder, targetRoom, dtSeconds, doors, isLocked);
+
+  if (moveRes.blockedDoorId) {
+    aiState = 'attacking_door';
+  } else if (moveRes.atTarget && targetRoom === intruder.targetRoomId) {
+    aiState = 'sabotaging';
+  }
+
+  let sabotageTimer = intruder.sabotageSecondsRemaining;
+  let sabotageDetonated = false;
+  let hullDamage = 0;
+
+  if (aiState === 'sabotaging') {
+    sabotageTimer = Math.max(0, sabotageTimer - dtSeconds);
+    if (sabotageTimer <= 0) {
+      sabotageDetonated = true;
+      hullDamage = 35;
+      return {
+        nextObj: {
+          ...intruder,
+          health: 0,
+          state: 'neutralized',
+          aiState: 'neutralized',
+          sabotageSecondsRemaining: 0,
+        },
+        sabotageDetonated,
+        hullDamage,
+      };
+    }
+  }
+
+  return {
+    nextObj: {
+      ...intruder,
+      x: moveRes.x,
+      y: moveRes.y,
+      facingAngle: moveRes.facingAngle,
+      currentRoomId: currentRoom,
+      state: (aiState === 'sabotaging' ? 'sabotaging' : 'advancing') as IntruderState['state'],
+      aiState,
+      health: Number(health.toFixed(1)),
+      sabotageSecondsRemaining: Number(sabotageTimer.toFixed(1)),
+      targetDoorId: moveRes.blockedDoorId,
+    },
+    sabotageDetonated,
+    hullDamage,
+  };
+}
+
 export interface BoardingCombatTickResult {
   nextState: BoardingTacticsTelemetry;
   sabotageDetonated: boolean;
   hullDamageInflicted: number;
+  playerDamageTaken: number;
 }
 
 // fallow-ignore-next-line complexity
 export function tickBoardingCombat(
   state: BoardingTacticsTelemetry,
-  dtSeconds: number
+  dtSeconds: number,
+  playerPos: { x: number; y: number } = { x: 100, y: 100 }
 ): BoardingCombatTickResult {
   let sabotageDetonated = false;
   let hullDamageInflicted = 0;
 
-  // 1. Process Sentry Targeting & Firing
-  const nextSentries = state.sentries.map((sentry) => {
-    if (sentry.ammo <= 0) {
-      return { ...sentry, isFiring: false, targetIntruderId: null };
-    }
+  // 1. Tick Air Venting & Suction Physics
+  const doors = state.doors || createInitialDoors();
+  const ventingRes = tickAirVenting(state.roomO2 || createInitialRoomO2(), doors, dtSeconds);
+  const roomO2 = ventingRes.nextRoomO2;
 
+  // 2. Process Sentry Targeting & Firing
+  const nextSentries = state.sentries.map((sentry) => {
+    if (sentry.ammo <= 0) return { ...sentry, isFiring: false, targetIntruderId: null };
     const target = state.intruders.find(
       (i) => i.state !== 'neutralized' && determineRoomFromCoords(i.x, i.y) === sentry.roomId
     );
-
     if (target) {
       const angle = Math.atan2(target.y - sentry.y, target.x - sentry.x);
       return {
@@ -166,73 +341,59 @@ export function tickBoardingCombat(
         ammo: Math.max(0, sentry.ammo - Math.round(dtSeconds * 2)),
       };
     }
-
     return { ...sentry, isFiring: false, targetIntruderId: null };
   });
 
-  // 2. Process Intruder AI & Hazard Degradation
-  const nextIntruders = state.intruders.map((intruder) => {
-    if (intruder.state === 'neutralized') return intruder;
+  const spawnedProjectiles: ProjectileState[] = [];
 
-    const currentRoom = determineRoomFromCoords(intruder.x, intruder.y);
-    let health = intruder.health;
+  // 3. Process Raider DecisionTreeAI
+  const nextIntruders: IntruderState[] = [];
+  for (const intruder of state.intruders) {
+    const res = updateSingleIntruderAI(
+      intruder,
+      state,
+      roomO2,
+      ventingRes,
+      nextSentries,
+      doors,
+      playerPos,
+      dtSeconds,
+      spawnedProjectiles
+    );
+    nextIntruders.push(res.nextObj);
+    if (res.sabotageDetonated) sabotageDetonated = true;
+    hullDamageInflicted += res.hullDamage;
+  }
 
-    // Atmospheric Venting Asphyxiation
-    if (state.ventedRooms.includes(currentRoom)) {
-      health = Math.max(0, health - 15 * dtSeconds);
-    }
+  // 4. Tick Projectiles & Check Collisions
+  const allProjectiles = [...(state.projectiles || []), ...spawnedProjectiles];
+  const projRes = tickProjectiles(allProjectiles, dtSeconds, doors, nextIntruders, playerPos);
 
-    // Sentry Gun Kinetic Damage
-    const activeSentry = nextSentries.find((s) => s.isFiring && s.targetIntruderId === intruder.id);
-    if (activeSentry) {
-      health = Math.max(0, health - 25 * dtSeconds);
-    }
-
-    if (health <= 0) {
-      return { ...intruder, health: 0, state: 'neutralized' as const };
-    }
-
-    // Check if path is blocked by locked bulkheads
-    const isLocked = state.lockedBulkheads.includes(currentRoom);
-
-    const targetPos = ROOM_CENTERS[intruder.targetRoomId] || { x: 970, y: 570 };
-    const mov = updateIntruderMovement(intruder, targetPos, dtSeconds, isLocked);
-
-    let sabotageTimer = intruder.sabotageSecondsRemaining;
-    if (mov.state === 'sabotaging') {
-      sabotageTimer = Math.max(0, sabotageTimer - dtSeconds);
-      if (sabotageTimer <= 0) {
-        sabotageDetonated = true;
-        hullDamageInflicted += 35;
-        return {
-          ...intruder,
-          health: 0,
-          state: 'neutralized' as const,
-          sabotageSecondsRemaining: 0,
-        };
+  // Apply projectile damage to intruders
+  for (const hit of projRes.damagedIntruders) {
+    const match = nextIntruders.find((i) => i.id === hit.id);
+    if (match && match.state !== 'neutralized') {
+      match.health = Math.max(0, match.health - hit.damage);
+      if (match.health <= 0) {
+        match.state = 'neutralized';
+        match.aiState = 'neutralized';
       }
     }
-
-    return {
-      ...intruder,
-      x: mov.x,
-      y: mov.y,
-      facingAngle: mov.facingAngle,
-      currentRoomId: currentRoom,
-      state: mov.state,
-      health: Number(health.toFixed(1)),
-      sabotageSecondsRemaining: Number(sabotageTimer.toFixed(1)),
-    };
-  });
+  }
 
   return {
     nextState: {
       ...state,
+      doors,
+      roomO2,
+      ventedRooms: ventingRes.ventedRooms,
       sentries: nextSentries,
       intruders: nextIntruders,
+      projectiles: projRes.nextProjectiles,
     },
     sabotageDetonated,
     hullDamageInflicted,
+    playerDamageTaken: projRes.playerDamageTaken,
   };
 }
 
@@ -248,10 +409,10 @@ export interface IntruderEngagementResult {
 export function engageIntruder(
   state: BoardingTacticsTelemetry,
   intruderId: string,
-  weaponType: 'kinetic_rifle' | 'arc_welder' | 'shock_baton' = 'kinetic_rifle',
+  weaponType: WeaponType | string = 'kinetic_carbine',
   role: StartingRole = 'wiper'
 ): IntruderEngagementResult {
-  const baseDmg = weaponType === 'kinetic_rifle' ? 45 : weaponType === 'arc_welder' ? 35 : 25;
+  const baseDmg = weaponType === 'pulse_laser' ? 40 : weaponType === 'arc_welder' ? 65 : 45; // kinetic_carbine or kinetic_rifle
   const roleMultiplier = role === 'security_private' ? 1.25 : 1.0;
   const damageDealt = Math.round(baseDmg * roleMultiplier);
 
@@ -261,13 +422,12 @@ export function engageIntruder(
 
   const nextIntruders = state.intruders.map((i) => {
     if (i.id !== intruderId || i.state === 'neutralized') return i;
-
     const nextHealth = Math.max(0, i.health - damageDealt);
     if (nextHealth <= 0) {
       neutralized = true;
       creditsReward = 50;
       xpReward = 40;
-      return { ...i, health: 0, state: 'neutralized' as const };
+      return { ...i, health: 0, state: 'neutralized' as const, aiState: 'neutralized' as const };
     }
     return { ...i, health: nextHealth };
   });
@@ -323,9 +483,14 @@ export function toggleRoomVenting(
   roomId: string,
   venting: boolean
 ): BoardingTacticsTelemetry {
+  const doors = state.doors || createInitialDoors();
+  // Find matching airlock for this room
+  const airlock = doors.find((d) => d.isAirlock && d.roomA === roomId);
+  const nextDoors = airlock ? toggleDoor(doors, airlock.id, venting) : doors;
+
   const nextVented = venting
     ? Array.from(new Set([...state.ventedRooms, roomId]))
     : state.ventedRooms.filter((id) => id !== roomId);
 
-  return { ...state, ventedRooms: nextVented };
+  return { ...state, doors: nextDoors, ventedRooms: nextVented };
 }

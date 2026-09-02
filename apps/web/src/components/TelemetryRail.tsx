@@ -4,6 +4,7 @@ import type {
   NavalDamageEventType,
   SubsystemStatus,
   TelemetryDeltaBroadcast,
+  WeaponType,
 } from '@kybernetes/protocol';
 import type { RoleDefinition } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
@@ -463,22 +464,32 @@ const ThreatTickerSection: React.FC<{
 // fallow-ignore-next-line complexity
 function BoardingTacticsSection({
   boarding,
+  equippedWeapon = 'kinetic_carbine',
   onSimBoarding,
   onEngage,
   onBulkheadLock,
   onVentCompartment,
   onDeploySentry,
+  onEquipWeapon,
+  onToggleDoor,
 }: {
   boarding?: BoardingTacticsTelemetry;
+  equippedWeapon?: WeaponType;
   onSimBoarding?: (breachRoomId?: string) => void;
   onEngage?: (intruderId: string) => void;
   onBulkheadLock?: (roomId: string, locked: boolean) => void;
   onVentCompartment?: (roomId: string, venting: boolean) => void;
   onDeploySentry?: (roomId: string) => void;
+  onEquipWeapon?: (weapon: WeaponType) => void;
+  onToggleDoor?: (doorId: string, open: boolean) => void;
 }) {
   const activeIntruders = boarding?.intruders.filter((i) => i.state !== 'neutralized') || [];
   const locked = boarding?.lockedBulkheads || [];
   const vented = boarding?.ventedRooms || [];
+  const doors = boarding?.doors || [];
+
+  const cargoAirlock = doors.find((d) => d.id === 'airlock_cargo');
+  const westAirlock = doors.find((d) => d.id === 'airlock_west');
 
   return (
     <div>
@@ -492,6 +503,48 @@ function BoardingTacticsSection({
         </span>
       </div>
 
+      {/* Equipped Weapon Toolbar */}
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ fontSize: 10, color: hudColors.textSecondary, marginBottom: 3 }}>
+          EQUIPPED WEAPON (SWAP VIA [E] IN ARMORY OR [1][2][3]):
+        </div>
+        <div style={{ display: 'flex', gap: 3 }}>
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={
+              equippedWeapon === 'kinetic_carbine'
+                ? { borderColor: '#00e5ff', color: '#00e5ff', fontWeight: 700 }
+                : { opacity: 0.6 }
+            }
+            onClick={() => onEquipWeapon?.('kinetic_carbine')}
+          >
+            [1] KINETIC
+          </button>
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={
+              equippedWeapon === 'pulse_laser'
+                ? { borderColor: '#ffea00', color: '#ffea00', fontWeight: 700 }
+                : { opacity: 0.6 }
+            }
+            onClick={() => onEquipWeapon?.('pulse_laser')}
+          >
+            [2] LASER
+          </button>
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={
+              equippedWeapon === 'arc_welder'
+                ? { borderColor: '#76ff03', color: '#76ff03', fontWeight: 700 }
+                : { opacity: 0.6 }
+            }
+            onClick={() => onEquipWeapon?.('arc_welder')}
+          >
+            [3] WELDER
+          </button>
+        </div>
+      </div>
+
       {activeIntruders.map((intruder) => (
         <div key={intruder.id} {...stylex.props(styles.threatCard)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -501,8 +554,10 @@ function BoardingTacticsSection({
             </span>
           </div>
           <div style={{ fontSize: 10, color: hudColors.textSecondary, marginBottom: 4 }}>
-            HP: {Math.round(intruder.health)}/{intruder.maxHealth} | State:{' '}
-            {intruder.state.toUpperCase()}
+            HP: {Math.round(intruder.health)}/{intruder.maxHealth} | AI:{' '}
+            <span style={{ color: '#ff80ab', fontWeight: 700 }}>
+              {(intruder.aiState || intruder.state).toUpperCase()}
+            </span>
             {intruder.state === 'sabotaging' && (
               <span style={{ color: '#ff1744', fontWeight: 700 }}>
                 {' '}
@@ -546,16 +601,33 @@ function BoardingTacticsSection({
           <button
             {...stylex.props(styles.simBtn)}
             style={
-              vented.includes('cargo') ? { borderColor: '#00e5ff', color: '#00e5ff' } : undefined
+              vented.includes('cargo') || cargoAirlock?.isOpen
+                ? { borderColor: '#00e5ff', color: '#00e5ff' }
+                : undefined
             }
-            onClick={() => onVentCompartment?.('cargo', !vented.includes('cargo'))}
+            onClick={() => {
+              if (cargoAirlock && onToggleDoor) {
+                onToggleDoor(cargoAirlock.id, !cargoAirlock.isOpen);
+              }
+              onVentCompartment?.('cargo', !vented.includes('cargo'));
+            }}
           >
-            {vented.includes('cargo') ? 'SEAL CARGO O2' : 'VENT CARGO O2'}
+            {vented.includes('cargo') || cargoAirlock?.isOpen ? 'SEAL CARGO O2' : 'VENT CARGO O2'}
           </button>
           <button {...stylex.props(styles.simBtn)} onClick={() => onDeploySentry?.('cargo')}>
             DEPLOY SENTRY (CARGO)
           </button>
         </div>
+
+        {westAirlock && onToggleDoor && (
+          <button
+            {...stylex.props(styles.simBtn)}
+            style={westAirlock.isOpen ? { borderColor: '#00e5ff', color: '#00e5ff' } : undefined}
+            onClick={() => onToggleDoor(westAirlock.id, !westAirlock.isOpen)}
+          >
+            {westAirlock.isOpen ? 'SEAL PORT AIRLOCK (VACUUM)' : 'VENT PORT AIRLOCK (SPACE)'}
+          </button>
+        )}
 
         <div {...stylex.props(styles.simBtnRow)}>
           <button
@@ -574,6 +646,7 @@ function BoardingTacticsSection({
 interface TelemetryRailProps {
   telemetry: TelemetryDeltaBroadcast;
   roleDef: RoleDefinition;
+  equippedWeapon?: WeaponType;
   onToggleBattleStations: (level: 'nominal' | 'yellow' | 'red') => void;
   onTriggerPdtIntercept: (eventId: string) => void;
   onDeployFireSuppression: (roomId: string) => void;
@@ -585,11 +658,14 @@ interface TelemetryRailProps {
   onBulkheadLock?: (roomId: string, locked: boolean) => void;
   onVentCompartment?: (roomId: string, venting: boolean) => void;
   onDeploySentry?: (roomId: string) => void;
+  onEquipWeapon?: (weapon: WeaponType) => void;
+  onToggleDoor?: (doorId: string, open: boolean) => void;
 }
 
 export const TelemetryRail: React.FC<TelemetryRailProps> = ({
   telemetry,
   roleDef,
+  equippedWeapon,
   onToggleBattleStations,
   onTriggerPdtIntercept,
   onDeployFireSuppression,
@@ -601,6 +677,8 @@ export const TelemetryRail: React.FC<TelemetryRailProps> = ({
   onBulkheadLock,
   onVentCompartment,
   onDeploySentry,
+  onEquipWeapon,
+  onToggleDoor,
 }) => (
   <aside {...stylex.props(styles.panel)}>
     <div {...stylex.props(styles.title)}>Telemetry & Subsystems</div>
@@ -616,11 +694,14 @@ export const TelemetryRail: React.FC<TelemetryRailProps> = ({
     />
     <BoardingTacticsSection
       boarding={telemetry.boarding}
+      equippedWeapon={equippedWeapon}
       onSimBoarding={onTriggerBoarding}
       onEngage={onEngageIntruder}
       onBulkheadLock={onBulkheadLock}
       onVentCompartment={onVentCompartment}
       onDeploySentry={onDeploySentry}
+      onEquipWeapon={onEquipWeapon}
+      onToggleDoor={onToggleDoor}
     />
     <div style={{ marginTop: 'auto' }}>
       <div {...stylex.props(styles.sectionHeader)}>Station Assignment</div>

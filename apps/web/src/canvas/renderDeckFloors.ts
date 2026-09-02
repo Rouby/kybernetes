@@ -1,7 +1,7 @@
 import type { RoomDefinition } from '@kybernetes/sim-core';
 
-// Helper to draw yellow/black diagonal hazard stripes
-function drawHazardStripes(
+// Helper to draw iconic FTL diagonal vacuum warning stripes (pink/red hazard)
+function drawFtlVacuumStripes(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -13,235 +13,194 @@ function drawHazardStripes(
   ctx.rect(x, y, w, h);
   ctx.clip();
 
-  ctx.fillStyle = '#ffb000';
+  // FTL low-O2 pale red background
+  ctx.fillStyle = '#ffcdd2';
   ctx.fillRect(x, y, w, h);
 
-  ctx.strokeStyle = '#1a1805';
-  ctx.lineWidth = 6;
-  for (let sx = x - h; sx < x + w + h; sx += 14) {
+  // FTL diagonal warning stripes
+  ctx.strokeStyle = '#ef9a9a';
+  ctx.lineWidth = 10;
+  for (let sx = x - h; sx < x + w + h; sx += 22) {
     ctx.beginPath();
     ctx.moveTo(sx, y);
     ctx.lineTo(sx + h, y + h);
     ctx.stroke();
   }
+
+  // Warning text in center
+  ctx.font = 'bold 12px monospace';
+  ctx.fillStyle = '#b71c1c';
+  ctx.fillText('⚠ VACUUM / DECOMPRESSED', x + 15, y + 25);
+
   ctx.restore();
 }
 
-function drawBridgeFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
-  const { x, y, width: w, height: h } = room;
-  ctx.fillStyle = '#0a121c';
-  ctx.fillRect(x, y, w, h);
+// Stamped FTL system floor emblems directly on the grid
+// fallow-ignore-next-line complexity
+function drawFtlFloorEmblem(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
+  const cx = room.x + room.width / 2;
+  const cy = room.y + room.height / 2;
 
-  ctx.strokeStyle = '#142133';
-  ctx.lineWidth = 1;
-  for (let gx = x + 30; gx < x + w; gx += 50) {
+  ctx.save();
+
+  if (room.id === 'mess' || room.id === 'lifesupport') {
+    // [O2] Emblem
+    ctx.fillStyle = 'rgba(2, 132, 199, 0.18)';
+    ctx.fillRect(cx - 30, cy - 20, 60, 40);
+    ctx.strokeStyle = '#0284c7';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx - 30, cy - 20, 60, 40);
+    ctx.font = 'bold 18px monospace';
+    ctx.fillStyle = '#0369a1';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('O2', cx, cy);
+  } else if (room.id === 'engineering') {
+    // [ENG] Emblem
+    ctx.fillStyle = 'rgba(234, 88, 12, 0.16)';
     ctx.beginPath();
-    ctx.moveTo(gx, y);
-    ctx.lineTo(gx, y + h);
-    ctx.stroke();
-  }
-  for (let gy = y + 25; gy < y + h; gy += 45) {
-    ctx.beginPath();
-    ctx.moveTo(x, gy);
-    ctx.lineTo(x + w, gy);
-    ctx.stroke();
-  }
-
-  // Glowing cyan command ring around bridge helm
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.22)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(x + 160, y + 100, 70, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.12)';
-  ctx.strokeRect(x + 15, y + 15, w - 30, h - 30);
-}
-
-function drawEngineeringFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
-  const { x, y, width: w, height: h } = room;
-  ctx.fillStyle = '#0d131b';
-  ctx.fillRect(x, y, w, h);
-
-  ctx.strokeStyle = '#182433';
-  ctx.lineWidth = 1;
-  for (let gx = x + 25; gx < x + w; gx += 35) {
-    ctx.beginPath();
-    ctx.moveTo(gx, y);
-    ctx.lineTo(gx, y + h);
-    ctx.stroke();
-  }
-  for (let gy = y + 25; gy < y + h; gy += 35) {
-    ctx.beginPath();
-    ctx.moveTo(x, gy);
-    ctx.lineTo(x + w, gy);
-    ctx.stroke();
-  }
-
-  drawHazardStripes(ctx, x + 80, y + 120, 180, 10);
-  drawHazardStripes(ctx, x + 80, y + 230, 180, 10);
-
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(x + 20, y + 175);
-  ctx.lineTo(x + 80, y + 175);
-  ctx.moveTo(x + 260, y + 175);
-  ctx.lineTo(x + w - 20, y + 175);
-  ctx.stroke();
-}
-
-function drawQuartersFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
-  const { x, y, width: w, height: h } = room;
-  ctx.fillStyle = '#0f1724';
-  ctx.fillRect(x, y, w, h);
-
-  ctx.fillStyle = '#162234';
-  ctx.fillRect(x + 20, y + 90, w - 40, 50);
-
-  ctx.strokeStyle = '#22344d';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x + 20, y + 90, w - 40, 50);
-}
-
-function drawMessFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
-  const { x, y, width: w, height: h } = room;
-  ctx.fillStyle = '#0c131d';
-  ctx.fillRect(x, y, w, h);
-
-  const tileSize = 30;
-  ctx.fillStyle = '#111b29';
-  for (let tx = x; tx < x + w; tx += tileSize * 2) {
-    for (let ty = y; ty < y + h; ty += tileSize * 2) {
-      ctx.fillRect(tx, ty, tileSize, tileSize);
-      ctx.fillRect(tx + tileSize, ty + tileSize, tileSize, tileSize);
-    }
-  }
-  ctx.strokeStyle = '#182538';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, w, h);
-}
-
-function drawArmoryFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
-  const { x, y, width: w, height: h } = room;
-  ctx.fillStyle = '#12161f';
-  ctx.fillRect(x, y, w, h);
-
-  ctx.strokeStyle = '#1f2735';
-  ctx.lineWidth = 2;
-  for (let gx = x + 40; gx < x + w; gx += 60) {
-    ctx.beginPath();
-    ctx.moveTo(gx, y);
-    ctx.lineTo(gx, y + h);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = 'rgba(255, 34, 68, 0.25)';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(x + 20, y + 20, w - 40, h - 40);
-}
-
-function drawCargoFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
-  const { x, y, width: w, height: h } = room;
-  ctx.fillStyle = '#0e141d';
-  ctx.fillRect(x, y, w, h);
-
-  ctx.strokeStyle = '#16202e';
-  ctx.lineWidth = 1;
-  for (let gx = x + 35; gx < x + w; gx += 40) {
-    ctx.beginPath();
-    ctx.moveTo(gx, y);
-    ctx.lineTo(gx, y + h);
-    ctx.stroke();
-  }
-  for (let gy = y + 35; gy < y + h; gy += 40) {
-    ctx.beginPath();
-    ctx.moveTo(x, gy);
-    ctx.lineTo(x + w, gy);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = '#ffb00088';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x + 30, y + 40, 140, 120);
-  ctx.strokeRect(x + 210, y + 40, 140, 120);
-
-  ctx.font = 'bold 9px monospace';
-  ctx.fillStyle = '#ffb00088';
-  ctx.fillText('BAY-01', x + 40, y + 60);
-  ctx.fillText('BAY-02', x + 220, y + 60);
-}
-
-function drawCorridorFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
-  const { x, y, width: w, height: h } = room;
-  ctx.fillStyle = '#090e15';
-  ctx.fillRect(x, y, w, h);
-
-  ctx.strokeStyle = '#141e2b';
-  ctx.lineWidth = 1;
-  for (let gx = x; gx < x + w; gx += 40) {
-    ctx.beginPath();
-    ctx.moveTo(gx, y);
-    ctx.lineTo(gx, y + h);
-    ctx.stroke();
-  }
-
-  for (let lx = x + 30; lx < x + w; lx += 45) {
-    ctx.fillStyle = 'rgba(0, 229, 255, 0.4)';
-    ctx.beginPath();
-    ctx.arc(lx, y + h / 2, 2, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 32, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#ea580c';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.font = 'bold 14px monospace';
+    ctx.fillStyle = '#c2410c';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('ENG', cx, cy);
+  } else if (room.id === 'armory') {
+    // [WPN] Emblem
+    ctx.fillStyle = 'rgba(220, 38, 38, 0.16)';
+    ctx.fillRect(cx - 28, cy - 20, 56, 40);
+    ctx.strokeStyle = '#dc2626';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx - 28, cy - 20, 56, 40);
+    ctx.font = 'bold 14px monospace';
+    ctx.fillStyle = '#b91c1c';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('WPN', cx, cy);
+  } else if (room.id === 'bridge') {
+    // [NAV] Emblem
+    ctx.fillStyle = 'rgba(14, 165, 233, 0.16)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0284c7';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = 'bold 14px monospace';
+    ctx.fillStyle = '#0369a1';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('NAV', cx, cy);
+  } else if (room.id === 'quarters') {
+    // [MED] Emblem
+    ctx.fillStyle = 'rgba(22, 163, 74, 0.16)';
+    ctx.fillRect(cx - 24, cy - 24, 48, 48);
+    ctx.strokeStyle = '#16a34a';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx - 24, cy - 24, 48, 48);
+    ctx.fillStyle = '#15803d';
+    ctx.fillRect(cx - 5, cy - 16, 10, 32);
+    ctx.fillRect(cx - 16, cy - 5, 32, 10);
+  } else if (room.id === 'cargo') {
+    // [CRG] Emblem
+    ctx.fillStyle = 'rgba(180, 83, 9, 0.16)';
+    ctx.fillRect(cx - 36, cy - 24, 72, 48);
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx - 36, cy - 24, 72, 48);
+    ctx.font = 'bold 14px monospace';
+    ctx.fillStyle = '#92400e';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CARGO', cx, cy);
   }
+
+  ctx.restore();
 }
 
-const FLOOR_RENDERERS: Record<
-  string,
-  (ctx: CanvasRenderingContext2D, room: RoomDefinition) => void
-> = {
-  bridge: drawBridgeFloor,
-  engineering: drawEngineeringFloor,
-  quarters: drawQuartersFloor,
-  mess: drawMessFloor,
-  armory: drawArmoryFloor,
-  cargo: drawCargoFloor,
-  corridor: drawCorridorFloor,
-};
-
-// Rimworld-style ambient occlusion: soft drop shadows on top and left walls
-function drawAmbientOcclusion(ctx: CanvasRenderingContext2D, room: RoomDefinition) {
+// Authentic FTL 35px square grid floor tiles
+// fallow-ignore-next-line complexity
+function drawFtlGridFloor(ctx: CanvasRenderingContext2D, room: RoomDefinition, isVented: boolean) {
   const { x, y, width: w, height: h } = room;
 
-  const topGrad = ctx.createLinearGradient(x, y, x, y + 14);
-  topGrad.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+  if (isVented) {
+    drawFtlVacuumStripes(ctx, x, y, w, h);
+    return;
+  }
+
+  // Crisp FTL off-white/light-grey tile background
+  ctx.fillStyle = room.id === 'corridor' ? '#e2e6eb' : '#edf0f5';
+  ctx.fillRect(x, y, w, h);
+
+  // 35px square grid cells with subtle border lines
+  const gridSize = 35;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+  ctx.lineWidth = 1;
+
+  for (let gx = x; gx <= x + w; gx += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(gx, y);
+    ctx.lineTo(gx, y + h);
+    ctx.stroke();
+  }
+  for (let gy = y; gy <= y + h; gy += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, gy);
+    ctx.lineTo(x + w, gy);
+    ctx.stroke();
+  }
+
+  // Draw stamped system emblem
+  drawFtlFloorEmblem(ctx, room);
+
+  // Subtle interior shadow along top & left bulkheads
+  const topGrad = ctx.createLinearGradient(x, y, x, y + 8);
+  topGrad.addColorStop(0, 'rgba(0, 0, 0, 0.18)');
   topGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = topGrad;
-  ctx.fillRect(x, y, w, 14);
+  ctx.fillRect(x, y, w, 8);
 
-  const leftGrad = ctx.createLinearGradient(x, y, x + 14, y);
-  leftGrad.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+  const leftGrad = ctx.createLinearGradient(x, y, x + 8, y);
+  leftGrad.addColorStop(0, 'rgba(0, 0, 0, 0.18)');
   leftGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = leftGrad;
-  ctx.fillRect(x, y, 14, h);
+  ctx.fillRect(x, y, 8, h);
 }
 
+// fallow-ignore-next-line complexity
 export function renderDeckFloors(
   ctx: CanvasRenderingContext2D,
   rooms: RoomDefinition[],
-  exploredRooms: Set<string>
+  exploredRooms: Set<string>,
+  roomO2Levels?: Record<string, number>,
+  ventedRooms?: string[]
 ): void {
   for (const room of rooms) {
     if (exploredRooms.has(room.id)) {
-      const renderer = FLOOR_RENDERERS[room.id] || drawCorridorFloor;
-      renderer(ctx, room);
-      drawAmbientOcclusion(ctx, room);
+      const o2 = roomO2Levels?.[room.id] ?? 100;
+      const isVented = ventedRooms?.includes(room.id) || o2 < 25;
 
-      ctx.font = 'bold 10px monospace';
-      ctx.fillStyle = '#2c405c';
-      ctx.fillText(room.tag, room.x + 10, room.y + 20);
-      ctx.font = '12px sans-serif';
-      ctx.fillStyle = '#4a658a';
-      ctx.fillText(room.name, room.x + 10, room.y + 36);
+      drawFtlGridFloor(ctx, room, isVented);
+
+      // Clean room label in top-left
+      ctx.font = 'bold 9px monospace';
+      ctx.fillStyle = isVented ? '#b71c1c' : '#475569';
+      ctx.fillText(room.tag, room.x + 8, room.y + 16);
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = isVented ? '#7f1d1d' : '#1e293b';
+      ctx.fillText(room.name, room.x + 8, room.y + 30);
+
+      if (o2 < 100) {
+        ctx.font = 'bold 10px monospace';
+        ctx.fillStyle = o2 < 25 ? '#dc2626' : '#ea580c';
+        ctx.fillText(`O2: ${Math.round(o2)}%`, room.x + room.width - 60, room.y + 16);
+      }
     } else {
-      ctx.fillStyle = '#04070c';
+      ctx.fillStyle = '#06090e';
       ctx.fillRect(room.x, room.y, room.width, room.height);
     }
   }

@@ -2,6 +2,7 @@ import type {
   NavalDamageEventType,
   StartingRole,
   TelemetryDeltaBroadcast,
+  WeaponType,
 } from '@kybernetes/protocol';
 import {
   calculateDutyRewards,
@@ -226,11 +227,37 @@ export const App: React.FC = () => {
   const [clearanceXp, setClearanceXp] = useState(0);
   const [clearanceLevel, setClearanceLevel] = useState(1);
   const [inGameNotice, setInGameNotice] = useState<string | null>(null);
+  const [equippedWeapon, setEquippedWeapon] = useState<WeaponType>('kinetic_carbine');
 
   const { wsConnected, triageNotice, sendAction } = useVesselSocket(setTelemetry);
   const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(role);
 
   const roleDef = getRoleDefinition(role);
+
+  const handleFireWeapon = (
+    originX: number,
+    originY: number,
+    targetX: number,
+    targetY: number,
+    weaponType: WeaponType
+  ) => {
+    sendAction({
+      type: 'FIRE_WEAPON',
+      originX,
+      originY,
+      targetX,
+      targetY,
+      weaponType,
+    });
+  };
+
+  const handleToggleDoor = (doorId: string, open: boolean) => {
+    sendAction({
+      type: 'TOGGLE_DOOR',
+      doorId,
+      open,
+    });
+  };
 
   const { interaction, startInteraction, abortInteraction, tickInteraction } =
     useStationInteraction({
@@ -275,11 +302,33 @@ export const App: React.FC = () => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'KeyE') {
+        if (nearestStation?.id === 'armory_sentry') {
+          setEquippedWeapon((w) => {
+            const next =
+              w === 'kinetic_carbine'
+                ? 'pulse_laser'
+                : w === 'pulse_laser'
+                  ? 'arc_welder'
+                  : 'kinetic_carbine';
+            setInGameNotice(`[ARMORY LOCKER] Equipped: ${next.toUpperCase()}`);
+            return next;
+          });
+          return;
+        }
         if (interaction) {
           abortInteraction();
         } else if (nearestStation) {
           startInteraction(nearestStation);
         }
+      } else if (e.code === 'Digit1') {
+        setEquippedWeapon('kinetic_carbine');
+        setInGameNotice('[LOADOUT] Equipped Kinetic Carbine');
+      } else if (e.code === 'Digit2') {
+        setEquippedWeapon('pulse_laser');
+        setInGameNotice('[LOADOUT] Equipped Pulse Laser');
+      } else if (e.code === 'Digit3') {
+        setEquippedWeapon('arc_welder');
+        setInGameNotice('[LOADOUT] Equipped Arc Welder');
       } else if (e.code === 'KeyF') {
         const active = telemetry.boarding?.intruders.find((i) => i.state !== 'neutralized');
         if (active) {
@@ -373,6 +422,7 @@ export const App: React.FC = () => {
             activeFires={telemetry.activeFires}
             breaches={telemetry.hull?.breaches}
             boarding={telemetry.boarding}
+            equippedWeapon={equippedWeapon}
             onStationClick={(st) => {
               if (interaction) abortInteraction();
               else startInteraction(st);
@@ -381,6 +431,8 @@ export const App: React.FC = () => {
               sendAction({ type: 'ENGAGE_INTRUDER', intruderId: id });
               setInGameNotice('[!] FIRED WEAPON AT INTRUDER');
             }}
+            onFireWeapon={handleFireWeapon}
+            onToggleDoor={handleToggleDoor}
           />
 
           {/* In-Game Round Progress Bar Lean HUD Overlay */}
@@ -420,14 +472,19 @@ export const App: React.FC = () => {
             </span>
             <span>
               <strong>[E]</strong>{' '}
-              {interaction
-                ? `Abort Shift (${Math.round(interaction.progress * 100)}%)`
-                : nearestStation
-                  ? `${nearestStation.name} — ${nearestActionConfig?.actionName || 'Interact'}`
-                  : 'Interact'}
+              {nearestStation?.id === 'armory_sentry'
+                ? `Swap Weapon (${equippedWeapon.toUpperCase()})`
+                : interaction
+                  ? `Abort Shift (${Math.round(interaction.progress * 100)}%)`
+                  : nearestStation
+                    ? `${nearestStation.name} — ${nearestActionConfig?.actionName || 'Interact'}`
+                    : 'Interact'}
             </span>
             <span>
-              <strong>[F]</strong> Fire
+              <strong>[1][2][3]</strong> Weapon
+            </span>
+            <span>
+              <strong>[SPACE / Click]</strong> Aim & Shoot
             </span>
             <span>
               <strong>[ESC]</strong> Abort
@@ -438,6 +495,7 @@ export const App: React.FC = () => {
         <TelemetryRail
           telemetry={telemetry}
           roleDef={roleDef}
+          equippedWeapon={equippedWeapon}
           onToggleBattleStations={(level) => {
             sendAction({ type: 'TOGGLE_BATTLE_STATIONS', alertLevel: level });
             setTelemetry((t) => ({ ...t, alertLevel: level }));
@@ -467,6 +525,8 @@ export const App: React.FC = () => {
             sendAction({ type: 'VENT_COMPARTMENT', compartmentId: roomId, venting })
           }
           onDeploySentry={(roomId) => sendAction({ type: 'DEPLOY_SENTRY', roomId })}
+          onEquipWeapon={setEquippedWeapon}
+          onToggleDoor={handleToggleDoor}
         />
       </main>
 

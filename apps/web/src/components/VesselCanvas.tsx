@@ -1,4 +1,10 @@
-import type { BoardingTacticsTelemetry, PawnState, StationFixture } from '@kybernetes/protocol';
+import type {
+  BoardingTacticsTelemetry,
+  DoorState,
+  PawnState,
+  StationFixture,
+  WeaponType,
+} from '@kybernetes/protocol';
 import {
   HESPERIA_ROOMS,
   HESPERIA_STATIONS,
@@ -14,10 +20,12 @@ import {
   renderBoarding,
   renderBulkheads,
   renderDeckFloors,
+  renderDoorsAndVenting,
   renderFixture,
   renderHazards,
   renderLighting,
   renderPawn,
+  renderProjectiles,
   renderRoundProgressBar,
   renderShipHull,
 } from '../canvas';
@@ -65,6 +73,46 @@ function applyCanvasResize(canvas: HTMLCanvasElement, rect: DOMRectReadOnly) {
   if (canvas.height !== h) canvas.height = h;
 }
 
+// fallow-ignore-next-line complexity
+function drawAimingCrosshair(
+  ctx: CanvasRenderingContext2D,
+  pawnX: number,
+  pawnY: number,
+  mouseX: number,
+  mouseY: number
+) {
+  ctx.save();
+  // Aiming laser guide
+  ctx.strokeStyle = 'rgba(0, 229, 255, 0.28)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(pawnX, pawnY);
+  ctx.lineTo(mouseX, mouseY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Crosshair reticle
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(mouseX, mouseY, 7, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(mouseX - 10, mouseY);
+  ctx.lineTo(mouseX - 4, mouseY);
+  ctx.moveTo(mouseX + 4, mouseY);
+  ctx.lineTo(mouseX + 10, mouseY);
+  ctx.moveTo(mouseX, mouseY - 10);
+  ctx.lineTo(mouseX, mouseY - 4);
+  ctx.moveTo(mouseX, mouseY + 4);
+  ctx.lineTo(mouseX, mouseY + 10);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 interface VesselCanvasProps {
   pawn: PawnState;
   nearestStation: StationFixture | null;
@@ -74,8 +122,71 @@ interface VesselCanvasProps {
   activeFires?: string[];
   breaches?: string[];
   boarding?: BoardingTacticsTelemetry;
+  equippedWeapon?: WeaponType;
   onStationClick?: (station: StationFixture) => void;
   onEngageIntruder?: (intruderId: string) => void;
+  onFireWeapon?: (
+    originX: number,
+    originY: number,
+    targetX: number,
+    targetY: number,
+    weaponType: WeaponType
+  ) => void;
+  onToggleDoor?: (doorId: string, open: boolean) => void;
+}
+
+// fallow-ignore-next-line complexity
+function handleCanvasClick(
+  e: React.MouseEvent<HTMLCanvasElement>,
+  canvas: HTMLCanvasElement | null,
+  camera: { x: number; y: number },
+  pawn: PawnState,
+  equippedWeapon: WeaponType,
+  doors: DoorState[] | undefined,
+  nearestStation: StationFixture | null,
+  onStationClick?: (station: StationFixture) => void,
+  onToggleDoor?: (doorId: string, open: boolean) => void,
+  onFireWeapon?: (
+    originX: number,
+    originY: number,
+    targetX: number,
+    targetY: number,
+    weaponType: WeaponType
+  ) => void
+) {
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const clickY = e.clientY - rect.top;
+  const worldX = clickX - canvas.width / 2 + camera.x;
+  const worldY = clickY - canvas.height / 2 + camera.y;
+
+  // 1. Check if clicked an in-world door
+  if (doors && onToggleDoor) {
+    const clickedDoor = doors.find((d) => {
+      const mx = (d.x1 + d.x2) / 2;
+      const my = (d.y1 + d.y2) / 2;
+      return Math.hypot(mx - worldX, my - worldY) < 32;
+    });
+    if (clickedDoor) {
+      onToggleDoor(clickedDoor.id, !clickedDoor.isOpen);
+      return;
+    }
+  }
+
+  // 2. Check if clicked nearest station
+  if (nearestStation && onStationClick) {
+    const distToStation = Math.hypot(nearestStation.x - worldX, nearestStation.y - worldY);
+    if (distToStation < nearestStation.radius + 10) {
+      onStationClick(nearestStation);
+      return;
+    }
+  }
+
+  // 3. Else: Fire equipped weapon towards mouse click coordinates!
+  if (onFireWeapon) {
+    onFireWeapon(pawn.x, pawn.y, worldX, worldY, equippedWeapon);
+  }
 }
 
 // fallow-ignore-next-line complexity
@@ -88,11 +199,14 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   activeFires = [],
   breaches = [],
   boarding,
+  equippedWeapon = 'kinetic_carbine',
   onStationClick,
-  onEngageIntruder,
+  onFireWeapon,
+  onToggleDoor,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef({ x: pawn.x, y: pawn.y });
+  const mouseWorldRef = useRef({ x: pawn.x + 50, y: pawn.y });
   const exploredRoomsRef = useRef<Set<string>>(new Set(['engineering', 'corridor']));
 
   useEffect(() => {
@@ -111,6 +225,24 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     observer.observe(canvas.parentElement);
     return () => observer.disconnect();
   }, []);
+
+  // Handle Space key to fire towards mouse crosshair
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && onFireWeapon) {
+        e.preventDefault();
+        onFireWeapon(
+          pawn.x,
+          pawn.y,
+          mouseWorldRef.current.x,
+          mouseWorldRef.current.y,
+          equippedWeapon
+        );
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pawn.x, pawn.y, equippedWeapon, onFireWeapon]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -143,11 +275,22 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       // Layer 1: FTL-style outer ship armor hull & thrusters
       renderShipHull(ctx);
 
-      // Layer 2: Room-specific floor plates & ambient occlusion shadows
-      renderDeckFloors(ctx, HESPERIA_ROOMS, exploredRoomsRef.current);
+      // Layer 2: Authentic FTL square grid floors & stamped system emblems
+      renderDeckFloors(
+        ctx,
+        HESPERIA_ROOMS,
+        exploredRoomsRef.current,
+        boarding?.roomO2,
+        boarding?.ventedRooms
+      );
 
-      // Layer 3: FTL-style bulkheads and room subsystem emblems
+      // Layer 3: FTL-style bulkheads
       renderBulkheads(ctx, HESPERIA_WALLS, HESPERIA_ROOMS, exploredRoomsRef.current);
+
+      // Layer 3.5: Operable interior blast doors & exterior hull airlocks with venting streams
+      if (boarding?.doors) {
+        renderDoorsAndVenting(ctx, boarding.doors, performance.now());
+      }
 
       // Layer 4: Detailed Rimworld-style mechanical fixtures
       for (const st of HESPERIA_STATIONS) {
@@ -160,8 +303,16 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       // Layer 5.5: Hostile boarding pods, raiders, and sentry guns
       renderBoarding(ctx, boarding, performance.now());
 
+      // Layer 5.8: Active gun projectiles (cyan lasers and red raider plasma)
+      if (boarding?.projectiles) {
+        renderProjectiles(ctx, boarding.projectiles);
+      }
+
       // Layer 6: Rimworld-style capsule pawn with directional hands
       renderPawn(ctx, pawn);
+
+      // Aiming crosshair & laser sight
+      drawAimingCrosshair(ctx, pawn.x, pawn.y, mouseWorldRef.current.x, mouseWorldRef.current.y);
 
       // Layer 7: Line of Sight raycast lighting & flashlight beam
       renderLighting(ctx, pawn);
@@ -194,36 +345,6 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     boarding,
   ]);
 
-  // fallow-ignore-next-line complexity
-  function handleCanvasClick(
-    e: React.MouseEvent<HTMLCanvasElement>,
-    canvas: HTMLCanvasElement | null,
-    camera: { x: number; y: number },
-    boarding: BoardingTacticsTelemetry | undefined,
-    nearestStation: StationFixture | null,
-    onEngageIntruder?: (intruderId: string) => void,
-    onStationClick?: (station: StationFixture) => void
-  ) {
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-    const worldX = clickX - canvas.width / 2 + camera.x;
-    const worldY = clickY - canvas.height / 2 + camera.y;
-
-    const clickedIntruder = boarding?.intruders.find(
-      (i) => i.state !== 'neutralized' && Math.hypot(i.x - worldX, i.y - worldY) < 30
-    );
-    if (clickedIntruder && onEngageIntruder) {
-      onEngageIntruder(clickedIntruder.id);
-      return;
-    }
-
-    if (nearestStation && onStationClick) {
-      onStationClick(nearestStation);
-    }
-  }
-
   return (
     <canvas
       ref={canvasRef}
@@ -234,17 +355,31 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         width: '100%',
         height: '100%',
         display: 'block',
-        cursor: nearestStation ? 'pointer' : 'crosshair',
+        cursor: 'crosshair',
+      }}
+      onMouseMove={(e) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+        mouseWorldRef.current = {
+          x: clickX - canvas.width / 2 + cameraRef.current.x,
+          y: clickY - canvas.height / 2 + cameraRef.current.y,
+        };
       }}
       onClick={(e) =>
         handleCanvasClick(
           e,
           canvasRef.current,
           cameraRef.current,
-          boarding,
+          pawn,
+          equippedWeapon,
+          boarding?.doors,
           nearestStation,
-          onEngageIntruder,
-          onStationClick
+          onStationClick,
+          onToggleDoor,
+          onFireWeapon
         )
       }
     />

@@ -8,6 +8,7 @@ import type {
 import {
   createInitialVesselState,
   createNavalDamageEvent,
+  createProjectile,
   deployFireSuppression,
   deploySentryGun,
   engageIntruder,
@@ -18,6 +19,7 @@ import {
   stateToTelemetryBroadcast,
   tickVesselState,
   toggleBulkheadLock,
+  toggleDoor,
   toggleRoomVenting,
   type VesselSimulationState,
   ventReactorCoolant,
@@ -129,6 +131,25 @@ export class VesselServer {
       this.handleVentCompartment(action.compartmentId, action.venting);
     } else if (action.type === 'DEPLOY_SENTRY') {
       this.handleDeploySentry(action.roomId);
+    } else if (action.type === 'FIRE_WEAPON') {
+      const proj = createProjectile(
+        action.originX,
+        action.originY,
+        action.targetX,
+        action.targetY,
+        action.weaponType,
+        true
+      );
+      this.vesselState.boarding.projectiles = [
+        ...(this.vesselState.boarding.projectiles || []),
+        proj,
+      ];
+    } else if (action.type === 'TOGGLE_DOOR') {
+      this.vesselState.boarding.doors = toggleDoor(
+        this.vesselState.boarding.doors,
+        action.doorId,
+        action.open
+      );
     }
     this.broadcast(stateToTelemetryBroadcast(this.vesselState));
   }

@@ -5,26 +5,29 @@
 "@kybernetes/web": minor
 ---
 
-### Milestone 4: Hostile Boarding Actions & 2D Tactical Deck Combat
+### Milestone 4: FTL Visual Overhaul, DecisionTreeAI Raider Combat & Realistic Physics Air Venting
 
-![Kybernetes Milestone 4 Tactical Boarding Combat Viewport](https://raw.githubusercontent.com/Rouby/kybernetes/main/docs/images/milestone4_viewport.png)
+![Kybernetes FTL Tactical Combat Viewport](https://raw.githubusercontent.com/Rouby/kybernetes/main/docs/images/ftl_viewport.png)
 
-- **Hostile Boarding Pod Breaches & 2D Intruder AI (`@kybernetes/sim-core`, `apps/server`)**:
-  - Implemented `spawnBoardingEvent`: hostile pods drill through ship hull sections (Cargo Bay, Crew Quarters) and deploy armed raider squads (`Marauder Breacher`, `Marauder Infiltrator`).
-  - Intruder AI pathfinding: raiders navigate deck corridors toward priority ship subsystems (Reactor Core in Engineering, Bridge Helm).
-  - Sabotage countdown: arriving raiders initiate a 20-second sabotage sequence (`state: 'sabotaging'`). If not neutralized in time, shaped charges detonate inflicting 35% hull damage and severe reactor heat spikes.
-- **Tactical Compartment Controls (`@kybernetes/protocol`, `apps/server`, `apps/web`)**:
-  - **Bulkhead Lockdown**: Seal heavy blast doors (`[LOCK CARGO GATES]`, `[LOCK ENG GATES]`) to hold and trap intruders behind reinforced blast barriers with yellow/black hazard chevrons.
-  - **Atmospheric Depressurization / Venting**: Vent oxygen into the space void (`[VENT CARGO O2]`), asphyxiating intruders lacking environmental suits for 15 HP/sec suffocation damage.
-  - **Automated Sentry Turrets**: Deploy automated dual-barrel defense turrets (`[DEPLOY SENTRY (CARGO)]`) that track nearest intruders, rotate in real time, and fire kinetic bursts (25 dmg/sec) with animated muzzle flashes.
-- **Close-Quarters Repel Combat**:
-  - Direct player attack capability via click or `[F]` key (`ENGAGE_INTRUDER`).
-  - Security Private / Marine recruit origin trait bonus applied (+25% combat efficiency).
-  - Neutralizing intruders awards credits, clearance XP, and scrap salvage.
-- **Canvas 2D Rendering Engine (`renderBoarding.ts`)**:
-  - Rimworld-style raider capsule pawns in dark crimson combat armor (`#b71c1c`) with glowing red visors, directional hands, and floating overhead health/sabotage bars.
-  - Boarding pod drill clamps on the hull with emergency red klaxon beacons and breach smoke.
-  - Cyan decompression vacuum wind particle streams across vented compartments.
-  - Swiveling sentry turrets with kinetic tracer bursts and muzzle flashes.
-- **Tactical Security Defense HUD (`TelemetryRail.tsx`)**:
-  - Live intruder threat roster, compartment lockdown controls, venting switches, sentry deployment buttons, and manual simulation trigger (`+ SIM BOARDING SQUAD`).
+- **Authentic FTL Interior Visuals & Grid Layout (`apps/web`)**:
+  - Crisp FTL off-white / light slate grid floor plating (`#edf0f5`) with 35px square grid cells.
+  - Stamped subsystem floor emblems directly on the grid (`[O2]`, `[ENG]`, `[WPN]`, `[MED]`, `[NAV]`, `[CARGO]`).
+  - Iconic FTL diagonal red/pink vacuum warning hazard stripes (`#ffcdd2` background with `#ef9a9a` stripes) across decompressed compartments.
+  - Double-lined dark slate bulkheads (`#27384d`) with operable sliding blast doors and status LEDs.
+- **DecisionTreeAI Raiders & Waypoint Navigation (`@kybernetes/sim-core`)**:
+  - Implemented graph-based waypoint pathfinding through doorways and corridors (no more walking through walls!).
+  - **DecisionTreeAI**:
+    1. *Survival*: If room oxygen drops below 25% or compartment is vented, raiders flee toward the nearest room with breathable air!
+    2. *Engagement*: If crew/player is in line-of-sight within 220px, raiders transition to firefight mode, aim, and shoot red plasma bolts every 1.2s.
+    3. *Obstacle Breach*: Attacks locked or closed blast doors blocking their waypoint path.
+    4. *Sabotage*: Initiates shaped charge countdown when reaching priority target subsystems.
+- **Gun Equipping, Aiming & Projectile Firefights (`@kybernetes/protocol`, `apps/server`, `apps/web`)**:
+  - Players equip weapons from the Armory Weapon Locker via `[E]` interaction or quick hotkeys `[1] Kinetic Carbine`, `[2] Pulse Laser`, `[3] Arc Welder`.
+  - Continuous mouse aiming with tactical laser sight and crosshair.
+  - Left Mouse Click or `[Space]` fires high-speed glowing energy bolts (shader-grade additive glow blending).
+  - Raiders return fire with red plasma bolts that damage player vitals.
+- **Realistic Physics Air Venting & Exterior Hull Airlocks**:
+  - Exterior hull airlocks (Port Airlock, Cargo Vent Hatch, Starboard Vent) can be opened to the space vacuum.
+  - Physics-based suction vector field pulls pawns and debris toward open breach openings.
+  - Multi-room atmospheric pressure equalization through connected open interior doors.
+  - Decompression air stream vapor particles rushing into space vacuum with additive blending.

@@ -1,3 +1,4 @@
+import type { WeaponType } from './boarding';
 import type { NavalDamageEventType } from './subsystems';
 
 export type StartingRole =
@@ -108,6 +109,26 @@ export interface DeploySentryAction {
   roomId: string;
 }
 
+export interface FireWeaponAction {
+  type: 'FIRE_WEAPON';
+  originX: number;
+  originY: number;
+  targetX: number;
+  targetY: number;
+  weaponType: WeaponType;
+}
+
+export interface EquipWeaponAction {
+  type: 'EQUIP_WEAPON';
+  weaponType: WeaponType;
+}
+
+export interface ToggleDoorAction {
+  type: 'TOGGLE_DOOR';
+  doorId: string;
+  open: boolean;
+}
+
 export type ClientAction =
   | JoinVesselAction
   | PlayerMoveIntent
@@ -126,4 +147,7 @@ export type ClientAction =
   | TriggerNavalDamageEventAction
   | TriggerBoardingEventAction
   | EngageIntruderAction
-  | DeploySentryAction;
+  | DeploySentryAction
+  | FireWeaponAction
+  | EquipWeaponAction
+  | ToggleDoorAction;

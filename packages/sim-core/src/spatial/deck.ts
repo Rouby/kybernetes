@@ -187,12 +187,12 @@ export const HESPERIA_STATIONS: StationFixture[] = [
   {
     id: 'armory_sentry',
     deckId: 'deck_c',
-    name: 'Armory Sentry Console',
+    name: 'Armory Weapon Locker',
     stationType: 'armory',
     x: 220,
     y: 570,
     radius: 28,
-    prompt: '[E] Operate Sentry Station',
+    prompt: '[E] Swap Weapon Loadout',
   },
   {
     id: 'cargo_winch',
