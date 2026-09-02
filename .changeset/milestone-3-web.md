@@ -6,6 +6,10 @@
 
 ![Kybernetes Milestone 3 Tactical Telemetry & Subsystems](https://raw.githubusercontent.com/Rouby/kybernetes/main/docs/images/milestone3_viewport.png)
 
+- **Direct In-World Station Interactions & Round Progress Bar**:
+  - Removed full-screen station console modals; fixtures now execute their primary action directly upon pressing `[E]` without interrupting the game viewport.
+  - Hardware-accelerated round circular progress ring rendered on the 2D canvas directly above the active fixture (`renderRoundProgressBar.ts`), showing action percentage, verb label, and glowing radial arc.
+  - Lean in-game HUD overlay bar with progress readout and abort control (`[ESC] Abort Shift`).
 - **Modular 2D Canvas Engine (`src/canvas/`)**:
   - **FTL-Style Outer Hull & Space Void (`renderBackground.ts`, `renderShipHull.ts`)**:
     - Outer armor silhouette with chamfered hull corners, radiator cooling fins, and dual aft ion thrusters with pulsing plasma plumes.

@@ -6,4 +6,5 @@ export { renderFixture } from './renderFixtures';
 export { renderHazards } from './renderHazards';
 export { renderLighting } from './renderLighting';
 export { renderPawn } from './renderPawn';
+export { type ActiveInteraction, renderRoundProgressBar } from './renderRoundProgressBar';
 export { renderShipHull } from './renderShipHull';

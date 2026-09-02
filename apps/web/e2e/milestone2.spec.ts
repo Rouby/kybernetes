@@ -37,31 +37,26 @@ test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking'
     await expect(page.getByText(/POS: \([89]\d\d,/)).toBeVisible();
   });
 
-  test('interacts with nearest station via [E] key and begins shift duty', async ({ page }) => {
+  test('interacts with nearest station via [E] key and begins shift duty with round progress bar', async ({
+    page,
+  }) => {
     await page.goto('/');
 
     // Wiper starts at (924, 570) right next to Reactor Core Monitor (970, 570)
     await expect(page.getByText(/Reactor Core Monitor/i)).toBeVisible();
 
-    // Press 'e' to dock
+    // In-world prompt shows direct action without modals
+    await expect(page.getByText(/Scrub Plasma Grids/i)).toBeVisible();
+
+    // Press 'e' to start interaction immediately with round progress bar (no modals)
     await page.keyboard.press('KeyE');
 
-    // Verify Station Console Modal opens
-    await expect(page.getByRole('dialog').getByText('REACTOR CORE MONITOR')).toBeVisible();
-    await expect(page.getByText('AVAILABLE SHIFT DUTIES')).toBeVisible();
-    await expect(page.getByText('Scrub Plasma Grids')).toBeVisible();
-
-    // Start duty
-    const beginBtn = page.getByRole('button', { name: /BEGIN SHIFT DUTY/i }).first();
-    await expect(beginBtn).toBeVisible();
-    await beginBtn.click();
-
-    // Verify Shift Progress indicator appears
-    await expect(page.getByText('SHIFT PROGRESS')).toBeVisible();
+    // Verify lean Shift Progress indicator appears
+    await expect(page.getByText(/SHIFT PROGRESS/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /ABORT SHIFT/i })).toBeVisible();
 
-    // Undock via Escape
+    // Abort via Escape
     await page.keyboard.press('Escape');
-    await expect(page.getByText('AVAILABLE SHIFT DUTIES')).not.toBeVisible();
+    await expect(page.getByText(/SHIFT PROGRESS/i)).not.toBeVisible();
   });
 });

@@ -8,6 +8,7 @@ import {
 import type React from 'react';
 import { useEffect, useRef } from 'react';
 import {
+  type ActiveInteraction,
   renderAlertOverlay,
   renderBackground,
   renderBulkheads,
@@ -16,11 +17,16 @@ import {
   renderHazards,
   renderLighting,
   renderPawn,
+  renderRoundProgressBar,
   renderShipHull,
 } from '../canvas';
 
-function drawPrompt(ctx: CanvasRenderingContext2D, nearestStation: StationFixture) {
-  const promptText = nearestStation.prompt || `[E] ${nearestStation.name}`;
+function drawPrompt(
+  ctx: CanvasRenderingContext2D,
+  nearestStation: StationFixture,
+  actionName?: string
+) {
+  const promptText = `[E] ${actionName || nearestStation.name}`;
   const promptY = nearestStation.y - nearestStation.radius - 14;
 
   ctx.font = 'bold 11px monospace';
@@ -61,6 +67,8 @@ function applyCanvasResize(canvas: HTMLCanvasElement, rect: DOMRectReadOnly) {
 interface VesselCanvasProps {
   pawn: PawnState;
   nearestStation: StationFixture | null;
+  activeInteraction?: ActiveInteraction | null;
+  promptActionName?: string;
   alertLevel?: 'nominal' | 'yellow' | 'red';
   activeFires?: string[];
   breaches?: string[];
@@ -71,6 +79,8 @@ interface VesselCanvasProps {
 export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   pawn,
   nearestStation,
+  activeInteraction,
+  promptActionName,
   alertLevel = 'nominal',
   activeFires = [],
   breaches = [],
@@ -148,8 +158,12 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       // Layer 7: Line of Sight raycast lighting & flashlight beam
       renderLighting(ctx, pawn);
 
-      // Layer 8: In-world interaction prompt
-      if (nearestStation) drawPrompt(ctx, nearestStation);
+      // Layer 8: Round Progress Bar if an interaction is active; otherwise interaction prompt
+      if (activeInteraction) {
+        renderRoundProgressBar(ctx, activeInteraction);
+      } else if (nearestStation) {
+        drawPrompt(ctx, nearestStation, promptActionName);
+      }
 
       ctx.restore();
 
@@ -161,7 +175,15 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [pawn, nearestStation, alertLevel, activeFires, breaches]);
+  }, [
+    pawn,
+    nearestStation,
+    activeInteraction,
+    promptActionName,
+    alertLevel,
+    activeFires,
+    breaches,
+  ]);
 
   return (
     <canvas

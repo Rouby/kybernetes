@@ -1,10 +1,10 @@
 import type {
   NavalDamageEventType,
   StartingRole,
-  StationFixture,
   TelemetryDeltaBroadcast,
 } from '@kybernetes/protocol';
 import {
+  calculateDutyRewards,
   createInitialPlayerVitals,
   createInitialVesselState,
   getRoleDefinition,
@@ -12,16 +12,15 @@ import {
 } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
-import { User } from 'lucide-react';
+import { User, X } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RoleSelectModal } from './components/RoleSelectModal';
-import { StationConsoleModal } from './components/StationConsoleModal';
 import { TelemetryRail } from './components/TelemetryRail';
 import { VesselCanvas } from './components/VesselCanvas';
 import { VitalsPanel } from './components/VitalsPanel';
-import { useDutyProgression } from './hooks/useDutyProgression';
 import { usePawnMovement } from './hooks/usePawnMovement';
+import { getStationActionConfig, useStationInteraction } from './hooks/useStationInteraction';
 import { useVesselSocket } from './hooks/useVesselSocket';
 
 const styles = stylex.create({
@@ -144,6 +143,72 @@ const styles = stylex.create({
     display: 'flex',
     gap: 12,
   },
+  leanInteractionBar: {
+    position: 'absolute',
+    bottom: 48,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: 'rgba(10, 16, 26, 0.94)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: hudColors.cyanTelemetry,
+    borderRadius: 4,
+    padding: '8px 16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    minWidth: 280,
+    zIndex: 10,
+    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+  },
+  leanActionRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  leanActionTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 1,
+    color: hudColors.cyanTelemetry,
+    fontFamily: 'monospace',
+  },
+  leanActionPercent: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: hudColors.textPrimary,
+    fontFamily: 'monospace',
+  },
+  leanTrack: {
+    width: '100%',
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  leanFill: {
+    height: '100%',
+    borderRadius: 3,
+    transition: 'width 0.1s linear',
+  },
+  leanAbortBtn: {
+    alignSelf: 'flex-end',
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: 700,
+    padding: '3px 8px',
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 34, 68, 0.2)',
+    color: hudColors.alertRed,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: hudColors.alertRed,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+  },
 });
 
 // fallow-ignore-next-line complexity
@@ -156,66 +221,93 @@ export const App: React.FC = () => {
 
   const [role, setRole] = useState<StartingRole>('wiper');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
-  const [dockedStation, setDockedStation] = useState<StationFixture | null>(null);
-  const [isSleeping, setIsSleeping] = useState(false);
   const [vitals, setVitals] = useState(createInitialPlayerVitals);
+  const [credits, setCredits] = useState(120);
+  const [clearanceXp, setClearanceXp] = useState(0);
+  const [clearanceLevel, setClearanceLevel] = useState(1);
+  const [inGameNotice, setInGameNotice] = useState<string | null>(null);
 
   const { wsConnected, triageNotice, sendAction } = useVesselSocket(setTelemetry);
   const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(role);
-  const {
-    activeDuty,
-    credits,
-    clearanceXp,
-    clearanceLevel,
-    startNewDuty,
-    cancelActiveDuty,
-    tickDuty,
-  } = useDutyProgression(role);
 
   const roleDef = getRoleDefinition(role);
 
-  const handleDock = useCallback(
-    (st: StationFixture) => {
-      setDockedStation(st);
-      setPawn((p) => ({ ...p, isOperating: true }));
-    },
-    [setPawn]
-  );
+  const { interaction, startInteraction, abortInteraction, tickInteraction } =
+    useStationInteraction({
+      role,
+      onCompleteDuty: (dutyId) => {
+        const rew = calculateDutyRewards(dutyId, role);
+        setCredits((c) => c + rew.credits);
+        setClearanceXp((xp) => {
+          const nextXp = xp + rew.xp;
+          if (nextXp >= 100 * clearanceLevel) setClearanceLevel((lvl) => lvl + 1);
+          return nextXp;
+        });
+      },
+      onConsumePaste: () => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) })),
+      onDrinkWater: () => setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) })),
+      onRestInBunk: () =>
+        setVitals((v) => ({
+          ...v,
+          fatigue: Math.max(0, v.fatigue - 40),
+          stamina: Math.min(100, v.stamina + 30),
+        })),
+      onVentCoolant: () => sendAction({ type: 'VENT_REACTOR_COOLANT' }),
+      onNotice: (msg) => {
+        setInGameNotice(msg);
+        setTimeout(() => setInGameNotice(null), 3000);
+      },
+    });
 
-  const handleUndock = useCallback(() => {
-    setDockedStation(null);
-    setIsSleeping(false);
-    setPawn((p) => ({ ...p, isOperating: false, isResting: false }));
-  }, [setPawn]);
+  // Sync pawn operating / resting state with active interaction
+  useEffect(() => {
+    if (interaction) {
+      const isRest = interaction.actionName.includes('Rest');
+      setPawn((p) => ({ ...p, isOperating: !isRest, isResting: isRest }));
+    } else {
+      setPawn((p) => ({ ...p, isOperating: false, isResting: false }));
+    }
+  }, [interaction, setPawn]);
 
+  // Keyboard controls for direct station interaction (no modals!)
   useEffect(() => {
     // fallow-ignore-next-line complexity
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'KeyE') {
-        if (dockedStation) handleUndock();
-        else if (nearestStation) handleDock(nearestStation);
+        if (interaction) {
+          abortInteraction();
+        } else if (nearestStation) {
+          startInteraction(nearestStation);
+        }
       } else if (e.code === 'Escape') {
-        if (dockedStation) handleUndock();
+        if (interaction) {
+          abortInteraction();
+        }
         if (showRoleSelect) setShowRoleSelect(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dockedStation, nearestStation, showRoleSelect, handleDock, handleUndock]);
+  }, [interaction, nearestStation, showRoleSelect, startInteraction, abortInteraction]);
 
+  // Main simulation tick loop
   useEffect(() => {
     const timer = setInterval(() => {
-      const dt = 0.2;
-      setVitals((v) => {
-        const nextVitals = updatePlayerVitals(v, dt, isSleeping, Boolean(activeDuty));
-        const staminaCost = tickDuty(dt, nextVitals);
-        return { ...nextVitals, stamina: Math.max(0, nextVitals.stamina - staminaCost) };
-      });
-    }, 200);
+      const dt = 0.1;
+      tickInteraction(dt);
+      setVitals((v) =>
+        updatePlayerVitals(v, dt, Boolean(pawn.isResting), Boolean(pawn.isOperating))
+      );
+    }, 100);
 
     return () => clearInterval(timer);
-  }, [activeDuty, isSleeping, tickDuty]);
+  }, [tickInteraction, pawn.isResting, pawn.isOperating]);
+
+  // Determine current prompt text for nearest station
+  const nearestActionConfig = useMemo(() => {
+    return nearestStation ? getStationActionConfig(nearestStation, role) : null;
+  }, [nearestStation, role]);
 
   return (
     <div {...stylex.props(styles.container)}>
@@ -254,24 +346,69 @@ export const App: React.FC = () => {
           {...stylex.props(styles.centerViewport)}
           style={{ position: 'relative', flex: 1, height: '100%', overflow: 'hidden' }}
         >
-          {triageNotice && <div {...stylex.props(styles.triageNoticeBanner)}>{triageNotice}</div>}
+          {(triageNotice || inGameNotice) && (
+            <div {...stylex.props(styles.triageNoticeBanner)}>{inGameNotice || triageNotice}</div>
+          )}
+
           <VesselCanvas
             pawn={pawn}
             nearestStation={nearestStation}
+            activeInteraction={interaction}
+            promptActionName={nearestActionConfig?.actionName}
             alertLevel={telemetry.alertLevel}
             activeFires={telemetry.activeFires}
             breaches={telemetry.hull?.breaches}
-            onStationClick={handleDock}
+            onStationClick={(st) => {
+              if (interaction) abortInteraction();
+              else startInteraction(st);
+            }}
           />
+
+          {/* In-Game Round Progress Bar Lean HUD Overlay */}
+          {interaction && (
+            <div {...stylex.props(styles.leanInteractionBar)}>
+              <div {...stylex.props(styles.leanActionRow)}>
+                <span {...stylex.props(styles.leanActionTitle)}>
+                  SHIFT PROGRESS: {interaction.actionName.toUpperCase()}
+                </span>
+                <span {...stylex.props(styles.leanActionPercent)}>
+                  {Math.round(interaction.progress * 100)}%
+                </span>
+              </div>
+              <div {...stylex.props(styles.leanTrack)}>
+                <div
+                  {...stylex.props(styles.leanFill)}
+                  style={{
+                    width: `${Math.round(interaction.progress * 100)}%`,
+                    backgroundColor: interaction.color || '#00e5ff',
+                  }}
+                />
+              </div>
+              <button
+                {...stylex.props(styles.leanAbortBtn)}
+                onClick={abortInteraction}
+                title="Abort Shift"
+              >
+                <X size={10} />
+                <span>ABORT SHIFT [ESC]</span>
+              </button>
+            </div>
+          )}
+
           <div {...stylex.props(styles.viewportOverlayHelp)}>
             <span>
               <strong>[W][A][S][D]</strong> Locomotion
             </span>
             <span>
-              <strong>[E]</strong> {nearestStation ? nearestStation.name : 'Interact'}
+              <strong>[E]</strong>{' '}
+              {interaction
+                ? `Abort Shift (${Math.round(interaction.progress * 100)}%)`
+                : nearestStation
+                  ? `${nearestStation.name} — ${nearestActionConfig?.actionName || 'Interact'}`
+                  : 'Interact'}
             </span>
             <span>
-              <strong>[ESC]</strong> Undock
+              <strong>[ESC]</strong> Abort
             </span>
           </div>
         </section>
@@ -320,29 +457,9 @@ export const App: React.FC = () => {
             setRole(r);
             resetToSpawn(r);
             setShowRoleSelect(false);
-            handleUndock();
+            abortInteraction();
           }}
           onClose={() => setShowRoleSelect(false)}
-        />
-      )}
-
-      {dockedStation && (
-        <StationConsoleModal
-          station={dockedStation}
-          role={role}
-          vitals={vitals}
-          activeDuty={activeDuty}
-          isSleeping={isSleeping}
-          onClose={handleUndock}
-          onStartDuty={(id) => dockedStation && startNewDuty(id, dockedStation.id)}
-          onCancelDuty={cancelActiveDuty}
-          onToggleSleep={() => {
-            const next = !isSleeping;
-            setIsSleeping(next);
-            setPawn((p) => ({ ...p, isResting: next }));
-          }}
-          onConsumePaste={() => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) }))}
-          onDrinkWater={() => setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) }))}
         />
       )}
     </div>
