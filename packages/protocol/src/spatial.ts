@@ -27,6 +27,16 @@ export interface BulkheadState {
   isTransparent: boolean;
 }
 
+export interface WallSegment {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  isOpaque?: boolean;
+  isTraversable?: boolean;
+}
+
 export interface StationFixture {
   id: string;
   deckId: string;
@@ -35,4 +45,27 @@ export interface StationFixture {
   x: number;
   y: number;
   radius: number;
+  prompt?: string;
+}
+
+export interface DutyDefinition {
+  id: string;
+  stationType: StationFixture['stationType'];
+  name: string;
+  description: string;
+  durationSeconds: number;
+  staminaCostPerSecond: number;
+  creditReward: number;
+  clearanceXp: number;
+  roleBonus?: StartingRole;
+}
+
+export interface DeckDefinition {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  walls: WallSegment[];
+  stations: StationFixture[];
+  spawnPoints: Record<StartingRole, { x: number; y: number }>;
 }

@@ -393,7 +393,7 @@ graph TD
   - Configure `apps/web` (React 19, Vite 8, StyleX) and `apps/server` (Node 24, `ws`).
   - Setup Vitest in `@kybernetes/sim-core` and Playwright multi-browser test harness in `apps/web`.
 
-- [ ] **Milestone 2: 2D Top-Down Viewport, WASD Controls, Line of Sight & FoW**
+- [x] **Milestone 2: 2D Top-Down Viewport, WASD Controls, Line of Sight & FoW**
   - Implement 2D Canvas renderer (`VesselCanvas`) for deck floor plans, bulkheads, and interactive machines.
   - Implement dynamic 2D Visibility Polygon Line of Sight (LoS) raycasting with directional flashlight cones.
   - Implement 3-tier Fog of War (FoW) compositing with explored memory layer and unexplored pitch-black void.

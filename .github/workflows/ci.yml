@@ -1,0 +1,62 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  quality-pipeline:
+    name: 6-Gate Quality Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Gate 1 - Biome Lint & Format
+        run: yarn lint
+
+      - name: Gate 2 - Fallow Code Quality & Health
+        run: yarn quality
+
+      - name: Gate 3 - TypeScript Strict Typecheck
+        run: yarn typecheck
+
+      - name: Gate 4 - Vitest Unit Tests
+        run: yarn test
+
+      - name: Gate 5 - Turborepo Production Build
+        run: yarn build
+
+      - name: Install Playwright Chromium with dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Gate 6 - Playwright E2E Tests
+        run: yarn test:e2e
+
+      - name: Upload Playwright Test Artifacts on Failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-test-results
+          path: apps/web/test-results/
+          retention-days: 7

@@ -15,8 +15,9 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await expect(page.getByText('Hydration')).toBeVisible();
     await expect(page.getByText('Fatigue')).toBeVisible();
 
-    // Check center 2D viewport
-    await expect(page.getByText('2D TOP-DOWN VESSEL VIEWPORT')).toBeVisible();
+    // Check center 2D viewport canvas and controls
+    await expect(page.locator('canvas')).toBeVisible();
+    await expect(page.getByText('Locomotion')).toBeVisible();
 
     // Check telemetry rail
     await expect(page.getByText('Telemetry & Subsystems')).toBeVisible();
@@ -35,5 +36,13 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     const waterBtn = page.getByRole('button', { name: /Drink Water/i });
     await expect(waterBtn).toBeVisible();
     await waterBtn.click();
+  });
+
+  test('captures viewport screenshot', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForTimeout(600);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/d18e2ce8-08f4-4a4a-97c7-49f4251d221c/viewport_m2.png',
+    });
   });
 });

@@ -1,10 +1,22 @@
-import type { TelemetryDeltaBroadcast } from '@kybernetes/protocol';
-import { createInitialPlayerVitals, createInitialVesselState } from '@kybernetes/sim-core';
+import type { StartingRole, StationFixture, TelemetryDeltaBroadcast } from '@kybernetes/protocol';
+import {
+  createInitialPlayerVitals,
+  createInitialVesselState,
+  getRoleDefinition,
+  updatePlayerVitals,
+} from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
-import { Coffee, Flame, Moon, Radio, Shield, Utensils, Wind } from 'lucide-react';
+import { User } from 'lucide-react';
 import type React from 'react';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { RoleSelectModal } from './components/RoleSelectModal';
+import { StationConsoleModal } from './components/StationConsoleModal';
+import { TelemetryRail } from './components/TelemetryRail';
+import { VesselCanvas } from './components/VesselCanvas';
+import { VitalsPanel } from './components/VitalsPanel';
+import { useDutyProgression } from './hooks/useDutyProgression';
+import { usePawnMovement } from './hooks/usePawnMovement';
 
 const styles = stylex.create({
   container: {
@@ -46,104 +58,32 @@ const styles = stylex.create({
     borderStyle: 'solid',
     borderColor: hudColors.amberDim,
   },
+  interactiveBadge: {
+    fontSize: 11,
+    padding: '2px 8px',
+    borderRadius: 2,
+    backgroundColor: hudColors.bgPanelLighter,
+    color: hudColors.cyanTelemetry,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: hudColors.borderHighlight,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+  },
   mainLayout: {
     display: 'flex',
     flex: 1,
     overflow: 'hidden',
   },
-  leftPanel: {
-    width: 280,
-    backgroundColor: hudColors.bgPanel,
-    borderRightWidth: 1,
-    borderRightStyle: 'solid',
-    borderRightColor: hudColors.borderDim,
-    padding: 16,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-  },
   centerViewport: {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
     position: 'relative',
     backgroundColor: '#040609',
-  },
-  rightPanel: {
-    width: 320,
-    backgroundColor: hudColors.bgPanel,
-    borderLeftWidth: 1,
-    borderLeftStyle: 'solid',
-    borderLeftColor: hudColors.borderDim,
-    padding: 16,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-  },
-  panelTitle: {
-    fontSize: 12,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    color: hudColors.textSecondary,
-    borderBottomWidth: 1,
-    borderBottomStyle: 'solid',
-    borderBottomColor: hudColors.borderDim,
-    paddingBottom: 4,
-    marginBottom: 8,
-  },
-  statRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-    fontSize: 13,
-  },
-  progressBarBg: {
-    width: '100%',
-    height: 6,
-    backgroundColor: hudColors.borderDim,
-    borderRadius: 3,
     overflow: 'hidden',
-    marginTop: 4,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3,
-    transition: 'width 0.2s ease',
-  },
-  button: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: '8px 12px',
-    backgroundColor: hudColors.bgPanelLighter,
-    color: hudColors.textPrimary,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: hudColors.borderBright,
-    borderRadius: 2,
-    fontSize: 12,
-    cursor: 'pointer',
-    marginTop: 6,
-    ':hover': {
-      borderColor: hudColors.cyanTelemetry,
-      color: hudColors.cyanTelemetry,
-    },
-  },
-  canvasPlaceholder: {
-    width: '90%',
-    height: '90%',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: hudColors.borderBright,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
   },
   footer: {
     display: 'flex',
@@ -165,6 +105,22 @@ const styles = stylex.create({
     backgroundColor: hudColors.phosphorGreen,
     marginRight: 6,
   },
+  viewportOverlayHelp: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    padding: '6px 12px',
+    backgroundColor: 'rgba(15, 20, 29, 0.85)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: hudColors.borderDim,
+    borderRadius: 3,
+    fontSize: 11,
+    color: hudColors.textSecondary,
+    pointerEvents: 'none',
+    display: 'flex',
+    gap: 12,
+  },
 });
 
 export const App: React.FC = () => {
@@ -174,178 +130,166 @@ export const App: React.FC = () => {
     ...createInitialVesselState(),
   }));
 
+  const [role, setRole] = useState<StartingRole>('wiper');
+  const [showRoleSelect, setShowRoleSelect] = useState(false);
+  const [dockedStation, setDockedStation] = useState<StationFixture | null>(null);
+  const [isSleeping, setIsSleeping] = useState(false);
   const [vitals, setVitals] = useState(createInitialPlayerVitals);
+
+  const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(role);
+  const {
+    activeDuty,
+    credits,
+    clearanceXp,
+    clearanceLevel,
+    startNewDuty,
+    cancelActiveDuty,
+    tickDuty,
+  } = useDutyProgression(role);
+
+  const roleDef = getRoleDefinition(role);
+
+  const handleDock = useCallback(
+    (st: StationFixture) => {
+      setDockedStation(st);
+      setPawn((p) => ({ ...p, isOperating: true }));
+    },
+    [setPawn]
+  );
+
+  const handleUndock = useCallback(() => {
+    setDockedStation(null);
+    setIsSleeping(false);
+    setPawn((p) => ({ ...p, isOperating: false, isResting: false }));
+  }, [setPawn]);
+
+  useEffect(() => {
+    // fallow-ignore-next-line complexity
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.code === 'KeyE') {
+        if (dockedStation) handleUndock();
+        else if (nearestStation) handleDock(nearestStation);
+      } else if (e.code === 'Escape') {
+        if (dockedStation) handleUndock();
+        if (showRoleSelect) setShowRoleSelect(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dockedStation, nearestStation, showRoleSelect, handleDock, handleUndock]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const dt = 0.2;
+      setVitals((v) => {
+        const nextVitals = updatePlayerVitals(v, dt, isSleeping, Boolean(activeDuty));
+        const staminaCost = tickDuty(dt, nextVitals);
+        return { ...nextVitals, stamina: Math.max(0, nextVitals.stamina - staminaCost) };
+      });
+    }, 200);
+
+    return () => clearInterval(timer);
+  }, [activeDuty, isSleeping, tickDuty]);
 
   return (
     <div {...stylex.props(styles.container)}>
-      {/* Top Header */}
       <header {...stylex.props(styles.header)}>
         <div {...stylex.props(styles.logoGroup)}>
           <span {...stylex.props(styles.title)}>KYBERNETES</span>
           <span {...stylex.props(styles.badge)}>VESSEL: {telemetry.shipName}</span>
-          <span {...stylex.props(styles.badge)}>RANK: WIPER (GRADE 3)</span>
+          <button
+            {...stylex.props(styles.interactiveBadge)}
+            onClick={() => setShowRoleSelect(true)}
+            title="Click to change origin role"
+          >
+            <User size={12} />
+            <span>
+              ROLE: {roleDef.name.toUpperCase()} ({roleDef.badge})
+            </span>
+          </button>
         </div>
         <div {...stylex.props(styles.logoGroup)}>
-          <span {...stylex.props(styles.badge)}>CLEARANCE: LVL 1</span>
-          <span {...stylex.props(styles.badge)}>CREDITS: 120 ¢</span>
+          <span {...stylex.props(styles.badge)}>
+            CLEARANCE: LVL {clearanceLevel} ({clearanceXp} XP)
+          </span>
+          <span {...stylex.props(styles.badge)}>CREDITS: {credits} ¢</span>
         </div>
       </header>
 
-      {/* Main Viewport */}
       <main {...stylex.props(styles.mainLayout)}>
-        {/* Left Rail: Vitals & Survival */}
-        <aside {...stylex.props(styles.leftPanel)}>
-          <div {...stylex.props(styles.panelTitle)}>Crew Vitals</div>
+        <VitalsPanel
+          vitals={vitals}
+          onConsumePaste={() => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) }))}
+          onDrinkWater={() => setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) }))}
+          onRestInBunk={() => setVitals((v) => ({ ...v, fatigue: Math.max(0, v.fatigue - 40) }))}
+        />
 
-          <div>
-            <div {...stylex.props(styles.statRow)}>
-              <span>
-                <Utensils size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Nutrition
-              </span>
-              <span>{Math.round(vitals.hunger)}%</span>
-            </div>
-            <div {...stylex.props(styles.progressBarBg)}>
-              <div
-                {...stylex.props(styles.progressBarFill)}
-                style={{ width: `${vitals.hunger}%`, backgroundColor: '#ffb000' }}
-              />
-            </div>
-            <button
-              {...stylex.props(styles.button)}
-              onClick={() => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) }))}
-            >
-              Consume Paste (+25%)
-            </button>
-          </div>
-
-          <div>
-            <div {...stylex.props(styles.statRow)}>
-              <span>
-                <Coffee size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Hydration
-              </span>
-              <span>{Math.round(vitals.thirst)}%</span>
-            </div>
-            <div {...stylex.props(styles.progressBarBg)}>
-              <div
-                {...stylex.props(styles.progressBarFill)}
-                style={{ width: `${vitals.thirst}%`, backgroundColor: '#00e5ff' }}
-              />
-            </div>
-            <button
-              {...stylex.props(styles.button)}
-              onClick={() => setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) }))}
-            >
-              Drink Water (+30%)
-            </button>
-          </div>
-
-          <div>
-            <div {...stylex.props(styles.statRow)}>
-              <span>
-                <Moon size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Fatigue
-              </span>
-              <span>{Math.round(vitals.fatigue)}%</span>
-            </div>
-            <div {...stylex.props(styles.progressBarBg)}>
-              <div
-                {...stylex.props(styles.progressBarFill)}
-                style={{ width: `${vitals.fatigue}%`, backgroundColor: '#ff2244' }}
-              />
-            </div>
-            <button
-              {...stylex.props(styles.button)}
-              onClick={() => setVitals((v) => ({ ...v, fatigue: Math.max(0, v.fatigue - 40) }))}
-            >
-              Rest in Bunk (-40%)
-            </button>
-          </div>
-        </aside>
-
-        {/* Center: 2D Canvas Viewport */}
-        <section {...stylex.props(styles.centerViewport)}>
-          <div {...stylex.props(styles.canvasPlaceholder)}>
-            <Radio size={36} color="#00e5ff" />
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ fontWeight: 600, letterSpacing: 1 }}>2D TOP-DOWN VESSEL VIEWPORT</p>
-              <p style={{ fontSize: 12, color: '#8a9bb5', marginTop: 4 }}>
-                WASD controls active • Use [E] to dock at consoles • Dynamic LoS & Fog of War
-              </p>
-            </div>
+        <section
+          {...stylex.props(styles.centerViewport)}
+          style={{ position: 'relative', flex: 1, height: '100%', overflow: 'hidden' }}
+        >
+          <VesselCanvas pawn={pawn} nearestStation={nearestStation} onStationClick={handleDock} />
+          <div {...stylex.props(styles.viewportOverlayHelp)}>
+            <span>
+              <strong>[W][A][S][D]</strong> Locomotion
+            </span>
+            <span>
+              <strong>[E]</strong> {nearestStation ? nearestStation.name : 'Interact'}
+            </span>
+            <span>
+              <strong>[ESC]</strong> Undock
+            </span>
           </div>
         </section>
 
-        {/* Right Rail: Subsystem Telemetry */}
-        <aside {...stylex.props(styles.rightPanel)}>
-          <div {...stylex.props(styles.panelTitle)}>Telemetry & Subsystems</div>
-
-          <div>
-            <div {...stylex.props(styles.statRow)}>
-              <span>
-                <Flame size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Reactor
-                Thermal
-              </span>
-              <span>{telemetry.reactorTemp} K</span>
-            </div>
-            <div {...stylex.props(styles.progressBarBg)}>
-              <div
-                {...stylex.props(styles.progressBarFill)}
-                style={{
-                  width: `${(telemetry.reactorTemp / telemetry.reactorMaxTemp) * 100}%`,
-                  backgroundColor: '#ffb000',
-                }}
-              />
-            </div>
-          </div>
-
-          <div>
-            <div {...stylex.props(styles.statRow)}>
-              <span>
-                <Wind size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Atmosphere O2
-              </span>
-              <span>{telemetry.oxygenLevelPercent}%</span>
-            </div>
-            <div {...stylex.props(styles.progressBarBg)}>
-              <div
-                {...stylex.props(styles.progressBarFill)}
-                style={{
-                  width: `${telemetry.oxygenLevelPercent}%`,
-                  backgroundColor: '#00ff66',
-                }}
-              />
-            </div>
-          </div>
-
-          <div>
-            <div {...stylex.props(styles.statRow)}>
-              <span>
-                <Shield size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Hull
-                Plating
-              </span>
-              <span>{telemetry.hullIntegrityPercent}%</span>
-            </div>
-            <div {...stylex.props(styles.progressBarBg)}>
-              <div
-                {...stylex.props(styles.progressBarFill)}
-                style={{
-                  width: `${telemetry.hullIntegrityPercent}%`,
-                  backgroundColor: '#00e5ff',
-                }}
-              />
-            </div>
-          </div>
-        </aside>
+        <TelemetryRail telemetry={telemetry} roleDef={roleDef} />
       </main>
 
-      {/* Footer */}
       <footer {...stylex.props(styles.footer)}>
         <div>
           <span {...stylex.props(styles.onlineIndicator)} />
-          <span>VESSEL DAEMON: SYNCED (10 Hz)</span>
+          <span>
+            VESSEL DAEMON: SYNCED (10 Hz) • POS: ({Math.round(pawn.x)}, {Math.round(pawn.y)})
+          </span>
         </div>
         <div>
           <span>TURBOREPO MONOREPO • REACT 19 • STYLEX • TS 7 • VITE 8</span>
         </div>
       </footer>
+
+      {showRoleSelect && (
+        <RoleSelectModal
+          currentRole={role}
+          onSelectRole={(r) => {
+            setRole(r);
+            resetToSpawn(r);
+            setShowRoleSelect(false);
+            handleUndock();
+          }}
+          onClose={() => setShowRoleSelect(false)}
+        />
+      )}
+
+      {dockedStation && (
+        <StationConsoleModal
+          station={dockedStation}
+          role={role}
+          vitals={vitals}
+          activeDuty={activeDuty}
+          isSleeping={isSleeping}
+          onClose={handleUndock}
+          onStartDuty={(id) => dockedStation && startNewDuty(id, dockedStation.id)}
+          onCancelDuty={cancelActiveDuty}
+          onToggleSleep={() => {
+            const next = !isSleeping;
+            setIsSleeping(next);
+            setPawn((p) => ({ ...p, isResting: next }));
+          }}
+          onConsumePaste={() => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) }))}
+          onDrinkWater={() => setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) }))}
+        />
+      )}
     </div>
   );
 };

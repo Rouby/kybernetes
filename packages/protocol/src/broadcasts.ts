@@ -50,9 +50,19 @@ export interface ShipAlertBroadcast {
   timestamp: number;
 }
 
+export interface DutyCompletedBroadcast {
+  type: 'DUTY_COMPLETED';
+  dutyId: string;
+  stationId: string;
+  creditsEarned: number;
+  xpEarned: number;
+  timestamp: number;
+}
+
 export type ServerBroadcast =
   | SpatialSnapshotBroadcast
   | TelemetryDeltaBroadcast
   | VitalsDeltaBroadcast
   | CrewManifestBroadcast
-  | ShipAlertBroadcast;
+  | ShipAlertBroadcast
+  | DutyCompletedBroadcast;
