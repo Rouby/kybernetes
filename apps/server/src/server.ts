@@ -55,8 +55,26 @@ export class VesselServer {
   public stop(): Promise<void> {
     return new Promise((resolve) => {
       this.loop.stop();
+
+      // Immediately terminate any active client connections to allow port release
+      for (const client of this.clients) {
+        try {
+          client.terminate();
+        } catch {
+          // ignore already closed
+        }
+      }
+      this.clients.clear();
+
       if (this.wss) {
-        this.wss.close(() => resolve());
+        this.wss.close((err) => {
+          if (err) {
+            console.error('[Kybernetes Server] Error closing WebSocket server:', err);
+          }
+          this.wss = null;
+          console.log('[Kybernetes Server] Daemon stopped cleanly. Port released.');
+          resolve();
+        });
       } else {
         resolve();
       }
