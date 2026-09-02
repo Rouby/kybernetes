@@ -2,18 +2,30 @@
 "@kybernetes/web": minor
 ---
 
-### Tactical Telemetry HUD, Damage Control Triage & Viewport Hazards
+### Rimworld + FTL Tactical Visual Overhaul & Damage Control Viewport
 
 ![Kybernetes Milestone 3 Tactical Telemetry & Subsystems](https://raw.githubusercontent.com/Rouby/kybernetes/main/docs/images/milestone3_viewport.png)
 
+- **Modular 2D Canvas Engine (`src/canvas/`)**:
+  - **FTL-Style Outer Hull & Space Void (`renderBackground.ts`, `renderShipHull.ts`)**:
+    - Outer armor silhouette with chamfered hull corners, radiator cooling fins, and dual aft ion thrusters with pulsing plasma plumes.
+    - Deep space background with subtle starry depth, twinkling parallax stars, and soft nebular gas dust.
+  - **Tactical Room Plating & Ambient Occlusion (`renderDeckFloors.ts`, `renderBulkheads.ts`)**:
+    - Room-specific floor plating: hex-tech bridge with glowing command ring, diamond-plate engineering deck with diagonal yellow/black hazard warning tape and floor coolant conduits, sanitary checkerboard galley, and freight grids.
+    - Rimworld-style ambient occlusion: interior walls cast soft directional drop shadows onto floor tiles for tangible 3D depth.
+    - Double-lined metallic FTL bulkheads with beveled highlights and etched subsystem deck emblems.
+  - **Detailed Mechanical Fixtures (`renderFixtures.ts`)**:
+    - Multi-tier cylindrical reactor with animated pulsing plasma core.
+    - Curved holographic bridge helm with multi-monitor tactical displays.
+    - Rimworld-style crew cots with pillows, folded blankets, and vitals headboard monitors.
+    - Industrial nutrient dispensers, hydration fountains, bio-scrubber fans, and weapon racks.
+  - **Rimworld-Style Capsule Pawns (`renderPawn.ts`)**:
+    - Rounded pill/capsule torso with soft grounded elliptical drop shadow.
+    - Detached floating hands that dynamically rotate and position toward movement and facing angles.
+    - Animated walking bob (vertical hop and hand sway during locomotion).
+    - Role-based departmental apparel coloring and directional helmet visors.
+  - **Atmospheric Hazard Effects (`renderHazards.ts`)**:
+    - Multi-particle compartment fires with hot yellow cores, licking orange flame tongues, rising dark smoke, and floating ember sparks.
+    - Hull breaches with radiating frost fracture lines and cyan venting decompression gas particles.
 - **Diegetic Tactical Telemetry Rail (`TelemetryRail.tsx`)**:
-  - Modular StyleX panels: `AlertHeader`, `ReactorSection`, `AtmosphereSection`, `HullShieldsSection`, and `ThreatTickerSection`.
-  - Real-time thermal progress gauges (MW output vs Kelvin temperature), life support scrubber efficiency bars, and kinetic shield / hull integrity bars.
-  - Interactive damage triage actions: Emergency Reactor Coolant Venting (-150K), Point-Defense Kinetic Interception, and Emergency Hull Plating Welding.
-- **Canvas Hazard Overlays (`VesselCanvas.tsx`)**:
-  - `drawRoomHazards`: Compartment fire rendering with animated radial flame glow and breach atmospheric decompression with cyan venting fog.
-  - `drawAlertOverlay`: Pulsing emergency klaxon vignette for Red Alert battle stations.
-- **Authoritative Client WebSocket Protocol (`useVesselSocket.ts`)**:
-  - Persistent WebSocket connection to `ws://localhost:3001` with action queuing during handshake and real-time damage triage notification banners.
-- **Playwright Verification (`e2e/milestone3.spec.ts`)**:
-  - Comprehensive browser tests verifying Battle Stations alert switching, real-time subsystem readouts, naval torpedo interception, and coolant venting.
+  - Modular StyleX panels with real-time thermal gauges, scrubber efficiency bars, kinetic shields, and damage control triage buttons.
