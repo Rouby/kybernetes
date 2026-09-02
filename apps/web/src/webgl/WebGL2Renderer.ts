@@ -202,19 +202,22 @@ export class WebGL2Renderer {
     this.currentLightColors.fill(0);
     if (!projectiles) return;
 
-    for (let i = 0; i < Math.min(6, projectiles.length); i++) {
-      const p = projectiles[i];
+    let lightIdx = 0;
+    for (const p of projectiles) {
+      if (lightIdx >= 6) break;
+      // Bullets do not emit ambient glow/light; only energy bolts do
+      if (p.weaponType === 'kinetic_carbine') continue;
+
       const isLaser = p.weaponType === 'pulse_laser' || p.color === '#00f0ff';
       const isWelder = p.weaponType === 'arc_welder';
-      const isKinetic = p.weaponType === 'kinetic_carbine';
 
-      const radius = isLaser ? 85.0 : isWelder ? 65.0 : isKinetic ? 30.0 : 75.0;
-      const intensity = isLaser ? 1.4 : isWelder ? 1.0 : isKinetic ? 0.35 : 0.9;
+      const radius = isLaser ? 85.0 : isWelder ? 65.0 : 75.0;
+      const intensity = isLaser ? 1.4 : isWelder ? 1.0 : 0.9;
 
-      this.currentLights[i * 4 + 0] = p.x;
-      this.currentLights[i * 4 + 1] = p.y;
-      this.currentLights[i * 4 + 2] = radius;
-      this.currentLights[i * 4 + 3] = intensity;
+      this.currentLights[lightIdx * 4 + 0] = p.x;
+      this.currentLights[lightIdx * 4 + 1] = p.y;
+      this.currentLights[lightIdx * 4 + 2] = radius;
+      this.currentLights[lightIdx * 4 + 3] = intensity;
 
       let r = 0.0;
       let g = 0.9;
@@ -223,10 +226,6 @@ export class WebGL2Renderer {
         r = 1.0;
         g = 0.1;
         b = 0.25;
-      } else if (p.color === '#ffd166' || isKinetic) {
-        r = 1.0;
-        g = 0.8;
-        b = 0.3;
       } else if (p.color === '#00f0ff' || isLaser) {
         r = 0.0;
         g = 0.95;
@@ -236,9 +235,10 @@ export class WebGL2Renderer {
         g = 0.7;
         b = 1.0;
       }
-      this.currentLightColors[i * 3 + 0] = r;
-      this.currentLightColors[i * 3 + 1] = g;
-      this.currentLightColors[i * 3 + 2] = b;
+      this.currentLightColors[lightIdx * 3 + 0] = r;
+      this.currentLightColors[lightIdx * 3 + 1] = g;
+      this.currentLightColors[lightIdx * 3 + 2] = b;
+      lightIdx++;
     }
   }
 
@@ -584,12 +584,12 @@ export class WebGL2Renderer {
       let halfW = 6.5;
 
       if (proj.weaponType === 'kinetic_carbine') {
-        style = 0; // normal bullet
+        style = 0; // flat tracer trail (no glow)
         r = 1.0;
         g = 0.82;
         b = 0.25;
-        beamLen = 10;
-        halfW = 3.2;
+        beamLen = 28;
+        halfW = 2.0;
       } else if (proj.weaponType === 'arc_welder') {
         style = 2; // electric zap
         r = 0.0;

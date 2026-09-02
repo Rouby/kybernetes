@@ -169,16 +169,23 @@ void main() {
   float v = v_uv.y;
 
   if (u_style == 0) {
-    // KINETIC CARBINE: Sleek normal bullet (solid metallic slug with hot nose)
-    float bulletDist = sqrt(max(0.0, abs(u) - 0.4) / 0.6 * max(0.0, abs(u) - 0.4) / 0.6 + v * v);
-    if (bulletDist > 1.0) discard;
+    // KINETIC BULLET: Flat tracer trail that fades fast towards the tail (no glow)
+    float trailProgress = (u + 1.0) * 0.5; // 0.0 at tail, 1.0 at bullet head
 
-    float tip = clamp((u + 1.0) * 0.5, 0.0, 1.0);
-    vec3 brass = vec3(0.98, 0.76, 0.22);
-    vec3 hotNose = vec3(1.0, 0.98, 0.85);
-    vec3 col = mix(brass, hotNose, pow(tip, 3.0));
-    float edge = 1.0 - smoothstep(0.7, 1.0, bulletDist);
-    fragColor = vec4(col, edge * u_color.a);
+    // Aerodynamic taper: very slim at tail, solid width at bullet tip
+    float widthFactor = 0.35 + 0.65 * trailProgress;
+    if (abs(v) > widthFactor) discard;
+
+    // Fast-fading flat trail: trail alpha drops off sharply towards the tail
+    float fade = pow(trailProgress, 2.2);
+
+    // Flat colors: warm military tracer amber fading back, bright bullet tip
+    vec3 tailColor = vec3(1.0, 0.72, 0.2);
+    vec3 headColor = vec3(1.0, 1.0, 0.95);
+    vec3 flatColor = mix(tailColor, headColor, smoothstep(0.7, 1.0, trailProgress));
+
+    // Crisp flat output, zero bloom/glow
+    fragColor = vec4(flatColor, fade * u_color.a);
     return;
   }
 
