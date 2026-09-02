@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolvePawnMovement } from '../spatial/collision';
 import { createInitialDoors, toggleDoor } from '../spatial/doors';
 import { findWaypointPath } from '../spatial/navigation';
 import { applySuctionToPosition, createInitialRoomO2, tickAirVenting } from './airVenting';
@@ -6,6 +7,7 @@ import {
   createInitialBoardingState,
   spawnBoardingEvent,
   tickBoardingCombat,
+  toggleBulkheadLock,
 } from './boardingCombat';
 import { createProjectile, tickProjectiles } from './projectiles';
 
@@ -108,5 +110,53 @@ describe('Milestone 4 Overhaul: DecisionTreeAI, Realistic Venting & Gun Combat',
 
     expect(projRes.damagedIntruders.length).toBe(1);
     expect(projRes.damagedIntruders[0].id).toBe(raider.id);
+  });
+
+  it('stops and absorbs projectiles when colliding with solid walls or closed doors, but allows shots through open doorways', () => {
+    const doors = createInitialDoors();
+    // door_cargo at y=400, x1: 550, x2: 630. Initially isOpen: true
+
+    // 1. Fire across a solid wall (cargo_left at x=400, y: 400..740)
+    const shotAtWall = createProjectile(350, 500, 450, 500, 'kinetic_carbine', true);
+    const wallRes = tickProjectiles([shotAtWall], 0.1, doors, [], { x: 0, y: 0 });
+    expect(wallRes.nextProjectiles.length).toBe(0); // Hit wall, absorbed!
+
+    // 2. Fire across door_cargo when it is closed
+    const closedDoors = toggleDoor(doors, 'door_cargo', false);
+    const shotAtClosedDoor = createProjectile(590, 430, 590, 370, 'kinetic_carbine', true);
+    const closedRes = tickProjectiles([shotAtClosedDoor], 0.1, closedDoors, [], { x: 0, y: 0 });
+    expect(closedRes.nextProjectiles.length).toBe(0); // Hit closed door, absorbed!
+
+    // 3. Fire across door_cargo when it is OPEN
+    const openDoors = toggleDoor(doors, 'door_cargo', true);
+    const shotThroughOpenDoor = createProjectile(590, 430, 590, 370, 'kinetic_carbine', true);
+    const openRes = tickProjectiles([shotThroughOpenDoor], 0.1, openDoors, [], { x: 0, y: 0 });
+    expect(openRes.nextProjectiles.length).toBe(1); // Passes through open door!
+  });
+
+  it('locks bulkheads and closes doors, preventing pawn locomotion through the doorway', () => {
+    const state = createInitialBoardingState();
+    const lockedState = toggleBulkheadLock(state, 'cargo', true);
+
+    const cargoDoor = lockedState.doors.find((d) => d.id === 'door_cargo');
+    expect(cargoDoor?.isOpen).toBe(false);
+
+    // Convert closed doors into collision walls
+    const closedDoorWalls = lockedState.doors
+      .filter((d) => !d.isOpen)
+      .map((d) => ({
+        id: `door_wall_${d.id}`,
+        x1: d.x1,
+        y1: d.y1,
+        x2: d.x2,
+        y2: d.y2,
+        isOpaque: true,
+        isTraversable: false,
+      }));
+
+    // Pawn attempting to walk from Cargo (590, 420) through door_cargo (y=400) to Corridor (590, 380)
+    const moveRes = resolvePawnMovement(590, 420, 590, 380, 14, closedDoorWalls);
+    expect(moveRes.collided).toBe(true);
+    expect(moveRes.y).toBeGreaterThanOrEqual(400); // Physically stopped from crossing door line!
   });
 });

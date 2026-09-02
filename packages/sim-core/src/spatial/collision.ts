@@ -66,8 +66,9 @@ export function resolveWallCollision(
   };
 }
 
+// fallow-ignore-next-line complexity
 export function resolvePawnMovement(
-  _currentX: number,
+  currentX: number,
   currentY: number,
   targetX: number,
   targetY: number,
@@ -80,6 +81,26 @@ export function resolvePawnMovement(
 
   // Separate axis test to enable smooth wall-sliding along orthogonal bulkheads
   for (const wall of walls) {
+    if (wall.isTraversable) continue;
+
+    // Tunneling check: did movement vector cross the wall segment?
+    if (
+      segmentsIntersect(
+        { x: currentX, y: currentY },
+        { x: posX, y: posY },
+        { x: wall.x1, y: wall.y1 },
+        { x: wall.x2, y: wall.y2 }
+      )
+    ) {
+      anyCollision = true;
+      const isHoriz = Math.abs(wall.y2 - wall.y1) < Math.abs(wall.x2 - wall.x1);
+      if (isHoriz) {
+        posY = currentY < wall.y1 ? wall.y1 - radius : wall.y1 + radius;
+      } else {
+        posX = currentX < wall.x1 ? wall.x1 - radius : wall.x1 + radius;
+      }
+    }
+
     const resX = resolveWallCollision({ x: posX, y: currentY }, radius, wall);
     if (resX.collided) {
       posX = resX.resolved.x;
@@ -122,4 +143,10 @@ export function findNearestStation(
   }
 
   return nearest;
+}
+
+export function segmentsIntersect(p1: Point2D, p2: Point2D, q1: Point2D, q2: Point2D): boolean {
+  const ccw = (a: Point2D, b: Point2D, c: Point2D) =>
+    (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
+  return ccw(p1, q1, q2) !== ccw(p2, q1, q2) && ccw(p1, p2, q1) !== ccw(p1, p2, q2);
 }

@@ -230,7 +230,10 @@ export const App: React.FC = () => {
   const [equippedWeapon, setEquippedWeapon] = useState<WeaponType>('kinetic_carbine');
 
   const { wsConnected, triageNotice, sendAction } = useVesselSocket(setTelemetry);
-  const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(role);
+  const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(
+    role,
+    telemetry.boarding?.doors
+  );
 
   const roleDef = getRoleDefinition(role);
 

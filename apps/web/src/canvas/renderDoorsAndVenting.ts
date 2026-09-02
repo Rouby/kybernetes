@@ -1,5 +1,156 @@
 import type { DoorState } from '@kybernetes/protocol';
 
+function drawHazardStripes(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.fillStyle = '#18181b';
+  ctx.fillRect(x, y, w, h);
+
+  ctx.strokeStyle = '#eab308';
+  ctx.lineWidth = 5;
+  const step = 11;
+  for (let i = -h; i < w + h; i += step) {
+    ctx.beginPath();
+    ctx.moveTo(x + i, y);
+    ctx.lineTo(x + i + h, y + h);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// fallow-ignore-next-line complexity
+function drawOpenDoorway(
+  ctx: CanvasRenderingContext2D,
+  minX: number,
+  minY: number,
+  w: number,
+  h: number,
+  mx: number,
+  my: number,
+  isHorizontal: boolean
+) {
+  if (isHorizontal) {
+    // Left & right door jambs
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(minX, minY - 2, 8, h + 4);
+    ctx.strokeRect(minX, minY - 2, 8, h + 4);
+    ctx.fillRect(minX + w - 8, minY - 2, 8, h + 4);
+    ctx.strokeRect(minX + w - 8, minY - 2, 8, h + 4);
+
+    // Green status LEDs on posts
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(minX + 2, my - 2, 4, 4);
+    ctx.fillRect(minX + w - 6, my - 2, 4, 4);
+
+    // Open green clearance threshold
+    ctx.strokeStyle = 'rgba(34, 197, 94, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(minX + 10, my);
+    ctx.lineTo(minX + w - 10, my);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = 'bold 7px monospace';
+    ctx.fillStyle = '#22c55e';
+    ctx.textAlign = 'center';
+    ctx.fillText('[OPEN]', mx, my + 2.5);
+  } else {
+    // Top & bottom door jambs
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(minX - 2, minY, w + 4, 8);
+    ctx.strokeRect(minX - 2, minY, w + 4, 8);
+    ctx.fillRect(minX - 2, minY + h - 8, w + 4, 8);
+    ctx.strokeRect(minX - 2, minY + h - 8, w + 4, 8);
+
+    // Green status LEDs on posts
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(mx - 2, minY + 2, 4, 4);
+    ctx.fillRect(mx - 2, minY + h - 6, 4, 4);
+
+    // Open green clearance threshold
+    ctx.strokeStyle = 'rgba(34, 197, 94, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(mx, minY + 10);
+    ctx.lineTo(mx, minY + h - 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = 'bold 7px monospace';
+    ctx.fillStyle = '#22c55e';
+    ctx.textAlign = 'center';
+    ctx.fillText('[OPEN]', mx, my + 2.5);
+  }
+}
+
+// fallow-ignore-next-line complexity
+function drawClosedDoorway(
+  ctx: CanvasRenderingContext2D,
+  minX: number,
+  minY: number,
+  w: number,
+  h: number,
+  mx: number,
+  my: number,
+  isHorizontal: boolean
+) {
+  // Heavy solid steel blast plate spanning the entire width
+  const plateX = isHorizontal ? minX : minX - 1;
+  const plateY = isHorizontal ? minY - 1 : minY;
+  const plateW = isHorizontal ? w : w + 2;
+  const plateH = isHorizontal ? h + 2 : h;
+
+  // Yellow & black hazard warning stripes
+  drawHazardStripes(ctx, plateX, plateY, plateW, plateH);
+
+  // Outer heavy steel frame border
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(plateX, plateY, plateW, plateH);
+
+  // Central seam
+  ctx.beginPath();
+  if (isHorizontal) {
+    ctx.moveTo(mx, plateY);
+    ctx.lineTo(mx, plateY + plateH);
+  } else {
+    ctx.moveTo(plateX, my);
+    ctx.lineTo(plateX + plateW, my);
+  }
+  ctx.stroke();
+
+  // Red locked status indicator pill
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(mx - 18, my - 5, 36, 10);
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(mx - 18, my - 5, 36, 10);
+
+  ctx.save();
+  ctx.shadowColor = '#ef4444';
+  ctx.shadowBlur = 6;
+  ctx.font = 'bold 7px monospace';
+  ctx.fillStyle = '#ef4444';
+  ctx.textAlign = 'center';
+  ctx.fillText('LOCKED', mx, my + 2.5);
+  ctx.restore();
+}
+
 // fallow-ignore-next-line complexity
 function drawInteriorDoor(ctx: CanvasRenderingContext2D, door: DoorState) {
   const { x1, y1, x2, y2, isOpen } = door;
@@ -7,69 +158,19 @@ function drawInteriorDoor(ctx: CanvasRenderingContext2D, door: DoorState) {
   const my = (y1 + y2) / 2;
   const isHorizontal = Math.abs(y2 - y1) < Math.abs(x2 - x1);
 
+  const minX = Math.min(x1, x2);
+  const minY = Math.min(y1, y2);
+  const w = isHorizontal ? Math.abs(x2 - x1) : 12;
+  const h = isHorizontal ? 12 : Math.abs(y2 - y1);
+  const startX = isHorizontal ? minX : x1 - 6;
+  const startY = isHorizontal ? y1 - 6 : minY;
+
   ctx.save();
-
-  // Outer Doorway Frame
-  ctx.fillStyle = '#1e293b';
-  ctx.strokeStyle = '#0f172a';
-  ctx.lineWidth = 2;
-
-  if (isHorizontal) {
-    const w = Math.abs(x2 - x1);
-    const minX = Math.min(x1, x2);
-    ctx.fillRect(minX, y1 - 6, w, 12);
-    ctx.strokeRect(minX, y1 - 6, w, 12);
-
-    if (isOpen) {
-      // Recessed sliding pocket with green light
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(minX + 4, y1 - 4, w - 8, 8);
-      ctx.fillStyle = '#22c55e';
-      ctx.fillRect(mx - 3, y1 - 2, 6, 4);
-    } else {
-      // Closed double steel blast plate with red lock light
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(minX + 2, y1 - 5, w - 4, 10);
-      ctx.strokeStyle = '#0f172a';
-      ctx.strokeRect(minX + 2, y1 - 5, w - 4, 10);
-
-      // Central seam
-      ctx.beginPath();
-      ctx.moveTo(mx, y1 - 5);
-      ctx.lineTo(mx, y1 + 5);
-      ctx.stroke();
-
-      // Red status LED
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(mx - 3, y1 - 2, 6, 4);
-    }
+  if (isOpen) {
+    drawOpenDoorway(ctx, startX, startY, w, h, mx, my, isHorizontal);
   } else {
-    const h = Math.abs(y2 - y1);
-    const minY = Math.min(y1, y2);
-    ctx.fillRect(x1 - 6, minY, 12, h);
-    ctx.strokeRect(x1 - 6, minY, 12, h);
-
-    if (isOpen) {
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(x1 - 4, minY + 4, 8, h - 8);
-      ctx.fillStyle = '#22c55e';
-      ctx.fillRect(x1 - 2, my - 3, 4, 6);
-    } else {
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(x1 - 5, minY + 2, 10, h - 4);
-      ctx.strokeStyle = '#0f172a';
-      ctx.strokeRect(x1 - 5, minY + 2, 10, h - 4);
-
-      ctx.beginPath();
-      ctx.moveTo(x1 - 5, my);
-      ctx.lineTo(x1 + 5, my);
-      ctx.stroke();
-
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(x1 - 2, my - 3, 4, 6);
-    }
+    drawClosedDoorway(ctx, startX, startY, w, h, mx, my, isHorizontal);
   }
-
   ctx.restore();
 }
 
@@ -82,43 +183,64 @@ function drawExteriorAirlock(ctx: CanvasRenderingContext2D, airlock: DoorState, 
 
   ctx.save();
 
-  // Heavy hazard stripe airlock frame
   const minX = Math.min(x1, x2);
   const minY = Math.min(y1, y2);
-  const w = isHorizontal ? Math.abs(x2 - x1) : 16;
-  const h = isHorizontal ? 16 : Math.abs(y2 - y1);
-
-  ctx.fillStyle = '#0f172a';
-  ctx.fillRect(minX - (isHorizontal ? 0 : 8), minY - (isHorizontal ? 8 : 0), w, h);
+  const w = isHorizontal ? Math.abs(x2 - x1) : 18;
+  const h = isHorizontal ? 18 : Math.abs(y2 - y1);
+  const startX = isHorizontal ? minX : x1 - 9;
+  const startY = isHorizontal ? y1 - 9 : minY;
 
   if (!isOpen) {
     // Sealed heavy hull blast hatch
-    ctx.fillStyle = '#475569';
-    ctx.fillRect(minX - (isHorizontal ? 0 : 6), minY - (isHorizontal ? 6 : 0), w, h);
+    drawHazardStripes(ctx, startX, startY, w, h);
     ctx.strokeStyle = '#f59e0b';
     ctx.lineWidth = 2;
-    ctx.strokeRect(minX - (isHorizontal ? 0 : 6), minY - (isHorizontal ? 6 : 0), w, h);
+    ctx.strokeRect(startX, startY, w, h);
 
     // Warning text
-    ctx.font = 'bold 8px monospace';
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(mx - 22, my - 5, 44, 10);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mx - 22, my - 5, 44, 10);
+
+    ctx.font = 'bold 7px monospace';
     ctx.fillStyle = '#f59e0b';
     ctx.textAlign = 'center';
-    ctx.fillText('AIRLOCK', mx, my + 3);
+    ctx.fillText('AIRLOCK', mx, my + 2.5);
   } else {
-    // OPEN AIRLOCK -> Void opening with decompression suction vortex!
+    // OPEN AIRLOCK -> Void opening into deep space!
     ctx.fillStyle = '#020617';
-    ctx.fillRect(minX - (isHorizontal ? 0 : 6), minY - (isHorizontal ? 6 : 0), w, h);
+    ctx.fillRect(startX, startY, w, h);
+
+    // Tiny stars in the open breach
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(mx - 4, my - 3, 1.5, 1.5);
+    ctx.fillRect(mx + 5, my + 2, 1, 1);
+    ctx.fillRect(mx - 2, my + 4, 1, 1);
 
     // Flashing red emergency klaxon around open airlock
     const flash = Math.sin(timeMs / 120) > 0;
-    ctx.strokeStyle = flash ? '#ef4444' : '#b91c1c';
+    ctx.strokeStyle = flash ? '#ef4444' : '#7f1d1d';
     ctx.lineWidth = 2.5;
-    ctx.strokeRect(minX - (isHorizontal ? 0 : 6), minY - (isHorizontal ? 6 : 0), w, h);
+    ctx.strokeRect(startX, startY, w, h);
+
+    // Warning badge
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(mx - 24, my - 5, 48, 10);
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mx - 24, my - 5, 48, 10);
+
+    ctx.font = 'bold 7px monospace';
+    ctx.fillStyle = '#ef4444';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ VACUUM', mx, my + 2.5);
 
     // Suction air currents rushing into space (Additive blending)
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < 6; i++) {
-      const offset = (timeMs * 0.3 + i * 25) % 80;
+      const offset = (timeMs * 0.35 + i * 22) % 80;
       const alpha = Math.max(0, 1 - offset / 80);
       ctx.strokeStyle = `rgba(56, 189, 248, ${alpha})`;
       ctx.lineWidth = 2;

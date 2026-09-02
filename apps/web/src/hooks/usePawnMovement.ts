@@ -1,4 +1,10 @@
-import type { PawnState, StartingRole, StationFixture } from '@kybernetes/protocol';
+import type {
+  DoorState,
+  PawnState,
+  StartingRole,
+  StationFixture,
+  WallSegment,
+} from '@kybernetes/protocol';
 import {
   findNearestStation,
   HESPERIA_SPAWNS,
@@ -39,7 +45,12 @@ function getMovementInput(keys: Set<string>): { dx: number; dy: number } | null 
 }
 
 // fallow-ignore-next-line complexity
-function calculateNextPawnState(current: PawnState, keys: Set<string>, dt: number): PawnState {
+function calculateNextPawnState(
+  current: PawnState,
+  keys: Set<string>,
+  dt: number,
+  doors?: DoorState[]
+): PawnState {
   if (current.isOperating || current.isResting) {
     return current;
   }
@@ -52,13 +63,28 @@ function calculateNextPawnState(current: PawnState, keys: Set<string>, dt: numbe
   const targetX = current.x + dir.dx * PAWN_SPEED * dt;
   const targetY = current.y + dir.dy * PAWN_SPEED * dt;
 
+  const closedDoorWalls: WallSegment[] = (doors || [])
+    .filter((d) => !d.isOpen)
+    .map((d) => ({
+      id: `door_wall_${d.id}`,
+      x1: d.x1,
+      y1: d.y1,
+      x2: d.x2,
+      y2: d.y2,
+      isOpaque: true,
+      isTraversable: false,
+    }));
+
+  const allWalls =
+    closedDoorWalls.length > 0 ? [...HESPERIA_WALLS, ...closedDoorWalls] : HESPERIA_WALLS;
+
   const resolved = resolvePawnMovement(
     current.x,
     current.y,
     targetX,
     targetY,
     PAWN_RADIUS,
-    HESPERIA_WALLS
+    allWalls
   );
 
   return {
@@ -73,6 +99,7 @@ function calculateNextPawnState(current: PawnState, keys: Set<string>, dt: numbe
 
 export function usePawnMovement(
   initialRole: StartingRole,
+  doors?: DoorState[],
   onInteractPrompt?: (station: StationFixture | null) => void
 ) {
   const [pawn, setPawn] = useState<PawnState>(() => {
@@ -99,6 +126,8 @@ export function usePawnMovement(
 
   const [nearestStation, setNearestStation] = useState<StationFixture | null>(null);
   const currentNearRef = useRef<string | null>(null);
+  const doorsRef = useRef(doors);
+  doorsRef.current = doors;
 
   const resetToSpawn = useCallback((role: StartingRole) => {
     const spawn = HESPERIA_SPAWNS[role];
@@ -138,7 +167,12 @@ export function usePawnMovement(
       const dt = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
-      const nextPawn = calculateNextPawnState(pawnRef.current, keysPressed.current, dt);
+      const nextPawn = calculateNextPawnState(
+        pawnRef.current,
+        keysPressed.current,
+        dt,
+        doorsRef.current
+      );
       if (nextPawn !== pawnRef.current) setPawn(nextPawn);
 
       const nearby = findNearestStation(nextPawn.x, nextPawn.y, HESPERIA_STATIONS, 54);

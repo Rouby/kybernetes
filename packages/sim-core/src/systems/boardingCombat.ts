@@ -9,6 +9,7 @@ import type {
   StartingRole,
   WeaponType,
 } from '@kybernetes/protocol';
+import { segmentsIntersect } from '../spatial/collision';
 import { createInitialDoors, toggleDoor } from '../spatial/doors';
 import { findWaypointPath } from '../spatial/navigation';
 import { applySuctionToPosition, createInitialRoomO2, tickAirVenting } from './airVenting';
@@ -131,25 +132,26 @@ function moveAlongWaypoints(
 
   const targetNode = dist < 12 && path.length > 1 ? path[1] : nextNode;
 
-  // Check if target node is a closed door
-  const isClosedDoor = doors.some(
+  // Check if any door between intruder and targetNode (or nextNode) is closed
+  const pIntruder = { x: intruder.x, y: intruder.y };
+  const pTarget = { x: targetNode.x, y: targetNode.y };
+  const pNext = { x: nextNode.x, y: nextNode.y };
+
+  const blockedDoor = doors.find(
     (d) =>
       !d.isOpen &&
-      Math.hypot((d.x1 + d.x2) / 2 - targetNode.x, (d.y1 + d.y2) / 2 - targetNode.y) < 25
+      (Math.hypot((d.x1 + d.x2) / 2 - nextNode.x, (d.y1 + d.y2) / 2 - nextNode.y) < 35 ||
+        segmentsIntersect(pIntruder, pTarget, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 }) ||
+        segmentsIntersect(pIntruder, pNext, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 }))
   );
 
-  if (isClosedDoor) {
-    const door = doors.find(
-      (d) =>
-        !d.isOpen &&
-        Math.hypot((d.x1 + d.x2) / 2 - targetNode.x, (d.y1 + d.y2) / 2 - targetNode.y) < 25
-    );
+  if (blockedDoor) {
     return {
       x: intruder.x,
       y: intruder.y,
       facingAngle: intruder.facingAngle,
       atTarget: false,
-      blockedDoorId: door?.id,
+      blockedDoorId: blockedDoor.id,
     };
   }
 
@@ -475,7 +477,11 @@ export function toggleBulkheadLock(
     ? Array.from(new Set([...state.lockedBulkheads, roomId]))
     : state.lockedBulkheads.filter((id) => id !== roomId);
 
-  return { ...state, lockedBulkheads: nextLocks };
+  let doors = state.doors || createInitialDoors();
+  const targetDoorId = `door_${roomId === 'engineering' ? 'eng' : roomId}`;
+  doors = toggleDoor(doors, targetDoorId, !locked);
+
+  return { ...state, lockedBulkheads: nextLocks, doors };
 }
 
 export function toggleRoomVenting(

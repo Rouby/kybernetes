@@ -6,6 +6,7 @@ import type {
   WeaponType,
 } from '@kybernetes/protocol';
 import {
+  createInitialDoors,
   HESPERIA_ROOMS,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
@@ -208,6 +209,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   const cameraRef = useRef({ x: pawn.x, y: pawn.y });
   const mouseWorldRef = useRef({ x: pawn.x + 50, y: pawn.y });
   const exploredRoomsRef = useRef<Set<string>>(new Set(['engineering', 'corridor']));
+  const defaultDoorsRef = useRef(createInitialDoors());
 
   useEffect(() => {
     const roomId = checkRoomExploration(pawn.x, pawn.y);
@@ -288,9 +290,8 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       renderBulkheads(ctx, HESPERIA_WALLS, HESPERIA_ROOMS, exploredRoomsRef.current);
 
       // Layer 3.5: Operable interior blast doors & exterior hull airlocks with venting streams
-      if (boarding?.doors) {
-        renderDoorsAndVenting(ctx, boarding.doors, performance.now());
-      }
+      const activeDoors = boarding?.doors || defaultDoorsRef.current;
+      renderDoorsAndVenting(ctx, activeDoors, performance.now());
 
       // Layer 4: Detailed Rimworld-style mechanical fixtures
       for (const st of HESPERIA_STATIONS) {
@@ -375,7 +376,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           cameraRef.current,
           pawn,
           equippedWeapon,
-          boarding?.doors,
+          boarding?.doors || defaultDoorsRef.current,
           nearestStation,
           onStationClick,
           onToggleDoor,

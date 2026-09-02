@@ -1,4 +1,12 @@
-import type { DoorState, IntruderState, ProjectileState, WeaponType } from '@kybernetes/protocol';
+import type {
+  DoorState,
+  IntruderState,
+  ProjectileState,
+  WallSegment,
+  WeaponType,
+} from '@kybernetes/protocol';
+import { segmentsIntersect } from '../spatial/collision';
+import { HESPERIA_WALLS } from '../spatial/deck';
 
 export function createProjectile(
   originX: number,
@@ -52,7 +60,8 @@ export function tickProjectiles(
   dtSeconds: number,
   doors: DoorState[],
   intruders: IntruderState[],
-  playerPos: { x: number; y: number }
+  playerPos: { x: number; y: number },
+  walls: WallSegment[] = HESPERIA_WALLS
 ): ProjectileTickResult {
   const nextProjectiles: ProjectileState[] = [];
   const damagedIntruders: Array<{ id: string; damage: number }> = [];
@@ -65,16 +74,21 @@ export function tickProjectiles(
 
     if (nextLife <= 0) continue;
 
-    // Check collision with closed doors
-    const hitDoor = doors.some(
-      (d) =>
-        !d.isOpen &&
-        nextX >= Math.min(d.x1, d.x2) - 8 &&
-        nextX <= Math.max(d.x1, d.x2) + 8 &&
-        nextY >= Math.min(d.y1, d.y2) - 8 &&
-        nextY <= Math.max(d.y1, d.y2) + 8
+    const p1 = { x: proj.x, y: proj.y };
+    const p2 = { x: nextX, y: nextY };
+
+    // 1. Line-segment collision with ship walls
+    const hitWall = walls.some(
+      (w) =>
+        !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
     );
-    if (hitDoor) continue; // Projectile absorbed by closed door
+    if (hitWall) continue; // Projectile stopped and absorbed by wall
+
+    // 2. Line-segment collision with closed blast doors
+    const hitDoor = doors.some(
+      (d) => !d.isOpen && segmentsIntersect(p1, p2, { x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 })
+    );
+    if (hitDoor) continue; // Projectile stopped and absorbed by closed door
 
     // Check collision with outer boundaries
     if (nextX < 50 || nextX > 1150 || nextY < 50 || nextY > 750) continue;
