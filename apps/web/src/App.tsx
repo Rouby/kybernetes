@@ -1,4 +1,9 @@
-import type { StartingRole, StationFixture, TelemetryDeltaBroadcast } from '@kybernetes/protocol';
+import type {
+  NavalDamageEventType,
+  StartingRole,
+  StationFixture,
+  TelemetryDeltaBroadcast,
+} from '@kybernetes/protocol';
 import {
   createInitialPlayerVitals,
   createInitialVesselState,
@@ -17,6 +22,7 @@ import { VesselCanvas } from './components/VesselCanvas';
 import { VitalsPanel } from './components/VitalsPanel';
 import { useDutyProgression } from './hooks/useDutyProgression';
 import { usePawnMovement } from './hooks/usePawnMovement';
+import { useVesselSocket } from './hooks/useVesselSocket';
 
 const styles = stylex.create({
   container: {
@@ -85,6 +91,24 @@ const styles = stylex.create({
     backgroundColor: '#040609',
     overflow: 'hidden',
   },
+  triageNoticeBanner: {
+    position: 'absolute',
+    top: 16,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: 'rgba(15, 20, 29, 0.95)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: hudColors.cyanTelemetry,
+    borderRadius: 3,
+    padding: '8px 16px',
+    color: hudColors.cyanTelemetry,
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 1,
+    zIndex: 10,
+    pointerEvents: 'none',
+  },
   footer: {
     display: 'flex',
     alignItems: 'center',
@@ -102,7 +126,6 @@ const styles = stylex.create({
     width: 8,
     height: 8,
     borderRadius: '50%',
-    backgroundColor: hudColors.phosphorGreen,
     marginRight: 6,
   },
   viewportOverlayHelp: {
@@ -123,8 +146,9 @@ const styles = stylex.create({
   },
 });
 
+// fallow-ignore-next-line complexity
 export const App: React.FC = () => {
-  const [telemetry] = useState<TelemetryDeltaBroadcast>(() => ({
+  const [telemetry, setTelemetry] = useState<TelemetryDeltaBroadcast>(() => ({
     type: 'TELEMETRY_DELTA',
     timestamp: Date.now(),
     ...createInitialVesselState(),
@@ -136,6 +160,7 @@ export const App: React.FC = () => {
   const [isSleeping, setIsSleeping] = useState(false);
   const [vitals, setVitals] = useState(createInitialPlayerVitals);
 
+  const { wsConnected, triageNotice, sendAction } = useVesselSocket(setTelemetry);
   const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(role);
   const {
     activeDuty,
@@ -229,7 +254,15 @@ export const App: React.FC = () => {
           {...stylex.props(styles.centerViewport)}
           style={{ position: 'relative', flex: 1, height: '100%', overflow: 'hidden' }}
         >
-          <VesselCanvas pawn={pawn} nearestStation={nearestStation} onStationClick={handleDock} />
+          {triageNotice && <div {...stylex.props(styles.triageNoticeBanner)}>{triageNotice}</div>}
+          <VesselCanvas
+            pawn={pawn}
+            nearestStation={nearestStation}
+            alertLevel={telemetry.alertLevel}
+            activeFires={telemetry.activeFires}
+            breaches={telemetry.hull?.breaches}
+            onStationClick={handleDock}
+          />
           <div {...stylex.props(styles.viewportOverlayHelp)}>
             <span>
               <strong>[W][A][S][D]</strong> Locomotion
@@ -243,14 +276,36 @@ export const App: React.FC = () => {
           </div>
         </section>
 
-        <TelemetryRail telemetry={telemetry} roleDef={roleDef} />
+        <TelemetryRail
+          telemetry={telemetry}
+          roleDef={roleDef}
+          onToggleBattleStations={(level) => {
+            sendAction({ type: 'TOGGLE_BATTLE_STATIONS', alertLevel: level });
+            setTelemetry((t) => ({ ...t, alertLevel: level }));
+          }}
+          onTriggerPdtIntercept={(eventId) =>
+            sendAction({ type: 'TRIGGER_PDT_INTERCEPT', eventId })
+          }
+          onDeployFireSuppression={(roomId) =>
+            sendAction({ type: 'DEPLOY_FIRE_SUPPRESSION', roomId })
+          }
+          onEmergencyHullRepair={(roomId) => sendAction({ type: 'EMERGENCY_HULL_REPAIR', roomId })}
+          onVentReactorCoolant={() => sendAction({ type: 'VENT_REACTOR_COOLANT' })}
+          onTriggerNavalEvent={(eventType: NavalDamageEventType) =>
+            sendAction({ type: 'TRIGGER_NAVAL_EVENT', eventType })
+          }
+        />
       </main>
 
       <footer {...stylex.props(styles.footer)}>
         <div>
-          <span {...stylex.props(styles.onlineIndicator)} />
+          <span
+            {...stylex.props(styles.onlineIndicator)}
+            style={{ backgroundColor: wsConnected ? '#00ff66' : '#ffb000' }}
+          />
           <span>
-            VESSEL DAEMON: SYNCED (10 Hz) • POS: ({Math.round(pawn.x)}, {Math.round(pawn.y)})
+            VESSEL DAEMON: {wsConnected ? 'SYNCED (10 Hz)' : 'CONNECTING...'} • POS: (
+            {Math.round(pawn.x)}, {Math.round(pawn.y)})
           </span>
         </div>
         <div>

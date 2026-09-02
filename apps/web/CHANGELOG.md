@@ -6,7 +6,7 @@
 
 - 8d842cb: ### 2D Viewport, Locomotion & Diegetic HUD
   
-  ![Kybernetes Milestone 2 Viewport and HUD](../docs/images/milestone2_viewport.png)
+  ![Kybernetes Milestone 2 Viewport and HUD](https://raw.githubusercontent.com/Rouby/kybernetes/main/docs/images/milestone2_viewport.png)
   
   - **Hardware-Accelerated 2D Viewport (`VesselCanvas.tsx`)**:
     - HTML5 2D Canvas viewport tracking pawn locomotion with smooth camera interpolation.

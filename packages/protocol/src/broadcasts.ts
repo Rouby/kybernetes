@@ -1,4 +1,12 @@
 import type { BulkheadState, PawnState } from './spatial';
+import type {
+  DefenseTelemetry,
+  HullTelemetry,
+  LifeSupportTelemetry,
+  NavalDamageEvent,
+  ReactorTelemetry,
+  ShieldTelemetry,
+} from './subsystems';
 import type { MacroCrewSupplies, PlayerVitals } from './survival';
 
 export interface SpatialSnapshotBroadcast {
@@ -20,6 +28,13 @@ export interface TelemetryDeltaBroadcast {
   shieldIntegrityPercent: number;
   alertLevel: 'nominal' | 'yellow' | 'red';
   supplies: MacroCrewSupplies;
+  reactor: ReactorTelemetry;
+  lifeSupport: LifeSupportTelemetry;
+  hull: HullTelemetry;
+  shields: ShieldTelemetry;
+  defense: DefenseTelemetry;
+  activeEvents: NavalDamageEvent[];
+  activeFires: string[];
 }
 
 export interface VitalsDeltaBroadcast {
@@ -59,10 +74,26 @@ export interface DutyCompletedBroadcast {
   timestamp: number;
 }
 
+export interface NavalDamageEventBroadcast {
+  type: 'NAVAL_DAMAGE_EVENT';
+  event: NavalDamageEvent;
+}
+
+export interface DamageTriageBroadcast {
+  type: 'DAMAGE_TRIAGE_RESULT';
+  eventId?: string;
+  actionType: string;
+  success: boolean;
+  message: string;
+  timestamp: number;
+}
+
 export type ServerBroadcast =
   | SpatialSnapshotBroadcast
   | TelemetryDeltaBroadcast
   | VitalsDeltaBroadcast
   | CrewManifestBroadcast
   | ShipAlertBroadcast
-  | DutyCompletedBroadcast;
+  | DutyCompletedBroadcast
+  | NavalDamageEventBroadcast
+  | DamageTriageBroadcast;

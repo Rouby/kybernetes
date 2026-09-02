@@ -210,6 +210,51 @@ function checkRoomExploration(x: number, y: number): string | null {
   return found ? found.id : null;
 }
 
+function drawRoomHazards(ctx: CanvasRenderingContext2D, activeFires: string[], breaches: string[]) {
+  const now = Date.now();
+  for (const room of HESPERIA_ROOMS) {
+    if (activeFires.includes(room.id)) {
+      const alpha = 0.18 + Math.sin(now / 150) * 0.08;
+      ctx.fillStyle = `rgba(255, 68, 0, ${alpha})`;
+      ctx.fillRect(room.x, room.y, room.width, room.height);
+
+      ctx.fillStyle = '#ff6600';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('[!] COMPARTMENT FIRE', room.x + 12, room.y + room.height - 14);
+    }
+
+    if (breaches.includes(room.id)) {
+      const alpha = 0.15 + Math.sin(now / 200) * 0.06;
+      ctx.fillStyle = `rgba(0, 229, 255, ${alpha})`;
+      ctx.fillRect(room.x, room.y, room.width, room.height);
+
+      ctx.fillStyle = '#00e5ff';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('[!] HULL BREACH DECOMPRESSION', room.x + 12, room.y + room.height - 30);
+    }
+  }
+}
+
+function drawAlertOverlay(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  alertLevel: 'nominal' | 'yellow' | 'red'
+) {
+  if (alertLevel === 'red') {
+    const alpha = 0.1 + Math.sin(Date.now() / 250) * 0.06;
+    ctx.fillStyle = `rgba(255, 34, 68, ${alpha})`;
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.strokeStyle = '#ff2244';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, width - 4, height - 4);
+  } else if (alertLevel === 'yellow') {
+    ctx.fillStyle = 'rgba(255, 176, 0, 0.05)';
+    ctx.fillRect(0, 0, width, height);
+  }
+}
+
 // fallow-ignore-next-line complexity
 function applyCanvasResize(canvas: HTMLCanvasElement, rect: DOMRectReadOnly) {
   const w = Math.round(rect.width);
@@ -222,12 +267,18 @@ function applyCanvasResize(canvas: HTMLCanvasElement, rect: DOMRectReadOnly) {
 interface VesselCanvasProps {
   pawn: PawnState;
   nearestStation: StationFixture | null;
+  alertLevel?: 'nominal' | 'yellow' | 'red';
+  activeFires?: string[];
+  breaches?: string[];
   onStationClick?: (station: StationFixture) => void;
 }
 
 export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   pawn,
   nearestStation,
+  alertLevel = 'nominal',
+  activeFires = [],
+  breaches = [],
   onStationClick,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -279,6 +330,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       );
 
       drawDeckLayer(ctx, exploredRoomsRef.current);
+      drawRoomHazards(ctx, activeFires, breaches);
       for (const st of HESPERIA_STATIONS) {
         drawStationFixture(ctx, st, nearestStation?.id === st.id);
       }
@@ -287,12 +339,13 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       if (nearestStation) drawPrompt(ctx, nearestStation);
 
       ctx.restore();
+      drawAlertOverlay(ctx, canvas.width, canvas.height, alertLevel);
       animId = requestAnimationFrame(render);
     };
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [pawn, nearestStation]);
+  }, [pawn, nearestStation, alertLevel, activeFires, breaches]);
 
   return (
     <canvas

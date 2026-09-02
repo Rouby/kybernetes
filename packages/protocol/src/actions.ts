@@ -1,3 +1,5 @@
+import type { NavalDamageEventType } from './subsystems';
+
 export type StartingRole =
   | 'wiper'
   | 'galley_hand'
@@ -66,6 +68,30 @@ export interface VentCompartmentAction {
   venting: boolean;
 }
 
+export interface TriggerPdtInterceptAction {
+  type: 'TRIGGER_PDT_INTERCEPT';
+  eventId: string;
+}
+
+export interface DeployFireSuppressionAction {
+  type: 'DEPLOY_FIRE_SUPPRESSION';
+  roomId: string;
+}
+
+export interface EmergencyHullRepairAction {
+  type: 'EMERGENCY_HULL_REPAIR';
+  roomId: string;
+}
+
+export interface VentReactorCoolantAction {
+  type: 'VENT_REACTOR_COOLANT';
+}
+
+export interface TriggerNavalDamageEventAction {
+  type: 'TRIGGER_NAVAL_EVENT';
+  eventType: NavalDamageEventType;
+}
+
 export type ClientAction =
   | JoinVesselAction
   | PlayerMoveIntent
@@ -76,4 +102,9 @@ export type ClientAction =
   | BunkSleepAction
   | ToggleBattleStationsAction
   | BulkheadLockAction
-  | VentCompartmentAction;
+  | VentCompartmentAction
+  | TriggerPdtInterceptAction
+  | DeployFireSuppressionAction
+  | EmergencyHullRepairAction
+  | VentReactorCoolantAction
+  | TriggerNavalDamageEventAction;

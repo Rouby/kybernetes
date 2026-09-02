@@ -1,0 +1,49 @@
+export type SubsystemStatus = 'nominal' | 'degraded' | 'critical';
+
+export interface ReactorTelemetry {
+  tempKelvin: number;
+  maxTempKelvin: number;
+  outputMw: number;
+  coolantLevelPercent: number;
+  status: SubsystemStatus;
+}
+
+export interface LifeSupportTelemetry {
+  o2LevelPercent: number;
+  co2LevelPercent: number;
+  scrubberEfficiencyPercent: number;
+  status: SubsystemStatus;
+}
+
+export interface HullTelemetry {
+  integrityPercent: number;
+  stressPercent: number;
+  breaches: string[];
+  status: SubsystemStatus;
+}
+
+export interface ShieldTelemetry {
+  integrityPercent: number;
+  chargeMw: number;
+  status: SubsystemStatus;
+}
+
+export interface DefenseTelemetry {
+  pdtAmmo: number;
+  pdtReady: boolean;
+  status: SubsystemStatus;
+}
+
+export type NavalDamageEventType = 'torpedo_run' | 'radiation_burst' | 'micrometeor_storm';
+export type NavalDamageEventStatus = 'incoming' | 'impacting' | 'resolved' | 'mitigated';
+
+export interface NavalDamageEvent {
+  id: string;
+  type: NavalDamageEventType;
+  title: string;
+  description: string;
+  severity: 'minor' | 'moderate' | 'critical';
+  timeToImpactSeconds: number;
+  status: NavalDamageEventStatus;
+  targetRoomId?: string;
+}
