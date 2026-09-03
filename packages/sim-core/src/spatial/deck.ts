@@ -237,3 +237,142 @@ export const DEFAULT_DECK: DeckDefinition = {
 export function createDefaultDeck(): DeckDefinition {
   return { ...DEFAULT_DECK };
 }
+
+export interface LightDefinition {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  radius: number;
+  intensity: number;
+  color: [number, number, number];
+  room?: string;
+  flickerSpeed?: number;
+  flickerAmount?: number;
+}
+
+export const HESPERIA_LIGHTS: LightDefinition[] = [
+  // Central Corridor Bulkhead Lights (evenly spaced along y=340)
+  {
+    id: 'light_corr_port',
+    name: 'Port Junction Conduit Bulkhead Lamp',
+    x: 220,
+    y: 340,
+    radius: 210,
+    intensity: 1.15,
+    color: [1.0, 0.85, 0.6],
+    room: 'corridor',
+    flickerSpeed: 3.5,
+    flickerAmount: 0.04,
+  },
+  {
+    id: 'light_corr_mid_w',
+    name: 'Mid-West Corridor Fluorescent Strip',
+    x: 475,
+    y: 340,
+    radius: 200,
+    intensity: 1.0,
+    color: [0.75, 0.9, 1.0],
+    room: 'corridor',
+    flickerSpeed: 4.2,
+    flickerAmount: 0.03,
+  },
+  {
+    id: 'light_corr_mid_e',
+    name: 'Mid-East Corridor Fluorescent Strip',
+    x: 725,
+    y: 340,
+    radius: 200,
+    intensity: 1.0,
+    color: [0.75, 0.9, 1.0],
+    room: 'corridor',
+    flickerSpeed: 2.8,
+    flickerAmount: 0.03,
+  },
+  {
+    id: 'light_corr_stbd',
+    name: 'Starboard Junction Conduit Bulkhead Lamp',
+    x: 970,
+    y: 340,
+    radius: 210,
+    intensity: 1.15,
+    color: [1.0, 0.82, 0.55],
+    room: 'corridor',
+    flickerSpeed: 5.1,
+    flickerAmount: 0.05,
+  },
+
+  // Operational Rooms Ceiling Fixtures
+  {
+    id: 'light_bridge',
+    name: 'Command Bridge Helm Array',
+    x: 220,
+    y: 170,
+    radius: 260,
+    intensity: 1.0,
+    color: [0.35, 0.85, 1.0],
+    room: 'bridge',
+  },
+  {
+    id: 'light_quarters',
+    name: 'Crew Quarters Ambient Array',
+    x: 590,
+    y: 170,
+    radius: 270,
+    intensity: 0.95,
+    color: [1.0, 0.9, 0.75],
+    room: 'quarters',
+  },
+  {
+    id: 'light_mess',
+    name: 'Mess Hall Galley Luminaire',
+    x: 970,
+    y: 170,
+    radius: 270,
+    intensity: 1.0,
+    color: [1.0, 0.98, 0.92],
+    room: 'mess',
+  },
+  {
+    id: 'light_armory',
+    name: 'Armory Security Alert Lamp',
+    x: 220,
+    y: 570,
+    radius: 270,
+    intensity: 0.95,
+    color: [1.0, 0.65, 0.35],
+    room: 'armory',
+  },
+  {
+    id: 'light_cargo',
+    name: 'Cargo Bay Industrial Floodlight',
+    x: 590,
+    y: 570,
+    radius: 290,
+    intensity: 0.9,
+    color: [0.9, 0.9, 0.82],
+    room: 'cargo',
+  },
+  {
+    id: 'light_engineering',
+    name: 'Reactor Chamber Core Glow',
+    x: 970,
+    y: 570,
+    radius: 280,
+    intensity: 1.05,
+    color: [0.25, 0.9, 1.0],
+    room: 'engineering',
+    flickerSpeed: 2.5,
+    flickerAmount: 0.08,
+  },
+];
+
+export const ROOM_AMBIENTS: Record<string, [number, number, number]> = {
+  corridor: [0.06, 0.07, 0.1],
+  bridge: [0.22, 0.28, 0.35],
+  quarters: [0.26, 0.24, 0.22],
+  mess: [0.3, 0.3, 0.28],
+  armory: [0.22, 0.22, 0.26],
+  cargo: [0.2, 0.2, 0.2],
+  engineering: [0.24, 0.2, 0.2],
+};

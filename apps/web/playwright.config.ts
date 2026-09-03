@@ -16,10 +16,18 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
-    command: 'yarn dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: true,
-    timeout: 120000,
-  },
+  webServer: [
+    {
+      command: 'yarn --cwd ../server dev',
+      port: 3001,
+      reuseExistingServer: true,
+      timeout: 120000,
+    },
+    {
+      command: 'yarn dev',
+      url: 'http://localhost:3000',
+      reuseExistingServer: true,
+      timeout: 120000,
+    },
+  ],
 });

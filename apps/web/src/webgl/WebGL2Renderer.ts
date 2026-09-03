@@ -4,13 +4,18 @@ import type {
   PawnState,
   ProjectileState,
   StationFixture,
+  WallSegment,
   WeaponType,
 } from '@kybernetes/protocol';
 import {
+  computeVisibilityPolygon,
   createInitialDoors,
+  getOpaqueWallSegments,
+  HESPERIA_LIGHTS,
   HESPERIA_ROOMS,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
+  ROOM_AMBIENTS,
 } from '@kybernetes/sim-core';
 import { createCameraMatrix, createProgram } from './glUtils';
 import {
@@ -18,6 +23,10 @@ import {
   DECK_FLOOR_VS,
   FLAT_FS,
   FLAT_VS,
+  LIGHT_FAN_FS,
+  LIGHT_FAN_VS,
+  LIGHTMAP_APPLY_FS,
+  LIGHTMAP_APPLY_VS,
   PROJECTILE_FS,
   PROJECTILE_VS,
   STARFIELD_FS,
@@ -77,6 +86,8 @@ export class WebGL2Renderer {
   private starProg: WebGLProgram;
   private deckProg: WebGLProgram;
   private projProg: WebGLProgram;
+  private lightFanProg: WebGLProgram;
+  private lightmapApplyProg: WebGLProgram;
 
   private quadBuffer: WebGLBuffer;
   private dynamicBuffer: WebGLBuffer;
@@ -86,6 +97,13 @@ export class WebGL2Renderer {
   private flatVAO: WebGLVertexArrayObject;
   private projVAO: WebGLVertexArrayObject;
   private vignetteVAO: WebGLVertexArrayObject;
+  private lightFanVAO: WebGLVertexArrayObject;
+  private lightmapApplyVAO: WebGLVertexArrayObject;
+
+  private lightFBO: WebGLFramebuffer | null = null;
+  private lightTexture: WebGLTexture | null = null;
+  private fboWidth = 0;
+  private fboHeight = 0;
 
   private currentLights = new Float32Array(24);
   private currentLightColors = new Float32Array(18);
@@ -106,6 +124,8 @@ export class WebGL2Renderer {
     this.starProg = createProgram(gl, STARFIELD_VS, STARFIELD_FS);
     this.deckProg = createProgram(gl, DECK_FLOOR_VS, DECK_FLOOR_FS);
     this.projProg = createProgram(gl, PROJECTILE_VS, PROJECTILE_FS);
+    this.lightFanProg = createProgram(gl, LIGHT_FAN_VS, LIGHT_FAN_FS);
+    this.lightmapApplyProg = createProgram(gl, LIGHTMAP_APPLY_VS, LIGHTMAP_APPLY_FS);
 
     // Fullscreen quad [-1, -1] to [1, 1]
     const fsQuad = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
@@ -157,6 +177,22 @@ export class WebGL2Renderer {
     const vPos = gl.getAttribLocation(this.flatProg, 'a_position');
     gl.enableVertexAttribArray(vPos);
     gl.vertexAttribPointer(vPos, 2, gl.FLOAT, false, 0, 0);
+
+    // 6. Light Fan VAO
+    this.lightFanVAO = gl.createVertexArray()!;
+    gl.bindVertexArray(this.lightFanVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.dynamicBuffer);
+    const fanPos = gl.getAttribLocation(this.lightFanProg, 'a_position');
+    gl.enableVertexAttribArray(fanPos);
+    gl.vertexAttribPointer(fanPos, 2, gl.FLOAT, false, 0, 0);
+
+    // 7. Lightmap Apply VAO
+    this.lightmapApplyVAO = gl.createVertexArray()!;
+    gl.bindVertexArray(this.lightmapApplyVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+    const applyPos = gl.getAttribLocation(this.lightmapApplyProg, 'a_position');
+    gl.enableVertexAttribArray(applyPos);
+    gl.vertexAttribPointer(applyPos, 2, gl.FLOAT, false, 0, 0);
 
     gl.bindVertexArray(null);
   }
@@ -288,16 +324,269 @@ export class WebGL2Renderer {
   }
 
   // fallow-ignore-next-line complexity
-  public render(state: WebGLRenderState, width: number, height: number): void {
+  private ensureLightFBO(width: number, height: number): void {
     const gl = this.gl;
+    if (this.fboWidth === width && this.fboHeight === height && this.lightFBO) {
+      return;
+    }
+    this.fboWidth = width;
+    this.fboHeight = height;
+
+    if (!this.lightTexture) {
+      this.lightTexture = gl.createTexture();
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.lightTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    if (!this.lightFBO) {
+      this.lightFBO = gl.createFramebuffer();
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.lightFBO);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      this.lightTexture,
+      0
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderLightFan(
+    matrix: Float32Array,
+    light: {
+      x: number;
+      y: number;
+      radius: number;
+      intensity: number;
+      color: [number, number, number];
+      isDirectional?: boolean;
+      facingAngle?: number;
+      fov?: number;
+      ambientRadius?: number;
+    },
+    opaqueWalls: WallSegment[]
+  ): void {
+    const gl = this.gl;
+    const poly = computeVisibilityPolygon(
+      { x: light.x, y: light.y },
+      light.radius,
+      opaqueWalls,
+      48
+    );
+    if (poly.length < 3) return;
+
+    const verts = new Float32Array(poly.length * 6);
+    let vIdx = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const next = (i + 1) % poly.length;
+      verts[vIdx++] = light.x;
+      verts[vIdx++] = light.y;
+      verts[vIdx++] = poly[i].x;
+      verts[vIdx++] = poly[i].y;
+      verts[vIdx++] = poly[next].x;
+      verts[vIdx++] = poly[next].y;
+    }
+
+    gl.useProgram(this.lightFanProg);
+    gl.bindVertexArray(this.lightFanVAO);
+
+    gl.uniformMatrix3fv(gl.getUniformLocation(this.lightFanProg, 'u_matrix'), false, matrix);
+    gl.uniform2f(gl.getUniformLocation(this.lightFanProg, 'u_lightOrigin'), light.x, light.y);
+    gl.uniform3f(
+      gl.getUniformLocation(this.lightFanProg, 'u_lightColor'),
+      light.color[0],
+      light.color[1],
+      light.color[2]
+    );
+    gl.uniform1f(gl.getUniformLocation(this.lightFanProg, 'u_intensity'), light.intensity);
+    gl.uniform1f(gl.getUniformLocation(this.lightFanProg, 'u_radius'), light.radius);
+    gl.uniform1f(
+      gl.getUniformLocation(this.lightFanProg, 'u_isDirectional'),
+      light.isDirectional ? 1.0 : 0.0
+    );
+    gl.uniform1f(
+      gl.getUniformLocation(this.lightFanProg, 'u_facingAngle'),
+      light.facingAngle ?? 0.0
+    );
+    gl.uniform1f(gl.getUniformLocation(this.lightFanProg, 'u_fov'), light.fov ?? Math.PI / 2);
+    gl.uniform1f(
+      gl.getUniformLocation(this.lightFanProg, 'u_ambientRadius'),
+      light.ambientRadius ?? 75.0
+    );
+
+    this.bufferAndDraw(verts);
+    gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderLightmap(
+    matrix: Float32Array,
+    state: WebGLRenderState,
+    timeSec: number,
+    opaqueWalls: WallSegment[],
+    width: number,
+    height: number
+  ): void {
+    const gl = this.gl;
+    this.ensureLightFBO(width, height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.lightFBO);
     gl.viewport(0, 0, width, height);
+
+    // Deep space remains fully illuminated (1.0)
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    gl.clearColor(0.015, 0.02, 0.04, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    // Baseline ambient darkness inside ship rooms
+    this.bindFlatProgram(matrix);
+    for (const room of HESPERIA_ROOMS) {
+      const amb = ROOM_AMBIENTS[room.id] ?? [0.2, 0.2, 0.2];
+      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), amb[0], amb[1], amb[2], 1.0);
+      this.drawQuad(room.x, room.y, room.width, room.height);
+    }
+    gl.bindVertexArray(null);
 
+    // Additive blending for light sources
+    gl.blendFunc(gl.ONE, gl.ONE);
+
+    // 1. Ship lights (Corridor lights + Room fixtures)
+    for (const light of HESPERIA_LIGHTS) {
+      let intensity = light.intensity;
+      if (light.flickerSpeed && light.flickerAmount) {
+        intensity += Math.sin(timeSec * light.flickerSpeed) * light.flickerAmount;
+      }
+      this.renderLightFan(
+        matrix,
+        {
+          x: light.x,
+          y: light.y,
+          radius: light.radius,
+          intensity,
+          color: light.color,
+        },
+        opaqueWalls
+      );
+    }
+
+    // 2. Player Flashlight & Halo
+    this.renderLightFan(
+      matrix,
+      {
+        x: state.pawn.x,
+        y: state.pawn.y,
+        radius: 360,
+        intensity: 1.35,
+        color: [1.0, 0.98, 0.95],
+        isDirectional: true,
+        facingAngle: state.pawn.facingAngle,
+        fov: 1.15,
+        ambientRadius: 75,
+      },
+      opaqueWalls
+    );
+
+    // 3. Dynamic Laser Projectiles
+    if (state.boarding?.projectiles) {
+      for (const p of state.boarding.projectiles) {
+        if (p.weaponType === 'kinetic_carbine') continue;
+        const isLaser = p.weaponType === 'pulse_laser';
+        const color: [number, number, number] =
+          p.color === '#ff1744' ? [1.0, 0.15, 0.25] : isLaser ? [0.1, 0.95, 1.0] : [0.4, 0.75, 1.0];
+        const radius = isLaser ? 110 + (p.chargeRatio ?? 1.0) * 40 : 100;
+        this.renderLightFan(
+          matrix,
+          {
+            x: p.x,
+            y: p.y,
+            radius,
+            intensity: 0.9,
+            color,
+          },
+          opaqueWalls
+        );
+      }
+    }
+
+    // 4. Continuous Arc Welder
+    if (state.welderState?.active) {
+      const arcX = state.welderState.originX + Math.cos(state.welderState.facingAngle) * 24;
+      const arcY = state.welderState.originY + Math.sin(state.welderState.facingAngle) * 24;
+      this.renderLightFan(
+        matrix,
+        {
+          x: arcX,
+          y: arcY,
+          radius: 90,
+          intensity: 1.2,
+          color: [0.2, 0.85, 1.0],
+        },
+        opaqueWalls
+      );
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+  }
+
+  private applyLightmap(): void {
+    if (!this.lightTexture) return;
+    const gl = this.gl;
+    gl.useProgram(this.lightmapApplyProg);
+    gl.bindVertexArray(this.lightmapApplyVAO);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.lightTexture);
+    gl.uniform1i(gl.getUniformLocation(this.lightmapApplyProg, 'u_lightTexture'), 0);
+
+    // Multiplicative blending: Framebuffer * Lightmap
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.DST_COLOR, gl.ZERO);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderCorridorLampFixtures(matrix: Float32Array, time: number): void {
+    const gl = this.gl;
+    this.bindFlatProgram(matrix);
+
+    const corridorLights = HESPERIA_LIGHTS.filter((l) => l.room === 'corridor');
+    for (const cl of corridorLights) {
+      const flicker = cl.flickerSpeed ? 0.95 + 0.05 * Math.sin(time * cl.flickerSpeed) : 1.0;
+
+      // Dark mounting housing
+      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.12, 0.15, 0.2, 1.0);
+      this.drawQuad(cl.x - 11, cl.y - 5, 22, 10);
+
+      // Glowing inner lens
+      gl.uniform4f(
+        gl.getUniformLocation(this.flatProg, 'u_color'),
+        cl.color[0] * flicker,
+        cl.color[1] * flicker,
+        cl.color[2] * flicker,
+        1.0
+      );
+      this.drawQuad(cl.x - 7, cl.y - 2.5, 14, 5);
+
+      // White-hot center diode
+      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 1.0, 1.0, 0.9 * flicker);
+      this.drawQuad(cl.x - 2, cl.y - 1, 4, 2);
+    }
+    gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  public render(state: WebGLRenderState, width: number, height: number): void {
+    const gl = this.gl;
     const matrix = createCameraMatrix(width, height, state.camera.x, state.camera.y);
     const timeSec = state.timeMs * 0.001;
 
@@ -311,37 +600,55 @@ export class WebGL2Renderer {
     // Update dynamic lights from active projectiles & continuous welder
     this.updateLights(state.boarding?.projectiles, state.welderState);
 
+    const doors = state.boarding?.doors || createInitialDoors();
+    const opaqueWalls = getOpaqueWallSegments(HESPERIA_WALLS, doors);
+
+    // PASS 1: Render Lightmap FBO (Shadow Casting & Multi-light Accumulation)
+    this.renderLightmap(matrix, state, timeSec, opaqueWalls, width, height);
+
+    // PASS 2: Render Ship Base Scene
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.clearColor(0.015, 0.02, 0.04, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
     // 1. Procedural deep space parallax starfield
     this.renderStarfield(width, height, state.camera, timeSec);
 
     // 1.5. FTL-style outer ship armor hull & thrusters
     this.renderOuterHull(matrix, timeSec);
 
-    // 2. FTL Grid Deck Floors with diagonal vacuum stripes and dynamic laser lighting
+    // 2. FTL Grid Deck Floors with diagonal vacuum stripes and dark corridor plating
     this.renderDeckFloors(matrix, timeSec, state.boarding);
 
-    // 3. Bulkhead walls & blast doors (with dynamic laser glow on walls)
+    // 3. Bulkhead walls & blast doors
     this.renderBulkheads(matrix);
-    this.renderDoors(matrix, state.boarding?.doors || createInitialDoors());
+    this.renderDoors(matrix, doors);
+
+    // 3.5. Corridor ceiling lamp fixtures
+    this.renderCorridorLampFixtures(matrix, timeSec);
 
     // 4. Stations & mechanical fixtures
     this.renderStations(matrix, state.nearestStation?.id);
 
-    // 5. Pawns & Raiders
+    // 5. Pawns & Raiders & Sentries
     this.renderPawn(matrix, state.pawn);
     this.renderIntruders(matrix, state.boarding?.intruders || []);
     this.renderSentries(matrix, state.boarding?.sentries || []);
+
+    // PASS 3: Apply Multiplicative Lightmap & Shadow Mask
+    this.applyLightmap();
+
+    // PASS 4: Render Emissive Passes (Glow in the dark)
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     // 6. Projectiles with Additive Glow Shader
     this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec);
 
     // 6.5. Continuous Welder Arc
     if (state.welderState?.active) {
-      this.renderWelderArc(
-        matrix,
-        state.welderState,
-        state.boarding?.doors || createInitialDoors()
-      );
+      this.renderWelderArc(matrix, state.welderState, doors);
     }
 
     // 6.6. Charging Energy Reticle (for Laser charge-up)
@@ -405,7 +712,11 @@ export class WebGL2Renderer {
       const isVented = Boolean(boarding?.ventedRooms?.includes(room.id) || o2 < 25);
 
       gl.uniform1f(gl.getUniformLocation(this.deckProg, 'u_isVacuum'), isVented ? 1.0 : 0.0);
-      gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.93, 0.94, 0.96);
+      if (room.id === 'corridor') {
+        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.16, 0.18, 0.24);
+      } else {
+        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.93, 0.94, 0.96);
+      }
 
       const x1 = room.x;
       const y1 = room.y;

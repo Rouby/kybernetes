@@ -16,12 +16,19 @@ import {
 } from './spatial/collision';
 import {
   createDefaultDeck,
+  HESPERIA_LIGHTS,
   HESPERIA_ROOMS,
   HESPERIA_SPAWNS,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
+  ROOM_AMBIENTS,
 } from './spatial/deck';
-import { computeVisibilityPolygon, isPointInFlashlightCone } from './spatial/visibility';
+import { createInitialDoors } from './spatial/doors';
+import {
+  computeVisibilityPolygon,
+  getOpaqueWallSegments,
+  isPointInFlashlightCone,
+} from './spatial/visibility';
 import { createInitialPlayerVitals } from './survival';
 
 describe('Deck Layout & Geometry', () => {
@@ -159,6 +166,48 @@ describe('2D Raycast Visibility & Lighting Cones', () => {
     expect(
       isPointInFlashlightCone(origin, { x: 60, y: 100 }, facingAngle, Math.PI / 2, 320, 80)
     ).toBe(true);
+  });
+
+  it('merges closed blast doors as opaque wall occluders', () => {
+    const doors = createInitialDoors();
+    // Initially interior doors are open, 3 exterior airlocks are closed
+    const initialOpaque = getOpaqueWallSegments(HESPERIA_WALLS, doors);
+    const initialClosedCount = doors.filter((d) => !d.isOpen).length;
+    expect(initialOpaque.length).toBe(HESPERIA_WALLS.length + initialClosedCount);
+
+    // Close the bridge door
+    doors[0].isOpen = false;
+    const closedOpaque = getOpaqueWallSegments(HESPERIA_WALLS, doors);
+    expect(closedOpaque.length).toBe(initialOpaque.length + 1);
+    expect(closedOpaque.some((w) => w.id === 'door_bridge')).toBe(true);
+  });
+
+  it('occludes visibility polygon across blast doorway when door is closed', () => {
+    const doors = createInitialDoors();
+    const lightOrigin = { x: 220, y: 340 }; // In corridor right below bridge door (y: 280)
+
+    // With door open, rays should penetrate into Bridge (y < 280)
+    const openWalls = getOpaqueWallSegments(HESPERIA_WALLS, doors);
+    const openPoly = computeVisibilityPolygon(lightOrigin, 150, openWalls);
+    const penetratesOpen = openPoly.some((pt) => pt.y < 275 && pt.x >= 180 && pt.x <= 260);
+    expect(penetratesOpen).toBe(true);
+
+    // With door closed, rays must NOT penetrate past y: 280 into Bridge
+    doors[0].isOpen = false;
+    const closedWalls = getOpaqueWallSegments(HESPERIA_WALLS, doors);
+    const closedPoly = computeVisibilityPolygon(lightOrigin, 150, closedWalls);
+    const penetratesClosed = closedPoly.some((pt) => pt.y < 275 && pt.x >= 180 && pt.x <= 260);
+    expect(penetratesClosed).toBe(false);
+  });
+
+  it('configures dark corridor ambient and spaced corridor lights', () => {
+    expect(ROOM_AMBIENTS.corridor[0]).toBeLessThan(0.1);
+    const corridorLights = HESPERIA_LIGHTS.filter((l) => l.room === 'corridor');
+    expect(corridorLights.length).toBe(4);
+    for (const light of corridorLights) {
+      expect(light.y).toBe(340);
+      expect(light.radius).toBeGreaterThanOrEqual(200);
+    }
   });
 });
 

@@ -1,4 +1,4 @@
-import type { WallSegment } from '@kybernetes/protocol';
+import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import type { Point2D } from './collision';
 
 export interface VisibilityRayHit {
@@ -6,6 +6,27 @@ export interface VisibilityRayHit {
   x: number;
   y: number;
   distance: number;
+}
+
+export function getOpaqueWallSegments(walls: WallSegment[], doors?: DoorState[]): WallSegment[] {
+  const opaqueWalls = walls.filter((w) => w.isOpaque !== false);
+  if (!doors) return opaqueWalls;
+
+  const result = [...opaqueWalls];
+  for (const door of doors) {
+    if (!door.isOpen) {
+      result.push({
+        id: door.id,
+        x1: door.x1,
+        y1: door.y1,
+        x2: door.x2,
+        y2: door.y2,
+        isOpaque: true,
+        isTraversable: false,
+      });
+    }
+  }
+  return result;
 }
 
 function raySegmentIntersection(
@@ -39,12 +60,12 @@ function raySegmentIntersection(
 function collectRayAngles(
   origin: Point2D,
   maxRadius: number,
-  opaqueWalls: WallSegment[]
+  opaqueWalls: WallSegment[],
+  circleSteps = 36
 ): number[] {
   const angles = new Set<number>();
 
   // Base circular sweep samples
-  const circleSteps = 32;
   for (let i = 0; i < circleSteps; i++) {
     angles.add(-Math.PI + (i * 2 * Math.PI) / circleSteps);
   }
@@ -72,10 +93,11 @@ function collectRayAngles(
 export function computeVisibilityPolygon(
   origin: Point2D,
   maxRadius: number,
-  walls: WallSegment[]
+  walls: WallSegment[],
+  circleSteps = 36
 ): Point2D[] {
   const opaqueWalls = walls.filter((w) => w.isOpaque !== false);
-  const angles = collectRayAngles(origin, maxRadius, opaqueWalls);
+  const angles = collectRayAngles(origin, maxRadius, opaqueWalls, circleSteps);
   const polygon: Point2D[] = [];
 
   for (const angle of angles) {

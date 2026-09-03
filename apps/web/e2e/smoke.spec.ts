@@ -42,7 +42,21 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.goto('/');
     await page.waitForTimeout(600);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/d18e2ce8-08f4-4a4a-97c7-49f4251d221c/viewport_m2.png',
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/0c4b7fd5-9ade-40cb-83ca-de28f0fd9c42/viewport_m2.png',
+    });
+  });
+
+  test('captures realistic lighting and dark corridor viewport screenshot', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForTimeout(800);
+    // Move player down towards the central transit corridor
+    await page.keyboard.down('KeyS');
+    await page.waitForTimeout(500);
+    await page.keyboard.up('KeyS');
+    await page.mouse.move(500, 350);
+    await page.waitForTimeout(600);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/0c4b7fd5-9ade-40cb-83ca-de28f0fd9c42/realistic_lighting.png',
     });
   });
 });

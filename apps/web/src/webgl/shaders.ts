@@ -224,3 +224,85 @@ void main() {
   fragColor = vec4(emissive, alpha);
 }
 `;
+
+export const LIGHT_FAN_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+uniform mat3 u_matrix;
+uniform vec2 u_lightOrigin;
+out vec2 v_relPos;
+
+void main() {
+  v_relPos = a_position - u_lightOrigin;
+  gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
+}
+`;
+
+export const LIGHT_FAN_FS = `#version 300 es
+precision highp float;
+in vec2 v_relPos;
+uniform vec3 u_lightColor;
+uniform float u_intensity;
+uniform float u_radius;
+uniform float u_isDirectional; // 0.0 = omni, 1.0 = flashlight cone
+uniform float u_facingAngle;
+uniform float u_fov;
+uniform float u_ambientRadius;
+
+out vec4 fragColor;
+
+void main() {
+  float dist = length(v_relPos);
+  if (dist >= u_radius) discard;
+
+  // Smooth quadratic physical falloff
+  float normD = dist / u_radius;
+  float radialAtten = clamp(1.0 - normD, 0.0, 1.0);
+  radialAtten = radialAtten * radialAtten;
+
+  float finalAtten = radialAtten;
+
+  if (u_isDirectional > 0.5) {
+    // Directional flashlight cone
+    float angle = atan(v_relPos.y, v_relPos.x);
+    float diff = abs(angle - u_facingAngle);
+    if (diff > 3.1415926535) diff = 6.283185307 - diff;
+
+    float halfFov = u_fov * 0.5;
+    float coneFactor = smoothstep(halfFov, halfFov * 0.4, diff);
+
+    // 360-degree close ambient halo
+    float haloNorm = dist / u_ambientRadius;
+    float haloAtten = clamp(1.0 - haloNorm, 0.0, 1.0);
+    haloAtten = haloAtten * haloAtten * 0.45;
+
+    finalAtten = max(coneFactor * radialAtten, haloAtten);
+  }
+
+  vec3 lit = u_lightColor * (u_intensity * finalAtten);
+  fragColor = vec4(lit, 1.0);
+}
+`;
+
+export const LIGHTMAP_APPLY_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+out vec2 v_uv;
+
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+export const LIGHTMAP_APPLY_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_lightTexture;
+out vec4 fragColor;
+
+void main() {
+  vec4 light = texture(u_lightTexture, v_uv);
+  fragColor = light;
+}
+`;
