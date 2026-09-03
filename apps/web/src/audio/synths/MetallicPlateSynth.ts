@@ -31,7 +31,7 @@ export class MetallicPlateSynth {
     noiseFilter.Q.setValueAtTime(surface === 'grate' ? 4.0 : 1.0, t);
 
     const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.35 * volume * variation, t);
+    noiseGain.gain.setValueAtTime(0.001, t);
     noiseGain.gain.linearRampToValueAtTime(0.35 * volume * variation, t + 0.002);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
