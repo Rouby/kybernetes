@@ -8,6 +8,8 @@ export class ReactorDroneSynth {
   private osc1: OscillatorNode | null = null;
   private osc2: OscillatorNode | null = null;
   private reactorGain: GainNode | null = null;
+  private reactorPulse: OscillatorNode | null = null;
+  private reactorPulseDepth: GainNode | null = null;
 
   // Ventilation Air Loop
   private ventSource: AudioBufferSourceNode | null = null;
@@ -31,6 +33,8 @@ export class ReactorDroneSynth {
     this.osc1 = this.ctx.createOscillator();
     this.osc2 = this.ctx.createOscillator();
     this.reactorGain = this.ctx.createGain();
+    this.reactorPulse = this.ctx.createOscillator();
+    this.reactorPulseDepth = this.ctx.createGain();
 
     this.osc1.type = 'triangle';
     this.osc2.type = 'triangle';
@@ -45,15 +49,21 @@ export class ReactorDroneSynth {
     lowpass.frequency.setValueAtTime(220, t);
 
     this.reactorGain.gain.setValueAtTime(0.35, t);
+    this.reactorPulse.type = 'sine';
+    this.reactorPulse.frequency.setValueAtTime(0.18, t);
+    this.reactorPulseDepth.gain.setValueAtTime(0.045, t);
 
     this.osc1.connect(shaper);
     this.osc2.connect(shaper);
     shaper.connect(lowpass);
     lowpass.connect(this.reactorGain);
     this.reactorGain.connect(ambienceBus);
+    this.reactorPulse.connect(this.reactorPulseDepth);
+    this.reactorPulseDepth.connect(this.reactorGain.gain);
 
     this.osc1.start(t);
     this.osc2.start(t);
+    this.reactorPulse.start(t);
 
     // 2. Ventilation Air Circulation Hiss
     const pinkNoise = createNoiseBuffer(this.ctx, 2.0, 'pink');
@@ -113,6 +123,7 @@ export class ReactorDroneSynth {
     try {
       this.osc1?.stop();
       this.osc2?.stop();
+      this.reactorPulse?.stop();
       this.ventSource?.stop();
       this.crtOsc?.stop();
     } catch {

@@ -19,6 +19,7 @@ export class MetallicPlateSynth {
   ): void {
     const t = this.ctx.currentTime;
     const dur = surface === 'grate' ? 0.045 : surface === 'steel' ? 0.035 : 0.025;
+    const variation = 0.92 + Math.random() * 0.16;
 
     // 1. Noise transient for sole impact
     const noiseSource = this.ctx.createBufferSource();
@@ -30,7 +31,8 @@ export class MetallicPlateSynth {
     noiseFilter.Q.setValueAtTime(surface === 'grate' ? 4.0 : 1.0, t);
 
     const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.35 * volume, t);
+    noiseGain.gain.setValueAtTime(0.35 * volume * variation, t);
+    noiseGain.gain.linearRampToValueAtTime(0.35 * volume * variation, t + 0.002);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
     noiseSource.connect(noiseFilter);
@@ -41,12 +43,14 @@ export class MetallicPlateSynth {
     const osc = this.ctx.createOscillator();
     const oscGain = this.ctx.createGain();
 
-    const startFreq = surface === 'grate' ? 340 : surface === 'steel' ? 140 : 90;
+    const baseFreq = surface === 'grate' ? 340 : surface === 'steel' ? 140 : 90;
+    const startFreq = baseFreq * variation;
     osc.type = surface === 'grate' ? 'triangle' : 'sine';
     osc.frequency.setValueAtTime(startFreq, t);
     osc.frequency.exponentialRampToValueAtTime(startFreq * 0.5, t + dur * 1.5);
 
-    oscGain.gain.setValueAtTime(0.4 * volume, t);
+    oscGain.gain.setValueAtTime(0.001, t);
+    oscGain.gain.linearRampToValueAtTime(0.4 * volume * variation, t + 0.002);
     oscGain.gain.exponentialRampToValueAtTime(0.001, t + dur * 1.5);
 
     osc.connect(oscGain);

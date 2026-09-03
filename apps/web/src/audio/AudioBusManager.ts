@@ -46,6 +46,7 @@ export class AudioBusManager {
 
   public masterGain: GainNode;
   public masterCrisisFilter: BiquadFilterNode;
+  public masterCompressor: DynamicsCompressorNode;
   public ambienceGain: GainNode;
   public foleyGain: GainNode;
   public uiGain: GainNode;
@@ -57,6 +58,7 @@ export class AudioBusManager {
 
     this.masterGain = ctx.createGain();
     this.masterCrisisFilter = ctx.createBiquadFilter();
+    this.masterCompressor = ctx.createDynamicsCompressor();
     this.ambienceGain = ctx.createGain();
     this.foleyGain = ctx.createGain();
     this.uiGain = ctx.createGain();
@@ -71,6 +73,11 @@ export class AudioBusManager {
     this.masterCrisisFilter.type = 'lowpass';
     this.masterCrisisFilter.frequency.setValueAtTime(20000, this.ctx.currentTime);
     this.masterCrisisFilter.Q.setValueAtTime(1.0, this.ctx.currentTime);
+    this.masterCompressor.threshold.setValueAtTime(-12, this.ctx.currentTime);
+    this.masterCompressor.knee.setValueAtTime(18, this.ctx.currentTime);
+    this.masterCompressor.ratio.setValueAtTime(4, this.ctx.currentTime);
+    this.masterCompressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
+    this.masterCompressor.release.setValueAtTime(0.18, this.ctx.currentTime);
 
     // Route buses through master crisis filter -> master gain -> destination
     this.ambienceGain.connect(this.masterCrisisFilter);
@@ -80,7 +87,8 @@ export class AudioBusManager {
     // UI connects directly to master gain to keep UI audible even during in-game audio trauma
     this.uiGain.connect(this.masterGain);
 
-    this.masterCrisisFilter.connect(this.masterGain);
+    this.masterCrisisFilter.connect(this.masterCompressor);
+    this.masterCompressor.connect(this.masterGain);
     this.masterGain.connect(this.ctx.destination);
   }
 

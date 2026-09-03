@@ -14,6 +14,7 @@ export class PneumaticSynth {
   public playDoorCycle(destination: AudioNode, isOpen: boolean, volume = 0.8): void {
     const t = this.ctx.currentTime;
     const dur = 0.45;
+    const variation = 0.94 + Math.random() * 0.12;
 
     // 1. Pneumatic Air Bleed
     const noiseSource = this.ctx.createBufferSource();
@@ -24,15 +25,16 @@ export class PneumaticSynth {
     filter.Q.setValueAtTime(3.5, t);
 
     if (isOpen) {
-      filter.frequency.setValueAtTime(3200, t);
-      filter.frequency.exponentialRampToValueAtTime(600, t + dur);
+      filter.frequency.setValueAtTime(3200 * variation, t);
+      filter.frequency.exponentialRampToValueAtTime(600 * variation, t + dur);
     } else {
-      filter.frequency.setValueAtTime(800, t);
-      filter.frequency.exponentialRampToValueAtTime(2800, t + dur);
+      filter.frequency.setValueAtTime(800 * variation, t);
+      filter.frequency.exponentialRampToValueAtTime(2800 * variation, t + dur);
     }
 
     const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.3 * volume, t);
+    noiseGain.gain.setValueAtTime(0.001, t);
+    noiseGain.gain.linearRampToValueAtTime(0.3 * volume * variation, t + 0.004);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
     noiseSource.connect(filter);
@@ -49,7 +51,8 @@ export class PneumaticSynth {
     shaper.curve = this.distortionCurve;
 
     const solenoidGain = this.ctx.createGain();
-    solenoidGain.gain.setValueAtTime(0.5 * volume, t);
+    solenoidGain.gain.setValueAtTime(0.001, t);
+    solenoidGain.gain.linearRampToValueAtTime(0.5 * volume * variation, t + 0.002);
     solenoidGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
 
     solenoidOsc.connect(shaper);
