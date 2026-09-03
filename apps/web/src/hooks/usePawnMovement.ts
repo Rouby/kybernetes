@@ -13,9 +13,18 @@ import {
   resolvePawnMovement,
 } from '@kybernetes/sim-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import type { DeckSurfaceType } from '../audio/synths/MetallicPlateSynth';
 
 const PAWN_SPEED = 180;
 const PAWN_RADIUS = 14;
+
+// fallow-ignore-next-line complexity
+function getDeckSurface(x: number, y: number): DeckSurfaceType {
+  if (x > 800 && y > 400) return 'grate'; // Deck D engineering
+  if (x < 380 && y < 280) return 'linoleum'; // Deck A bridge
+  return 'steel';
+}
 
 const KEY_DELTAS: Record<string, { x: number; y: number }> = {
   KeyW: { x: 0, y: -1 },
@@ -128,6 +137,7 @@ export function usePawnMovement(
   const currentNearRef = useRef<string | null>(null);
   const doorsRef = useRef(doors);
   doorsRef.current = doors;
+  const footstepDistRef = useRef(0);
 
   const resetToSpawn = useCallback((role: StartingRole) => {
     const spawn = HESPERIA_SPAWNS[role];
@@ -183,6 +193,18 @@ export function usePawnMovement(
         currentNearRef.current = nextId;
         setNearestStation(nextStation);
         onInteractPrompt?.(nextStation);
+        if (nextStation) {
+          ShipAudioEngine.getInstance().playStationInteract();
+        }
+      }
+
+      if (nextPawn.vx !== 0 || nextPawn.vy !== 0) {
+        footstepDistRef.current += Math.hypot(nextPawn.vx, nextPawn.vy) * dt;
+        if (footstepDistRef.current >= 56) {
+          footstepDistRef.current = 0;
+          const surface = getDeckSurface(nextPawn.x, nextPawn.y);
+          ShipAudioEngine.getInstance().playLocalFootstep(surface);
+        }
       }
 
       animId = requestAnimationFrame(loop);

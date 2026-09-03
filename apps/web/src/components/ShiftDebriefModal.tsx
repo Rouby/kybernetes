@@ -3,6 +3,8 @@ import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
 import { Award, CheckCircle2, Clock, HeartPulse, X } from 'lucide-react';
 import type React from 'react';
+import { useEffect } from 'react';
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 
 const styles = stylex.create({
   scrimOverlay: {
@@ -221,6 +223,10 @@ export const ShiftDebriefModal: React.FC<ShiftDebriefModalProps> = ({
   onClose,
 }) => {
   const { color: gradeColor, title: gradeTitle } = getGradePresentation(evaluation.grade);
+
+  useEffect(() => {
+    ShipAudioEngine.getInstance().playDebriefStamp();
+  }, []);
 
   return (
     <div {...stylex.props(styles.scrimOverlay)} data-testid="shift-debrief-modal">

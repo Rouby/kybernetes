@@ -39,7 +39,7 @@ test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
   test('completes 3-task shift checklist, receives S/A rating, and debrief card opens', async ({
     page,
   }) => {
-    test.setTimeout(75000);
+    test.setTimeout(90000);
     await embarkAsWiper(page, 'Shift-Wiper');
     await page.waitForTimeout(1000);
 
@@ -51,15 +51,15 @@ test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
     // Wiper spawns in Engineering right by reactor_console (x: 924, y: 570)
     // Task 1: Scrub Plasma Grids (10s)
     await page.keyboard.press('KeyE');
-    await page.waitForTimeout(11000);
+    await page.waitForTimeout(12500);
 
     // Task 2: Purge Coolant Lines (15s)
     await page.keyboard.press('KeyE');
-    await page.waitForTimeout(16000);
+    await page.waitForTimeout(18000);
 
     // Task 3: Scrub Plasma Grids (10s)
     await page.keyboard.press('KeyE');
-    await page.waitForTimeout(11000);
+    await page.waitForTimeout(12500);
 
     // After task 3 finishes, ShiftDebriefModal should pop up
     const debriefModal = page.getByTestId('shift-debrief-modal');

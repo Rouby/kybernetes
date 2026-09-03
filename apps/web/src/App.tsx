@@ -14,12 +14,15 @@ import {
   createInitialVesselState,
   evaluateShiftPerformance,
   generateShiftChecklist,
+  HESPERIA_ROOMS,
   updatePlayerVitals,
 } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ShipAudioEngine } from './audio/ShipAudioEngine';
+import { AudioSettingsModal } from './components/AudioSettingsModal';
 import { BeaconLobbyModal } from './components/BeaconLobbyModal';
 import { CharacterCreationModal, type CharacterProfile } from './components/CharacterCreationModal';
 import { CrewManifestModal } from './components/CrewManifestModal';
@@ -196,6 +199,7 @@ export const App: React.FC = () => {
   const [isWeldingLocal, setIsWeldingLocal] = useState(false);
   const [showBeaconModal, setShowBeaconModal] = useState(false);
   const [showManifestModal, setShowManifestModal] = useState(false);
+  const [showAudioModal, setShowAudioModal] = useState(false);
 
   const [role, setRole] = useState<StartingRole>('wiper');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
@@ -551,6 +555,12 @@ export const App: React.FC = () => {
         setShowManifestModal((v) => !v);
       } else if (e.code === 'KeyB') {
         setShowBeaconModal((v) => !v);
+      } else if (e.code === 'KeyU') {
+        const isMuted = ShipAudioEngine.getInstance().busManager?.toggleMute();
+        setInGameNotice(isMuted ? '[AUDIO] All Audio Muted' : '[AUDIO] Audio Unmuted');
+        setTimeout(() => setInGameNotice(null), 2500);
+      } else if (e.code === 'KeyO') {
+        setShowAudioModal((v) => !v);
       } else if (e.code === 'Digit1') {
         setEquippedWeapon('kinetic_carbine');
         setInGameNotice('[LOADOUT] Equipped Kinetic Carbine');
@@ -571,6 +581,7 @@ export const App: React.FC = () => {
         if (showRoleSelect) setShowRoleSelect(false);
         if (showManifestModal) setShowManifestModal(false);
         if (showBeaconModal) setShowBeaconModal(false);
+        if (showAudioModal) setShowAudioModal(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -581,6 +592,7 @@ export const App: React.FC = () => {
     showRoleSelect,
     showManifestModal,
     showBeaconModal,
+    showAudioModal,
     dualProtocol,
     startInteraction,
     abortInteraction,
@@ -619,6 +631,14 @@ export const App: React.FC = () => {
     shiftChecklist.isCompleted,
     shiftChecklist.startedAt,
   ]);
+
+  // Sync live telemetry and vitals to headless ShipAudioEngine
+  useEffect(() => {
+    const currentRoom = HESPERIA_ROOMS.find(
+      (r) => pawn.x >= r.x && pawn.x <= r.x + r.width && pawn.y >= r.y && pawn.y <= r.y + r.height
+    )?.id;
+    ShipAudioEngine.getInstance().updateTelemetry(telemetry, vitals, currentRoom);
+  }, [telemetry, vitals, pawn.x, pawn.y]);
 
   // Determine current prompt text for nearest station
   const nearestActionConfig = useMemo(() => {
@@ -678,8 +698,13 @@ export const App: React.FC = () => {
           dualProtocol={dualProtocol}
           collabShift={collabShift}
           onStationClick={(st) => {
-            if (interaction) abortInteraction();
-            else startInteraction(st);
+            if (interaction) {
+              ShipAudioEngine.getInstance().playUiClick();
+              abortInteraction();
+            } else {
+              ShipAudioEngine.getInstance().playStationInteract();
+              startInteraction(st);
+            }
           }}
           onFireWeapon={handleFireWeapon}
           onWelderAoe={handleWelderAoe}
@@ -688,6 +713,7 @@ export const App: React.FC = () => {
           onBeaconClick={() => setShowBeaconModal(true)}
           onManifestClick={() => setShowManifestModal(true)}
           onRoleClick={() => setShowRoleSelect(true)}
+          onAudioClick={() => setShowAudioModal(true)}
           onDisembarkClick={handleLeaveShip}
           onEquipWeapon={setEquippedWeapon}
           onAbortInteraction={abortInteraction}
@@ -754,6 +780,8 @@ export const App: React.FC = () => {
           onClose={() => setShowManifestModal(false)}
         />
       )}
+
+      {showAudioModal && <AudioSettingsModal onClose={() => setShowAudioModal(false)} />}
     </div>
   );
 };

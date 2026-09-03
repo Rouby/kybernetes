@@ -10,6 +10,7 @@ import type {
   TelemetryDeltaBroadcast,
 } from '@kybernetes/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 
 export interface UseVesselSocketOptions {
   callsign?: string;
@@ -52,12 +53,16 @@ function handleSocketMessage(
     } else if (msg.type === 'LOBBY_STATE') {
       callbacks.setLobbyState(msg);
     } else if (msg.type === 'SHIP_ALERT') {
+      const eng = ShipAudioEngine.getInstance();
+      const uiGain = eng.busManager?.uiGain;
+      if (uiGain) eng.uiSynth?.playTelemetrySquelch(uiGain);
       callbacks.setNotice(`[ALERT] ${msg.title}: ${msg.message}`);
       setTimeout(() => callbacks.setNotice(null), 4000);
     } else if (msg.type === 'DAMAGE_TRIAGE_RESULT') {
       callbacks.setNotice(msg.message);
       setTimeout(() => callbacks.setNotice(null), 3500);
     } else if (msg.type === 'NAVAL_DAMAGE_EVENT') {
+      ShipAudioEngine.getInstance().playExplosionShockwave();
       callbacks.setNotice(`ALERT: Inbound ${msg.event.title}`);
       setTimeout(() => callbacks.setNotice(null), 3500);
     }

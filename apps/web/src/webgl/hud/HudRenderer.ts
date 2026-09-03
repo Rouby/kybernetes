@@ -86,6 +86,7 @@ export interface HudDrawState {
   onBeaconClick?: () => void;
   onManifestClick?: () => void;
   onRoleClick?: () => void;
+  onAudioClick?: () => void;
   onDisembarkClick?: () => void;
   onEquipWeapon?: (w: WeaponType) => void;
   onAbortInteraction?: () => void;
@@ -685,11 +686,21 @@ export class HudRenderer {
       'btn_leave',
       x + 262,
       y + 21,
-      132,
+      110,
       27,
       'DISEMBARK',
       { fontSize: 14, color: '#ff4466' },
       state.onDisembarkClick
+    );
+    this.addButton(
+      'btn_audio',
+      x + 378,
+      y + 21,
+      82,
+      27,
+      'AUDIO [O]',
+      { fontSize: 13, color: '#00e5ff' },
+      state.onAudioClick
     );
 
     // Diegetic Alert Warning (Text indicator only, NO debug buttons to force-change it!)

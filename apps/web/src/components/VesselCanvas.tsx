@@ -22,6 +22,7 @@ import {
 } from '@kybernetes/sim-core';
 import type React from 'react';
 import { useCallback, useEffect, useRef } from 'react';
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { ActiveInteraction } from '../types';
 import { WebGL2Renderer } from '../webgl';
 
@@ -75,6 +76,7 @@ interface VesselCanvasProps {
   onBeaconClick?: () => void;
   onManifestClick?: () => void;
   onRoleClick?: () => void;
+  onAudioClick?: () => void;
   onDisembarkClick?: () => void;
   onEquipWeapon?: (w: WeaponType) => void;
   onAbortInteraction?: () => void;
@@ -218,6 +220,11 @@ function handleCanvasMouseDown(
     });
     if (clickedDoor) {
       onToggleDoor(clickedDoor.id, !clickedDoor.isOpen);
+      ShipAudioEngine.getInstance().playDoorToggle(
+        (clickedDoor.x1 + clickedDoor.x2) / 2,
+        (clickedDoor.y1 + clickedDoor.y2) / 2,
+        !clickedDoor.isOpen
+      );
       return;
     }
   }
@@ -265,6 +272,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   onBeaconClick,
   onManifestClick,
   onRoleClick,
+  onAudioClick,
   onDisembarkClick,
   onEquipWeapon,
   onAbortInteraction,
@@ -343,6 +351,8 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         8,
         shakeIntensityRef.current + (weaponType === 'kinetic_carbine' ? 1.8 : 3.6 * chargeRatio)
       );
+
+      ShipAudioEngine.getInstance().playWeaponFire(originX, originY, weaponType, chargeRatio, true);
 
       onFireWeapon?.(originX, originY, targetX, targetY, weaponType, chargeRatio);
     },
@@ -516,6 +526,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       lastFrameTimeRef.current = now;
 
       const doors = boarding?.doors || defaultDoorsRef.current;
+      ShipAudioEngine.getInstance().updateListener(pawn.x, pawn.y, doors);
       localProjectilesRef.current = integrateProjectiles(
         localProjectilesRef.current,
         dt,
@@ -523,6 +534,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         (hitX, hitY, type) => {
           queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
           shakeIntensityRef.current = Math.min(8, shakeIntensityRef.current + 1.4);
+          ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
         }
       );
 
@@ -611,6 +623,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
       if (isWelderActive && now - lastWelderTickRef.current >= 100) {
         lastWelderTickRef.current = now;
+        ShipAudioEngine.getInstance().playWeaponFire(pawn.x, pawn.y, 'arc_welder', 1.0, true);
         const aoe = applyWelderAoeDamage(
           activeBoarding.intruders,
           pawn.x,
@@ -736,6 +749,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           onBeaconClick,
           onManifestClick,
           onRoleClick,
+          onAudioClick,
           onDisembarkClick,
           onEquipWeapon,
           onAbortInteraction,
@@ -783,6 +797,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     onBeaconClick,
     onManifestClick,
     onRoleClick,
+    onAudioClick,
     onDisembarkClick,
     onEquipWeapon,
     onAbortInteraction,
