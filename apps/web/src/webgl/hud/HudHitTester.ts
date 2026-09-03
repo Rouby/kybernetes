@@ -37,12 +37,18 @@ export class HudHitTester {
     if (screenWidth && screenHeight && curvature > 0) {
       const cx = (screenX / screenWidth) * 2 - 1;
       const cy = 1 - (screenY / screenHeight) * 2;
-      const r2 = cx * cx + cy * cy;
-      const factor = 1 / (1 + curvature * r2);
-      const uncurvedCx = cx * factor;
-      const uncurvedCy = cy * factor;
-      sx = (uncurvedCx + 1) * 0.5 * screenWidth;
-      sy = (1 - uncurvedCy) * 0.5 * screenHeight;
+      const R = Math.hypot(cx, cy);
+      if (R > 0.0001) {
+        let r = R / (1 + curvature * R * R);
+        for (let iter = 0; iter < 2; iter++) {
+          const f = r * (1 + curvature * r * r) - R;
+          const fPrime = 1 + 3 * curvature * r * r;
+          r -= f / fPrime;
+        }
+        const scale = r / R;
+        sx = (cx * scale + 1) * 0.5 * screenWidth;
+        sy = (1 - cy * scale) * 0.5 * screenHeight;
+      }
     }
 
     // Reverse order so top-most registered zones are checked first

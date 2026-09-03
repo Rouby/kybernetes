@@ -27,6 +27,7 @@ import { createInitialDoors } from './spatial/doors';
 import {
   computeVisibilityPolygon,
   getOpaqueWallSegments,
+  isImpactVisible,
   isPointInFlashlightCone,
 } from './spatial/visibility';
 import { createInitialPlayerVitals } from './survival';
@@ -264,5 +265,22 @@ describe('Role Definitions & Duty Progression', () => {
     const tickStarving = tickActiveDuty(activeDuty, 2, 'wiper', starvingVitals);
 
     expect(tickStarving.nextDuty.progressSeconds).toBeLessThan(tickNormal.nextDuty.progressSeconds);
+  });
+
+  it('determines impact visibility based on distance and intervening bulkheads', () => {
+    const doors = createInitialDoors();
+    const observer = { x: 200, y: 160 }; // In Bridge
+
+    // 1. Point in same room (Bridge wall hit)
+    expect(isImpactVisible(observer, { x: 250, y: 160 }, doors)).toBe(true);
+
+    // 2. Point far away in Engineering behind multiple bulkheads & closed doors
+    expect(isImpactVisible(observer, { x: 950, y: 560 }, doors)).toBe(false);
+
+    // 3. Point right beside observer
+    expect(isImpactVisible(observer, { x: 205, y: 165 }, doors)).toBe(true);
+
+    // 4. Point beyond max distance (>650)
+    expect(isImpactVisible(observer, { x: 900, y: 160 }, doors, HESPERIA_WALLS, 400)).toBe(false);
   });
 });

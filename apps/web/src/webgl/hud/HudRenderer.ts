@@ -637,7 +637,7 @@ export class HudRenderer {
     const telemetry = state.telemetry;
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(38, Math.round(height * 0.055));
-    const panelW = 405;
+    const panelW = 475;
     const panelH = 54;
     const x = width - panelW - marginX;
     const y = marginY;
@@ -651,12 +651,12 @@ export class HudRenderer {
       color: '#7090b0',
     });
 
-    // Minimal navigation buttons: BCN, CREW, and DISEMBARK
+    // Minimal navigation buttons: BCN, CREW, ROLE, AUDIO, and DISEMBARK
     this.addButton(
       'btn_beacon',
-      x + 12,
+      x + 10,
       y + 21,
-      96,
+      85,
       27,
       `BCN: ${state.beaconCode ?? 'HESP01'}`,
       { fontSize: 14 },
@@ -664,9 +664,9 @@ export class HudRenderer {
     );
     this.addButton(
       'btn_crew',
-      x + 114,
+      x + 100,
       y + 21,
-      78,
+      75,
       27,
       `CREW: ${state.crewCount ?? 1}`,
       { fontSize: 14 },
@@ -674,33 +674,33 @@ export class HudRenderer {
     );
     this.addButton(
       'btn_role',
-      x + 198,
+      x + 180,
       y + 21,
-      58,
+      55,
       27,
       'ROLE',
       { fontSize: 14 },
       state.onRoleClick
     );
     this.addButton(
-      'btn_leave',
-      x + 262,
-      y + 21,
-      110,
-      27,
-      'DISEMBARK',
-      { fontSize: 14, color: '#ff4466' },
-      state.onDisembarkClick
-    );
-    this.addButton(
       'btn_audio',
-      x + 378,
+      x + 240,
       y + 21,
-      82,
+      85,
       27,
       'AUDIO [O]',
       { fontSize: 13, color: '#00e5ff' },
       state.onAudioClick
+    );
+    this.addButton(
+      'btn_leave',
+      x + 330,
+      y + 21,
+      135,
+      27,
+      'DISEMBARK',
+      { fontSize: 14, color: '#ff4466' },
+      state.onDisembarkClick
     );
 
     // Diegetic Alert Warning (Text indicator only, NO debug buttons to force-change it!)
@@ -889,10 +889,6 @@ export class HudRenderer {
     losPoly: Point2D[]
   ): void {
     const gl = this.gl;
-    this.hitTester.clear();
-    this.vectorData = [];
-    this.textData = [];
-
     const curvature = 0.055;
 
     if (state.mouseScreen) {
@@ -904,6 +900,10 @@ export class HudRenderer {
         curvature
       );
     }
+
+    this.hitTester.clear();
+    this.vectorData = [];
+    this.textData = [];
 
     // 1. VISOR GLASS SHADER PASS
     gl.useProgram(this.visorProg);

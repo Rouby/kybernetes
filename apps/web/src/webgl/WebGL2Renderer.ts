@@ -10,6 +10,7 @@ import {
   getOpaqueWallSegments,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
+  isImpactVisible,
   isPointInPolygon,
   type Point2D,
 } from '@kybernetes/sim-core';
@@ -568,9 +569,12 @@ export class WebGL2Renderer {
     const timeSec = state.timeMs * 0.001;
     const dt = 0.016;
 
+    const doors = state.boarding?.doors || createInitialDoors();
     if (state.impacts) {
       for (const imp of state.impacts) {
-        this.particleSystem.addImpact(imp.x, imp.y, imp.type);
+        if (isImpactVisible({ x: state.pawn.x, y: state.pawn.y }, { x: imp.x, y: imp.y }, doors)) {
+          this.particleSystem.addImpact(imp.x, imp.y, imp.type);
+        }
       }
     }
     if (state.muzzleFlashes) {
@@ -580,10 +584,6 @@ export class WebGL2Renderer {
     }
     this.particleSystem.update(dt);
 
-    const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
-    this.lightingPass.updateLights(state.boarding?.projectiles, welders);
-
-    const doors = state.boarding?.doors || createInitialDoors();
     const opaqueWalls = getOpaqueWallSegments(HESPERIA_WALLS, doors);
     const doorsHash = (state.boarding?.doors || [])
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
@@ -604,6 +604,9 @@ export class WebGL2Renderer {
       this.framebufferManager,
       this.fogOfWarPass
     );
+
+    const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
+    this.lightingPass.updateLights(state.boarding?.projectiles, welders, playerLoSPoly);
 
     // PASS 2: Render Ship Base Scene into Scene FBO
     const { fbo: sceneFbo } = this.framebufferManager.ensureSceneFBO(width, height);
@@ -662,7 +665,12 @@ export class WebGL2Renderer {
 
     this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec, playerLoSPoly);
     for (const w of welders) {
-      if (w.active) this.renderWelderArc(matrix, w, doors);
+      if (
+        w.active &&
+        isImpactVisible({ x: state.pawn.x, y: state.pawn.y }, { x: w.originX, y: w.originY }, doors)
+      ) {
+        this.renderWelderArc(matrix, w, doors);
+      }
     }
 
     if (state.chargingState?.active && state.chargingState.weaponType === 'pulse_laser') {

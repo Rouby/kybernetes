@@ -73,7 +73,7 @@ function integrateProjectiles(
           : p.weaponType === 'arc_welder'
             ? 'welder'
             : 'kinetic';
-      onImpact?.(nextX, nextY, type);
+      onImpact?.(p1.x, p1.y, type);
       continue;
     }
 

@@ -74,4 +74,30 @@ test.describe('Kybernetes HUD Smoke Test', () => {
       fullPage: true,
     });
   });
+
+  test('clicks helmet UI buttons on visor canvas to open modals', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
+    await page.waitForTimeout(500);
+
+    const canvas = page.getByTestId('vessel-canvas');
+    await expect(canvas).toBeVisible();
+
+    // Click the AUDIO [O] button on the curved visor glass: x ~ 1030, y ~ 60
+    await page.mouse.click(1030, 60);
+    await expect(page.getByTestId('audio-settings-modal')).toBeVisible();
+
+    // Close modal via Escape
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('audio-settings-modal')).not.toBeVisible();
+
+    // Click BCN button on the curved visor glass: x ~ 794, y ~ 63
+    await page.mouse.click(794, 63);
+    await expect(page.getByTestId('beacon-modal')).toBeVisible();
+
+    // Close beacon modal
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('beacon-modal')).not.toBeVisible();
+  });
 });

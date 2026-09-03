@@ -1,5 +1,10 @@
 import type { ProjectileState, WallSegment } from '@kybernetes/protocol';
-import { computeVisibilityPolygon, HESPERIA_LIGHTS, type Point2D } from '@kybernetes/sim-core';
+import {
+  computeVisibilityPolygon,
+  HESPERIA_LIGHTS,
+  isPointInPolygon,
+  type Point2D,
+} from '@kybernetes/sim-core';
 import { createProgram } from '../glUtils';
 import { LIGHT_FAN_FS, LIGHT_FAN_VS, LIGHTMAP_APPLY_FS, LIGHTMAP_APPLY_VS } from '../shaders';
 import type { FramebufferManager } from '../systems/FramebufferManager';
@@ -65,7 +70,8 @@ export class LightingPass {
       originY: number;
       facingAngle: number;
       range?: number;
-    }>
+    }>,
+    playerLoSPoly?: Point2D[]
   ): void {
     this.currentLights.fill(0);
     this.currentLightColors.fill(0);
@@ -95,6 +101,14 @@ export class LightingPass {
     for (const p of projectiles) {
       if (lightIdx >= 6) break;
       if (p.weaponType === 'kinetic_carbine') continue;
+      if (
+        !p.fromPlayer &&
+        playerLoSPoly &&
+        playerLoSPoly.length >= 3 &&
+        !isPointInPolygon({ x: p.x, y: p.y }, playerLoSPoly)
+      ) {
+        continue;
+      }
 
       const isLaser = p.weaponType === 'pulse_laser' || p.color === '#00f0ff';
       const isWelder = p.weaponType === 'arc_welder';
@@ -222,11 +236,20 @@ export class LightingPass {
       | { active: boolean; originX: number; originY: number; facingAngle: number }
       | undefined,
     opaqueWalls: WallSegment[],
-    timeSec: number
+    timeSec: number,
+    playerLoSPoly?: Point2D[]
   ): void {
     if (projectiles) {
       for (const p of projectiles) {
         if (p.weaponType === 'kinetic_carbine') continue;
+        if (
+          !p.fromPlayer &&
+          playerLoSPoly &&
+          playerLoSPoly.length >= 3 &&
+          !isPointInPolygon({ x: p.x, y: p.y }, playerLoSPoly)
+        ) {
+          continue;
+        }
         const isLaser = p.weaponType === 'pulse_laser';
         const color: [number, number, number] =
           p.color === '#ff1744' ? [1.0, 0.15, 0.25] : isLaser ? [0.1, 0.95, 1.0] : [0.4, 0.75, 1.0];
@@ -237,6 +260,13 @@ export class LightingPass {
     }
 
     for (const mf of muzzleFlashes) {
+      if (
+        playerLoSPoly &&
+        playerLoSPoly.length >= 3 &&
+        !isPointInPolygon({ x: mf.x, y: mf.y }, playerLoSPoly)
+      ) {
+        continue;
+      }
       const isLaser = mf.weaponType === 'pulse_laser';
       const radius = isLaser ? 140 : 105;
       const color: [number, number, number] = isLaser ? [0.2, 0.95, 1.0] : [1.0, 0.85, 0.4];
@@ -256,12 +286,18 @@ export class LightingPass {
     if (welderState?.active) {
       const arcX = welderState.originX + Math.cos(welderState.facingAngle) * 24;
       const arcY = welderState.originY + Math.sin(welderState.facingAngle) * 24;
-      const poly = computeVisibilityPolygon({ x: arcX, y: arcY }, 90, opaqueWalls, 32);
-      this.drawLightPolygonFan(
-        matrix,
-        { x: arcX, y: arcY, radius: 90, intensity: 1.2, color: [0.2, 0.85, 1.0] },
-        poly
-      );
+      if (
+        !playerLoSPoly ||
+        playerLoSPoly.length < 3 ||
+        isPointInPolygon({ x: arcX, y: arcY }, playerLoSPoly)
+      ) {
+        const poly = computeVisibilityPolygon({ x: arcX, y: arcY }, 90, opaqueWalls, 32);
+        this.drawLightPolygonFan(
+          matrix,
+          { x: arcX, y: arcY, radius: 90, intensity: 1.2, color: [0.2, 0.85, 1.0] },
+          poly
+        );
+      }
     }
   }
 
@@ -345,7 +381,8 @@ export class LightingPass {
       muzzleFlashes,
       welderState,
       opaqueWalls,
-      timeSec
+      timeSec,
+      playerLoSPoly
     );
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

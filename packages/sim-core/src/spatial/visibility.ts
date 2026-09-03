@@ -1,5 +1,6 @@
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
-import type { Point2D } from './collision';
+import { type Point2D, segmentsIntersect } from './collision';
+import { HESPERIA_WALLS } from './deck';
 
 export interface VisibilityRayHit {
   angle: number;
@@ -304,4 +305,35 @@ export function isPointInFlashlightCone(
   while (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - 2 * Math.PI);
 
   return angleDiff <= fovRadians / 2;
+}
+
+/**
+ * Evaluates whether an impact (spark event, explosion, or hit point) is visible
+ * to an observer, checking distance and line-of-sight against opaque walls and closed doors.
+ */
+export function isImpactVisible(
+  observer: Point2D,
+  target: Point2D,
+  doors?: DoorState[],
+  walls: WallSegment[] = HESPERIA_WALLS,
+  maxDistance = 650
+): boolean {
+  const dx = target.x - observer.x;
+  const dy = target.y - observer.y;
+  const distSq = dx * dx + dy * dy;
+  if (distSq > maxDistance * maxDistance) return false;
+  if (distSq < 256) return true;
+
+  const testPt: Point2D = {
+    x: observer.x + dx * 0.96,
+    y: observer.y + dy * 0.96,
+  };
+
+  const opaqueWalls = getOpaqueWallSegments(walls, doors);
+  for (const seg of opaqueWalls) {
+    if (segmentsIntersect(observer, testPt, { x: seg.x1, y: seg.y1 }, { x: seg.x2, y: seg.y2 })) {
+      return false;
+    }
+  }
+  return true;
 }

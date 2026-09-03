@@ -85,6 +85,102 @@ const ADJACENCY: Record<string, string[]> = {
   eng_center: ['door_eng'],
 };
 
+export interface NavigationWaypoint {
+  x: number;
+  y: number;
+  id?: string;
+  doorId?: string;
+}
+
+export interface RoomPortal {
+  doorId: string;
+  doorX: number;
+  doorY: number;
+  corridorX: number;
+  corridorY: number;
+}
+
+export const ROOM_PORTALS: Record<string, RoomPortal> = {
+  bridge: { doorId: 'door_bridge', doorX: 220, doorY: 280, corridorX: 220, corridorY: 340 },
+  quarters: { doorId: 'door_quarters', doorX: 590, doorY: 280, corridorX: 590, corridorY: 340 },
+  mess: { doorId: 'door_mess', doorX: 970, doorY: 280, corridorX: 970, corridorY: 340 },
+  armory: { doorId: 'door_armory', doorX: 220, doorY: 400, corridorX: 220, corridorY: 340 },
+  cargo: { doorId: 'door_cargo', doorX: 590, doorY: 400, corridorX: 590, corridorY: 340 },
+  engineering: { doorId: 'door_eng', doorX: 970, doorY: 400, corridorX: 970, corridorY: 340 },
+};
+
+export function getRoomAt(x: number, y: number): string {
+  if (y >= 270 && y <= 410) return 'corridor';
+  if (y < 270) {
+    if (x <= 390) return 'bridge';
+    if (x <= 790) return 'quarters';
+    return 'mess';
+  }
+  if (x <= 390) return 'armory';
+  if (x <= 790) return 'cargo';
+  return 'engineering';
+}
+
+function appendCorridorTransit(
+  path: NavigationWaypoint[],
+  fromX: number,
+  toX: number,
+  corridorY: number
+): void {
+  if (Math.abs(fromX - toX) > 10) {
+    path.push({ x: toX, y: corridorY });
+  }
+}
+
+// fallow-ignore-next-line complexity
+export function findNavigationPath(
+  startX: number,
+  startY: number,
+  targetX: number,
+  targetY: number
+): NavigationWaypoint[] {
+  const startRoom = getRoomAt(startX, startY);
+  const targetRoom = getRoomAt(targetX, targetY);
+
+  if (startRoom === targetRoom) {
+    return [{ x: targetX, y: targetY }];
+  }
+
+  const path: NavigationWaypoint[] = [];
+
+  if (startRoom === 'corridor') {
+    const tp = ROOM_PORTALS[targetRoom];
+    if (tp) {
+      appendCorridorTransit(path, startX, tp.corridorX, tp.corridorY);
+      path.push({ x: tp.doorX, y: tp.doorY, doorId: tp.doorId });
+    }
+  } else if (targetRoom === 'corridor') {
+    const sp = ROOM_PORTALS[startRoom];
+    if (sp) {
+      path.push({ x: sp.doorX, y: sp.doorY, doorId: sp.doorId });
+      path.push({ x: sp.corridorX, y: sp.corridorY });
+    }
+  } else {
+    const sp = ROOM_PORTALS[startRoom];
+    const tp = ROOM_PORTALS[targetRoom];
+    if (sp && tp) {
+      path.push({ x: sp.doorX, y: sp.doorY, doorId: sp.doorId });
+      path.push({ x: sp.corridorX, y: sp.corridorY });
+      appendCorridorTransit(path, sp.corridorX, tp.corridorX, tp.corridorY);
+      path.push({ x: tp.doorX, y: tp.doorY, doorId: tp.doorId });
+    }
+  }
+
+  path.push({ x: targetX, y: targetY });
+
+  // Filter out any initial waypoint the bot is already standing on
+  while (path.length > 1 && Math.hypot(startX - path[0].x, startY - path[0].y) < 14) {
+    path.shift();
+  }
+
+  return path;
+}
+
 export function getNearestWaypointId(x: number, y: number): string {
   let bestId = 'corridor_mid';
   let bestDist = Number.POSITIVE_INFINITY;
