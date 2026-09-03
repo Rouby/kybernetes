@@ -7,35 +7,34 @@ description: >-
 
 # UI Tokens Package (`@kybernetes/ui-tokens`)
 
-This package houses the shared design tokens for Kybernetes' tactical sci-fi HUD using Meta's StyleX (`@stylexjs/stylex`).
+This package is the shared StyleX token layer for the tactical HUD. It should
+define visual vocabulary, not component behavior or app-specific layout.
 
-## Core Rules & Architecture
+## Core Rules
 
-1. **Strict File Naming**:
-   * Any file defining StyleX theme variables **must** end in `.stylex.ts` (e.g., `tokens.stylex.ts`).
-   * Do not define variables in generic `index.ts` files.
-2. **`stylex.defineVars` Only**:
-   * All variables must be created using `stylex.defineVars({ ... })`.
-3. **Exports Map in `package.json`**:
-   * Ensure `package.json` explicitly defines exports for the `.stylex` file:
-     ```json
-     "exports": {
-       ".": "./src/index.ts",
-       "./tokens.stylex": "./src/tokens.stylex.ts"
-     }
-     ```
+1. Define StyleX variables only in `*.stylex.ts` files with
+  `stylex.defineVars`; keep barrels free of variable definitions.
+2. Preserve the package export `./tokens.stylex` in `package.json` and export
+  only intentional public APIs.
+3. Consumers must import compile-time variables directly:
+  `@kybernetes/ui-tokens/tokens.stylex`. Do not hide them behind the barrel,
+  because StyleX static extraction depends on the direct module.
+4. Prefer semantic names (`alertRed`, `phosphorGreen`) over component names,
+  and keep token values consistent across light effects, text, borders, and HUD
+  states. Do not add Tailwind or runtime CSS-in-JS.
+5. Keep this package independent of React, DOM APIs, and application state.
 
-## What to Look Out For
+## Change Workflow
 
-* **The Direct Import Rule**:
-  * In consumer apps (like `apps/web`), **always** import directly from the token file:
-    ```ts
-    import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
-    ```
-  * Never import tokens from a barrel file (`from '@kybernetes/ui-tokens'`), as StyleX's Babel plugin cannot resolve `defineVars` through index re-exports during compile-time static extraction.
-* **Tactical Color Identity**:
-  * `cyanTelemetry` (`#00e5ff`): Subsystem integrity, tech readout, main brand.
-  * `amberTelemetry` (`#ffb000`): Work shifts, warnings, nutrition, thermal output.
-  * `phosphorGreen` (`#00ff66`): Life support, active connection, healthy nominal status.
-  * `alertRed` (`#ff2244`): Red Alert, fire, boarding breaches, starvation, critical damage.
-  * `bgVoid` (`#06080c`): The cold void outside the hull.
+1. Add the smallest semantic token and choose an existing palette role first.
+2. Update direct consumers and verify StyleX compilation in the web build.
+3. Run `yarn --cwd packages/ui-tokens typecheck` and `lint`, then `yarn build`
+  when consumer extraction is affected.
+
+## Palette Roles
+
+- `cyanTelemetry`: subsystem integrity, technical readouts, brand accents.
+- `amberTelemetry`: shifts, warnings, nutrition, and thermal output.
+- `phosphorGreen`: life support, active connection, nominal health.
+- `alertRed`: red alert, fire, boarding, starvation, and critical damage.
+- `bgVoid`: the dark space surrounding the vessel.

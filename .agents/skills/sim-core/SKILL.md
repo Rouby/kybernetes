@@ -7,25 +7,38 @@ description: >-
 
 # Sim-Core Package (`@kybernetes/sim-core`)
 
-The simulation core contains the mathematical heartbeat of Kybernetes. It runs identically on the authoritative server and inside the web client for optimistic prediction.
+`sim-core` is the deterministic, zero-DOM rules engine shared by the
+authoritative server and the client's prediction layer. It owns game math,
+state transitions, navigation, collisions, survival, reactor behavior, and
+combat systems.
 
-## Core Rules & Architecture
+## Core Rules
 
-1. **Zero DOM & Zero Web Dependencies**:
-   * Never import `window`, `document`, `HTMLCanvasElement`, or React.
-   * Only pure TypeScript math, state transformers, and data structures.
-2. **Deterministic State Progression**:
-   * All state update functions must take `(state, dtSeconds, ...inputs)` and return a new immutable state object or patch.
-   * Avoid unseeded `Math.random()` in core loops where determinism is critical.
-3. **Floating Point Rounding**:
-   * Always normalize decimal drift on rates (e.g. `Number(newTemp.toFixed(2))`) to avoid IEEE 754 precision issues during delta broadcasts.
+1. **Portable purity**: use pure TypeScript only. Do not import React, browser
+  globals, Web APIs, Node APIs, timers, or rendering code.
+2. **Deterministic updates**: make inputs explicit (`state`, `dtSeconds`, and
+  actions), avoid unseeded randomness, and return new state/patch values instead
+  of mutating caller-owned state.
+3. **Numerical safety**: clamp values to domain limits, handle zero/negative
+  `dtSeconds` deliberately, and normalize externally visible precision where
+  the existing subsystem contract requires it.
+4. **Single ownership**: place shared rules in `src/` and keep server/UI
+  orchestration out of the package. Reuse existing spatial and system helpers
+  instead of duplicating formulas.
 
-## What to Look Out For
+## Change Workflow
 
-* **Fallow Dead Code Warnings**:
-  * If you add a method or property to `GameLoop` or any class, ensure it is actually called by consumers (`apps/server` or `apps/web`). Unused class members will fail `yarn quality`.
-* **Complexity & CRAP Score**:
-  * Keep tick updater functions focused. Avoid deep nested `switch` or `if-else` loops. Break down subsystem calculations into distinct modules (`systems/reactor.ts`, `systems/lifeSupport.ts`).
-* **Unit Testing**:
-  * Every new formula or decay curve must have a corresponding Vitest test in `src/*.test.ts`.
-  * Run `yarn --cwd packages/sim-core test` to verify instantly.
+1. Identify the state invariant and boundary cases before changing a system.
+2. Implement the smallest pure transition in the appropriate subsystem module.
+3. Add or update adjacent Vitest coverage, including lower/upper bounds and
+  repeated ticks.
+4. Run `yarn --cwd packages/sim-core test`, `typecheck`, and `lint`.
+5. Run workspace typecheck/build when protocol or consumer behavior changes.
+
+## Review Checklist
+
+- The same inputs produce the same outputs across repeated runs.
+- State is not mutated through nested objects or arrays.
+- New public APIs are exported from `src/index.ts` and are used by a consumer.
+- Tick work remains bounded and helpers stay small enough for the Fallow quality
+  gate.
