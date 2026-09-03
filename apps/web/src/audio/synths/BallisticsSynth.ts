@@ -86,7 +86,7 @@ export class BallisticsSynth {
     sub.frequency.exponentialRampToValueAtTime(38, t + 0.11);
     const subGain = this.ctx.createGain();
     subGain.gain.setValueAtTime(0.001, t);
-    subGain.gain.linearRampToValueAtTime(0.7 * volume, t + 0.002);
+    subGain.gain.linearRampToValueAtTime(0.7 * volume * variation, t + 0.002);
     subGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
     sub.connect(subGain);
     subGain.connect(destination);
@@ -102,7 +102,7 @@ export class BallisticsSynth {
     actionFilter.Q.setValueAtTime(2.5, t);
     const actionGain = this.ctx.createGain();
     actionGain.gain.setValueAtTime(0.001, t);
-    actionGain.gain.linearRampToValueAtTime(0.28 * volume, t + 0.014);
+    actionGain.gain.linearRampToValueAtTime(0.28 * volume * variation, t + 0.014);
     actionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
     action.connect(actionFilter);
     actionFilter.connect(actionGain);
