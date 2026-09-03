@@ -79,6 +79,35 @@ export class BallisticsSynth {
     bodyFilter.connect(bodyGain);
     bodyGain.connect(destination);
 
+    // A brief sub hit provides the physical low-end impulse missing from a dry synth tone.
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(68 * variation, t);
+    sub.frequency.exponentialRampToValueAtTime(38, t + 0.11);
+    const subGain = this.ctx.createGain();
+    subGain.gain.setValueAtTime(0.001, t);
+    subGain.gain.linearRampToValueAtTime(0.7 * volume, t + 0.002);
+    subGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    sub.connect(subGain);
+    subGain.connect(destination);
+
+    // Mechanical action snap gives the shot a distinct weapon signature.
+    const action = this.ctx.createOscillator();
+    action.type = 'square';
+    action.frequency.setValueAtTime(920 * variation, t + 0.012);
+    action.frequency.exponentialRampToValueAtTime(240, t + 0.045);
+    const actionFilter = this.ctx.createBiquadFilter();
+    actionFilter.type = 'bandpass';
+    actionFilter.frequency.setValueAtTime(1100, t + 0.012);
+    actionFilter.Q.setValueAtTime(2.5, t);
+    const actionGain = this.ctx.createGain();
+    actionGain.gain.setValueAtTime(0.001, t);
+    actionGain.gain.linearRampToValueAtTime(0.28 * volume, t + 0.014);
+    actionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    action.connect(actionFilter);
+    actionFilter.connect(actionGain);
+    actionGain.connect(destination);
+
     // Short smoky recoil tail fills out the impulse without masking the crack.
     const tail = this.ctx.createBufferSource();
     tail.buffer = this.noiseBuffer;
@@ -98,6 +127,10 @@ export class BallisticsSynth {
     crack.stop(t + 0.055);
     body.start(t);
     body.stop(t + dur);
+    sub.start(t);
+    sub.stop(t + 0.12);
+    action.start(t + 0.012);
+    action.stop(t + 0.07);
     tail.start(t);
     tail.stop(t + 0.16);
   }
