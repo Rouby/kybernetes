@@ -56,3 +56,27 @@ export function createScreenMatrix(width: number, height: number): Float32Array 
   // Column-major 3x3 matrix mapping [0..width, 0..height] to [-1..1, 1..-1]
   return new Float32Array([sx, 0, 0, 0, sy, 0, -1, 1, 1]);
 }
+
+export function addThickSegment(
+  verts: number[],
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  thickness: number
+): void {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return;
+  const nx = (-dy / len) * (thickness / 2);
+  const ny = (dx / len) * (thickness / 2);
+
+  verts.push(x1 + nx, y1 + ny);
+  verts.push(x2 + nx, y2 + ny);
+  verts.push(x1 - nx, y1 - ny);
+
+  verts.push(x1 - nx, y1 - ny);
+  verts.push(x2 + nx, y2 + ny);
+  verts.push(x2 - nx, y2 - ny);
+}

@@ -4,25 +4,22 @@ import type {
   DualProtocolBroadcast,
   PawnState,
   PlayerVitals,
-  ProjectileState,
   ShiftChecklistState,
   ShiftEvaluationGrade,
   StationFixture,
   TelemetryDeltaBroadcast,
   WeaponType,
 } from '@kybernetes/protocol';
-import {
-  applyWelderAoeDamage,
-  createInitialDoors,
-  createProjectile,
-  HESPERIA_WALLS,
-  interpolatePawn,
-  isSegmentBlockedByDoors,
-  segmentsIntersect,
-} from '@kybernetes/sim-core';
+import { createInitialDoors, interpolatePawn } from '@kybernetes/sim-core';
 import type React from 'react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import { useCanvasWeapons } from '../hooks/useCanvasWeapons';
+import {
+  type PredictedProjectile,
+  usePredictiveProjectiles,
+} from '../hooks/usePredictiveProjectiles';
+import { useTacticalCamera } from '../hooks/useTacticalCamera';
 import type { ActiveInteraction } from '../types';
 import { WebGL2Renderer } from '../webgl';
 
@@ -84,84 +81,6 @@ interface VesselCanvasProps {
   onJoinCollabShift?: () => void;
 }
 
-interface PredictedProjectile extends ProjectileState {
-  spawnTime: number;
-}
-
-// fallow-ignore-next-line complexity
-function reconcileProjectiles(
-  current: PredictedProjectile[],
-  incoming: ProjectileState[],
-  now: number
-): PredictedProjectile[] {
-  const serverMap = new Map(incoming.map((p) => [p.id, p]));
-  const preserved = current.filter(
-    (p) => (p.fromPlayer && now - p.spawnTime < 350) || serverMap.has(p.id)
-  );
-
-  for (const sp of incoming) {
-    const existing = preserved.find((lp) => lp.id === sp.id);
-    if (!existing) {
-      preserved.push({ ...sp, spawnTime: now });
-    } else if (Math.hypot(existing.x - sp.x, existing.y - sp.y) > 25) {
-      existing.x = sp.x;
-      existing.y = sp.y;
-    }
-  }
-  return preserved;
-}
-
-// fallow-ignore-next-line complexity
-function integrateProjectiles(
-  projectiles: PredictedProjectile[],
-  dt: number,
-  doors: DoorState[],
-  onImpact?: (x: number, y: number, type: 'kinetic' | 'laser' | 'welder') => void
-): PredictedProjectile[] {
-  const result: PredictedProjectile[] = [];
-  for (const p of projectiles) {
-    const nextX = p.x + p.vx * dt;
-    const nextY = p.y + p.vy * dt;
-    const nextLife = p.lifeSeconds - dt;
-
-    if (nextLife <= 0) {
-      if (p.weaponType === 'arc_welder') {
-        onImpact?.(nextX, nextY, 'welder');
-      }
-      continue;
-    }
-
-    const p1 = { x: p.x, y: p.y };
-    const p2 = { x: nextX, y: nextY };
-
-    // Line-segment collision with ship bulkheads
-    const hitWall = HESPERIA_WALLS.some(
-      (w) =>
-        !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
-    );
-
-    // Line-segment collision with closed blast doors
-    const hitDoor = isSegmentBlockedByDoors(p1, p2, doors);
-
-    if (hitWall || hitDoor) {
-      const type =
-        p.weaponType === 'pulse_laser'
-          ? 'laser'
-          : p.weaponType === 'arc_welder'
-            ? 'welder'
-            : 'kinetic';
-      onImpact?.(nextX, nextY, type);
-      continue;
-    }
-
-    p.x = nextX;
-    p.y = nextY;
-    p.lifeSeconds = nextLife;
-    result.push(p);
-  }
-  return result;
-}
-
 function getActiveBoarding(
   boarding: BoardingTacticsTelemetry | undefined,
   defaultDoors: DoorState[],
@@ -178,6 +97,30 @@ function getActiveBoarding(
     projectiles,
     roomO2: {},
   };
+}
+
+// fallow-ignore-next-line complexity
+function interpolateRemotePawns(
+  remotePawns: PawnState[],
+  cache: Map<string, PawnState>
+): PawnState[] {
+  if (remotePawns.length === 0) {
+    cache.clear();
+    return [];
+  }
+  const currentIds = new Set(remotePawns.map((p) => p.id));
+  for (const [id] of cache) {
+    if (!currentIds.has(id)) cache.delete(id);
+  }
+  for (const rp of remotePawns) {
+    const prev = cache.get(rp.id);
+    if (!prev) {
+      cache.set(rp.id, { ...rp });
+    } else {
+      cache.set(rp.id, interpolatePawn(prev, rp, 0.25));
+    }
+  }
+  return Array.from(cache.values());
 }
 
 // fallow-ignore-next-line complexity
@@ -198,7 +141,6 @@ function handleCanvasMouseDown(
   const screenPixelX = e.clientX - rect.left;
   const screenPixelY = e.clientY - rect.top;
 
-  // 1. Check if an interactive WebGL2 HUD button or badge was clicked
   if (renderer?.getHitTester().handleClick(screenPixelX, screenPixelY)) {
     return;
   }
@@ -281,13 +223,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<WebGL2Renderer | null>(null);
-  const cameraRef = useRef({ x: pawn.x, y: pawn.y });
   const mouseWorldRef = useRef({ x: pawn.x + 50, y: pawn.y });
   const mouseScreenRef = useRef({ x: 0, y: 0 });
   const defaultDoorsRef = useRef(createInitialDoors());
   const remoteInterpolatedRef = useRef<Map<string, PawnState>>(new Map());
 
-  const localProjectilesRef = useRef<PredictedProjectile[]>([]);
   const lastFrameTimeRef = useRef<number>(performance.now());
   const queuedImpactsRef = useRef<
     Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>
@@ -295,144 +235,41 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   const queuedMuzzleFlashesRef = useRef<Array<{ x: number; y: number; weaponType: WeaponType }>>(
     []
   );
-  const shakeIntensityRef = useRef(0);
-  const zoomRef = useRef(1.0);
-  const targetZoomRef = useRef(1.0);
 
-  const isFiringRef = useRef(false);
-  const wasWeldingRef = useRef(false);
-  const laserChargeStartRef = useRef<number | null>(null);
-  const lastKineticFireRef = useRef<number>(0);
-  const lastWelderTickRef = useRef<number>(0);
-  const kineticAmmoRef = useRef({
-    current: 30,
-    max: 30,
-    reserve: 120,
-    isReloading: false,
-    reloadProgress: 0,
-    reloadStart: 0,
-    reloadDuration: 1300,
+  const { cameraRef, zoomRef, addScreenShake, updateCamera } = useTacticalCamera({
+    initialX: pawn.x,
+    initialY: pawn.y,
+    canvasRef,
   });
-  const welderHeatRef = useRef(0);
-  const welderOverheatedRef = useRef(false);
 
-  const handleInstantFire = useCallback(
-    (
-      originX: number,
-      originY: number,
-      targetX: number,
-      targetY: number,
-      weaponType: WeaponType,
-      chargeRatio = 1.0
-    ) => {
-      // Welder uses continuous frontal AOE cone, not projectiles
-      if (weaponType === 'arc_welder') return;
-
-      const proj = createProjectile(
-        originX,
-        originY,
-        targetX,
-        targetY,
-        weaponType,
-        true,
-        chargeRatio
-      );
-      localProjectilesRef.current.push({ ...proj, spawnTime: performance.now() });
-
-      // Trigger instantaneous muzzle flash
-      queuedMuzzleFlashesRef.current.push({
-        x: originX,
-        y: originY,
-        weaponType,
-      });
-
-      // Micro screenshake impulse
-      shakeIntensityRef.current = Math.min(
-        8,
-        shakeIntensityRef.current + (weaponType === 'kinetic_carbine' ? 1.8 : 3.6 * chargeRatio)
-      );
-
-      ShipAudioEngine.getInstance().playWeaponFire(originX, originY, weaponType, chargeRatio, true);
-
-      onFireWeapon?.(originX, originY, targetX, targetY, weaponType, chargeRatio);
-    },
-    [onFireWeapon]
+  const { localProjectilesRef, addPredictedProjectile, stepProjectiles } = usePredictiveProjectiles(
+    boarding?.projectiles
   );
 
-  // fallow-ignore-next-line complexity
-  const triggerReload = useCallback(() => {
-    const ammo = kineticAmmoRef.current;
-    if (ammo.isReloading) return;
-    if (ammo.current >= ammo.max) return;
-    if (ammo.reserve <= 0) return;
-    ammo.isReloading = true;
-    ammo.reloadStart = performance.now();
-    ammo.reloadProgress = 0;
-  }, []);
-
-  // fallow-ignore-next-line complexity
-  const fireKineticRound = useCallback(() => {
-    const ammo = kineticAmmoRef.current;
-    if (ammo.isReloading) return;
-    if (ammo.current <= 0) {
-      triggerReload();
-      return;
-    }
-    ammo.current -= 1;
-    const spreadAngle = (Math.random() - 0.5) * 0.1;
-    const dx = mouseWorldRef.current.x - pawn.x;
-    const dy = mouseWorldRef.current.y - pawn.y;
-    const baseAngle = Math.atan2(dy, dx);
-    const finalAngle = baseAngle + spreadAngle;
-    const targetX = pawn.x + Math.cos(finalAngle) * 300;
-    const targetY = pawn.y + Math.sin(finalAngle) * 300;
-    handleInstantFire(pawn.x, pawn.y, targetX, targetY, 'kinetic_carbine');
-    lastKineticFireRef.current = performance.now();
-
-    if (ammo.current === 0) {
-      triggerReload();
-    }
-  }, [pawn.x, pawn.y, handleInstantFire, triggerReload]);
-
-  const startFiring = useCallback(() => {
-    isFiringRef.current = true;
-    const now = performance.now();
-    if (equippedWeapon === 'kinetic_carbine') {
-      fireKineticRound();
-    } else if (equippedWeapon === 'pulse_laser') {
-      laserChargeStartRef.current = now;
-    } else if (equippedWeapon === 'arc_welder') {
-      lastWelderTickRef.current = now;
-    }
-  }, [equippedWeapon, fireKineticRound]);
-
-  const stopFiring = useCallback(() => {
-    if (!isFiringRef.current) return;
-    const now = performance.now();
-    if (equippedWeapon === 'pulse_laser' && laserChargeStartRef.current !== null) {
-      const elapsed = (now - laserChargeStartRef.current) / 1000;
-      const charge = Math.max(0.2, Math.min(1.0, elapsed / 0.9));
-      handleInstantFire(
-        pawn.x,
-        pawn.y,
-        mouseWorldRef.current.x,
-        mouseWorldRef.current.y,
-        'pulse_laser',
-        charge
-      );
-      laserChargeStartRef.current = null;
-    }
-    isFiringRef.current = false;
-  }, [equippedWeapon, pawn.x, pawn.y, handleInstantFire]);
-
-  useEffect(() => {
-    if (!boarding?.projectiles) return;
-    localProjectilesRef.current = reconcileProjectiles(
-      localProjectilesRef.current,
-      boarding.projectiles,
-      performance.now()
-    );
-  }, [boarding?.projectiles]);
+  const {
+    isFiringRef,
+    kineticAmmoRef,
+    welderHeatRef,
+    welderOverheatedRef,
+    startFiring,
+    stopFiring,
+    stepWeapons,
+  } = useCanvasWeapons({
+    pawn,
+    mouseWorldRef,
+    equippedWeapon,
+    onFireWeapon,
+    onWelderAoe,
+    onWeldingStateChange,
+    onSpawnProjectile: addPredictedProjectile,
+    onMuzzleFlash: (flash) => queuedMuzzleFlashesRef.current.push(flash),
+    onImpact: (x, y, type) => {
+      queuedImpactsRef.current.push({ x, y, type });
+      addScreenShake(1.4);
+      ShipAudioEngine.getInstance().playImpact(x, y, type);
+    },
+    addScreenShake,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -450,54 +287,6 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     observer.observe(canvas.parentElement);
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = -e.deltaY * 0.0012;
-      targetZoomRef.current = Math.max(0.75, Math.min(1.25, targetZoomRef.current + delta));
-    };
-
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
-    return () => canvas.removeEventListener('wheel', handleWheel);
-  }, []);
-
-  useEffect(() => {
-    // fallow-ignore-next-line complexity
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.code === 'Space' && !e.repeat) {
-        e.preventDefault();
-        startFiring();
-      } else if (e.code === 'KeyR' && !e.repeat) {
-        if (equippedWeapon === 'kinetic_carbine') {
-          triggerReload();
-        }
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        e.preventDefault();
-        stopFiring();
-      }
-    };
-    const handleWindowMouseUp = () => {
-      stopFiring();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('mouseup', handleWindowMouseUp);
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('mouseup', handleWindowMouseUp);
-    };
-  }, [equippedWeapon, startFiring, stopFiring, triggerReload]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -527,174 +316,42 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
       const doors = boarding?.doors || defaultDoorsRef.current;
       ShipAudioEngine.getInstance().updateListener(pawn.x, pawn.y, doors);
-      localProjectilesRef.current = integrateProjectiles(
-        localProjectilesRef.current,
-        dt,
-        doors,
-        (hitX, hitY, type) => {
-          queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
-          shakeIntensityRef.current = Math.min(8, shakeIntensityRef.current + 1.4);
-          ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
-        }
+
+      stepProjectiles(dt, doors, (hitX, hitY, type) => {
+        queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
+        addScreenShake(1.4);
+        ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
+      });
+
+      const renderCam = updateCamera(
+        pawn.x,
+        pawn.y,
+        mouseWorldRef.current.x,
+        mouseWorldRef.current.y,
+        dt
       );
 
-      // Look-ahead camera lead towards aiming crosshair
-      const leadFactor = 0.15;
-      const targetCamX = pawn.x + (mouseWorldRef.current.x - pawn.x) * leadFactor;
-      const targetCamY = pawn.y + (mouseWorldRef.current.y - pawn.y) * leadFactor;
-      cameraRef.current.x += (targetCamX - cameraRef.current.x) * 0.12;
-      cameraRef.current.y += (targetCamY - cameraRef.current.y) * 0.12;
-
-      // Micro screenshake decaying impulse
-      shakeIntensityRef.current = Math.max(0, shakeIntensityRef.current - dt * 14.0);
-      const shakeX = (Math.random() - 0.5) * shakeIntensityRef.current;
-      const shakeY = (Math.random() - 0.5) * shakeIntensityRef.current;
-      const renderCam = {
-        x: cameraRef.current.x + shakeX,
-        y: cameraRef.current.y + shakeY,
-      };
-
-      // Tactical zoom interpolation
-      zoomRef.current += (targetZoomRef.current - zoomRef.current) * 0.15;
-
-      const aimAngle = Math.atan2(
-        mouseWorldRef.current.y - pawn.y,
-        mouseWorldRef.current.x - pawn.x
-      );
-      const activePawn = { ...pawn, facingAngle: aimAngle };
       const activeBoarding = getActiveBoarding(
         boarding,
         defaultDoorsRef.current,
         localProjectilesRef.current
       );
 
-      // Update kinetic reloading progress
-      const ammo = kineticAmmoRef.current;
-      if (ammo.isReloading) {
-        const elapsed = now - ammo.reloadStart;
-        ammo.reloadProgress = Math.min(1.0, elapsed / ammo.reloadDuration);
-        if (elapsed >= ammo.reloadDuration) {
-          const needed = ammo.max - ammo.current;
-          const toLoad = Math.min(needed, ammo.reserve);
-          ammo.current += toLoad;
-          ammo.reserve -= toLoad;
-          ammo.isReloading = false;
-          ammo.reloadProgress = 0;
-        }
-      }
+      const { laserChargeRatio, isWelderActive, aimAngle } = stepWeapons(
+        now,
+        dt,
+        doors,
+        activeBoarding
+      );
 
-      // 1. Continuous Kinetic Carbine firing
-      if (isFiringRef.current && equippedWeapon === 'kinetic_carbine') {
-        if (now - lastKineticFireRef.current >= 105) {
-          fireKineticRound();
-        }
-      }
-
-      // 2. Pulse Laser charge ratio
-      let laserChargeRatio = 0;
-      if (
-        isFiringRef.current &&
-        equippedWeapon === 'pulse_laser' &&
-        laserChargeStartRef.current !== null
-      ) {
-        const elapsed = (now - laserChargeStartRef.current) / 1000;
-        laserChargeRatio = Math.max(0.1, Math.min(1.0, elapsed / 0.9));
-      }
-
-      // 3. Continuous Arc Welder AOE Cone with Overheat Lockout
-      const isTryingToWeld = isFiringRef.current && equippedWeapon === 'arc_welder';
-      if (isTryingToWeld && !welderOverheatedRef.current) {
-        welderHeatRef.current = Math.min(1.0, welderHeatRef.current + dt * 0.35);
-        if (welderHeatRef.current >= 1.0) {
-          welderOverheatedRef.current = true;
-        }
-      } else {
-        welderHeatRef.current = Math.max(0.0, welderHeatRef.current - dt * 0.45);
-        if (welderOverheatedRef.current && welderHeatRef.current <= 0.25) {
-          welderOverheatedRef.current = false;
-        }
-      }
-
-      const isWelderActive = isTryingToWeld && !welderOverheatedRef.current;
-      if (wasWeldingRef.current !== isWelderActive) {
-        wasWeldingRef.current = isWelderActive;
-        onWeldingStateChange?.(isWelderActive);
-      }
-
-      if (isWelderActive && now - lastWelderTickRef.current >= 100) {
-        lastWelderTickRef.current = now;
-        ShipAudioEngine.getInstance().playWeaponFire(pawn.x, pawn.y, 'arc_welder', 1.0, true);
-        const aoe = applyWelderAoeDamage(
-          activeBoarding.intruders,
-          pawn.x,
-          pawn.y,
-          aimAngle,
-          10,
-          48,
-          doors
-        );
-        if (aoe.hitIntruders.length > 0) {
-          onWelderAoe?.(pawn.x, pawn.y, aimAngle, 10, 48);
-          for (const hit of aoe.hitIntruders) {
-            const intru = activeBoarding.intruders.find((i) => i.id === hit.id);
-            if (intru) {
-              queuedImpactsRef.current.push({ x: intru.x, y: intru.y, type: 'welder' });
-            }
-          }
-        }
-      }
+      const activePawn = { ...pawn, facingAngle: aimAngle };
+      const interpolatedRemotes = interpolateRemotePawns(
+        remotePawns,
+        remoteInterpolatedRef.current
+      );
 
       const impacts = queuedImpactsRef.current;
       queuedImpactsRef.current = [];
-
-      if (remotePawns.length > 0) {
-        const currentIds = new Set(remotePawns.map((p) => p.id));
-        for (const [id] of remoteInterpolatedRef.current) {
-          if (!currentIds.has(id)) remoteInterpolatedRef.current.delete(id);
-        }
-        for (const rp of remotePawns) {
-          const prev = remoteInterpolatedRef.current.get(rp.id);
-          if (!prev) {
-            remoteInterpolatedRef.current.set(rp.id, { ...rp });
-          } else {
-            remoteInterpolatedRef.current.set(rp.id, interpolatePawn(prev, rp, 0.25));
-          }
-        }
-      } else {
-        remoteInterpolatedRef.current.clear();
-      }
-      const interpolatedRemotes = Array.from(remoteInterpolatedRef.current.values());
-
-      const activeWelders: Array<{
-        active: boolean;
-        originX: number;
-        originY: number;
-        facingAngle: number;
-        range: number;
-      }> = [];
-
-      if (isWelderActive) {
-        activeWelders.push({
-          active: true,
-          originX: pawn.x,
-          originY: pawn.y,
-          facingAngle: aimAngle,
-          range: 48,
-        });
-      }
-
-      for (const rp of interpolatedRemotes) {
-        if (rp.isWelding) {
-          activeWelders.push({
-            active: true,
-            originX: rp.x,
-            originY: rp.y,
-            facingAngle: rp.facingAngle,
-            range: 48,
-          });
-        }
-      }
-
       const muzzleFlashes = queuedMuzzleFlashesRef.current;
       queuedMuzzleFlashesRef.current = [];
 
@@ -758,7 +415,6 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           screenWidth: canvas.clientWidth,
           screenHeight: canvas.clientHeight,
         },
-
         canvas.width,
         canvas.height
       );
@@ -769,40 +425,47 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
   }, [
-    pawn,
-    remotePawns,
-    vitals,
-    telemetry,
-    nearestStation,
     activeInteraction,
-    promptActionName,
+    addScreenShake,
     alertLevel,
-    boarding,
     beaconCode,
-    crewCount,
+    boarding,
     clearanceLevel,
     clearanceXp,
-    credits,
-    equippedWeapon,
-    triageNotice,
-    inGameNotice,
-    dualProtocol,
     collabShift,
-    shiftChecklist,
-    projectedGrade,
-    shiftTimerFormatted,
-    fireKineticRound,
-    onWelderAoe,
-    onWeldingStateChange,
-    onBeaconClick,
-    onManifestClick,
-    onRoleClick,
+    credits,
+    crewCount,
+    dualProtocol,
+    equippedWeapon,
+    inGameNotice,
+    isFiringRef,
+    kineticAmmoRef,
+    localProjectilesRef,
+    nearestStation,
+    onAbortInteraction,
     onAudioClick,
+    onBeaconClick,
     onDisembarkClick,
     onEquipWeapon,
-    onAbortInteraction,
     onExecuteDualProtocol,
     onJoinCollabShift,
+    onManifestClick,
+    onRoleClick,
+    pawn,
+    projectedGrade,
+    promptActionName,
+    remotePawns,
+    shiftChecklist,
+    shiftTimerFormatted,
+    stepProjectiles,
+    stepWeapons,
+    telemetry,
+    triageNotice,
+    updateCamera,
+    vitals,
+    welderHeatRef,
+    welderOverheatedRef,
+    zoomRef,
   ]);
 
   const activeDoors = boarding?.doors || defaultDoorsRef.current;
