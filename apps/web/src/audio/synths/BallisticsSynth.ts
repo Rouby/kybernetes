@@ -38,6 +38,7 @@ export class BallisticsSynth {
   private playKineticCarbine(destination: AudioNode, volume: number): void {
     const t = this.ctx.currentTime;
     const dur = 0.12;
+    const variation = 0.94 + Math.random() * 0.12;
 
     // Transient noise pop
     const noise = this.ctx.createBufferSource();
@@ -48,7 +49,8 @@ export class BallisticsSynth {
     noiseFilter.frequency.setValueAtTime(1400, t);
 
     const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.6 * volume, t);
+    noiseGain.gain.setValueAtTime(0.001, t);
+    noiseGain.gain.linearRampToValueAtTime(0.6 * volume * variation, t + 0.001);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
 
     noise.connect(noiseFilter);
@@ -58,11 +60,12 @@ export class BallisticsSynth {
     // Body resonance thump
     const osc = this.ctx.createOscillator();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(160, t);
+    osc.frequency.setValueAtTime(160 * variation, t);
     osc.frequency.exponentialRampToValueAtTime(45, t + dur);
 
     const oscGain = this.ctx.createGain();
-    oscGain.gain.setValueAtTime(0.7 * volume, t);
+    oscGain.gain.setValueAtTime(0.001, t);
+    oscGain.gain.linearRampToValueAtTime(0.7 * volume * variation, t + 0.001);
     oscGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
     osc.connect(oscGain);
