@@ -632,6 +632,11 @@ export const App: React.FC = () => {
     shiftChecklist.startedAt,
   ]);
 
+  // Initialize headless ShipAudioEngine and register user gesture unlock immediately
+  useEffect(() => {
+    ShipAudioEngine.getInstance().init();
+  }, []);
+
   // Sync live telemetry and vitals to headless ShipAudioEngine
   useEffect(() => {
     const currentRoom = HESPERIA_ROOMS.find(

@@ -10,7 +10,7 @@ import type {
   TelemetryDeltaBroadcast,
   WeaponType,
 } from '@kybernetes/protocol';
-import { createInitialDoors, interpolatePawn } from '@kybernetes/sim-core';
+import { createInitialDoors, interpolatePawn, isImpactVisible } from '@kybernetes/sim-core';
 import type React from 'react';
 import { useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
@@ -138,21 +138,21 @@ function handleCanvasMouseDown(
 ) {
   if (e.button !== 0 || !canvas) return;
   const rect = canvas.getBoundingClientRect();
-  const screenPixelX = e.clientX - rect.left;
-  const screenPixelY = e.clientY - rect.top;
+  const canvasPixelX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const canvasPixelY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
-  if (renderer?.getHitTester().handleClick(screenPixelX, screenPixelY)) {
+  if (
+    renderer?.getHitTester().handleClick(canvasPixelX, canvasPixelY, canvas.width, canvas.height)
+  ) {
     return;
   }
 
-  if (renderer?.getHitTester().hitTest(screenPixelX, screenPixelY)) {
+  if (renderer?.getHitTester().hitTest(canvasPixelX, canvasPixelY, canvas.width, canvas.height)) {
     return;
   }
 
-  const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
-  const worldX = (clickX - canvas.width / 2) / zoom + camera.x;
-  const worldY = (clickY - canvas.height / 2) / zoom + camera.y;
+  const worldX = (canvasPixelX - canvas.width / 2) / zoom + camera.x;
+  const worldY = (canvasPixelY - canvas.height / 2) / zoom + camera.y;
 
   if (doors && onToggleDoor) {
     const clickedDoor = doors.find((d) => {
@@ -318,9 +318,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       ShipAudioEngine.getInstance().updateListener(pawn.x, pawn.y, doors);
 
       stepProjectiles(dt, doors, (hitX, hitY, type) => {
-        queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
-        addScreenShake(1.4);
-        ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
+        if (isImpactVisible({ x: pawn.x, y: pawn.y }, { x: hitX, y: hitY }, doors)) {
+          queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
+          addScreenShake(1.4);
+          ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
+        }
       });
 
       const renderCam = updateCamera(
@@ -488,22 +490,25 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           const canvas = canvasRef.current;
           if (!canvas) return;
           const rect = canvas.getBoundingClientRect();
-          const screenPixelX = e.clientX - rect.left;
-          const screenPixelY = e.clientY - rect.top;
-          mouseScreenRef.current = { x: screenPixelX, y: screenPixelY };
+          const canvasPixelX = (e.clientX - rect.left) * (canvas.width / rect.width);
+          const canvasPixelY = (e.clientY - rect.top) * (canvas.height / rect.height);
+          mouseScreenRef.current = { x: canvasPixelX, y: canvasPixelY };
 
           const hitTester = rendererRef.current?.getHitTester();
 
           if (hitTester) {
-            const isHit = hitTester.hitTest(screenPixelX, screenPixelY);
+            const isHit = hitTester.hitTest(
+              canvasPixelX,
+              canvasPixelY,
+              canvas.width,
+              canvas.height
+            );
             canvas.style.cursor = isHit ? 'pointer' : 'crosshair';
           }
 
-          const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
-          const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
           mouseWorldRef.current = {
-            x: (clickX - canvas.width / 2) / zoomRef.current + cameraRef.current.x,
-            y: (clickY - canvas.height / 2) / zoomRef.current + cameraRef.current.y,
+            x: (canvasPixelX - canvas.width / 2) / zoomRef.current + cameraRef.current.x,
+            y: (canvasPixelY - canvas.height / 2) / zoomRef.current + cameraRef.current.y,
           };
         }}
         onMouseDown={(e) =>

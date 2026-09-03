@@ -1,6 +1,6 @@
 import type { DoorState, PawnState, StartingRole } from '@kybernetes/protocol';
 import { HESPERIA_SPAWNS, HESPERIA_STATIONS } from '../spatial/deck';
-import { findWaypointPath } from '../spatial/navigation';
+import { findNavigationPath, getRoomAt, type NavigationWaypoint } from '../spatial/navigation';
 
 export interface BotPersona {
   role: StartingRole;
@@ -150,6 +150,8 @@ export interface BotState {
   targetRoomId: string;
   stateTimer: number;
   speechCooldown: number;
+  path?: NavigationWaypoint[];
+  pathIndex?: number;
 }
 
 export function createBotSession(role: StartingRole, initialCooldownOffset = 0): BotState {
@@ -157,7 +159,7 @@ export function createBotSession(role: StartingRole, initialCooldownOffset = 0):
   const spawn = HESPERIA_SPAWNS[role] || { x: 500, y: 350 };
   const targetStationId = persona.stationIds[0] || 'reactor_console';
   const station = HESPERIA_STATIONS.find((s) => s.id === targetStationId);
-  const targetRoomId = station?.stationType === 'reactor' ? 'engineering' : 'corridor';
+  const targetRoomId = station ? getRoomAt(station.x, station.y) : 'engineering';
 
   const pawn: PawnState = {
     id: `bot_${role}`,
@@ -193,7 +195,6 @@ export interface BotTelemetryAssistance {
   o2Delta: number;
 }
 
-// fallow-ignore-next-line complexity
 function moveBotToward(
   pawn: PawnState,
   targetX: number,
@@ -209,7 +210,7 @@ function moveBotToward(
   }
 
   const angle = Math.atan2(dy, dx);
-  const speed = 55 * dtSeconds;
+  const speed = 70 * dtSeconds;
   const step = Math.min(speed, dist);
 
   return {
@@ -220,40 +221,158 @@ function moveBotToward(
   };
 }
 
-// fallow-ignore-next-line complexity
-function advanceBotMovement(
-  bot: BotState,
-  targetRoomId: string,
-  targetPos: { x: number; y: number },
-  dtSeconds: number
-): { x: number; y: number; facingAngle: number; atTarget: boolean } {
-  const path = findWaypointPath(bot.pawn.x, bot.pawn.y, targetRoomId);
-  if (path.length <= 1) {
-    // Already in room or close to destination
-    const res = moveBotToward(bot.pawn, targetPos.x, targetPos.y, dtSeconds);
-    return { x: res.x, y: res.y, facingAngle: res.facingAngle, atTarget: res.reached };
-  }
-
-  const nextWp = path[0];
-  const wpDist = Math.hypot(nextWp.x - bot.pawn.x, nextWp.y - bot.pawn.y);
-
-  if (wpDist < 16 && path.length > 1) {
-    const followingWp = path[1];
-    const res = moveBotToward(bot.pawn, followingWp.x, followingWp.y, dtSeconds);
-    return { x: res.x, y: res.y, facingAngle: res.facingAngle, atTarget: false };
-  }
-
-  const res = moveBotToward(bot.pawn, nextWp.x, nextWp.y, dtSeconds);
-  return { x: res.x, y: res.y, facingAngle: res.facingAngle, atTarget: false };
+function checkClosedDoor(doorId: string | undefined, doors?: DoorState[]): string | undefined {
+  if (!doorId || !doors) return undefined;
+  const d = doors.find((door) => door.id === doorId);
+  return d && !d.isOpen ? d.id : undefined;
 }
 
 // fallow-ignore-next-line complexity
+function advanceBotMovement(
+  bot: BotState,
+  targetPos: { x: number; y: number },
+  dtSeconds: number,
+  doors?: DoorState[]
+): {
+  x: number;
+  y: number;
+  facingAngle: number;
+  atTarget: boolean;
+  path: NavigationWaypoint[];
+  pathIndex: number;
+  doorToToggle?: string;
+} {
+  let path = bot.path;
+  let pathIndex = bot.pathIndex ?? 0;
+
+  if (!path || path.length === 0 || pathIndex >= path.length) {
+    path = findNavigationPath(bot.pawn.x, bot.pawn.y, targetPos.x, targetPos.y);
+    pathIndex = 0;
+  }
+
+  const currentWp = path[pathIndex];
+  if (!currentWp) {
+    return {
+      x: targetPos.x,
+      y: targetPos.y,
+      facingAngle: bot.pawn.facingAngle,
+      atTarget: true,
+      path,
+      pathIndex,
+    };
+  }
+
+  const doorToToggle = checkClosedDoor(currentWp.doorId, doors);
+  const move = moveBotToward(bot.pawn, currentWp.x, currentWp.y, dtSeconds);
+
+  if (move.reached) {
+    pathIndex++;
+  }
+
+  const atTarget = pathIndex >= path.length;
+  return {
+    x: move.x,
+    y: move.y,
+    facingAngle: move.facingAngle,
+    atTarget,
+    path,
+    pathIndex,
+    doorToToggle,
+  };
+}
+
+function tickBotSpeech(bot: BotState, dtSeconds: number, now: number): void {
+  if (bot.pawn.speechBubble && now >= bot.pawn.speechBubble.expiresAt) {
+    bot.pawn.speechBubble = undefined;
+  }
+
+  bot.speechCooldown -= dtSeconds;
+  if (bot.speechCooldown <= 0) {
+    const cat =
+      bot.state === 'working_station' ? 'working' : bot.state === 'resting' ? 'resting' : 'walking';
+    const lines = bot.persona.voicelines[cat];
+    bot.pawn.speechBubble = {
+      text: lines[Math.floor(Math.random() * lines.length)],
+      expiresAt: now + 3500,
+    };
+    bot.speechCooldown = 20 + Math.random() * 15;
+  }
+}
+
+function handleWorkingStation(
+  bot: BotState,
+  dtSeconds: number,
+  assistance: BotTelemetryAssistance
+): void {
+  bot.pawn.isOperating = true;
+  bot.pawn.isResting = false;
+  bot.stateTimer -= dtSeconds;
+
+  if (bot.role === 'wiper') {
+    assistance.reactorTempDelta = -1.2 * dtSeconds;
+  } else if (bot.role === 'hydro_tender') {
+    assistance.o2Delta = 0.25 * dtSeconds;
+  }
+
+  if (bot.stateTimer <= 0) {
+    bot.state = 'walking_to_rest';
+    bot.targetRoomId = bot.role === 'galley_hand' ? 'quarters' : 'mess';
+    bot.pawn.isOperating = false;
+    bot.path = undefined;
+    bot.pathIndex = 0;
+  }
+}
+
+function handleResting(bot: BotState, dtSeconds: number): void {
+  bot.pawn.isResting = true;
+  bot.pawn.isOperating = false;
+  bot.stateTimer -= dtSeconds;
+
+  if (bot.stateTimer <= 0) {
+    const sIds = bot.persona.stationIds;
+    const stId = sIds[Math.floor(Math.random() * sIds.length)] || 'reactor_console';
+    const st = HESPERIA_STATIONS.find((s) => s.id === stId);
+    bot.targetStationId = stId;
+    bot.targetRoomId = st ? getRoomAt(st.x, st.y) : 'engineering';
+    bot.state = 'walking_to_station';
+    bot.pawn.isResting = false;
+    bot.path = undefined;
+    bot.pathIndex = 0;
+  }
+}
+
+function handleBotWalking(
+  bot: BotState,
+  targetPos: { x: number; y: number },
+  dtSeconds: number,
+  doors: DoorState[],
+  destinationState: 'resting' | 'working_station'
+): string | undefined {
+  const moveRes = advanceBotMovement(bot, targetPos, dtSeconds, doors);
+  bot.pawn.x = moveRes.x;
+  bot.pawn.y = moveRes.y;
+  bot.pawn.facingAngle = moveRes.facingAngle;
+  bot.path = moveRes.path;
+  bot.pathIndex = moveRes.pathIndex;
+
+  if (moveRes.atTarget) {
+    bot.state = destinationState;
+    bot.stateTimer =
+      destinationState === 'resting' ? 10 + Math.random() * 5 : 14 + Math.random() * 6;
+    bot.pawn.isResting = destinationState === 'resting';
+    bot.pawn.isOperating = destinationState === 'working_station';
+    bot.path = undefined;
+    bot.pathIndex = 0;
+  }
+  return moveRes.doorToToggle;
+}
+
 export function tickBot(
   bot: BotState,
   dtSeconds: number,
-  _doors: DoorState[],
+  doors: DoorState[],
   now = Date.now()
-): { nextBot: BotState; assistance: BotTelemetryAssistance } {
+): { nextBot: BotState; assistance: BotTelemetryAssistance; doorToToggle?: string } {
   const nextBot: BotState = {
     ...bot,
     pawn: { ...bot.pawn },
@@ -264,94 +383,29 @@ export function tickBot(
     o2Delta: 0,
   };
 
-  // 1. Speech bubble expiration and cooldown
-  if (nextBot.pawn.speechBubble && now >= nextBot.pawn.speechBubble.expiresAt) {
-    nextBot.pawn.speechBubble = undefined;
-  }
+  tickBotSpeech(nextBot, dtSeconds, now);
 
-  nextBot.speechCooldown -= dtSeconds;
-  if (nextBot.speechCooldown <= 0) {
-    const speechCategory =
-      nextBot.state === 'working_station'
-        ? 'working'
-        : nextBot.state === 'resting'
-          ? 'resting'
-          : 'walking';
-    const lines = nextBot.persona.voicelines[speechCategory];
-    const chosen = lines[Math.floor(Math.random() * lines.length)];
+  let doorToToggle: string | undefined;
 
-    nextBot.pawn.speechBubble = {
-      text: chosen,
-      expiresAt: now + 3500,
-    };
-    nextBot.speechCooldown = 20 + Math.random() * 15;
-  }
-
-  // 2. State machine
   if (nextBot.state === 'working_station') {
-    nextBot.pawn.isOperating = true;
-    nextBot.pawn.isResting = false;
-    nextBot.stateTimer -= dtSeconds;
-
-    // Functional assistance while operating:
-    if (nextBot.role === 'wiper') {
-      assistance.reactorTempDelta = -1.2 * dtSeconds; // Wiper gently bleeds heat
-    } else if (nextBot.role === 'hydro_tender') {
-      assistance.o2Delta = 0.25 * dtSeconds; // Hydro tender optimizes scrubbers
-    }
-
-    if (nextBot.stateTimer <= 0) {
-      // Finished chore, walk to rest
-      nextBot.state = 'walking_to_rest';
-      nextBot.targetRoomId = nextBot.role === 'galley_hand' ? 'quarters' : 'mess';
-      nextBot.pawn.isOperating = false;
-    }
+    handleWorkingStation(nextBot, dtSeconds, assistance);
   } else if (nextBot.state === 'walking_to_rest') {
-    const restStation = HESPERIA_STATIONS.find((s) => s.id === 'mess_prep') || HESPERIA_STATIONS[0];
-    const targetPos = { x: restStation.x, y: restStation.y };
-    const moveRes = advanceBotMovement(nextBot, nextBot.targetRoomId, targetPos, dtSeconds);
-
-    nextBot.pawn.x = moveRes.x;
-    nextBot.pawn.y = moveRes.y;
-    nextBot.pawn.facingAngle = moveRes.facingAngle;
-
-    if (moveRes.atTarget) {
-      nextBot.state = 'resting';
-      nextBot.stateTimer = 10 + Math.random() * 5;
-      nextBot.pawn.isResting = true;
-    }
+    const isQuarters = nextBot.targetRoomId === 'quarters';
+    const restPos = isQuarters ? { x: 480, y: 160 } : { x: 880, y: 160 };
+    doorToToggle = handleBotWalking(nextBot, restPos, dtSeconds, doors, 'resting');
   } else if (nextBot.state === 'resting') {
-    nextBot.pawn.isResting = true;
-    nextBot.pawn.isOperating = false;
-    nextBot.stateTimer -= dtSeconds;
-
-    if (nextBot.stateTimer <= 0) {
-      // Rest over, walk back to station
-      const stId =
-        nextBot.persona.stationIds[Math.floor(Math.random() * nextBot.persona.stationIds.length)] ||
-        'reactor_console';
-      nextBot.targetStationId = stId;
-      const st = HESPERIA_STATIONS.find((s) => s.id === stId);
-      nextBot.targetRoomId = st?.stationType === 'reactor' ? 'engineering' : 'corridor';
-      nextBot.state = 'walking_to_station';
-      nextBot.pawn.isResting = false;
-    }
+    handleResting(nextBot, dtSeconds);
   } else if (nextBot.state === 'walking_to_station') {
     const st =
       HESPERIA_STATIONS.find((s) => s.id === nextBot.targetStationId) || HESPERIA_STATIONS[0];
-    const targetPos = { x: st.x, y: st.y };
-    const moveRes = advanceBotMovement(nextBot, nextBot.targetRoomId, targetPos, dtSeconds);
-
-    nextBot.pawn.x = moveRes.x;
-    nextBot.pawn.y = moveRes.y;
-    nextBot.pawn.facingAngle = moveRes.facingAngle;
-
-    if (moveRes.atTarget) {
-      nextBot.state = 'working_station';
-      nextBot.stateTimer = 14 + Math.random() * 6;
-      nextBot.pawn.isOperating = true;
-    }
+    doorToToggle = handleBotWalking(
+      nextBot,
+      { x: st.x, y: st.y },
+      dtSeconds,
+      doors,
+      'working_station'
+    );
   }
 
-  return { nextBot, assistance };
+  return { nextBot, assistance, doorToToggle };
 }

@@ -61,4 +61,73 @@ describe('Bot Crewmate Manager', () => {
     const step2 = tickBot(step1.nextBot, 1.0, doors, now + 4000);
     expect(step2.nextBot.pawn.speechBubble).toBeUndefined();
   });
+
+  it('generates multi-room navigation path and progresses without oscillating', () => {
+    const doors = createInitialDoors();
+    const bot = createBotSession('wiper');
+    // Force transition to walking to rest (mess hall)
+    bot.state = 'walking_to_rest';
+    bot.targetRoomId = 'mess';
+
+    const startX = bot.pawn.x;
+    const startY = bot.pawn.y;
+
+    let current = bot;
+    const visitedPositions: Array<{ x: number; y: number }> = [];
+
+    // Simulate 20 ticks of 0.2s = 4 seconds of walking
+    for (let i = 0; i < 20; i++) {
+      const res = tickBot(current, 0.2, doors);
+      current = res.nextBot;
+      visitedPositions.push({ x: current.pawn.x, y: current.pawn.y });
+    }
+
+    // Wiper should have moved away from engineering spawn (924, 570) towards door (970, 400)
+    expect(current.pawn.x).not.toBe(startX);
+    expect(current.pawn.y).not.toBe(startY);
+    expect(current.pawn.y).toBeLessThan(startY); // Moving up towards corridor/mess
+    expect(current.path).toBeDefined();
+    expect(current.pathIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it('requests closed door toggle when advancing along path', () => {
+    const doors = createInitialDoors();
+    // Close engineering door
+    const engDoor = doors.find((d) => d.id === 'door_eng');
+    if (engDoor) engDoor.isOpen = false;
+
+    const bot = createBotSession('wiper');
+    bot.state = 'walking_to_rest';
+    bot.targetRoomId = 'mess';
+
+    let current = bot;
+    let doorOpened = false;
+
+    // Simulate walking until it approaches door_eng
+    for (let i = 0; i < 60; i++) {
+      const res = tickBot(current, 0.1, doors);
+      current = res.nextBot;
+      if (res.doorToToggle === 'door_eng') {
+        doorOpened = true;
+        // Re-open door in sim
+        if (engDoor) engDoor.isOpen = true;
+      }
+    }
+
+    expect(doorOpened).toBe(true);
+  });
+
+  it('completes path to rest and switches to resting state', () => {
+    const doors = createInitialDoors();
+    const bot = createBotSession('galley_hand');
+    // Galley hand is already in mess (880, 200). Put it right near rest target (880, 160)
+    bot.state = 'walking_to_rest';
+    bot.targetRoomId = 'mess';
+    bot.pawn.x = 880;
+    bot.pawn.y = 170;
+
+    const res = tickBot(bot, 0.5, doors);
+    expect(res.nextBot.state).toBe('resting');
+    expect(res.nextBot.pawn.isResting).toBe(true);
+  });
 });

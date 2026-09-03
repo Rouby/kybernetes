@@ -21,6 +21,7 @@ import {
   tickCollabShift,
   tickDualProtocol,
   tickVesselState,
+  toggleDoor,
 } from '@kybernetes/sim-core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import {
@@ -270,25 +271,45 @@ export class VesselServer {
     broadcastToSession(session, stateToTelemetryBroadcast(session.vesselState));
   }
 
+  private applyBotAssistance(
+    session: VesselSession,
+    delta: { reactorTempDelta: number; o2Delta: number }
+  ): void {
+    if (delta.reactorTempDelta !== 0) {
+      session.vesselState.reactorTemp = Math.max(
+        290,
+        Number((session.vesselState.reactorTemp + delta.reactorTempDelta).toFixed(2))
+      );
+    }
+    if (delta.o2Delta !== 0) {
+      const nextO2 = Math.min(
+        100,
+        Number((session.vesselState.oxygenLevelPercent + delta.o2Delta).toFixed(2))
+      );
+      session.vesselState.oxygenLevelPercent = nextO2;
+      session.vesselState.lifeSupport.o2LevelPercent = nextO2;
+    }
+  }
+
+  // fallow-ignore-next-line complexity
   private tickSessionBots(session: VesselSession, dtSeconds: number): void {
     for (const [role, bot] of session.bots.entries()) {
-      const { nextBot, assistance } = tickBot(bot, dtSeconds, session.vesselState.boarding.doors);
+      const { nextBot, assistance, doorToToggle } = tickBot(
+        bot,
+        dtSeconds,
+        session.vesselState.boarding.doors
+      );
       session.bots.set(role, nextBot);
 
-      if (assistance.reactorTempDelta !== 0) {
-        session.vesselState.reactorTemp = Math.max(
-          290,
-          Number((session.vesselState.reactorTemp + assistance.reactorTempDelta).toFixed(2))
+      if (doorToToggle) {
+        session.vesselState.boarding.doors = toggleDoor(
+          session.vesselState.boarding.doors,
+          doorToToggle,
+          true
         );
       }
-      if (assistance.o2Delta !== 0) {
-        const nextO2 = Math.min(
-          100,
-          Number((session.vesselState.oxygenLevelPercent + assistance.o2Delta).toFixed(2))
-        );
-        session.vesselState.oxygenLevelPercent = nextO2;
-        session.vesselState.lifeSupport.o2LevelPercent = nextO2;
-      }
+
+      this.applyBotAssistance(session, assistance);
     }
   }
 

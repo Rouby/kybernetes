@@ -174,6 +174,7 @@ export class ParticleSystem {
         this.particles.splice(i, 1);
         continue;
       }
+
       const alpha = p.life / p.maxLife;
       gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), p.r, p.g, p.b, alpha);
       drawQuad(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
