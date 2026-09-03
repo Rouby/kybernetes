@@ -9,11 +9,13 @@ import {
 export class BallisticsSynth {
   private ctx: AudioContext;
   private noiseBuffer: AudioBuffer;
+  private crackBuffer: AudioBuffer;
   private distortionCurve: Float32Array<ArrayBuffer>;
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
     this.noiseBuffer = createNoiseBuffer(ctx, 0.5, 'pink');
+    this.crackBuffer = createNoiseBuffer(ctx, 0.25, 'white');
     this.distortionCurve = createDistortionCurve(25);
   }
 
@@ -37,44 +39,67 @@ export class BallisticsSynth {
 
   private playKineticCarbine(destination: AudioNode, volume: number): void {
     const t = this.ctx.currentTime;
-    const dur = 0.12;
+    const dur = 0.18;
     const variation = 0.94 + Math.random() * 0.12;
 
-    // Transient noise pop
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = this.noiseBuffer;
+    // Sharp muzzle crack
+    const crack = this.ctx.createBufferSource();
+    crack.buffer = this.crackBuffer;
 
-    const noiseFilter = this.ctx.createBiquadFilter();
-    noiseFilter.type = 'highpass';
-    noiseFilter.frequency.setValueAtTime(1400, t);
+    const crackFilter = this.ctx.createBiquadFilter();
+    crackFilter.type = 'highpass';
+    crackFilter.frequency.setValueAtTime(2400, t);
 
-    const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.001, t);
-    noiseGain.gain.linearRampToValueAtTime(0.6 * volume * variation, t + 0.001);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    const crackGain = this.ctx.createGain();
+    crackGain.gain.setValueAtTime(0.001, t);
+    crackGain.gain.linearRampToValueAtTime(0.85 * volume * variation, t + 0.001);
+    crackGain.gain.exponentialRampToValueAtTime(0.001, t + 0.055);
 
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(destination);
+    crack.connect(crackFilter);
+    crackFilter.connect(crackGain);
+    crackGain.connect(destination);
 
-    // Body resonance thump
-    const osc = this.ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(160 * variation, t);
-    osc.frequency.exponentialRampToValueAtTime(45, t + dur);
+    // Low-frequency receiver and recoil body
+    const body = this.ctx.createOscillator();
+    body.type = 'triangle';
+    body.frequency.setValueAtTime(105 * variation, t);
+    body.frequency.exponentialRampToValueAtTime(38, t + dur);
 
-    const oscGain = this.ctx.createGain();
-    oscGain.gain.setValueAtTime(0.001, t);
-    oscGain.gain.linearRampToValueAtTime(0.7 * volume * variation, t + 0.001);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    const bodyFilter = this.ctx.createBiquadFilter();
+    bodyFilter.type = 'lowpass';
+    bodyFilter.frequency.setValueAtTime(260, t);
+    bodyFilter.Q.setValueAtTime(1.4, t);
 
-    osc.connect(oscGain);
-    oscGain.connect(destination);
+    const bodyGain = this.ctx.createGain();
+    bodyGain.gain.setValueAtTime(0.001, t);
+    bodyGain.gain.linearRampToValueAtTime(1.05 * volume * variation, t + 0.003);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
-    noise.start(t);
-    noise.stop(t + 0.04);
-    osc.start(t);
-    osc.stop(t + dur);
+    body.connect(bodyFilter);
+    bodyFilter.connect(bodyGain);
+    bodyGain.connect(destination);
+
+    // Short smoky recoil tail fills out the impulse without masking the crack.
+    const tail = this.ctx.createBufferSource();
+    tail.buffer = this.noiseBuffer;
+    const tailFilter = this.ctx.createBiquadFilter();
+    tailFilter.type = 'bandpass';
+    tailFilter.frequency.setValueAtTime(520, t + 0.018);
+    tailFilter.Q.setValueAtTime(0.8, t);
+    const tailGain = this.ctx.createGain();
+    tailGain.gain.setValueAtTime(0.001, t);
+    tailGain.gain.linearRampToValueAtTime(0.42 * volume * variation, t + 0.012);
+    tailGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    tail.connect(tailFilter);
+    tailFilter.connect(tailGain);
+    tailGain.connect(destination);
+
+    crack.start(t);
+    crack.stop(t + 0.055);
+    body.start(t);
+    body.stop(t + dur);
+    tail.start(t);
+    tail.stop(t + 0.16);
   }
 
   private playPulseLaser(destination: AudioNode, chargeRatio: number, volume: number): void {
