@@ -7,36 +7,39 @@ description: >-
 
 # Web Application (`apps/web`)
 
-The frontend application renders both the diegetic tactical bridge/crew HUD and the hardware-accelerated 2D Canvas starship viewport.
+`apps/web` combines React 19 HUD screens with the WebGL/Canvas vessel view. It
+may predict presentation and movement locally, but the server remains
+authoritative for simulation results.
 
-## Core Rules & Architecture
+## Core Rules
 
-1. **StyleX Compile-Time Constraints**:
-   * **Only static values are allowed in `stylex.create()`**.
-   * ❌ *Broken*: `progressBarFill: (val) => ({ width: `${val}%` })`
-   * ✅ *Correct*: Define static styles in StyleX, and pass dynamic widths via React `style`:
-     ```tsx
-     <div {...stylex.props(styles.progressBarFill)} style={{ width: `${pct}%`, backgroundColor: color }} />
-     ```
-2. **Vite 8 Configuration**:
-   * `@vitejs/plugin-react` is configured with `disableOxcRecommendation: true` to prevent deprecation warnings while ensuring Babel is active for `vite-plugin-stylex`.
-   * Aliases for `@kybernetes/ui-tokens/*` must include the wildcard `*` in `vite-plugin-stylex`.
-3. **2D Canvas Layering Order**:
-   When rendering `VesselCanvas`, follow strict visual z-ordering:
-   1. *Deck Layer*: Floor tiles, hazards, blood/spills.
-   2. *Fixtures Layer*: Consoles, reactors, bunks, hydroponic pods, blast door frames.
-   3. *Pawn Layer*: Player avatar, crewmates, enemy boarding squads.
-   4. *Light & Shadow Pass*: 2D Visibility Polygon raycast from the player position.
-   5. *Fog of War Mask*: `destination-out` compositing revealing active LoS and dimming explored memory.
-   6. *Atmospheric Hazards*: Smoke particles, coolant steam, sparks.
-   7. *StyleX HUD Overlays*: React UI elements positioned above the canvas.
+1. **Keep boundaries clear**: use protocol types for socket messages, sim-core
+  for game rules, and web code for input, rendering, and presentation state.
+2. **StyleX extraction**: `stylex.create()` contains static values and tokens
+  only. Put runtime values in React's `style` prop or an existing supported
+  pattern. Import tokens directly from `tokens.stylex`.
+3. **Rendering order**: preserve deck, fixtures, pawns, lighting, fog,
+  atmospheric effects, then HUD overlays. Changes to compositing or resize
+  handling must preserve the viewport's coordinate system.
+4. **Input and sockets**: clean up keyboard/listener/socket effects on unmount,
+  avoid sending actions before connection readiness, and reconcile prediction
+  with authoritative broadcasts.
+5. **Accessibility and resilience**: interactive HUD controls need usable
+  labels/focus behavior, and rendering/network failures should not crash the
+  entire app.
 
-## What to Look Out For
+## Change Workflow
 
-* **Biome Import Linting**:
-  * Node built-ins in Vite config must use `node:path`.
-  * Clean unused imports (`lucide-react`, React hooks) to keep `yarn lint` passing.
-* **Playwright E2E Tests**:
-  * Tests live in `apps/web/e2e/`.
-  * When adding new HUD panels or stations, update `e2e/smoke.spec.ts` or add dedicated feature specs.
-  * Run tests locally via `yarn test:e2e`.
+1. Identify whether a change belongs in protocol, sim-core, or the web layer.
+2. Update the smallest component/hook and keep effects lifecycle-safe.
+3. Add or update a focused Playwright journey in `e2e/` for user-visible
+  behavior, especially input, docking, HUD, and audio changes.
+4. Run `yarn --cwd apps/web lint`, `typecheck`, `build`, and `test:e2e`.
+
+## Configuration and Review Notes
+
+- Preserve the Vite/StyleX Babel configuration and wildcard token aliases.
+- Use `node:path` and other `node:` prefixes for Node built-ins in tooling.
+- Keep canvas loops and animation callbacks cancellable; do not leak RAF or
+  event listeners.
+- Remove unused icon imports and hooks so Biome and Fallow remain clean.

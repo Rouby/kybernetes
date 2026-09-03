@@ -7,27 +7,37 @@ description: >-
 
 # Protocol Package (`@kybernetes/protocol`)
 
-The protocol package is the single source of truth for the WebSocket network layer connecting `apps/web` to `apps/server`.
+The protocol package is the single source of truth for the JSON WebSocket contract
+between `apps/server` and `apps/web`. Treat every exported shape as a versioned
+interface: a small type change can break both runtimes.
 
-## Core Rules & Architecture
+## Core Rules
 
-1. **Pure Types & Zero Runtime Overhead**:
-   * Contains only TypeScript interfaces, types, and constants.
-   * Never import third-party packages or runtime dependencies.
-2. **Discriminant Unions**:
-   * All client actions must extend `ClientAction` with a unique, uppercase `type` discriminant (e.g. `type: 'PLAYER_MOVE'`).
-   * All server broadcasts must extend `ServerBroadcast` with a unique `type` discriminant (e.g. `type: 'SPATIAL_SNAPSHOT'`).
-3. **Canonical Categorization**:
-   * `actions.ts`: Client intents sent to server.
-   * `broadcasts.ts`: Server state updates sent to crew.
-   * `spatial.ts`: 2D positions, pawns, bulkheads, and fixtures.
-   * `survival.ts`: Vitals and macro supplies.
+1. **Portable contract**: keep this package TypeScript-only, dependency-free, and
+  free of DOM, Node, and framework imports.
+2. **Explicit unions**: add actions to `ClientAction` and broadcasts to
+  `ServerBroadcast` with a unique string `type` discriminant. Prefer narrow
+  literal unions over optional fields and use `readonly` data where practical.
+3. **JSON-safe payloads**: use primitives, arrays, and plain objects only. Do not
+  expose `Date`, `Map`, `Set`, class instances, functions, `undefined`, or cycles.
+4. **Stable naming**: keep client intents in `actions.ts`, server messages in
+  `broadcasts.ts`, spatial state in `spatial.ts`, survival state in `survival.ts`,
+  and subsystem/boarding contracts in their dedicated modules.
+5. **Public exports**: re-export every public module and type from `src/index.ts`.
 
-## What to Look Out For
+## Change Workflow
 
-* **Synchronous Updates**:
-  * Any change to `ClientAction` or `ServerBroadcast` immediately impacts both `apps/server` (packet handling) and `apps/web` (packet dispatch/receipt). Update all three in the same changeset.
-* **Exports in `index.ts`**:
-  * Ensure all new sub-modules are re-exported from `src/index.ts`.
-* **Payload Serialization**:
-  * Avoid non-serializable objects (e.g., `Set`, `Map`, `Date`, circular references). Use arrays, primitives, and plain JSON objects.
+1. Define the smallest typed payload and its discriminant.
+2. Update server routing/validation and web dispatch in the same change.
+3. Check that the payload can round-trip through `JSON.stringify`/`JSON.parse`.
+4. Run `yarn --cwd packages/protocol typecheck` and `yarn --cwd packages/protocol lint`.
+5. Run the workspace checks when the contract affects consumers.
+
+## Review Checklist
+
+- Unknown message types are rejected or ignored safely by consumers.
+- Required fields are validated at the trust boundary; client input is never
+  treated as authoritative state.
+- Additive changes preserve existing consumers; breaking changes are deliberate
+  and documented.
+- No duplicate wire definitions are introduced in an app or another package.
