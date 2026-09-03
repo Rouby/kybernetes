@@ -13,6 +13,8 @@ export interface JoinVesselAction {
   vesselCode: string;
   callsign: string;
   role: StartingRole;
+  color?: string;
+  userId?: string;
 }
 
 export interface PlayerMoveIntent {
@@ -22,6 +24,7 @@ export interface PlayerMoveIntent {
   vx: number;
   vy: number;
   facingAngle: number;
+  isWelding?: boolean;
 }
 
 export interface InteractStationIntent {
@@ -139,6 +142,23 @@ export interface ToggleDoorAction {
   open: boolean;
 }
 
+export interface InitiateDualProtocolAction {
+  type: 'INITIATE_DUAL_PROTOCOL';
+  protocolId: 'ftl_jump_alignment' | 'reactor_purge';
+}
+
+export interface ExecuteDualProtocolAction {
+  type: 'EXECUTE_DUAL_PROTOCOL';
+  protocolId: 'ftl_jump_alignment' | 'reactor_purge';
+}
+
+export interface ContributeCollabShiftAction {
+  type: 'CONTRIBUTE_COLLAB_SHIFT';
+  shiftId: string;
+  stationId: string;
+  active: boolean;
+}
+
 export type ClientAction =
   | JoinVesselAction
   | PlayerMoveIntent
@@ -161,4 +181,7 @@ export type ClientAction =
   | FireWeaponAction
   | WelderAoeAction
   | EquipWeaponAction
-  | ToggleDoorAction;
+  | ToggleDoorAction
+  | InitiateDualProtocolAction
+  | ExecuteDualProtocolAction
+  | ContributeCollabShiftAction;

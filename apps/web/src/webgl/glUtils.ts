@@ -48,3 +48,10 @@ export function createCameraMatrix(
   // Column-major 3x3 matrix
   return new Float32Array([sx, 0, 0, 0, sy, 0, tx, ty, 1]);
 }
+
+export function createScreenMatrix(width: number, height: number): Float32Array {
+  const sx = 2 / width;
+  const sy = -2 / height;
+  // Column-major 3x3 matrix mapping [0..width, 0..height] to [-1..1, 1..-1]
+  return new Float32Array([sx, 0, 0, 0, sy, 0, -1, 1, 1]);
+}

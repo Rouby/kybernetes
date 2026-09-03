@@ -55,6 +55,7 @@ export interface CrewManifestBroadcast {
     role: string;
     deckId: string;
     status: 'on_duty' | 'idle' | 'resting' | 'in_combat';
+    dutyName?: string;
   }>;
 }
 
@@ -90,6 +91,37 @@ export interface DamageTriageBroadcast {
   timestamp: number;
 }
 
+export interface DualProtocolBroadcast {
+  type: 'DUAL_PROTOCOL_UPDATE';
+  protocolId: string;
+  stage: 'idle' | 'primed' | 'synchronized' | 'expired';
+  initiatorCallsign?: string;
+  initiatorStation?: string;
+  targetStation?: string;
+  remainingSeconds: number;
+  title: string;
+  message: string;
+  timestamp: number;
+}
+
+export interface CollabShiftUpdateBroadcast {
+  type: 'COLLAB_SHIFT_UPDATE';
+  shiftId: string;
+  stationId: string;
+  title: string;
+  progressPercent: number;
+  participants: string[];
+  isCompleted: boolean;
+  timestamp: number;
+}
+
+export interface LobbyStateBroadcast {
+  type: 'LOBBY_STATE';
+  vesselCode: string;
+  shipName: string;
+  connectedCrew: number;
+}
+
 export type ServerBroadcast =
   | SpatialSnapshotBroadcast
   | TelemetryDeltaBroadcast
@@ -98,4 +130,7 @@ export type ServerBroadcast =
   | ShipAlertBroadcast
   | DutyCompletedBroadcast
   | NavalDamageEventBroadcast
-  | DamageTriageBroadcast;
+  | DamageTriageBroadcast
+  | DualProtocolBroadcast
+  | CollabShiftUpdateBroadcast
+  | LobbyStateBroadcast;

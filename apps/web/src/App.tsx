@@ -1,5 +1,5 @@
 import type {
-  NavalDamageEventType,
+  PlayerVitals,
   StartingRole,
   TelemetryDeltaBroadcast,
   WeaponType,
@@ -8,18 +8,18 @@ import {
   calculateDutyRewards,
   createInitialPlayerVitals,
   createInitialVesselState,
-  getRoleDefinition,
   updatePlayerVitals,
 } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
-import { User, X } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BeaconLobbyModal } from './components/BeaconLobbyModal';
+import { CharacterCreationModal, type CharacterProfile } from './components/CharacterCreationModal';
+import { CrewManifestModal } from './components/CrewManifestModal';
+import { MainMenu } from './components/MainMenu';
 import { RoleSelectModal } from './components/RoleSelectModal';
-import { TelemetryRail } from './components/TelemetryRail';
 import { VesselCanvas } from './components/VesselCanvas';
-import { VitalsPanel } from './components/VitalsPanel';
 import { usePawnMovement } from './hooks/usePawnMovement';
 import { getStationActionConfig, useStationInteraction } from './hooks/useStationInteraction';
 import { useVesselSocket } from './hooks/useVesselSocket';
@@ -33,184 +33,85 @@ const styles = stylex.create({
     backgroundColor: hudColors.bgVoid,
     color: hudColors.textPrimary,
   },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '8px 16px',
-    backgroundColor: hudColors.bgPanel,
-    borderBottomWidth: 1,
-    borderBottomStyle: 'solid',
-    borderBottomColor: hudColors.borderDim,
-  },
-  logoGroup: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: 700,
-    letterSpacing: 2,
-    color: hudColors.cyanTelemetry,
-  },
-  badge: {
-    fontSize: 11,
-    padding: '2px 6px',
-    borderRadius: 2,
-    backgroundColor: hudColors.borderDim,
-    color: hudColors.amberTelemetry,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: hudColors.amberDim,
-  },
-  interactiveBadge: {
-    fontSize: 11,
-    padding: '2px 8px',
-    borderRadius: 2,
-    backgroundColor: hudColors.bgPanelLighter,
-    color: hudColors.cyanTelemetry,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: hudColors.borderHighlight,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-  },
   mainLayout: {
     display: 'flex',
     flex: 1,
-    overflow: 'hidden',
-  },
-  centerViewport: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
+    width: '100vw',
+    height: '100vh',
     position: 'relative',
-    backgroundColor: '#040609',
     overflow: 'hidden',
-  },
-  triageNoticeBanner: {
-    position: 'absolute',
-    top: 16,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    backgroundColor: 'rgba(15, 20, 29, 0.95)',
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: hudColors.cyanTelemetry,
-    borderRadius: 3,
-    padding: '8px 16px',
-    color: hudColors.cyanTelemetry,
-    fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: 1,
-    zIndex: 10,
-    pointerEvents: 'none',
-  },
-  footer: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '6px 16px',
-    backgroundColor: hudColors.bgPanel,
-    borderTopWidth: 1,
-    borderTopStyle: 'solid',
-    borderTopColor: hudColors.borderDim,
-    fontSize: 11,
-    color: hudColors.textMuted,
-  },
-  onlineIndicator: {
-    display: 'inline-block',
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    marginRight: 6,
-  },
-  viewportOverlayHelp: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    padding: '6px 12px',
-    backgroundColor: 'rgba(15, 20, 29, 0.85)',
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: hudColors.borderDim,
-    borderRadius: 3,
-    fontSize: 11,
-    color: hudColors.textSecondary,
-    pointerEvents: 'none',
-    display: 'flex',
-    gap: 12,
-  },
-  leanInteractionBar: {
-    position: 'absolute',
-    bottom: 48,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    backgroundColor: 'rgba(10, 16, 26, 0.94)',
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: hudColors.cyanTelemetry,
-    borderRadius: 4,
-    padding: '8px 16px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    minWidth: 280,
-    zIndex: 10,
-    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
-  },
-  leanActionRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-  leanActionTitle: {
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: 1,
-    color: hudColors.cyanTelemetry,
-    fontFamily: 'monospace',
-  },
-  leanActionPercent: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: hudColors.textPrimary,
-    fontFamily: 'monospace',
-  },
-  leanTrack: {
-    width: '100%',
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  leanFill: {
-    height: '100%',
-    borderRadius: 3,
-    transition: 'width 0.1s linear',
-  },
-  leanAbortBtn: {
-    alignSelf: 'flex-end',
-    marginTop: 2,
-    fontSize: 10,
-    fontWeight: 700,
-    padding: '3px 8px',
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 34, 68, 0.2)',
-    color: hudColors.alertRed,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: hudColors.alertRed,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
   },
 });
+
+interface PersistedClientCrewState {
+  userId: string;
+  callsign: string;
+  role: StartingRole;
+  color: string;
+  pawn: { x: number; y: number; facingAngle: number };
+  vitals: PlayerVitals;
+  credits: number;
+  clearanceLevel: number;
+  clearanceXp: number;
+}
+
+function getOrCreateUserId(): string {
+  if (typeof window === 'undefined') return 'user_default';
+  let uid = localStorage.getItem('kybernetes_user_id');
+  if (!uid) {
+    uid = `user_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+    localStorage.setItem('kybernetes_user_id', uid);
+  }
+  return uid;
+}
+
+function loadPersistedCrewState(beaconCode: string): PersistedClientCrewState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`kybernetes_crew_${beaconCode.toUpperCase()}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedCrewState(beaconCode: string, state: PersistedClientCrewState): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(`kybernetes_crew_${beaconCode.toUpperCase()}`, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+// fallow-ignore-next-line complexity
+function resolveSessionProfile(
+  existing: PersistedClientCrewState | null,
+  defaults: { callsign: string; role: StartingRole; color: string }
+) {
+  return existing
+    ? {
+        callsign: existing.callsign ?? defaults.callsign,
+        role: existing.role ?? defaults.role,
+        color: existing.color ?? defaults.color,
+      }
+    : defaults;
+}
+
+// fallow-ignore-next-line complexity
+function restorePersistedVitalsAndRewards(
+  persisted: PersistedClientCrewState | null,
+  setVitals: React.Dispatch<React.SetStateAction<PlayerVitals>>,
+  setCredits: React.Dispatch<React.SetStateAction<number>>,
+  setClearanceLevel: React.Dispatch<React.SetStateAction<number>>,
+  setClearanceXp: React.Dispatch<React.SetStateAction<number>>
+): void {
+  if (!persisted) return;
+  setVitals(persisted.vitals ?? createInitialPlayerVitals());
+  setCredits(persisted.credits ?? 120);
+  setClearanceLevel(persisted.clearanceLevel ?? 1);
+  setClearanceXp(persisted.clearanceXp ?? 0);
+}
 
 // fallow-ignore-next-line complexity
 export const App: React.FC = () => {
@@ -219,6 +120,31 @@ export const App: React.FC = () => {
     timestamp: Date.now(),
     ...createInitialVesselState(),
   }));
+
+  // fallow-ignore-next-line complexity
+  const urlParams = useMemo(() => {
+    if (typeof window === 'undefined') return { beacon: 'HESP01', callsign: 'Cadet', isE2E: false };
+    const params = new URLSearchParams(window.location.search);
+    return {
+      beacon: (params.get('beacon') || 'HESP01').toUpperCase(),
+      callsign: params.get('callsign') || 'Cadet',
+      isE2E:
+        params.get('e2e') === 'true' ||
+        params.has('e2e') ||
+        Boolean((window as unknown as { __E2E__?: boolean }).__E2E__),
+    };
+  }, []);
+
+  const userId = useMemo(() => getOrCreateUserId(), []);
+  const [activeVesselCode, setActiveVesselCode] = useState<string | null>(null);
+  const [pendingBeaconCode, setPendingBeaconCode] = useState<string | null>(null);
+  const [showCharacterCreation, setShowCharacterCreation] = useState(false);
+  const [beaconCode, setBeaconCode] = useState(urlParams.beacon);
+  const [callsign, setCallsign] = useState(urlParams.callsign);
+  const [suitColor, setSuitColor] = useState('#00e5ff');
+  const [isWeldingLocal, setIsWeldingLocal] = useState(false);
+  const [showBeaconModal, setShowBeaconModal] = useState(false);
+  const [showManifestModal, setShowManifestModal] = useState(false);
 
   const [role, setRole] = useState<StartingRole>('wiper');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
@@ -229,13 +155,181 @@ export const App: React.FC = () => {
   const [inGameNotice, setInGameNotice] = useState<string | null>(null);
   const [equippedWeapon, setEquippedWeapon] = useState<WeaponType>('kinetic_carbine');
 
-  const { wsConnected, triageNotice, sendAction } = useVesselSocket(setTelemetry);
+  const { triageNotice, remotePawns, crewManifest, dualProtocol, collabShift, sendAction } =
+    useVesselSocket(setTelemetry, activeVesselCode, {
+      callsign,
+      role,
+      color: suitColor,
+      userId,
+    });
+
   const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(
     role,
     telemetry.boarding?.doors
   );
 
-  const roleDef = getRoleDefinition(role);
+  // Synchronize pawn callsign and color with local state
+  useEffect(() => {
+    setPawn((p) => ({ ...p, callsign, color: suitColor }));
+  }, [callsign, suitColor, setPawn]);
+
+  // Broadcast movement to authoritative server only when onboard
+  useEffect(() => {
+    if (!activeVesselCode) return;
+    sendAction({
+      type: 'PLAYER_MOVE',
+      x: pawn.x,
+      y: pawn.y,
+      vx: pawn.vx,
+      vy: pawn.vy,
+      facingAngle: pawn.facingAngle,
+      isWelding: isWeldingLocal,
+    });
+  }, [
+    activeVesselCode,
+    pawn.x,
+    pawn.y,
+    pawn.vx,
+    pawn.vy,
+    pawn.facingAngle,
+    isWeldingLocal,
+    sendAction,
+  ]);
+
+  // Persist crew state to localStorage
+  useEffect(() => {
+    if (!activeVesselCode) return;
+    savePersistedCrewState(activeVesselCode, {
+      userId,
+      callsign,
+      role,
+      color: suitColor,
+      pawn: { x: pawn.x, y: pawn.y, facingAngle: pawn.facingAngle },
+      vitals,
+      credits,
+      clearanceLevel,
+      clearanceXp,
+    });
+  }, [
+    activeVesselCode,
+    userId,
+    callsign,
+    role,
+    suitColor,
+    pawn.x,
+    pawn.y,
+    pawn.facingAngle,
+    vitals,
+    credits,
+    clearanceLevel,
+    clearanceXp,
+  ]);
+
+  const startSession = useCallback(
+    (code: string, chosenCallsign: string, chosenRole: StartingRole, chosenColor: string) => {
+      const cleanCode = code.toUpperCase();
+      setBeaconCode(cleanCode);
+      setCallsign(chosenCallsign);
+      setRole(chosenRole);
+      setSuitColor(chosenColor);
+
+      const persisted = loadPersistedCrewState(cleanCode);
+      if (persisted?.pawn) {
+        setPawn((p) => ({
+          ...p,
+          x: persisted.pawn.x,
+          y: persisted.pawn.y,
+          facingAngle: persisted.pawn.facingAngle,
+          callsign: chosenCallsign,
+          role: chosenRole,
+          color: chosenColor,
+        }));
+        restorePersistedVitalsAndRewards(
+          persisted,
+          setVitals,
+          setCredits,
+          setClearanceLevel,
+          setClearanceXp
+        );
+      } else {
+        resetToSpawn(chosenRole);
+        setPawn((p) => ({
+          ...p,
+          callsign: chosenCallsign,
+          role: chosenRole,
+          color: chosenColor,
+        }));
+      }
+
+      setActiveVesselCode(cleanCode);
+    },
+    [resetToSpawn, setPawn]
+  );
+
+  const handleCommissionVessel = (newCode: string) => {
+    setPendingBeaconCode(newCode);
+    const existing = loadPersistedCrewState(newCode);
+    if (existing) {
+      setCallsign(existing.callsign);
+      setRole(existing.role);
+      setSuitColor(existing.color);
+    }
+    setShowCharacterCreation(true);
+  };
+
+  const handleBoardVessel = (code: string) => {
+    const cleanCode = code.toUpperCase();
+    setPendingBeaconCode(cleanCode);
+    const existing = loadPersistedCrewState(cleanCode);
+    if (existing) {
+      setCallsign(existing.callsign);
+      setRole(existing.role);
+      setSuitColor(existing.color);
+    }
+    setShowCharacterCreation(true);
+  };
+
+  const handleQuickBoard = (beacon: string) => {
+    const existing = loadPersistedCrewState(beacon);
+    const profile = resolveSessionProfile(existing, { callsign, role, color: suitColor });
+    startSession(beacon, profile.callsign, profile.role, profile.color);
+  };
+
+  const handleConfirmDossier = (profile: CharacterProfile) => {
+    const code = pendingBeaconCode || beaconCode || 'HESP01';
+    setShowCharacterCreation(false);
+    startSession(code, profile.callsign, profile.role, profile.color);
+  };
+
+  const handleWeldingChange = useCallback(
+    (isWelding: boolean) => {
+      setIsWeldingLocal(isWelding);
+      if (!activeVesselCode) return;
+      sendAction({
+        type: 'PLAYER_MOVE',
+        x: pawn.x,
+        y: pawn.y,
+        vx: pawn.vx,
+        vy: pawn.vy,
+        facingAngle: pawn.facingAngle,
+        isWelding,
+      });
+    },
+    [activeVesselCode, pawn.x, pawn.y, pawn.vx, pawn.vy, pawn.facingAngle, sendAction]
+  );
+
+  const handleLeaveShip = () => {
+    setActiveVesselCode(null);
+    setShowCharacterCreation(false);
+    abortInteraction();
+  };
+
+  const handleJoinBeacon = (newBeacon: string, newCallsign: string) => {
+    const cleanCode = newBeacon.toUpperCase();
+    setBeaconCode(cleanCode);
+    setCallsign(newCallsign);
+    setActiveVesselCode(cleanCode);
+  };
 
   const handleFireWeapon = (
     originX: number,
@@ -324,6 +418,13 @@ export const App: React.FC = () => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'KeyE') {
+        if (nearestStation?.id === 'bridge_helm' && dualProtocol?.stage === 'primed') {
+          sendAction({
+            type: 'EXECUTE_DUAL_PROTOCOL',
+            protocolId: dualProtocol.protocolId as 'ftl_jump_alignment',
+          });
+          return;
+        }
         if (nearestStation?.id === 'armory_sentry') {
           setEquippedWeapon((w) => {
             const next =
@@ -342,6 +443,12 @@ export const App: React.FC = () => {
         } else if (nearestStation) {
           startInteraction(nearestStation);
         }
+      } else if (e.code === 'KeyP' || (e.code === 'KeyR' && e.shiftKey)) {
+        setShowRoleSelect((v) => !v);
+      } else if (e.code === 'KeyM') {
+        setShowManifestModal((v) => !v);
+      } else if (e.code === 'KeyB') {
+        setShowBeaconModal((v) => !v);
       } else if (e.code === 'Digit1') {
         setEquippedWeapon('kinetic_carbine');
         setInGameNotice('[LOADOUT] Equipped Kinetic Carbine');
@@ -358,10 +465,10 @@ export const App: React.FC = () => {
           setInGameNotice(`[!] FIRED WEAPON AT ${active.name.toUpperCase()}`);
         }
       } else if (e.code === 'Escape') {
-        if (interaction) {
-          abortInteraction();
-        }
+        if (interaction) abortInteraction();
         if (showRoleSelect) setShowRoleSelect(false);
+        if (showManifestModal) setShowManifestModal(false);
+        if (showBeaconModal) setShowBeaconModal(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -370,6 +477,9 @@ export const App: React.FC = () => {
     interaction,
     nearestStation,
     showRoleSelect,
+    showManifestModal,
+    showBeaconModal,
+    dualProtocol,
     startInteraction,
     abortInteraction,
     telemetry.boarding,
@@ -394,180 +504,87 @@ export const App: React.FC = () => {
     return nearestStation ? getStationActionConfig(nearestStation, role) : null;
   }, [nearestStation, role]);
 
+  if (!activeVesselCode) {
+    return (
+      <>
+        <MainMenu
+          onCommissionVessel={handleCommissionVessel}
+          onBoardVessel={handleBoardVessel}
+          onQuickBoard={handleQuickBoard}
+          initialBeacon={beaconCode}
+          isE2E={urlParams.isE2E}
+        />
+        {showCharacterCreation && (
+          <CharacterCreationModal
+            vesselCode={pendingBeaconCode || beaconCode}
+            initialProfile={{
+              callsign,
+              role,
+              color: suitColor,
+            }}
+            onConfirm={handleConfirmDossier}
+            onAbort={() => setShowCharacterCreation(false)}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <div {...stylex.props(styles.container)}>
-      <header {...stylex.props(styles.header)}>
-        <div {...stylex.props(styles.logoGroup)}>
-          <span {...stylex.props(styles.title)}>KYBERNETES</span>
-          <span {...stylex.props(styles.badge)}>VESSEL: {telemetry.shipName}</span>
-          <button
-            {...stylex.props(styles.interactiveBadge)}
-            onClick={() => setShowRoleSelect(true)}
-            title="Click to change origin role"
-          >
-            <User size={12} />
-            <span>
-              ROLE: {roleDef.name.toUpperCase()} ({roleDef.badge})
-            </span>
-          </button>
-        </div>
-        <div {...stylex.props(styles.logoGroup)}>
-          <span {...stylex.props(styles.badge)}>
-            CLEARANCE: LVL {clearanceLevel} ({clearanceXp} XP)
-          </span>
-          <span {...stylex.props(styles.badge)}>CREDITS: {credits} ¢</span>
-        </div>
-      </header>
-
       <main {...stylex.props(styles.mainLayout)}>
-        <VitalsPanel
+        <VesselCanvas
+          pawn={pawn}
+          remotePawns={remotePawns}
           vitals={vitals}
-          onConsumePaste={() => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) }))}
-          onDrinkWater={() => setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) }))}
-          onRestInBunk={() => setVitals((v) => ({ ...v, fatigue: Math.max(0, v.fatigue - 40) }))}
-        />
-
-        <section
-          {...stylex.props(styles.centerViewport)}
-          style={{ position: 'relative', flex: 1, height: '100%', overflow: 'hidden' }}
-        >
-          {(triageNotice || inGameNotice) && (
-            <div {...stylex.props(styles.triageNoticeBanner)}>{inGameNotice || triageNotice}</div>
-          )}
-
-          <VesselCanvas
-            pawn={pawn}
-            nearestStation={nearestStation}
-            activeInteraction={interaction}
-            promptActionName={nearestActionConfig?.actionName}
-            alertLevel={telemetry.alertLevel}
-            activeFires={telemetry.activeFires}
-            breaches={telemetry.hull?.breaches}
-            boarding={telemetry.boarding}
-            equippedWeapon={equippedWeapon}
-            onStationClick={(st) => {
-              if (interaction) abortInteraction();
-              else startInteraction(st);
-            }}
-            onEngageIntruder={(id) => {
-              sendAction({ type: 'ENGAGE_INTRUDER', intruderId: id });
-              setInGameNotice('[!] FIRED WEAPON AT INTRUDER');
-            }}
-            onFireWeapon={handleFireWeapon}
-            onWelderAoe={handleWelderAoe}
-            onToggleDoor={handleToggleDoor}
-          />
-
-          {/* In-Game Round Progress Bar Lean HUD Overlay */}
-          {interaction && (
-            <div {...stylex.props(styles.leanInteractionBar)}>
-              <div {...stylex.props(styles.leanActionRow)}>
-                <span {...stylex.props(styles.leanActionTitle)}>
-                  SHIFT PROGRESS: {interaction.actionName.toUpperCase()}
-                </span>
-                <span {...stylex.props(styles.leanActionPercent)}>
-                  {Math.round(interaction.progress * 100)}%
-                </span>
-              </div>
-              <div {...stylex.props(styles.leanTrack)}>
-                <div
-                  {...stylex.props(styles.leanFill)}
-                  style={{
-                    width: `${Math.round(interaction.progress * 100)}%`,
-                    backgroundColor: interaction.color || '#00e5ff',
-                  }}
-                />
-              </div>
-              <button
-                {...stylex.props(styles.leanAbortBtn)}
-                onClick={abortInteraction}
-                title="Abort Shift"
-              >
-                <X size={10} />
-                <span>ABORT SHIFT [ESC]</span>
-              </button>
-            </div>
-          )}
-
-          <div {...stylex.props(styles.viewportOverlayHelp)}>
-            <span>
-              <strong>[W][A][S][D]</strong> Locomotion
-            </span>
-            <span>
-              <strong>[E]</strong>{' '}
-              {nearestStation?.id === 'armory_sentry'
-                ? `Swap Weapon (${equippedWeapon.toUpperCase()})`
-                : interaction
-                  ? `Abort Shift (${Math.round(interaction.progress * 100)}%)`
-                  : nearestStation
-                    ? `${nearestStation.name} — ${nearestActionConfig?.actionName || 'Interact'}`
-                    : 'Interact'}
-            </span>
-            <span>
-              <strong>[1][2][3]</strong> Weapon
-            </span>
-            <span>
-              <strong>[SPACE / Click]</strong> Aim & Shoot
-            </span>
-            <span>
-              <strong>[ESC]</strong> Abort
-            </span>
-          </div>
-        </section>
-
-        <TelemetryRail
           telemetry={telemetry}
-          roleDef={roleDef}
+          nearestStation={nearestStation}
+          activeInteraction={interaction}
+          promptActionName={nearestActionConfig?.actionName}
+          alertLevel={telemetry.alertLevel}
+          boarding={telemetry.boarding}
+          beaconCode={beaconCode}
+          crewCount={crewManifest.length || 1}
+          clearanceLevel={clearanceLevel}
+          clearanceXp={clearanceXp}
+          credits={credits}
           equippedWeapon={equippedWeapon}
-          onToggleBattleStations={(level) => {
-            sendAction({ type: 'TOGGLE_BATTLE_STATIONS', alertLevel: level });
-            setTelemetry((t) => ({ ...t, alertLevel: level }));
+          triageNotice={triageNotice}
+          inGameNotice={inGameNotice}
+          dualProtocol={dualProtocol}
+          collabShift={collabShift}
+          onStationClick={(st) => {
+            if (interaction) abortInteraction();
+            else startInteraction(st);
           }}
-          onTriggerPdtIntercept={(eventId) =>
-            sendAction({ type: 'TRIGGER_PDT_INTERCEPT', eventId })
-          }
-          onDeployFireSuppression={(roomId) =>
-            sendAction({ type: 'DEPLOY_FIRE_SUPPRESSION', roomId })
-          }
-          onEmergencyHullRepair={(roomId) => sendAction({ type: 'EMERGENCY_HULL_REPAIR', roomId })}
-          onVentReactorCoolant={() => sendAction({ type: 'VENT_REACTOR_COOLANT' })}
-          onTriggerNavalEvent={(eventType: NavalDamageEventType) =>
-            sendAction({ type: 'TRIGGER_NAVAL_EVENT', eventType })
-          }
-          onTriggerBoarding={(roomId) =>
-            sendAction({ type: 'TRIGGER_BOARDING_EVENT', breachRoomId: roomId })
-          }
-          onEngageIntruder={(id) => {
-            sendAction({ type: 'ENGAGE_INTRUDER', intruderId: id });
-            setInGameNotice('[!] ENGAGING HOSTILE RAIDER');
-          }}
-          onBulkheadLock={(roomId, locked) =>
-            sendAction({ type: 'BULKHEAD_LOCK', bulkheadId: roomId, locked })
-          }
-          onVentCompartment={(roomId, venting) =>
-            sendAction({ type: 'VENT_COMPARTMENT', compartmentId: roomId, venting })
-          }
-          onDeploySentry={(roomId) => sendAction({ type: 'DEPLOY_SENTRY', roomId })}
-          onEquipWeapon={setEquippedWeapon}
+          onFireWeapon={handleFireWeapon}
+          onWelderAoe={handleWelderAoe}
           onToggleDoor={handleToggleDoor}
+          onWeldingStateChange={handleWeldingChange}
+          onBeaconClick={() => setShowBeaconModal(true)}
+          onManifestClick={() => setShowManifestModal(true)}
+          onRoleClick={() => setShowRoleSelect(true)}
+          onDisembarkClick={handleLeaveShip}
+          onEquipWeapon={setEquippedWeapon}
+          onAbortInteraction={abortInteraction}
+          onExecuteDualProtocol={() => {
+            if (dualProtocol) {
+              sendAction({
+                type: 'EXECUTE_DUAL_PROTOCOL',
+                protocolId: dualProtocol.protocolId as 'ftl_jump_alignment',
+              });
+            }
+          }}
+          onJoinCollabShift={() => {
+            sendAction({
+              type: 'CONTRIBUTE_COLLAB_SHIFT',
+              shiftId: 'thruster_overhaul',
+              stationId: 'cargo',
+              active: true,
+            });
+          }}
         />
       </main>
-
-      <footer {...stylex.props(styles.footer)}>
-        <div>
-          <span
-            {...stylex.props(styles.onlineIndicator)}
-            style={{ backgroundColor: wsConnected ? '#00ff66' : '#ffb000' }}
-          />
-          <span>
-            VESSEL DAEMON: {wsConnected ? 'SYNCED (10 Hz)' : 'CONNECTING...'} • POS: (
-            {Math.round(pawn.x)}, {Math.round(pawn.y)})
-          </span>
-        </div>
-        <div>
-          <span>TURBOREPO MONOREPO • REACT 19 • STYLEX • TS 7 • VITE 8</span>
-        </div>
-      </footer>
 
       {showRoleSelect && (
         <RoleSelectModal
@@ -577,8 +594,31 @@ export const App: React.FC = () => {
             resetToSpawn(r);
             setShowRoleSelect(false);
             abortInteraction();
+            sendAction({
+              type: 'JOIN_VESSEL',
+              vesselCode: beaconCode,
+              callsign,
+              role: r,
+            });
           }}
           onClose={() => setShowRoleSelect(false)}
+        />
+      )}
+
+      {showBeaconModal && (
+        <BeaconLobbyModal
+          currentBeacon={beaconCode}
+          currentCallsign={callsign}
+          onJoin={handleJoinBeacon}
+          onClose={() => setShowBeaconModal(false)}
+        />
+      )}
+
+      {showManifestModal && (
+        <CrewManifestModal
+          vesselCode={beaconCode}
+          crew={crewManifest}
+          onClose={() => setShowManifestModal(false)}
         />
       )}
     </div>

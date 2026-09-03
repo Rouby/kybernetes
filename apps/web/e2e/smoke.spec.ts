@@ -2,52 +2,57 @@ import { expect, test } from '@playwright/test';
 
 test.describe('Kybernetes HUD Smoke Test', () => {
   test('renders tactical dashboard and vessel designation', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
 
-    // Check title and vessel header
+    // Check document title
     await expect(page).toHaveTitle(/KYBERNETES/);
-    await expect(page.getByText('KYBERNETES')).toBeVisible();
-    await expect(page.getByText('VESSEL: CSS Hesperia')).toBeVisible();
 
-    // Check survival vitals rail
-    await expect(page.getByText('Crew Vitals')).toBeVisible();
-    await expect(page.getByText('Nutrition')).toBeVisible();
-    await expect(page.getByText('Hydration')).toBeVisible();
-    await expect(page.getByText('Fatigue')).toBeVisible();
-
-    // Check center 2D viewport canvas and controls
-    await expect(page.locator('canvas')).toBeVisible();
-    await expect(page.getByText('Locomotion')).toBeVisible();
-
-    // Check telemetry rail
-    await expect(page.getByText('Telemetry & Subsystems')).toBeVisible();
-    await expect(page.getByText('Reactor Thermal')).toBeVisible();
+    // Verify center 2D viewport canvas is rendered and fills screen
+    const canvas = page.getByTestId('vessel-canvas');
+    await expect(canvas).toBeVisible();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.width).toBeGreaterThan(800);
+    expect(box?.height).toBeGreaterThan(500);
   });
 
-  test('interacts with survival vital replenishment buttons', async ({ page }) => {
-    await page.goto('/');
+  test('renders diegetic suit vitals without debug cheat buttons', async ({ page }) => {
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
 
-    // Click Consume Paste button
-    const pasteBtn = page.getByRole('button', { name: /Consume Paste/i });
-    await expect(pasteBtn).toBeVisible();
-    await pasteBtn.click();
+    const canvas = page.getByTestId('vessel-canvas');
+    await expect(canvas).toBeVisible();
+    await page.waitForTimeout(400);
 
-    // Click Drink Water button
-    const waterBtn = page.getByRole('button', { name: /Drink Water/i });
-    await expect(waterBtn).toBeVisible();
-    await waterBtn.click();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    // Verify debug cheat buttons are not in the DOM
+    await expect(page.getByRole('button', { name: '+PASTE' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: '+WATER' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: '+REST' })).not.toBeVisible();
   });
 
   test('captures viewport screenshot', async ({ page }) => {
-    await page.goto('/');
+    await page.setViewportSize({ width: 1024, height: 380 });
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
     await page.waitForTimeout(600);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/0c4b7fd5-9ade-40cb-83ca-de28f0fd9c42/viewport_m2.png',
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/e40c455b-b06c-4b84-922b-edbfbc5751e2/user_aspect_ratio_hud.png',
+    });
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.waitForTimeout(400);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/e40c455b-b06c-4b84-922b-edbfbc5751e2/curved_helmet_hud.png',
     });
   });
 
   test('captures realistic lighting and dark corridor viewport screenshot', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
     await page.waitForTimeout(800);
     // Move player down towards the central transit corridor
     await page.keyboard.down('KeyS');
@@ -57,6 +62,16 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.waitForTimeout(600);
     await page.screenshot({
       path: 'C:/Users/jonat/.gemini/antigravity/brain/0c4b7fd5-9ade-40cb-83ca-de28f0fd9c42/realistic_lighting.png',
+    });
+  });
+
+  test('captures main menu screenshot', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('main-menu')).toBeVisible();
+    await page.waitForTimeout(300);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/67a09665-d3cf-43a0-83fb-b03bc38ed4c7/main_menu.png',
+      fullPage: true,
     });
   });
 });

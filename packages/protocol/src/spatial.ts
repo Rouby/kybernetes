@@ -13,6 +13,7 @@ export interface PawnState {
   isOperating: boolean;
   isResting: boolean;
   color: string;
+  isWelding?: boolean;
 }
 
 export interface BulkheadState {

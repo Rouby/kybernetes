@@ -261,6 +261,8 @@ void main() {
   radialAtten = radialAtten * radialAtten;
 
   float finalAtten = radialAtten;
+  float coneFactor = 1.0;
+  float haloAtten = 0.0;
 
   if (u_isDirectional > 0.5) {
     // Directional flashlight cone
@@ -269,18 +271,21 @@ void main() {
     if (diff > 3.1415926535) diff = 6.283185307 - diff;
 
     float halfFov = u_fov * 0.5;
-    float coneFactor = smoothstep(halfFov, halfFov * 0.4, diff);
+    coneFactor = smoothstep(halfFov, halfFov * 0.4, diff);
 
-    // 360-degree close ambient halo
-    float haloNorm = dist / u_ambientRadius;
-    float haloAtten = clamp(1.0 - haloNorm, 0.0, 1.0);
-    haloAtten = haloAtten * haloAtten * 0.45;
+    if (u_ambientRadius > 0.0) {
+      float haloNorm = dist / u_ambientRadius;
+      haloAtten = clamp(1.0 - haloNorm, 0.0, 1.0);
+      haloAtten = haloAtten * haloAtten * 0.55;
+    }
 
     finalAtten = max(coneFactor * radialAtten, haloAtten);
   }
 
   vec3 lit = u_lightColor * (u_intensity * finalAtten);
-  fragColor = vec4(lit, 1.0);
+  float inLoS = max(coneFactor, haloAtten > 0.0 ? 1.0 : 0.0);
+  float outAlpha = u_isDirectional > 0.5 ? inLoS : 0.0;
+  fragColor = vec4(lit, outAlpha);
 }
 `;
 
@@ -298,11 +303,185 @@ void main() {
 export const LIGHTMAP_APPLY_FS = `#version 300 es
 precision highp float;
 in vec2 v_uv;
+uniform sampler2D u_sceneTexture;
 uniform sampler2D u_lightTexture;
 out vec4 fragColor;
 
 void main() {
+  vec4 scene = texture(u_sceneTexture, v_uv);
   vec4 light = texture(u_lightTexture, v_uv);
-  fragColor = light;
+
+  float maxLight = max(light.r, max(light.g, light.b));
+
+  if (maxLight < 0.02) {
+    fragColor = vec4(0.015, 0.02, 0.04, 1.0);
+    return;
+  }
+
+  // Active LoS factor is driven directly by player's active 160-degree cone
+  float inLoS = smoothstep(0.04, 0.22, light.a);
+
+  // Explored areas outside active LoS are desaturated to tactical gray
+  float gray = dot(scene.rgb, vec3(0.299, 0.587, 0.114));
+  vec3 grayColor = vec3(gray * 0.38);
+
+  // Full color illuminated scene inside active LoS
+  vec3 litColor = scene.rgb * light.rgb;
+
+  vec3 finalColor = mix(grayColor, litColor, inLoS);
+  fragColor = vec4(finalColor, scene.a);
+}
+`;
+
+export const FOW_STAMP_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+uniform mat3 u_matrix;
+void main() {
+  gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
+}
+`;
+
+export const FOW_STAMP_FS = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+void main() {
+  fragColor = vec4(1.0, 1.0, 1.0, 1.0);
+}
+`;
+
+export const FOW_AMBIENT_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+uniform mat3 u_matrix;
+out vec2 v_worldPos;
+void main() {
+  v_worldPos = a_position;
+  gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
+}
+`;
+
+export const FOW_AMBIENT_FS = `#version 300 es
+precision highp float;
+in vec2 v_worldPos;
+uniform sampler2D u_fowTexture;
+uniform vec2 u_worldBounds;
+uniform vec3 u_roomAmbient;
+out vec4 fragColor;
+
+void main() {
+  vec2 uv = clamp(v_worldPos / u_worldBounds, 0.0, 1.0);
+  float explored = texture(u_fowTexture, uv).r;
+  vec3 amb = u_roomAmbient * clamp(explored, 0.0, 1.0);
+  fragColor = vec4(amb, 0.0);
+}
+`;
+
+export const VISOR_GLASS_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+out vec2 v_uv;
+
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+export const VISOR_GLASS_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform vec2 u_resolution;
+uniform float u_time;
+out vec4 fragColor;
+
+void main() {
+  vec2 uv = v_uv;
+  vec2 centerRel = (uv - 0.5) * 2.0;
+  
+  // Subtle barrel curvature towards corners
+  float r2 = dot(centerRel, centerRel);
+  float curve = 1.0 + 0.045 * r2;
+
+  // Outer visor border mask: curved rounded viewport perimeter
+  vec2 d = abs(centerRel);
+  float cornerDist = length(max(d - vec2(0.86, 0.82), 0.0));
+  float outerBezel = smoothstep(0.24, 0.26, cornerDist);
+
+  // Faint scanlines across the visor
+  float scanline = 0.96 + 0.04 * sin(gl_FragCoord.y * 1.5 + u_time * 2.0);
+
+  // Subtle glass reflection / cyan tint at periphery
+  vec3 glassTint = vec3(0.01, 0.04, 0.06);
+  float vignette = smoothstep(0.3, 1.2, r2);
+  vec3 cyanGlow = vec3(0.0, 0.9, 1.0);
+
+  // Visor curved perimeter edge glow line
+  float rimGlow = smoothstep(0.04, 0.0, abs(cornerDist - 0.20)) * 0.45;
+
+  vec3 col = glassTint + cyanGlow * rimGlow;
+  float alpha = (vignette * 0.18 + rimGlow + outerBezel * 0.85) * scanline;
+
+  fragColor = vec4(col, clamp(alpha, 0.0, 0.95));
+}
+`;
+
+export const HUD_VECTOR_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+in vec4 a_color;
+uniform mat3 u_matrix;
+uniform float u_curvature;
+out vec4 v_color;
+
+void main() {
+  v_color = a_color;
+  vec2 clipPos = (u_matrix * vec3(a_position, 1.0)).xy;
+  // Helmet visor barrel curvature (bends corner HUD elements along spherical helmet glass)
+  float r2 = dot(clipPos, clipPos);
+  vec2 curvedPos = clipPos * (1.0 + u_curvature * r2);
+  gl_Position = vec4(curvedPos, 0.0, 1.0);
+}
+`;
+
+export const HUD_VECTOR_FS = `#version 300 es
+precision highp float;
+in vec4 v_color;
+uniform float u_glow;
+out vec4 fragColor;
+
+void main() {
+  vec3 rgb = v_color.rgb * (1.0 + u_glow * 0.5);
+  fragColor = vec4(rgb, v_color.a);
+}
+`;
+
+export const HUD_TEXT_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+in vec2 a_uv;
+uniform mat3 u_matrix;
+uniform float u_curvature;
+out vec2 v_uv;
+
+void main() {
+  v_uv = a_uv;
+  vec2 clipPos = (u_matrix * vec3(a_position, 1.0)).xy;
+  float r2 = dot(clipPos, clipPos);
+  vec2 curvedPos = clipPos * (1.0 + u_curvature * r2);
+  gl_Position = vec4(curvedPos, 0.0, 1.0);
+}
+`;
+
+export const HUD_TEXT_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_atlas;
+uniform vec4 u_tint;
+out vec4 fragColor;
+
+void main() {
+  vec4 sampleCol = texture(u_atlas, v_uv);
+  fragColor = sampleCol * u_tint;
 }
 `;

@@ -57,6 +57,11 @@ function raySegmentIntersection(
   return null;
 }
 
+function forEachWallEndpoint(wall: WallSegment, fn: (x: number, y: number) => void): void {
+  fn(wall.x1, wall.y1);
+  fn(wall.x2, wall.y2);
+}
+
 function collectRayAngles(
   origin: Point2D,
   maxRadius: number,
@@ -73,52 +78,209 @@ function collectRayAngles(
   // Endpoints of nearby wall segments
   const maxDistSq = (maxRadius + 50) * (maxRadius + 50);
   for (const wall of opaqueWalls) {
-    for (const pt of [
-      { x: wall.x1, y: wall.y1 },
-      { x: wall.x2, y: wall.y2 },
-    ]) {
-      const dsq = (pt.x - origin.x) ** 2 + (pt.y - origin.y) ** 2;
+    forEachWallEndpoint(wall, (x, y) => {
+      const dsq = (x - origin.x) ** 2 + (y - origin.y) ** 2;
       if (dsq <= maxDistSq) {
-        const baseAngle = Math.atan2(pt.y - origin.y, pt.x - origin.x);
+        const baseAngle = Math.atan2(y - origin.y, x - origin.x);
         angles.add(baseAngle);
         angles.add(baseAngle - 0.0001);
         angles.add(baseAngle + 0.0001);
       }
-    }
+    });
   }
 
   return Array.from(angles).sort((a, b) => a - b);
 }
 
+function normalizeAngleDiff(angle: number, center: number): number {
+  let diff = (angle - center) % (Math.PI * 2);
+  if (diff > Math.PI) diff -= Math.PI * 2;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return diff;
+}
+
+// fallow-ignore-next-line complexity
+function collectConeRayAngles(
+  origin: Point2D,
+  maxRadius: number,
+  candidateWalls: WallSegment[],
+  facingAngle: number,
+  fov: number,
+  steps = 32
+): number[] {
+  const halfFov = fov / 2;
+  const relAngles = new Set<number>();
+
+  for (let i = 0; i <= steps; i++) {
+    relAngles.add(-halfFov + (i / steps) * fov);
+  }
+
+  const maxDistSq = (maxRadius + 50) * (maxRadius + 50);
+  for (const wall of candidateWalls) {
+    forEachWallEndpoint(wall, (x, y) => {
+      const dsq = (x - origin.x) ** 2 + (y - origin.y) ** 2;
+      if (dsq <= maxDistSq) {
+        const baseAngle = Math.atan2(y - origin.y, x - origin.x);
+        const rel = normalizeAngleDiff(baseAngle, facingAngle);
+        if (Math.abs(rel) <= halfFov) {
+          relAngles.add(rel);
+          if (rel - 0.0001 >= -halfFov) relAngles.add(rel - 0.0001);
+          if (rel + 0.0001 <= halfFov) relAngles.add(rel + 0.0001);
+        }
+      }
+    });
+  }
+
+  return Array.from(relAngles)
+    .sort((a, b) => a - b)
+    .map((rel) => facingAngle + rel);
+}
+
+function addVertexAngles(
+  angles: Set<number>,
+  origin: Point2D,
+  wall: WallSegment,
+  limitConeSq: number,
+  limitRearSq: number,
+  facingAngle: number,
+  halfFov: number
+): void {
+  forEachWallEndpoint(wall, (x, y) => {
+    const dsq = (x - origin.x) ** 2 + (y - origin.y) ** 2;
+    const baseAngle = Math.atan2(y - origin.y, x - origin.x);
+    const rel = normalizeAngleDiff(baseAngle, facingAngle);
+    const limitSq = Math.abs(rel) <= halfFov ? limitConeSq : limitRearSq;
+    if (dsq <= limitSq) {
+      angles.add(baseAngle);
+      angles.add(baseAngle - 0.0001);
+      angles.add(baseAngle + 0.0001);
+    }
+  });
+}
+
+// fallow-ignore-next-line complexity
+function collectPerceptionRayAngles(
+  origin: Point2D,
+  maxRadius: number,
+  perceptionRadius: number,
+  candidateWalls: WallSegment[],
+  facingAngle: number,
+  fov: number,
+  steps = 48
+): number[] {
+  const halfFov = fov / 2;
+  const angles = new Set<number>();
+
+  for (let i = 0; i < steps; i++) {
+    angles.add(-Math.PI + (i / steps) * Math.PI * 2);
+  }
+
+  angles.add(facingAngle - halfFov - 0.0001);
+  angles.add(facingAngle - halfFov + 0.0001);
+  angles.add(facingAngle + halfFov - 0.0001);
+  angles.add(facingAngle + halfFov + 0.0001);
+
+  const limitConeSq = (maxRadius + 50) ** 2;
+  const limitRearSq = (perceptionRadius + 15) ** 2;
+  for (const wall of candidateWalls) {
+    addVertexAngles(angles, origin, wall, limitConeSq, limitRearSq, facingAngle, halfFov);
+  }
+
+  return Array.from(angles)
+    .map((a) => ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI)
+    .sort((a, b) => a - b);
+}
+
+export function filterWallsInRange(
+  origin: Point2D,
+  radius: number,
+  walls: WallSegment[]
+): WallSegment[] {
+  const margin = 25;
+  const minX = origin.x - radius - margin;
+  const maxX = origin.x + radius + margin;
+  const minY = origin.y - radius - margin;
+  const maxY = origin.y + radius + margin;
+
+  return walls.filter((w) => {
+    const wMinX = Math.min(w.x1, w.x2);
+    const wMaxX = Math.max(w.x1, w.x2);
+    const wMinY = Math.min(w.y1, w.y2);
+    const wMaxY = Math.max(w.y1, w.y2);
+    return !(wMaxX < minX || wMinX > maxX || wMaxY < minY || wMinY > maxY);
+  });
+}
+
+export interface ConeVisibilityOptions {
+  facingAngle: number;
+  fov: number;
+  perceptionRadius?: number;
+}
+
+// fallow-ignore-next-line complexity
 export function computeVisibilityPolygon(
   origin: Point2D,
   maxRadius: number,
   walls: WallSegment[],
-  circleSteps = 36
+  circleSteps = 36,
+  cone?: ConeVisibilityOptions
 ): Point2D[] {
   const opaqueWalls = walls.filter((w) => w.isOpaque !== false);
-  const angles = collectRayAngles(origin, maxRadius, opaqueWalls, circleSteps);
-  const polygon: Point2D[] = [];
+  const candidateWalls = filterWallsInRange(origin, maxRadius, opaqueWalls);
+  const perceptionRadius = cone?.perceptionRadius ?? 0;
+  const hasPerception = perceptionRadius > 0 && cone !== undefined;
 
+  const angles = hasPerception
+    ? collectPerceptionRayAngles(
+        origin,
+        maxRadius,
+        perceptionRadius,
+        candidateWalls,
+        cone.facingAngle,
+        cone.fov,
+        Math.max(48, circleSteps)
+      )
+    : cone
+      ? collectConeRayAngles(
+          origin,
+          maxRadius,
+          candidateWalls,
+          cone.facingAngle,
+          cone.fov,
+          circleSteps
+        )
+      : collectRayAngles(origin, maxRadius, candidateWalls, circleSteps);
+
+  const halfFov = cone ? cone.fov / 2 : 0;
+  const hits: Point2D[] = [];
   for (const angle of angles) {
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
-    let closestDist = maxRadius;
 
-    for (const wall of opaqueWalls) {
+    let rayLimit = maxRadius;
+    if (hasPerception) {
+      const rel = normalizeAngleDiff(angle, cone.facingAngle);
+      rayLimit = Math.abs(rel) <= halfFov ? maxRadius : perceptionRadius;
+    }
+
+    let closestDist = rayLimit;
+    for (const wall of candidateWalls) {
       const dist = raySegmentIntersection(origin, dx, dy, wall);
       if (dist !== null && dist < closestDist) {
         closestDist = dist;
       }
     }
 
-    polygon.push({
+    hits.push({
       x: Number((origin.x + dx * closestDist).toFixed(2)),
       y: Number((origin.y + dy * closestDist).toFixed(2)),
     });
   }
 
-  return polygon;
+  if (cone && !hasPerception) {
+    return [{ x: origin.x, y: origin.y }, ...hits];
+  }
+  return hits;
 }
 
 export function isPointInFlashlightCone(

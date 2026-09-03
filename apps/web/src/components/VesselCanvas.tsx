@@ -1,9 +1,12 @@
 import type {
   BoardingTacticsTelemetry,
   DoorState,
+  DualProtocolBroadcast,
   PawnState,
+  PlayerVitals,
   ProjectileState,
   StationFixture,
+  TelemetryDeltaBroadcast,
   WeaponType,
 } from '@kybernetes/protocol';
 import {
@@ -11,6 +14,7 @@ import {
   createInitialDoors,
   createProjectile,
   HESPERIA_WALLS,
+  interpolatePawn,
   isSegmentBlockedByDoors,
   segmentsIntersect,
 } from '@kybernetes/sim-core';
@@ -21,16 +25,31 @@ import { WebGL2Renderer } from '../webgl';
 
 interface VesselCanvasProps {
   pawn: PawnState;
+  remotePawns?: PawnState[];
+  vitals?: PlayerVitals;
+  telemetry?: TelemetryDeltaBroadcast;
   nearestStation: StationFixture | null;
   activeInteraction?: ActiveInteraction | null;
   promptActionName?: string;
   alertLevel?: 'nominal' | 'yellow' | 'red';
-  activeFires?: string[];
-  breaches?: string[];
   boarding?: BoardingTacticsTelemetry;
+  beaconCode?: string;
+  crewCount?: number;
+  clearanceLevel?: number;
+  clearanceXp?: number;
+  credits?: number;
   equippedWeapon?: WeaponType;
+  triageNotice?: string | null;
+  inGameNotice?: string | null;
+  dualProtocol?: DualProtocolBroadcast | null;
+  collabShift?: {
+    shiftId: string;
+    title: string;
+    progressPercent: number;
+    participants: string[];
+    isCompleted: boolean;
+  } | null;
   onStationClick?: (station: StationFixture) => void;
-  onEngageIntruder?: (intruderId: string) => void;
   onFireWeapon?: (
     originX: number,
     originY: number,
@@ -47,6 +66,15 @@ interface VesselCanvasProps {
     range?: number
   ) => void;
   onToggleDoor?: (doorId: string, open: boolean) => void;
+  onWeldingStateChange?: (isWelding: boolean) => void;
+  onBeaconClick?: () => void;
+  onManifestClick?: () => void;
+  onRoleClick?: () => void;
+  onDisembarkClick?: () => void;
+  onEquipWeapon?: (w: WeaponType) => void;
+  onAbortInteraction?: () => void;
+  onExecuteDualProtocol?: () => void;
+  onJoinCollabShift?: () => void;
 }
 
 interface PredictedProjectile extends ProjectileState {
@@ -149,6 +177,7 @@ function getActiveBoarding(
 function handleCanvasMouseDown(
   e: React.MouseEvent<HTMLCanvasElement>,
   canvas: HTMLCanvasElement | null,
+  renderer: WebGL2Renderer | null,
   camera: { x: number; y: number },
   doors: DoorState[] | undefined,
   nearestStation: StationFixture | null,
@@ -158,6 +187,18 @@ function handleCanvasMouseDown(
 ) {
   if (e.button !== 0 || !canvas) return;
   const rect = canvas.getBoundingClientRect();
+  const screenPixelX = e.clientX - rect.left;
+  const screenPixelY = e.clientY - rect.top;
+
+  // 1. Check if an interactive WebGL2 HUD button or badge was clicked
+  if (renderer?.getHitTester().handleClick(screenPixelX, screenPixelY)) {
+    return;
+  }
+
+  if (renderer?.getHitTester().hitTest(screenPixelX, screenPixelY)) {
+    return;
+  }
+
   const clickX = e.clientX - rect.left;
   const clickY = e.clientY - rect.top;
   const worldX = clickX - canvas.width / 2 + camera.x;
@@ -189,21 +230,45 @@ function handleCanvasMouseDown(
 // fallow-ignore-next-line complexity
 export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   pawn,
+  remotePawns = [],
+  vitals,
+  telemetry,
   nearestStation,
+  activeInteraction,
   promptActionName,
   alertLevel = 'nominal',
   boarding,
+  beaconCode,
+  crewCount,
+  clearanceLevel,
+  clearanceXp,
+  credits,
   equippedWeapon = 'kinetic_carbine',
+  triageNotice,
+  inGameNotice,
+  dualProtocol,
+  collabShift,
   onStationClick,
   onFireWeapon,
   onWelderAoe,
   onToggleDoor,
+  onWeldingStateChange,
+  onBeaconClick,
+  onManifestClick,
+  onRoleClick,
+  onDisembarkClick,
+  onEquipWeapon,
+  onAbortInteraction,
+  onExecuteDualProtocol,
+  onJoinCollabShift,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<WebGL2Renderer | null>(null);
   const cameraRef = useRef({ x: pawn.x, y: pawn.y });
   const mouseWorldRef = useRef({ x: pawn.x + 50, y: pawn.y });
+  const mouseScreenRef = useRef({ x: 0, y: 0 });
   const defaultDoorsRef = useRef(createInitialDoors());
+  const remoteInterpolatedRef = useRef<Map<string, PawnState>>(new Map());
 
   const localProjectilesRef = useRef<PredictedProjectile[]>([]);
   const lastFrameTimeRef = useRef<number>(performance.now());
@@ -212,9 +277,21 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   >([]);
 
   const isFiringRef = useRef(false);
+  const wasWeldingRef = useRef(false);
   const laserChargeStartRef = useRef<number | null>(null);
   const lastKineticFireRef = useRef<number>(0);
   const lastWelderTickRef = useRef<number>(0);
+  const kineticAmmoRef = useRef({
+    current: 30,
+    max: 30,
+    reserve: 120,
+    isReloading: false,
+    reloadProgress: 0,
+    reloadStart: 0,
+    reloadDuration: 1300,
+  });
+  const welderHeatRef = useRef(0);
+  const welderOverheatedRef = useRef(false);
 
   const handleInstantFire = useCallback(
     (
@@ -243,25 +320,52 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     [onFireWeapon]
   );
 
+  // fallow-ignore-next-line complexity
+  const triggerReload = useCallback(() => {
+    const ammo = kineticAmmoRef.current;
+    if (ammo.isReloading) return;
+    if (ammo.current >= ammo.max) return;
+    if (ammo.reserve <= 0) return;
+    ammo.isReloading = true;
+    ammo.reloadStart = performance.now();
+    ammo.reloadProgress = 0;
+  }, []);
+
+  // fallow-ignore-next-line complexity
+  const fireKineticRound = useCallback(() => {
+    const ammo = kineticAmmoRef.current;
+    if (ammo.isReloading) return;
+    if (ammo.current <= 0) {
+      triggerReload();
+      return;
+    }
+    ammo.current -= 1;
+    const spreadAngle = (Math.random() - 0.5) * 0.1;
+    const dx = mouseWorldRef.current.x - pawn.x;
+    const dy = mouseWorldRef.current.y - pawn.y;
+    const baseAngle = Math.atan2(dy, dx);
+    const finalAngle = baseAngle + spreadAngle;
+    const targetX = pawn.x + Math.cos(finalAngle) * 300;
+    const targetY = pawn.y + Math.sin(finalAngle) * 300;
+    handleInstantFire(pawn.x, pawn.y, targetX, targetY, 'kinetic_carbine');
+    lastKineticFireRef.current = performance.now();
+
+    if (ammo.current === 0) {
+      triggerReload();
+    }
+  }, [pawn.x, pawn.y, handleInstantFire, triggerReload]);
+
   const startFiring = useCallback(() => {
     isFiringRef.current = true;
     const now = performance.now();
     if (equippedWeapon === 'kinetic_carbine') {
-      const spreadAngle = (Math.random() - 0.5) * 0.1;
-      const dx = mouseWorldRef.current.x - pawn.x;
-      const dy = mouseWorldRef.current.y - pawn.y;
-      const baseAngle = Math.atan2(dy, dx);
-      const finalAngle = baseAngle + spreadAngle;
-      const targetX = pawn.x + Math.cos(finalAngle) * 300;
-      const targetY = pawn.y + Math.sin(finalAngle) * 300;
-      handleInstantFire(pawn.x, pawn.y, targetX, targetY, 'kinetic_carbine');
-      lastKineticFireRef.current = now;
+      fireKineticRound();
     } else if (equippedWeapon === 'pulse_laser') {
       laserChargeStartRef.current = now;
     } else if (equippedWeapon === 'arc_welder') {
       lastWelderTickRef.current = now;
     }
-  }, [equippedWeapon, pawn.x, pawn.y, handleInstantFire]);
+  }, [equippedWeapon, fireKineticRound]);
 
   const stopFiring = useCallback(() => {
     if (!isFiringRef.current) return;
@@ -309,10 +413,16 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   }, []);
 
   useEffect(() => {
+    // fallow-ignore-next-line complexity
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
         startFiring();
+      } else if (e.code === 'KeyR' && !e.repeat) {
+        if (equippedWeapon === 'kinetic_carbine') {
+          triggerReload();
+        }
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -334,7 +444,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('mouseup', handleWindowMouseUp);
     };
-  }, [startFiring, stopFiring]);
+  }, [equippedWeapon, startFiring, stopFiring, triggerReload]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -384,18 +494,25 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         localProjectilesRef.current
       );
 
+      // Update kinetic reloading progress
+      const ammo = kineticAmmoRef.current;
+      if (ammo.isReloading) {
+        const elapsed = now - ammo.reloadStart;
+        ammo.reloadProgress = Math.min(1.0, elapsed / ammo.reloadDuration);
+        if (elapsed >= ammo.reloadDuration) {
+          const needed = ammo.max - ammo.current;
+          const toLoad = Math.min(needed, ammo.reserve);
+          ammo.current += toLoad;
+          ammo.reserve -= toLoad;
+          ammo.isReloading = false;
+          ammo.reloadProgress = 0;
+        }
+      }
+
       // 1. Continuous Kinetic Carbine firing
       if (isFiringRef.current && equippedWeapon === 'kinetic_carbine') {
         if (now - lastKineticFireRef.current >= 105) {
-          const spreadAngle = (Math.random() - 0.5) * 0.1;
-          const dx = mouseWorldRef.current.x - pawn.x;
-          const dy = mouseWorldRef.current.y - pawn.y;
-          const baseAngle = Math.atan2(dy, dx);
-          const finalAngle = baseAngle + spreadAngle;
-          const targetX = pawn.x + Math.cos(finalAngle) * 300;
-          const targetY = pawn.y + Math.sin(finalAngle) * 300;
-          handleInstantFire(pawn.x, pawn.y, targetX, targetY, 'kinetic_carbine');
-          lastKineticFireRef.current = now;
+          fireKineticRound();
         }
       }
 
@@ -410,8 +527,26 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         laserChargeRatio = Math.max(0.1, Math.min(1.0, elapsed / 0.9));
       }
 
-      // 3. Continuous Arc Welder AOE Cone (reduced ~48px range with bulkhead/door collision)
-      const isWelderActive = isFiringRef.current && equippedWeapon === 'arc_welder';
+      // 3. Continuous Arc Welder AOE Cone with Overheat Lockout
+      const isTryingToWeld = isFiringRef.current && equippedWeapon === 'arc_welder';
+      if (isTryingToWeld && !welderOverheatedRef.current) {
+        welderHeatRef.current = Math.min(1.0, welderHeatRef.current + dt * 0.35);
+        if (welderHeatRef.current >= 1.0) {
+          welderOverheatedRef.current = true;
+        }
+      } else {
+        welderHeatRef.current = Math.max(0.0, welderHeatRef.current - dt * 0.45);
+        if (welderOverheatedRef.current && welderHeatRef.current <= 0.25) {
+          welderOverheatedRef.current = false;
+        }
+      }
+
+      const isWelderActive = isTryingToWeld && !welderOverheatedRef.current;
+      if (wasWeldingRef.current !== isWelderActive) {
+        wasWeldingRef.current = isWelderActive;
+        onWeldingStateChange?.(isWelderActive);
+      }
+
       if (isWelderActive && now - lastWelderTickRef.current >= 100) {
         lastWelderTickRef.current = now;
         const aoe = applyWelderAoeDamage(
@@ -437,14 +572,78 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       const impacts = queuedImpactsRef.current;
       queuedImpactsRef.current = [];
 
+      if (remotePawns.length > 0) {
+        const currentIds = new Set(remotePawns.map((p) => p.id));
+        for (const [id] of remoteInterpolatedRef.current) {
+          if (!currentIds.has(id)) remoteInterpolatedRef.current.delete(id);
+        }
+        for (const rp of remotePawns) {
+          const prev = remoteInterpolatedRef.current.get(rp.id);
+          if (!prev) {
+            remoteInterpolatedRef.current.set(rp.id, { ...rp });
+          } else {
+            remoteInterpolatedRef.current.set(rp.id, interpolatePawn(prev, rp, 0.25));
+          }
+        }
+      } else {
+        remoteInterpolatedRef.current.clear();
+      }
+      const interpolatedRemotes = Array.from(remoteInterpolatedRef.current.values());
+
+      const activeWelders: Array<{
+        active: boolean;
+        originX: number;
+        originY: number;
+        facingAngle: number;
+        range: number;
+      }> = [];
+
+      if (isWelderActive) {
+        activeWelders.push({
+          active: true,
+          originX: pawn.x,
+          originY: pawn.y,
+          facingAngle: aimAngle,
+          range: 48,
+        });
+      }
+
+      for (const rp of interpolatedRemotes) {
+        if (rp.isWelding) {
+          activeWelders.push({
+            active: true,
+            originX: rp.x,
+            originY: rp.y,
+            facingAngle: rp.facingAngle,
+            range: 48,
+          });
+        }
+      }
+
       rendererRef.current?.render(
         {
           pawn: activePawn,
+          remotePawns: interpolatedRemotes,
+          vitals,
+          telemetry,
           nearestStation,
-          boarding: activeBoarding,
+          activeInteraction,
+          promptActionName,
           alertLevel,
+          boarding: activeBoarding,
+          beaconCode,
+          crewCount,
+          clearanceLevel,
+          clearanceXp,
+          credits,
+          equippedWeapon,
+          triageNotice,
+          inGameNotice,
+          dualProtocol,
+          collabShift,
           camera: cameraRef.current,
           mouseWorld: mouseWorldRef.current,
+          mouseScreen: mouseScreenRef.current,
           timeMs: now,
           impacts,
           chargingState: {
@@ -459,7 +658,23 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             facingAngle: aimAngle,
             range: 48,
           },
+          kineticAmmo: { ...kineticAmmoRef.current },
+          welderThermal: {
+            heat: welderHeatRef.current,
+            isOverheated: welderOverheatedRef.current,
+          },
+          onBeaconClick,
+          onManifestClick,
+          onRoleClick,
+          onDisembarkClick,
+          onEquipWeapon,
+          onAbortInteraction,
+          onExecuteDualProtocol,
+          onJoinCollabShift,
+          screenWidth: canvas.clientWidth,
+          screenHeight: canvas.clientHeight,
         },
+
         canvas.width,
         canvas.height
       );
@@ -469,7 +684,38 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [pawn, nearestStation, alertLevel, boarding, equippedWeapon, handleInstantFire, onWelderAoe]);
+  }, [
+    pawn,
+    remotePawns,
+    vitals,
+    telemetry,
+    nearestStation,
+    activeInteraction,
+    promptActionName,
+    alertLevel,
+    boarding,
+    beaconCode,
+    crewCount,
+    clearanceLevel,
+    clearanceXp,
+    credits,
+    equippedWeapon,
+    triageNotice,
+    inGameNotice,
+    dualProtocol,
+    collabShift,
+    fireKineticRound,
+    onWelderAoe,
+    onWeldingStateChange,
+    onBeaconClick,
+    onManifestClick,
+    onRoleClick,
+    onDisembarkClick,
+    onEquipWeapon,
+    onAbortInteraction,
+    onExecuteDualProtocol,
+    onJoinCollabShift,
+  ]);
 
   const activeDoors = boarding?.doors || defaultDoorsRef.current;
 
@@ -477,6 +723,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
       <canvas
         ref={canvasRef}
+        data-testid="vessel-canvas"
         style={{
           position: 'absolute',
           top: 0,
@@ -490,6 +737,17 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           const canvas = canvasRef.current;
           if (!canvas) return;
           const rect = canvas.getBoundingClientRect();
+          const screenPixelX = e.clientX - rect.left;
+          const screenPixelY = e.clientY - rect.top;
+          mouseScreenRef.current = { x: screenPixelX, y: screenPixelY };
+
+          const hitTester = rendererRef.current?.getHitTester();
+
+          if (hitTester) {
+            const isHit = hitTester.hitTest(screenPixelX, screenPixelY);
+            canvas.style.cursor = isHit ? 'pointer' : 'crosshair';
+          }
+
           const clickX = e.clientX - rect.left;
           const clickY = e.clientY - rect.top;
           mouseWorldRef.current = {
@@ -501,6 +759,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           handleCanvasMouseDown(
             e,
             canvasRef.current,
+            rendererRef.current,
             cameraRef.current,
             activeDoors,
             nearestStation,
@@ -511,31 +770,6 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         }
         onMouseUp={stopFiring}
       />
-
-      {nearestStation && (
-        <div
-          data-testid="station-prompt"
-          style={{
-            position: 'absolute',
-            left: `${Math.round((canvasRef.current ? canvasRef.current.clientWidth / 2 : 500) + (nearestStation.x - cameraRef.current.x))}px`,
-            top: `${Math.round((canvasRef.current ? canvasRef.current.clientHeight / 2 : 400) + (nearestStation.y - cameraRef.current.y - nearestStation.radius - 24))}px`,
-            transform: 'translateX(-50%)',
-            background: 'rgba(10, 15, 23, 0.92)',
-            border: '1px solid #00e5ff',
-            color: '#00e5ff',
-            padding: '4px 8px',
-            fontSize: '11px',
-            fontWeight: 'bold',
-            fontFamily: 'monospace',
-            pointerEvents: 'none',
-            borderRadius: '4px',
-            boxShadow: '0 0 10px rgba(0, 229, 255, 0.5)',
-            zIndex: 10,
-          }}
-        >
-          [E] {promptActionName || nearestStation.name}
-        </div>
-      )}
     </div>
   );
 };

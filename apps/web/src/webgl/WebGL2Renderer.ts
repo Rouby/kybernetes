@@ -3,9 +3,7 @@ import type {
   DoorState,
   PawnState,
   ProjectileState,
-  StationFixture,
   WallSegment,
-  WeaponType,
 } from '@kybernetes/protocol';
 import {
   computeVisibilityPolygon,
@@ -15,14 +13,21 @@ import {
   HESPERIA_ROOMS,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
+  isPointInPolygon,
+  type Point2D,
   ROOM_AMBIENTS,
 } from '@kybernetes/sim-core';
 import { createCameraMatrix, createProgram } from './glUtils';
+import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
 import {
   DECK_FLOOR_FS,
   DECK_FLOOR_VS,
   FLAT_FS,
   FLAT_VS,
+  FOW_AMBIENT_FS,
+  FOW_AMBIENT_VS,
+  FOW_STAMP_FS,
+  FOW_STAMP_VS,
   LIGHT_FAN_FS,
   LIGHT_FAN_VS,
   LIGHTMAP_APPLY_FS,
@@ -33,23 +38,8 @@ import {
   STARFIELD_VS,
 } from './shaders';
 
-export interface WebGLRenderState {
-  pawn: PawnState;
-  nearestStation: StationFixture | null;
-  boarding?: BoardingTacticsTelemetry;
-  alertLevel?: 'nominal' | 'yellow' | 'red';
-  camera: { x: number; y: number };
-  mouseWorld: { x: number; y: number };
-  timeMs: number;
+export interface WebGLRenderState extends HudDrawState {
   impacts?: Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>;
-  chargingState?: { active: boolean; ratio: number; weaponType: WeaponType };
-  welderState?: {
-    active: boolean;
-    originX: number;
-    originY: number;
-    facingAngle: number;
-    range: number;
-  };
 }
 
 interface ImpactParticle {
@@ -80,6 +70,20 @@ function getRaycastIntersectionT(
   return null;
 }
 
+function initFboTexture(
+  gl: WebGL2RenderingContext,
+  texture: WebGLTexture,
+  width: number,
+  height: number
+): void {
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+
 export class WebGL2Renderer {
   private gl: WebGL2RenderingContext;
   private flatProg: WebGLProgram;
@@ -88,6 +92,8 @@ export class WebGL2Renderer {
   private projProg: WebGLProgram;
   private lightFanProg: WebGLProgram;
   private lightmapApplyProg: WebGLProgram;
+  private fowStampProg: WebGLProgram;
+  private fowAmbientProg: WebGLProgram;
 
   private quadBuffer: WebGLBuffer;
   private dynamicBuffer: WebGLBuffer;
@@ -99,15 +105,32 @@ export class WebGL2Renderer {
   private vignetteVAO: WebGLVertexArrayObject;
   private lightFanVAO: WebGLVertexArrayObject;
   private lightmapApplyVAO: WebGLVertexArrayObject;
+  private fowStampVAO: WebGLVertexArrayObject;
+  private fowAmbientVAO: WebGLVertexArrayObject;
 
   private lightFBO: WebGLFramebuffer | null = null;
   private lightTexture: WebGLTexture | null = null;
   private fboWidth = 0;
   private fboHeight = 0;
 
+  private sceneFBO: WebGLFramebuffer | null = null;
+  private sceneTexture: WebGLTexture | null = null;
+  private sceneWidth = 0;
+  private sceneHeight = 0;
+
+  private fowFBO: WebGLFramebuffer | null = null;
+  private fowTexture: WebGLTexture | null = null;
+  private readonly fowWidth = 1200;
+  private readonly fowHeight = 800;
+
+  private cachedStaticLights = new Map<string, Point2D[]>();
+  private lastDoorsHash = '';
+  private lastPlayerLosPoly: Point2D[] = [];
+
   private currentLights = new Float32Array(24);
   private currentLightColors = new Float32Array(18);
   private particles: ImpactParticle[] = [];
+  private hudRenderer: HudRenderer;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -119,6 +142,7 @@ export class WebGL2Renderer {
       throw new Error('WebGL 2 is required but could not be initialized.');
     }
     this.gl = gl;
+    this.hudRenderer = new HudRenderer(gl);
 
     this.flatProg = createProgram(gl, FLAT_VS, FLAT_FS);
     this.starProg = createProgram(gl, STARFIELD_VS, STARFIELD_FS);
@@ -126,6 +150,8 @@ export class WebGL2Renderer {
     this.projProg = createProgram(gl, PROJECTILE_VS, PROJECTILE_FS);
     this.lightFanProg = createProgram(gl, LIGHT_FAN_VS, LIGHT_FAN_FS);
     this.lightmapApplyProg = createProgram(gl, LIGHTMAP_APPLY_VS, LIGHTMAP_APPLY_FS);
+    this.fowStampProg = createProgram(gl, FOW_STAMP_VS, FOW_STAMP_FS);
+    this.fowAmbientProg = createProgram(gl, FOW_AMBIENT_VS, FOW_AMBIENT_FS);
 
     // Fullscreen quad [-1, -1] to [1, 1]
     const fsQuad = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
@@ -194,6 +220,22 @@ export class WebGL2Renderer {
     gl.enableVertexAttribArray(applyPos);
     gl.vertexAttribPointer(applyPos, 2, gl.FLOAT, false, 0, 0);
 
+    // 8. FoW Stamp VAO
+    this.fowStampVAO = gl.createVertexArray()!;
+    gl.bindVertexArray(this.fowStampVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.dynamicBuffer);
+    const stampPos = gl.getAttribLocation(this.fowStampProg, 'a_position');
+    gl.enableVertexAttribArray(stampPos);
+    gl.vertexAttribPointer(stampPos, 2, gl.FLOAT, false, 0, 0);
+
+    // 9. FoW Ambient VAO
+    this.fowAmbientVAO = gl.createVertexArray()!;
+    gl.bindVertexArray(this.fowAmbientVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.dynamicBuffer);
+    const fowAmbPos = gl.getAttribLocation(this.fowAmbientProg, 'a_position');
+    gl.enableVertexAttribArray(fowAmbPos);
+    gl.vertexAttribPointer(fowAmbPos, 2, gl.FLOAT, false, 0, 0);
+
     gl.bindVertexArray(null);
   }
 
@@ -259,7 +301,13 @@ export class WebGL2Renderer {
   // fallow-ignore-next-line complexity
   private updateLights(
     projectiles?: ProjectileState[],
-    welder?: WebGLRenderState['welderState']
+    welders?: Array<{
+      active: boolean;
+      originX: number;
+      originY: number;
+      facingAngle: number;
+      range?: number;
+    }>
   ): void {
     this.currentLights.fill(0);
     this.currentLightColors.fill(0);
@@ -267,18 +315,22 @@ export class WebGL2Renderer {
     let lightIdx = 0;
 
     // 1. Welder continuous electric arc lighting
-    if (welder?.active && lightIdx < 6) {
-      const arcMidX = welder.originX + Math.cos(welder.facingAngle) * 24;
-      const arcMidY = welder.originY + Math.sin(welder.facingAngle) * 24;
-      this.currentLights[lightIdx * 4 + 0] = arcMidX;
-      this.currentLights[lightIdx * 4 + 1] = arcMidY;
-      this.currentLights[lightIdx * 4 + 2] = 60.0;
-      this.currentLights[lightIdx * 4 + 3] = 1.6;
+    if (welders) {
+      for (const welder of welders) {
+        if (welder.active && lightIdx < 6) {
+          const arcMidX = welder.originX + Math.cos(welder.facingAngle) * 24;
+          const arcMidY = welder.originY + Math.sin(welder.facingAngle) * 24;
+          this.currentLights[lightIdx * 4 + 0] = arcMidX;
+          this.currentLights[lightIdx * 4 + 1] = arcMidY;
+          this.currentLights[lightIdx * 4 + 2] = 60.0;
+          this.currentLights[lightIdx * 4 + 3] = 1.6;
 
-      this.currentLightColors[lightIdx * 3 + 0] = 0.1;
-      this.currentLightColors[lightIdx * 3 + 1] = 0.9;
-      this.currentLightColors[lightIdx * 3 + 2] = 1.0;
-      lightIdx++;
+          this.currentLightColors[lightIdx * 3 + 0] = 0.1;
+          this.currentLightColors[lightIdx * 3 + 1] = 0.9;
+          this.currentLightColors[lightIdx * 3 + 2] = 1.0;
+          lightIdx++;
+        }
+      }
     }
 
     if (!projectiles) return;
@@ -335,12 +387,7 @@ export class WebGL2Renderer {
     if (!this.lightTexture) {
       this.lightTexture = gl.createTexture();
     }
-    gl.bindTexture(gl.TEXTURE_2D, this.lightTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    initFboTexture(gl, this.lightTexture, width, height);
 
     if (!this.lightFBO) {
       this.lightFBO = gl.createFramebuffer();
@@ -357,7 +404,148 @@ export class WebGL2Renderer {
   }
 
   // fallow-ignore-next-line complexity
-  private renderLightFan(
+  private ensureSceneFBO(width: number, height: number): void {
+    const gl = this.gl;
+    if (this.sceneWidth === width && this.sceneHeight === height && this.sceneFBO) {
+      return;
+    }
+    this.sceneWidth = width;
+    this.sceneHeight = height;
+
+    if (!this.sceneTexture) {
+      this.sceneTexture = gl.createTexture();
+    }
+    initFboTexture(gl, this.sceneTexture, width, height);
+
+    if (!this.sceneFBO) {
+      this.sceneFBO = gl.createFramebuffer();
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFBO);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      this.sceneTexture,
+      0
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  private ensureFowFBO(): void {
+    if (this.fowFBO && this.fowTexture) return;
+    const gl = this.gl;
+    this.fowTexture = gl.createTexture();
+    initFboTexture(gl, this.fowTexture, this.fowWidth, this.fowHeight);
+
+    this.fowFBO = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fowFBO);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      this.fowTexture,
+      0
+    );
+
+    gl.viewport(0, 0, this.fowWidth, this.fowHeight);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // fallow-ignore-next-line unused-class-member
+  public resetFogOfWar(): void {
+    if (!this.fowFBO) return;
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fowFBO);
+    gl.viewport(0, 0, this.fowWidth, this.fowHeight);
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // fallow-ignore-next-line unused-class-member
+  public getLastLoSPolygon(): Point2D[] {
+    return this.lastPlayerLosPoly;
+  }
+
+  public getHitTester(): HudHitTester {
+    return this.hudRenderer.getHitTester();
+  }
+
+  // fallow-ignore-next-line complexity
+  private buildPolygonFanVertices(origin: { x: number; y: number }, poly: Point2D[]): Float32Array {
+    const hasOrigin =
+      poly.length > 0 &&
+      Math.abs(poly[0].x - origin.x) < 0.01 &&
+      Math.abs(poly[0].y - origin.y) < 0.01;
+
+    if (hasOrigin) {
+      const count = Math.max(0, poly.length - 2);
+      const verts = new Float32Array(count * 6);
+      let vIdx = 0;
+      for (let i = 1; i < poly.length - 1; i++) {
+        verts[vIdx++] = origin.x;
+        verts[vIdx++] = origin.y;
+        verts[vIdx++] = poly[i].x;
+        verts[vIdx++] = poly[i].y;
+        verts[vIdx++] = poly[i + 1].x;
+        verts[vIdx++] = poly[i + 1].y;
+      }
+      return verts;
+    }
+
+    const verts = new Float32Array(poly.length * 6);
+    let vIdx = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const next = (i + 1) % poly.length;
+      verts[vIdx++] = origin.x;
+      verts[vIdx++] = origin.y;
+      verts[vIdx++] = poly[i].x;
+      verts[vIdx++] = poly[i].y;
+      verts[vIdx++] = poly[next].x;
+      verts[vIdx++] = poly[next].y;
+    }
+    return verts;
+  }
+
+  // fallow-ignore-next-line complexity
+  private stampFowExploration(poly: Point2D[], pawnPos: { x: number; y: number }): void {
+    const gl = this.gl;
+    this.ensureFowFBO();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fowFBO);
+    gl.viewport(0, 0, this.fowWidth, this.fowHeight);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+
+    gl.useProgram(this.fowStampProg);
+    gl.bindVertexArray(this.fowStampVAO);
+
+    const stampMatrix = new Float32Array([
+      2.0 / this.fowWidth,
+      0,
+      0,
+      0,
+      2.0 / this.fowHeight,
+      0,
+      -1.0,
+      -1.0,
+      1,
+    ]);
+    gl.uniformMatrix3fv(gl.getUniformLocation(this.fowStampProg, 'u_matrix'), false, stampMatrix);
+
+    if (poly.length >= 3) {
+      const verts = this.buildPolygonFanVertices(pawnPos, poly);
+      this.bufferAndDraw(verts);
+    }
+
+    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private drawLightPolygonFan(
     matrix: Float32Array,
     light: {
       x: number;
@@ -370,28 +558,11 @@ export class WebGL2Renderer {
       fov?: number;
       ambientRadius?: number;
     },
-    opaqueWalls: WallSegment[]
+    poly: Point2D[]
   ): void {
-    const gl = this.gl;
-    const poly = computeVisibilityPolygon(
-      { x: light.x, y: light.y },
-      light.radius,
-      opaqueWalls,
-      48
-    );
     if (poly.length < 3) return;
-
-    const verts = new Float32Array(poly.length * 6);
-    let vIdx = 0;
-    for (let i = 0; i < poly.length; i++) {
-      const next = (i + 1) % poly.length;
-      verts[vIdx++] = light.x;
-      verts[vIdx++] = light.y;
-      verts[vIdx++] = poly[i].x;
-      verts[vIdx++] = poly[i].y;
-      verts[vIdx++] = poly[next].x;
-      verts[vIdx++] = poly[next].y;
-    }
+    const gl = this.gl;
+    const verts = this.buildPolygonFanVertices({ x: light.x, y: light.y }, poly);
 
     gl.useProgram(this.lightFanProg);
     gl.bindVertexArray(this.lightFanVAO);
@@ -425,6 +596,99 @@ export class WebGL2Renderer {
   }
 
   // fallow-ignore-next-line complexity
+  private renderShipAmbientRooms(matrix: Float32Array): void {
+    const gl = this.gl;
+    this.ensureFowFBO();
+    gl.useProgram(this.fowAmbientProg);
+    gl.bindVertexArray(this.fowAmbientVAO);
+
+    gl.uniformMatrix3fv(gl.getUniformLocation(this.fowAmbientProg, 'u_matrix'), false, matrix);
+    gl.uniform2f(
+      gl.getUniformLocation(this.fowAmbientProg, 'u_worldBounds'),
+      this.fowWidth,
+      this.fowHeight
+    );
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.fowTexture);
+    gl.uniform1i(gl.getUniformLocation(this.fowAmbientProg, 'u_fowTexture'), 0);
+
+    for (const room of HESPERIA_ROOMS) {
+      const amb = ROOM_AMBIENTS[room.id] ?? [0.2, 0.2, 0.2];
+      gl.uniform3f(
+        gl.getUniformLocation(this.fowAmbientProg, 'u_roomAmbient'),
+        amb[0],
+        amb[1],
+        amb[2]
+      );
+      this.drawQuad(room.x, room.y, room.width, room.height);
+    }
+    gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderStaticShipLights(
+    matrix: Float32Array,
+    timeSec: number,
+    opaqueWalls: WallSegment[]
+  ): void {
+    for (const light of HESPERIA_LIGHTS) {
+      let intensity = light.intensity;
+      if (light.flickerSpeed && light.flickerAmount) {
+        intensity += Math.sin(timeSec * light.flickerSpeed) * light.flickerAmount;
+      }
+
+      let poly = this.cachedStaticLights.get(light.id);
+      if (!poly) {
+        poly = computeVisibilityPolygon({ x: light.x, y: light.y }, light.radius, opaqueWalls, 36);
+        this.cachedStaticLights.set(light.id, poly);
+      }
+
+      this.drawLightPolygonFan(
+        matrix,
+        {
+          x: light.x,
+          y: light.y,
+          radius: light.radius,
+          intensity,
+          color: light.color,
+        },
+        poly
+      );
+    }
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderDynamicLightSources(
+    matrix: Float32Array,
+    state: WebGLRenderState,
+    opaqueWalls: WallSegment[]
+  ): void {
+    if (state.boarding?.projectiles) {
+      for (const p of state.boarding.projectiles) {
+        if (p.weaponType === 'kinetic_carbine') continue;
+        const isLaser = p.weaponType === 'pulse_laser';
+        const color: [number, number, number] =
+          p.color === '#ff1744' ? [1.0, 0.15, 0.25] : isLaser ? [0.1, 0.95, 1.0] : [0.4, 0.75, 1.0];
+        const radius = isLaser ? 110 + (p.chargeRatio ?? 1.0) * 40 : 100;
+        const poly = computeVisibilityPolygon({ x: p.x, y: p.y }, radius, opaqueWalls, 32);
+        this.drawLightPolygonFan(matrix, { x: p.x, y: p.y, radius, intensity: 0.9, color }, poly);
+      }
+    }
+
+    if (state.welderState?.active) {
+      const arcX = state.welderState.originX + Math.cos(state.welderState.facingAngle) * 24;
+      const arcY = state.welderState.originY + Math.sin(state.welderState.facingAngle) * 24;
+      const poly = computeVisibilityPolygon({ x: arcX, y: arcY }, 90, opaqueWalls, 32);
+      this.drawLightPolygonFan(
+        matrix,
+        { x: arcX, y: arcY, radius: 90, intensity: 1.2, color: [0.2, 0.85, 1.0] },
+        poly
+      );
+    }
+  }
+
+  // fallow-ignore-next-line complexity
   private renderLightmap(
     matrix: Float32Array,
     state: WebGLRenderState,
@@ -435,6 +699,31 @@ export class WebGL2Renderer {
   ): void {
     const gl = this.gl;
     this.ensureLightFBO(width, height);
+
+    // 1. Invalidate static light cache if doors changed
+    const doorsHash = (state.boarding?.doors || [])
+      .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
+      .join('|');
+    if (doorsHash !== this.lastDoorsHash) {
+      this.cachedStaticLights.clear();
+      this.lastDoorsHash = doorsHash;
+    }
+
+    // 2. Compute Player active Line of Sight polygon & stamp into Fog of War
+    const playerFov = (160 * Math.PI) / 180;
+    const playerLoSRange = 540;
+    const perceptionRadius = 24;
+    const playerLoSPoly = computeVisibilityPolygon(
+      { x: state.pawn.x, y: state.pawn.y },
+      playerLoSRange,
+      opaqueWalls,
+      36,
+      { facingAngle: state.pawn.facingAngle, fov: playerFov, perceptionRadius }
+    );
+    this.lastPlayerLosPoly = playerLoSPoly;
+    this.stampFowExploration(playerLoSPoly, state.pawn);
+
+    // 3. Render Lightmap FBO
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.lightFBO);
     gl.viewport(0, 0, width, height);
 
@@ -443,113 +732,59 @@ export class WebGL2Renderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendFunc(gl.ONE, gl.ZERO);
 
-    // Baseline ambient darkness inside ship rooms
-    this.bindFlatProgram(matrix);
-    for (const room of HESPERIA_ROOMS) {
-      const amb = ROOM_AMBIENTS[room.id] ?? [0.2, 0.2, 0.2];
-      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), amb[0], amb[1], amb[2], 1.0);
-      this.drawQuad(room.x, room.y, room.width, room.height);
-    }
-    gl.bindVertexArray(null);
+    // 4. Baseline ambient darkness inside rooms modulated by Fog of War
+    this.renderShipAmbientRooms(matrix);
 
-    // Additive blending for light sources
+    // 5. Additive blending for light sources
     gl.blendFunc(gl.ONE, gl.ONE);
 
-    // 1. Ship lights (Corridor lights + Room fixtures)
-    for (const light of HESPERIA_LIGHTS) {
-      let intensity = light.intensity;
-      if (light.flickerSpeed && light.flickerAmount) {
-        intensity += Math.sin(timeSec * light.flickerSpeed) * light.flickerAmount;
-      }
-      this.renderLightFan(
-        matrix,
-        {
-          x: light.x,
-          y: light.y,
-          radius: light.radius,
-          intensity,
-          color: light.color,
-        },
-        opaqueWalls
-      );
-    }
+    // Static ship fixtures (corridors and rooms)
+    this.renderStaticShipLights(matrix, timeSec, opaqueWalls);
 
-    // 2. Player Flashlight & Halo
-    this.renderLightFan(
+    // Player Flashlight (160 degree cone, 540 range, 24px personal perception radius)
+    this.drawLightPolygonFan(
       matrix,
       {
         x: state.pawn.x,
         y: state.pawn.y,
-        radius: 360,
-        intensity: 1.35,
+        radius: playerLoSRange,
+        intensity: 1.5,
         color: [1.0, 0.98, 0.95],
         isDirectional: true,
         facingAngle: state.pawn.facingAngle,
-        fov: 1.15,
-        ambientRadius: 75,
+        fov: playerFov,
+        ambientRadius: perceptionRadius,
       },
-      opaqueWalls
+      playerLoSPoly
     );
 
-    // 3. Dynamic Laser Projectiles
-    if (state.boarding?.projectiles) {
-      for (const p of state.boarding.projectiles) {
-        if (p.weaponType === 'kinetic_carbine') continue;
-        const isLaser = p.weaponType === 'pulse_laser';
-        const color: [number, number, number] =
-          p.color === '#ff1744' ? [1.0, 0.15, 0.25] : isLaser ? [0.1, 0.95, 1.0] : [0.4, 0.75, 1.0];
-        const radius = isLaser ? 110 + (p.chargeRatio ?? 1.0) * 40 : 100;
-        this.renderLightFan(
-          matrix,
-          {
-            x: p.x,
-            y: p.y,
-            radius,
-            intensity: 0.9,
-            color,
-          },
-          opaqueWalls
-        );
-      }
-    }
-
-    // 4. Continuous Arc Welder
-    if (state.welderState?.active) {
-      const arcX = state.welderState.originX + Math.cos(state.welderState.facingAngle) * 24;
-      const arcY = state.welderState.originY + Math.sin(state.welderState.facingAngle) * 24;
-      this.renderLightFan(
-        matrix,
-        {
-          x: arcX,
-          y: arcY,
-          radius: 90,
-          intensity: 1.2,
-          color: [0.2, 0.85, 1.0],
-        },
-        opaqueWalls
-      );
-    }
+    // Projectiles and continuous electric arc
+    this.renderDynamicLightSources(matrix, state, opaqueWalls);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
   }
 
-  private applyLightmap(): void {
-    if (!this.lightTexture) return;
+  private applyLightmap(width: number, height: number): void {
+    if (!this.lightTexture || !this.sceneTexture) return;
     const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+
     gl.useProgram(this.lightmapApplyProg);
     gl.bindVertexArray(this.lightmapApplyVAO);
 
     gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
+    gl.uniform1i(gl.getUniformLocation(this.lightmapApplyProg, 'u_sceneTexture'), 0);
+
+    gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.lightTexture);
-    gl.uniform1i(gl.getUniformLocation(this.lightmapApplyProg, 'u_lightTexture'), 0);
+    gl.uniform1i(gl.getUniformLocation(this.lightmapApplyProg, 'u_lightTexture'), 1);
 
-    // Multiplicative blending: Framebuffer * Lightmap
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.DST_COLOR, gl.ZERO);
-
+    gl.disable(gl.BLEND);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.bindVertexArray(null);
   }
@@ -597,8 +832,10 @@ export class WebGL2Renderer {
       }
     }
 
+    const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
+
     // Update dynamic lights from active projectiles & continuous welder
-    this.updateLights(state.boarding?.projectiles, state.welderState);
+    this.updateLights(state.boarding?.projectiles, welders);
 
     const doors = state.boarding?.doors || createInitialDoors();
     const opaqueWalls = getOpaqueWallSegments(HESPERIA_WALLS, doors);
@@ -606,7 +843,11 @@ export class WebGL2Renderer {
     // PASS 1: Render Lightmap FBO (Shadow Casting & Multi-light Accumulation)
     this.renderLightmap(matrix, state, timeSec, opaqueWalls, width, height);
 
-    // PASS 2: Render Ship Base Scene
+    // PASS 2: Render Ship Base Scene into Scene FBO
+    this.ensureSceneFBO(width, height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFBO);
+    gl.viewport(0, 0, width, height);
+
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0.015, 0.02, 0.04, 1.0);
@@ -631,13 +872,25 @@ export class WebGL2Renderer {
     // 4. Stations & mechanical fixtures
     this.renderStations(matrix, state.nearestStation?.id);
 
-    // 5. Pawns & Raiders & Sentries
+    // 5. Pawns & Raiders & Sentries (Only render in active LoS cone)
     this.renderPawn(matrix, state.pawn);
+    if (state.remotePawns) {
+      for (const rp of state.remotePawns) {
+        const inLoS =
+          this.lastPlayerLosPoly.length >= 3 &&
+          isPointInPolygon({ x: rp.x, y: rp.y }, this.lastPlayerLosPoly);
+        if (inLoS) {
+          this.renderPawn(matrix, rp);
+        }
+      }
+    }
     this.renderIntruders(matrix, state.boarding?.intruders || []);
     this.renderSentries(matrix, state.boarding?.sentries || []);
 
-    // PASS 3: Apply Multiplicative Lightmap & Shadow Mask
-    this.applyLightmap();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    // PASS 3: Composite Scene with Lightmap & Desaturate Explored Non-LoS Areas
+    this.applyLightmap(width, height);
 
     // PASS 4: Render Emissive Passes (Glow in the dark)
     gl.enable(gl.BLEND);
@@ -646,9 +899,11 @@ export class WebGL2Renderer {
     // 6. Projectiles with Additive Glow Shader
     this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec);
 
-    // 6.5. Continuous Welder Arc
-    if (state.welderState?.active) {
-      this.renderWelderArc(matrix, state.welderState, doors);
+    // 6.5. Continuous Welder Arcs (local & peers)
+    for (const w of welders) {
+      if (w.active) {
+        this.renderWelderArc(matrix, w, doors);
+      }
     }
 
     // 6.6. Charging Energy Reticle (for Laser charge-up)
@@ -672,6 +927,11 @@ export class WebGL2Renderer {
     if (state.alertLevel === 'red') {
       this.renderRedAlertVignette(timeSec);
     }
+
+    // PASS 5: Render WebGL2 Curved Helmet HUD & Diegetic Telemetry
+    const hudW = state.screenWidth ?? width;
+    const hudH = state.screenHeight ?? height;
+    this.hudRenderer.render(state, hudW, hudH, timeSec, this.lastPlayerLosPoly);
   }
 
   private renderStarfield(
@@ -878,7 +1138,16 @@ export class WebGL2Renderer {
     this.bindFlatProgram(matrix);
 
     // Body
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 0.69, 0.0, 1.0);
+    let r = 1.0;
+    let g = 0.69;
+    let b = 0.0;
+    if (pawn.color?.startsWith('#') && pawn.color.length >= 7) {
+      r = parseInt(pawn.color.slice(1, 3), 16) / 255;
+      g = parseInt(pawn.color.slice(3, 5), 16) / 255;
+      b = parseInt(pawn.color.slice(5, 7), 16) / 255;
+    }
+
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), r, g, b, 1.0);
     this.drawCircle(pawn.x, pawn.y, 14, 16);
 
     // Visor
@@ -899,6 +1168,11 @@ export class WebGL2Renderer {
 
     for (const intruder of intruders) {
       if (intruder.state === 'neutralized') continue;
+
+      const inLoS =
+        this.lastPlayerLosPoly.length >= 3 &&
+        isPointInPolygon({ x: intruder.x, y: intruder.y }, this.lastPlayerLosPoly);
+      if (!inLoS) continue;
 
       gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.72, 0.11, 0.11, 1.0);
       this.drawCircle(intruder.x, intruder.y, 13, 16);
@@ -926,6 +1200,11 @@ export class WebGL2Renderer {
     this.bindFlatProgram(matrix);
 
     for (const sentry of sentries) {
+      const inLoS =
+        this.lastPlayerLosPoly.length >= 3 &&
+        isPointInPolygon({ x: sentry.x, y: sentry.y }, this.lastPlayerLosPoly);
+      if (!inLoS) continue;
+
       gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.2, 0.25, 0.35, 1.0);
       this.drawCircle(sentry.x, sentry.y, 10, 12);
 
@@ -952,6 +1231,12 @@ export class WebGL2Renderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
     for (const proj of projectiles) {
+      if (
+        this.lastPlayerLosPoly.length >= 3 &&
+        !isPointInPolygon({ x: proj.x, y: proj.y }, this.lastPlayerLosPoly)
+      ) {
+        continue;
+      }
       let r = 0.0;
       let g = 0.95;
       let b = 1.0;
