@@ -415,7 +415,7 @@ graph TD
   - Close-quarters repel mechanics (marines, weapons, damage mitigation, sabotage timers).
   - Visual 2D breach effects (decompression fog, sparks, klaxon lighting).
 
-- [ ] **Milestone 5: Multiplayer Synchronization, Spatial Replication & Co-Op Shifts**
+- [x] **Milestone 5: Multiplayer Synchronization, Spatial Replication & Co-Op Shifts**
   - Implement authoritative Node 24 WebSocket server (`apps/server`).
   - Room code session management (host vessel lobby, join via 6-char Beacon Code).
   - Real-time spatial pawn replication (15-20Hz) with client-side interpolation and nametags.
