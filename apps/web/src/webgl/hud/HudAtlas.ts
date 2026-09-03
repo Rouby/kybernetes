@@ -24,8 +24,8 @@ export interface TextRenderOptions {
 export class HudAtlas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private width = 1024;
-  private height = 1024;
+  private width = 2048;
+  private height = 2048;
   private currentX = 2;
   private currentY = 2;
   private rowHeight = 0;
@@ -66,7 +66,7 @@ export class HudAtlas {
 
   // fallow-ignore-next-line complexity
   private buildKey(text: string, opts: TextRenderOptions): string {
-    const size = opts.fontSize ?? 11;
+    const size = opts.fontSize ?? 22;
     const weight = opts.fontWeight ?? 'normal';
     const family = opts.fontFamily ?? 'monospace';
     const color = opts.color ?? '#00e5ff';
@@ -110,14 +110,14 @@ export class HudAtlas {
     const cached = this.cache.get(key);
     if (cached) return cached;
 
-    const font = `${opts.fontWeight ?? 'normal'} ${opts.fontSize ?? 11}px ${opts.fontFamily ?? 'monospace'}`;
+    const font = `${opts.fontWeight ?? 'normal'} ${opts.fontSize ?? 22}px ${opts.fontFamily ?? 'monospace'}`;
     this.ctx.font = font;
     const metrics = this.ctx.measureText(text);
 
     const padX = opts.paddingX ?? (opts.bgColor ? 4 : 0);
     const padY = opts.paddingY ?? (opts.bgColor ? 2 : 0);
     const textW = Math.ceil(metrics.width);
-    const textH = Math.ceil(opts.fontSize ?? 11) + 4;
+    const textH = Math.ceil(opts.fontSize ?? 22) + 4;
     const totalW = textW + padX * 2;
     const totalH = textH + padY * 2;
 

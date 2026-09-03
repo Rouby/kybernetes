@@ -4,6 +4,7 @@ import type {
   PawnState,
   ProjectileState,
   WallSegment,
+  WeaponType,
 } from '@kybernetes/protocol';
 import {
   computeVisibilityPolygon,
@@ -19,6 +20,19 @@ import {
 } from '@kybernetes/sim-core';
 import { createCameraMatrix, createProgram } from './glUtils';
 import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
+import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
+import {
+  type RenderContext,
+  renderArmoryLocker,
+  renderBridgeHelm,
+  renderCargoWinch,
+  renderCrewBunk,
+  renderDispenser,
+  renderGalleyPrep,
+  renderHydroScrubber,
+  renderReactorConsole,
+  renderStationInteractionAura,
+} from './StationModels';
 import {
   DECK_FLOOR_FS,
   DECK_FLOOR_VS,
@@ -40,6 +54,8 @@ import {
 
 export interface WebGLRenderState extends HudDrawState {
   impacts?: Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>;
+  muzzleFlashes?: Array<{ x: number; y: number; weaponType: WeaponType }>;
+  zoom?: number;
 }
 
 interface ImpactParticle {
@@ -132,6 +148,24 @@ export class WebGL2Renderer {
   private particles: ImpactParticle[] = [];
   private hudRenderer: HudRenderer;
 
+  private doorOpenRatios = new Map<string, number>();
+  private dustMotes: Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    size: number;
+    alpha: number;
+  }> = [];
+  private muzzleFlashes: Array<{
+    x: number;
+    y: number;
+    weaponType: WeaponType;
+    life: number;
+    maxLife: number;
+  }> = [];
+  private lastWeaponRecoil = 0;
+
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
       antialias: true,
@@ -143,6 +177,17 @@ export class WebGL2Renderer {
     }
     this.gl = gl;
     this.hudRenderer = new HudRenderer(gl);
+
+    for (let i = 0; i < 40; i++) {
+      this.dustMotes.push({
+        x: 60 + Math.random() * 1080,
+        y: 60 + Math.random() * 680,
+        vx: (Math.random() - 0.5) * 6,
+        vy: (Math.random() - 0.5) * 6,
+        size: 1.2 + Math.random() * 1.5,
+        alpha: 0.12 + Math.random() * 0.22,
+      });
+    }
 
     this.flatProg = createProgram(gl, FLAT_VS, FLAT_FS);
     this.starProg = createProgram(gl, STARFIELD_VS, STARFIELD_FS);
@@ -473,6 +518,17 @@ export class WebGL2Renderer {
     return this.hudRenderer.getHitTester();
   }
 
+  private getRenderContext(): RenderContext {
+    return {
+      gl: this.gl,
+      flatProg: this.flatProg,
+      drawQuad: this.drawQuad.bind(this),
+      drawCircle: this.drawCircle.bind(this),
+      addThickSegment: this.addThickSegment.bind(this),
+      bufferAndDraw: this.bufferAndDraw.bind(this),
+    };
+  }
+
   // fallow-ignore-next-line complexity
   private buildPolygonFanVertices(origin: { x: number; y: number }, poly: Point2D[]): Float32Array {
     const hasOrigin =
@@ -662,7 +718,8 @@ export class WebGL2Renderer {
   private renderDynamicLightSources(
     matrix: Float32Array,
     state: WebGLRenderState,
-    opaqueWalls: WallSegment[]
+    opaqueWalls: WallSegment[],
+    timeSec: number
   ): void {
     if (state.boarding?.projectiles) {
       for (const p of state.boarding.projectiles) {
@@ -675,6 +732,25 @@ export class WebGL2Renderer {
         this.drawLightPolygonFan(matrix, { x: p.x, y: p.y, radius, intensity: 0.9, color }, poly);
       }
     }
+
+    // Active weapon muzzle flash bursts
+    for (const mf of this.muzzleFlashes) {
+      const isLaser = mf.weaponType === 'pulse_laser';
+      const radius = isLaser ? 140 : 105;
+      const color: [number, number, number] = isLaser ? [0.2, 0.95, 1.0] : [1.0, 0.85, 0.4];
+      const intensity = (mf.life / mf.maxLife) * 1.8;
+      const poly = computeVisibilityPolygon({ x: mf.x, y: mf.y }, radius, opaqueWalls, 28);
+      this.drawLightPolygonFan(matrix, { x: mf.x, y: mf.y, radius, intensity, color }, poly);
+    }
+
+    // Engineering Reactor Core atmospheric ambient light breathing
+    const reactorPulse = 0.75 + 0.25 * Math.sin(timeSec * 4.0);
+    const reactorPoly = computeVisibilityPolygon({ x: 970, y: 570 }, 140, opaqueWalls, 28);
+    this.drawLightPolygonFan(
+      matrix,
+      { x: 970, y: 570, radius: 140, intensity: 0.6 * reactorPulse, color: [1.0, 0.55, 0.1] },
+      reactorPoly
+    );
 
     if (state.welderState?.active) {
       const arcX = state.welderState.originX + Math.cos(state.welderState.facingAngle) * 24;
@@ -761,7 +837,7 @@ export class WebGL2Renderer {
     );
 
     // Projectiles and continuous electric arc
-    this.renderDynamicLightSources(matrix, state, opaqueWalls);
+    this.renderDynamicLightSources(matrix, state, opaqueWalls, timeSec);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
@@ -822,13 +898,30 @@ export class WebGL2Renderer {
   // fallow-ignore-next-line complexity
   public render(state: WebGLRenderState, width: number, height: number): void {
     const gl = this.gl;
-    const matrix = createCameraMatrix(width, height, state.camera.x, state.camera.y);
+    const zoom = state.zoom ?? 1.0;
+    const matrix = createCameraMatrix(width, height, state.camera.x, state.camera.y, zoom);
     const timeSec = state.timeMs * 0.001;
+    const dt = 0.016;
 
     // Process queued impacts
     if (state.impacts) {
       for (const imp of state.impacts) {
         this.addImpact(imp.x, imp.y, imp.type);
+      }
+    }
+
+    // Process queued muzzle flashes & weapon recoil
+    if (state.muzzleFlashes) {
+      for (const mf of state.muzzleFlashes) {
+        this.muzzleFlashes.push({ ...mf, life: 0.05, maxLife: 0.05 });
+        this.lastWeaponRecoil = mf.weaponType === 'kinetic_carbine' ? 2.5 : 4.0;
+      }
+    }
+    this.lastWeaponRecoil = Math.max(0, this.lastWeaponRecoil - dt * 20.0);
+    for (let i = this.muzzleFlashes.length - 1; i >= 0; i--) {
+      this.muzzleFlashes[i].life -= dt;
+      if (this.muzzleFlashes[i].life <= 0) {
+        this.muzzleFlashes.splice(i, 1);
       }
     }
 
@@ -864,28 +957,32 @@ export class WebGL2Renderer {
 
     // 3. Bulkhead walls & blast doors
     this.renderBulkheads(matrix);
-    this.renderDoors(matrix, doors);
+    this.renderDoors(matrix, doors, dt);
 
     // 3.5. Corridor ceiling lamp fixtures
     this.renderCorridorLampFixtures(matrix, timeSec);
 
     // 4. Stations & mechanical fixtures
-    this.renderStations(matrix, state.nearestStation?.id);
+    this.renderStations(matrix, state.nearestStation?.id, timeSec);
 
     // 5. Pawns & Raiders & Sentries (Only render in active LoS cone)
-    this.renderPawn(matrix, state.pawn);
+    this.renderPawn(matrix, state.pawn, state.equippedWeapon, timeSec);
     if (state.remotePawns) {
       for (const rp of state.remotePawns) {
         const inLoS =
           this.lastPlayerLosPoly.length >= 3 &&
           isPointInPolygon({ x: rp.x, y: rp.y }, this.lastPlayerLosPoly);
         if (inLoS) {
-          this.renderPawn(matrix, rp);
+          const rpWeapon: WeaponType = rp.isWelding ? 'arc_welder' : 'kinetic_carbine';
+          this.renderPawn(matrix, rp, rpWeapon, timeSec);
         }
       }
     }
-    this.renderIntruders(matrix, state.boarding?.intruders || []);
-    this.renderSentries(matrix, state.boarding?.sentries || []);
+    this.renderIntruders(matrix, state.boarding?.intruders || [], timeSec);
+    this.renderSentries(matrix, state.boarding?.sentries || [], timeSec);
+
+    // 5.5. Ambient floating atmospheric dust motes
+    this.renderDustMotes(matrix, timeSec, dt);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
@@ -967,15 +1064,34 @@ export class WebGL2Renderer {
     gl.uniform4fv(gl.getUniformLocation(this.deckProg, 'u_projLights'), this.currentLights);
     gl.uniform3fv(gl.getUniformLocation(this.deckProg, 'u_projColors'), this.currentLightColors);
 
+    const roomTypeMap: Record<string, number> = {
+      bridge: 0,
+      quarters: 1,
+      mess: 2,
+      corridor: 3,
+      armory: 4,
+      cargo: 5,
+      engineering: 6,
+    };
+
     for (const room of HESPERIA_ROOMS) {
       const o2 = boarding?.roomO2?.[room.id] ?? 100;
       const isVented = Boolean(boarding?.ventedRooms?.includes(room.id) || o2 < 25);
 
       gl.uniform1f(gl.getUniformLocation(this.deckProg, 'u_isVacuum'), isVented ? 1.0 : 0.0);
+      gl.uniform1i(gl.getUniformLocation(this.deckProg, 'u_roomType'), roomTypeMap[room.id] ?? 1);
+      gl.uniform4f(
+        gl.getUniformLocation(this.deckProg, 'u_roomBounds'),
+        room.x,
+        room.y,
+        room.width,
+        room.height
+      );
+
       if (room.id === 'corridor') {
-        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.16, 0.18, 0.24);
+        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.12, 0.14, 0.18);
       } else {
-        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.93, 0.94, 0.96);
+        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.9, 0.92, 0.95);
       }
 
       const x1 = room.x;
@@ -1008,16 +1124,62 @@ export class WebGL2Renderer {
     gl.drawArrays(mode ?? gl.TRIANGLES, 0, verts.length / 2);
   }
 
+  // fallow-ignore-next-line complexity
   private renderBulkheads(matrix: Float32Array): void {
     const gl = this.gl;
     this.bindFlatProgram(matrix);
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.12, 0.16, 0.22, 1.0);
 
-    const lines: number[] = [];
+    // 1. Soft Wall Drop Shadows cast onto the floor along bottom/right (+4, +5)
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.0, 0.0, 0.42);
+    const shadowLines: number[] = [];
     for (const wall of HESPERIA_WALLS) {
-      this.addThickSegment(lines, wall.x1, wall.y1, wall.x2, wall.y2, 5);
+      this.addThickSegment(shadowLines, wall.x1 + 4, wall.y1 + 5, wall.x2 + 4, wall.y2 + 5, 10);
     }
-    this.bufferAndDraw(new Float32Array(lines));
+    this.bufferAndDraw(new Float32Array(shadowLines));
+
+    // 2. Heavy Armored Structural Casing Core (7.5px dark charcoal gunmetal)
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
+    const coreLines: number[] = [];
+    for (const wall of HESPERIA_WALLS) {
+      this.addThickSegment(coreLines, wall.x1, wall.y1, wall.x2, wall.y2, 7.5);
+    }
+    this.bufferAndDraw(new Float32Array(coreLines));
+
+    // 3. Metallic Beveled Edge Highlight (2.8px steel blue)
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.32, 0.38, 0.48, 1.0);
+    const bevelLines: number[] = [];
+    for (const wall of HESPERIA_WALLS) {
+      this.addThickSegment(bevelLines, wall.x1, wall.y1, wall.x2, wall.y2, 2.8);
+    }
+    this.bufferAndDraw(new Float32Array(bevelLines));
+
+    // 4. Panel Seams
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.52, 0.58, 0.7, 1.0);
+    const detailLines: number[] = [];
+    for (const wall of HESPERIA_WALLS) {
+      const dx = wall.x2 - wall.x1;
+      const dy = wall.y2 - wall.y1;
+      const len = Math.hypot(dx, dy);
+      if (len > 32) {
+        const nx = -dy / len;
+        const ny = dx / len;
+        const steps = Math.floor(len / 32);
+        for (let i = 1; i < steps; i++) {
+          const px = wall.x1 + (dx * i) / steps;
+          const py = wall.y1 + (dy * i) / steps;
+          this.addThickSegment(
+            detailLines,
+            px - nx * 3.5,
+            py - ny * 3.5,
+            px + nx * 3.5,
+            py + ny * 3.5,
+            1.4
+          );
+        }
+      }
+    }
+    this.bufferAndDraw(new Float32Array(detailLines));
+
     gl.bindVertexArray(null);
   }
 
@@ -1041,130 +1203,185 @@ export class WebGL2Renderer {
     this.addThickSegment(hullLines, 200, 670, 200, 270, 4);
     this.bufferAndDraw(new Float32Array(hullLines));
 
-    // Animated rear thruster plasma plumes
+    // Animated rear thruster plasma plumes (3 engines)
     const flicker = 0.8 + 0.2 * Math.sin(time * 15.0);
     gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.85, 1.0, flicker);
     this.drawQuad(160, 330, 40, 18);
     this.drawQuad(160, 410, 40, 18);
     this.drawQuad(160, 490, 40, 18);
 
+    // Hot white inner thruster core
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.9, 0.98, 1.0, 0.95);
+    this.drawQuad(175, 334, 25, 10);
+    this.drawQuad(175, 414, 25, 10);
+    this.drawQuad(175, 494, 25, 10);
+
     gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity
-  private renderOpenDoor(x: number, y: number, w: number, h: number, isHoriz: boolean): void {
-    const gl = this.gl;
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.13, 0.77, 0.36, 1.0);
-    this.drawQuad(isHoriz ? x : x + 2, isHoriz ? y + 2 : y, 6, 6);
-    this.drawQuad(isHoriz ? x + w - 6 : x + 2, isHoriz ? y + 2 : y + h - 6, 6, 6);
-  }
-
-  // fallow-ignore-next-line complexity
-  private renderClosedDoor(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    isHoriz: boolean,
-    mx: number,
-    my: number
-  ): void {
-    const gl = this.gl;
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.92, 0.7, 0.03, 1.0);
-    this.drawQuad(x, y, w, h);
-
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.1, 0.1, 0.12, 1.0);
-    const count = isHoriz ? Math.floor(w / 14) : Math.floor(h / 14);
-    for (let i = 0; i < count; i += 2) {
-      this.drawQuad(
-        isHoriz ? x + i * 14 : x,
-        isHoriz ? y : y + i * 14,
-        isHoriz ? 7 : w,
-        isHoriz ? h : 7
-      );
-    }
-
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.15, 0.18, 0.24, 1.0);
-    this.drawQuad(mx - 14, my - 5, 28, 10);
-
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.94, 0.27, 0.27, 1.0);
-    this.drawQuad(mx - 6, my - 3, 12, 6);
-  }
-
-  // fallow-ignore-next-line complexity
-  private renderDoors(matrix: Float32Array, doors: DoorState[]): void {
+  private renderDoors(matrix: Float32Array, doors: DoorState[], dt: number): void {
     this.bindFlatProgram(matrix);
+    const gl = this.gl;
+
     for (const door of doors) {
       const isHoriz = Math.abs(door.y2 - door.y1) < Math.abs(door.x2 - door.x1);
       const minX = Math.min(door.x1, door.x2);
       const minY = Math.min(door.y1, door.y2);
-      const w = isHoriz ? Math.abs(door.x2 - door.x1) : 12;
-      const h = isHoriz ? 12 : Math.abs(door.y2 - door.y1);
-      const x = isHoriz ? minX : door.x1 - 6;
-      const y = isHoriz ? door.y1 - 6 : minY;
+      const w = isHoriz ? Math.abs(door.x2 - door.x1) : 14;
+      const h = isHoriz ? 14 : Math.abs(door.y2 - door.y1);
+      const x = isHoriz ? minX : door.x1 - 7;
+      const y = isHoriz ? door.y1 - 7 : minY;
 
-      if (door.isOpen) {
-        this.renderOpenDoor(x, y, w, h, isHoriz);
+      const targetRatio = door.isOpen ? 1.0 : 0.0;
+      const prevRatio = this.doorOpenRatios.get(door.id) ?? targetRatio;
+      const newRatio = prevRatio + (targetRatio - prevRatio) * Math.min(1.0, dt * 9.0);
+      this.doorOpenRatios.set(door.id, newRatio);
+
+      // 1. Recessed door frame track housing (fixed at jambs)
+      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.12, 0.14, 0.18, 1.0);
+      if (isHoriz) {
+        this.drawQuad(x, y, 7, h);
+        this.drawQuad(x + w - 7, y, 7, h);
       } else {
+        this.drawQuad(x, y, w, 7);
+        this.drawQuad(x, y + h - 7, w, 7);
+      }
+
+      // 2. Frame clearance indicator LED (green when open, red when closed)
+      const ledCol: [number, number, number] = door.isOpen ? [0.1, 0.95, 0.35] : [0.95, 0.2, 0.2];
+      gl.uniform4f(
+        gl.getUniformLocation(this.flatProg, 'u_color'),
+        ledCol[0],
+        ledCol[1],
+        ledCol[2],
+        1.0
+      );
+      if (isHoriz) {
+        this.drawQuad(x + 2, y + 2, 3, 3);
+        this.drawQuad(x + w - 5, y + 2, 3, 3);
+      } else {
+        this.drawQuad(x + 2, y + 2, 3, 3);
+        this.drawQuad(x + 2, y + h - 5, 3, 3);
+      }
+
+      // 3. Sliding Blast Door Slabs (retract towards jambs as newRatio -> 1.0)
+      const slideOffset = (isHoriz ? w * 0.42 : h * 0.42) * newRatio;
+      const slabW = isHoriz ? w * 0.5 - 2 : w - 2;
+      const slabH = isHoriz ? h - 2 : h * 0.5 - 2;
+
+      // Slab 1 (Left / Top)
+      const s1x = isHoriz ? x + 1 - slideOffset : x + 1;
+      const s1y = isHoriz ? y + 1 : y + 1 - slideOffset;
+      // Slab 2 (Right / Bottom)
+      const s2x = isHoriz ? x + w * 0.5 + 1 + slideOffset : x + 1;
+      const s2y = isHoriz ? y + 1 : y + h * 0.5 + 1 + slideOffset;
+
+      // Slab armor base
+      gl.uniform4f(
+        gl.getUniformLocation(this.flatProg, 'u_color'),
+        0.88,
+        0.68,
+        0.05,
+        1.0 - newRatio * 0.8
+      );
+      this.drawQuad(s1x, s1y, slabW, slabH);
+      this.drawQuad(s2x, s2y, slabW, slabH);
+
+      // Hazard chevron stripes on door slabs
+      gl.uniform4f(
+        gl.getUniformLocation(this.flatProg, 'u_color'),
+        0.12,
+        0.14,
+        0.16,
+        1.0 - newRatio * 0.8
+      );
+      const stripes = isHoriz ? Math.floor(w / 16) : Math.floor(h / 16);
+      for (let i = 0; i < stripes; i += 2) {
+        const sx = isHoriz ? x + i * 16 : x;
+        const sy = isHoriz ? y : y + i * 16;
+        this.drawQuad(sx + 2, sy + 2, isHoriz ? 7 : w - 4, isHoriz ? h - 4 : 7);
+      }
+
+      // Central hydraulic clamp coupling
+      if (newRatio < 0.8) {
         const mx = (door.x1 + door.x2) / 2;
         const my = (door.y1 + door.y2) / 2;
-        this.renderClosedDoor(x, y, w, h, isHoriz, mx, my);
+        gl.uniform4f(
+          gl.getUniformLocation(this.flatProg, 'u_color'),
+          0.18,
+          0.22,
+          0.28,
+          1.0 - newRatio
+        );
+        this.drawQuad(mx - 10, my - 4, 20, 8);
+        gl.uniform4f(
+          gl.getUniformLocation(this.flatProg, 'u_color'),
+          0.95,
+          0.18,
+          0.22,
+          1.0 - newRatio
+        );
+        this.drawQuad(mx - 4, my - 2, 8, 4);
       }
     }
     this.gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity
-  private renderStations(matrix: Float32Array, nearestId?: string): void {
-    const gl = this.gl;
+  private renderStations(matrix: Float32Array, nearestId?: string, timeSec = 0): void {
     this.bindFlatProgram(matrix);
+    const ctx = this.getRenderContext();
 
     for (const st of HESPERIA_STATIONS) {
       const isNear = st.id === nearestId;
-      gl.uniform4f(
-        gl.getUniformLocation(this.flatProg, 'u_color'),
-        isNear ? 0.0 : 0.15,
-        isNear ? 0.9 : 0.45,
-        isNear ? 1.0 : 0.65,
-        1.0
-      );
-      this.drawCircle(st.x, st.y, st.radius, 16);
+      if (isNear) {
+        renderStationInteractionAura(ctx, st, timeSec);
+      }
+
+      if (st.stationType === 'bridge') {
+        renderBridgeHelm(ctx, st, isNear, timeSec);
+      } else if (st.stationType === 'reactor') {
+        renderReactorConsole(ctx, st, isNear, timeSec);
+      } else if (st.stationType === 'armory') {
+        renderArmoryLocker(ctx, st, isNear, timeSec);
+      } else if (st.stationType === 'cargo') {
+        renderCargoWinch(ctx, st, isNear, timeSec);
+      } else if (st.stationType === 'hydroponics') {
+        renderHydroScrubber(ctx, st, isNear, timeSec);
+      } else if (st.stationType === 'bunk') {
+        renderCrewBunk(ctx, st, isNear, timeSec);
+      } else if (st.stationType === 'mess') {
+        if (st.id === 'mess_prep') {
+          renderGalleyPrep(ctx, st, isNear, timeSec);
+        } else {
+          renderDispenser(ctx, st, isNear, st.id.includes('water'), timeSec);
+        }
+      }
     }
-    gl.bindVertexArray(null);
+    this.gl.bindVertexArray(null);
   }
 
-  private renderPawn(matrix: Float32Array, pawn: PawnState): void {
-    const gl = this.gl;
+  private renderPawn(
+    matrix: Float32Array,
+    pawn: PawnState,
+    equippedWeapon: WeaponType = 'kinetic_carbine',
+    timeSec = 0
+  ): void {
     this.bindFlatProgram(matrix);
-
-    // Body
-    let r = 1.0;
-    let g = 0.69;
-    let b = 0.0;
-    if (pawn.color?.startsWith('#') && pawn.color.length >= 7) {
-      r = parseInt(pawn.color.slice(1, 3), 16) / 255;
-      g = parseInt(pawn.color.slice(3, 5), 16) / 255;
-      b = parseInt(pawn.color.slice(5, 7), 16) / 255;
-    }
-
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), r, g, b, 1.0);
-    this.drawCircle(pawn.x, pawn.y, 14, 16);
-
-    // Visor
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.9, 1.0, 1.0);
-    const hx = pawn.x + Math.cos(pawn.facingAngle) * 9;
-    const hy = pawn.y + Math.sin(pawn.facingAngle) * 9;
-    this.drawCircle(hx, hy, 4, 10);
-    gl.bindVertexArray(null);
+    const ctx = this.getRenderContext();
+    renderTacticalPawn(ctx, pawn, equippedWeapon, timeSec, this.lastWeaponRecoil);
+    this.gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity
   private renderIntruders(
     matrix: Float32Array,
-    intruders: NonNullable<BoardingTacticsTelemetry['intruders']>
+    intruders: NonNullable<BoardingTacticsTelemetry['intruders']>,
+    timeSec = 0
   ): void {
-    const gl = this.gl;
     this.bindFlatProgram(matrix);
+    const ctx = this.getRenderContext();
 
     for (const intruder of intruders) {
       if (intruder.state === 'neutralized') continue;
@@ -1174,30 +1391,18 @@ export class WebGL2Renderer {
         isPointInPolygon({ x: intruder.x, y: intruder.y }, this.lastPlayerLosPoly);
       if (!inLoS) continue;
 
-      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.72, 0.11, 0.11, 1.0);
-      this.drawCircle(intruder.x, intruder.y, 13, 16);
-
-      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 0.1, 0.1, 1.0);
-      const vx = intruder.x + Math.cos(intruder.facingAngle) * 8;
-      const vy = intruder.y + Math.sin(intruder.facingAngle) * 8;
-      this.drawCircle(vx, vy, 3.5, 8);
-
-      const hpPct = Math.max(0, intruder.health / (intruder.maxHealth || 100));
-      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.1, 0.1, 0.1, 0.8);
-      this.drawQuad(intruder.x - 14, intruder.y - 20, 28, 4);
-
-      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 0.2, 0.2, 1.0);
-      this.drawQuad(intruder.x - 14, intruder.y - 20, 28 * hpPct, 4);
+      renderRaiderIntruder(ctx, intruder, timeSec);
     }
-    gl.bindVertexArray(null);
+    this.gl.bindVertexArray(null);
   }
 
   private renderSentries(
     matrix: Float32Array,
-    sentries: NonNullable<BoardingTacticsTelemetry['sentries']>
+    sentries: NonNullable<BoardingTacticsTelemetry['sentries']>,
+    timeSec = 0
   ): void {
-    const gl = this.gl;
     this.bindFlatProgram(matrix);
+    const ctx = this.getRenderContext();
 
     for (const sentry of sentries) {
       const inLoS =
@@ -1205,15 +1410,24 @@ export class WebGL2Renderer {
         isPointInPolygon({ x: sentry.x, y: sentry.y }, this.lastPlayerLosPoly);
       if (!inLoS) continue;
 
-      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.2, 0.25, 0.35, 1.0);
-      this.drawCircle(sentry.x, sentry.y, 10, 12);
-
-      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.0, 0.9, 1.0, 1.0);
-      const bx = sentry.x + Math.cos(sentry.facingAngle) * 14;
-      const by = sentry.y + Math.sin(sentry.facingAngle) * 14;
-      this.drawQuad(bx - 2, by - 2, 4, 4);
+      renderSentryTurret(ctx, sentry, timeSec);
     }
-    gl.bindVertexArray(null);
+    this.gl.bindVertexArray(null);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderDustMotes(matrix: Float32Array, timeSec: number, dt: number): void {
+    this.bindFlatProgram(matrix);
+    const gl = this.gl;
+    for (const m of this.dustMotes) {
+      m.x = 60 + ((m.x + m.vx * dt - 60 + 1080) % 1080);
+      m.y = 60 + ((m.y + m.vy * dt - 60 + 680) % 680);
+
+      const shimmer = m.alpha * (0.8 + 0.2 * Math.sin(timeSec * 3.0 + m.x));
+      gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 0.8, 0.9, 1.0, shimmer);
+      this.drawCircle(m.x, m.y, m.size, 6);
+    }
+    this.gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity

@@ -1,13 +1,19 @@
 import type {
   PlayerVitals,
+  ShiftChecklistState,
+  ShiftEvaluation,
   StartingRole,
   TelemetryDeltaBroadcast,
   WeaponType,
 } from '@kybernetes/protocol';
 import {
+  advanceShiftTask,
   calculateDutyRewards,
+  calculateProjectedGrade,
   createInitialPlayerVitals,
   createInitialVesselState,
+  evaluateShiftPerformance,
+  generateShiftChecklist,
   updatePlayerVitals,
 } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
@@ -19,6 +25,7 @@ import { CharacterCreationModal, type CharacterProfile } from './components/Char
 import { CrewManifestModal } from './components/CrewManifestModal';
 import { MainMenu } from './components/MainMenu';
 import { RoleSelectModal } from './components/RoleSelectModal';
+import { ShiftDebriefModal } from './components/ShiftDebriefModal';
 import { VesselCanvas } from './components/VesselCanvas';
 import { usePawnMovement } from './hooks/usePawnMovement';
 import { getStationActionConfig, useStationInteraction } from './hooks/useStationInteraction';
@@ -53,6 +60,7 @@ interface PersistedClientCrewState {
   credits: number;
   clearanceLevel: number;
   clearanceXp: number;
+  shiftChecklist?: ShiftChecklistState;
 }
 
 function getOrCreateUserId(): string {
@@ -104,13 +112,56 @@ function restorePersistedVitalsAndRewards(
   setVitals: React.Dispatch<React.SetStateAction<PlayerVitals>>,
   setCredits: React.Dispatch<React.SetStateAction<number>>,
   setClearanceLevel: React.Dispatch<React.SetStateAction<number>>,
-  setClearanceXp: React.Dispatch<React.SetStateAction<number>>
+  setClearanceXp: React.Dispatch<React.SetStateAction<number>>,
+  setShiftChecklist: React.Dispatch<React.SetStateAction<ShiftChecklistState>>,
+  currentRole: StartingRole
 ): void {
   if (!persisted) return;
   setVitals(persisted.vitals ?? createInitialPlayerVitals());
   setCredits(persisted.credits ?? 120);
   setClearanceLevel(persisted.clearanceLevel ?? 1);
   setClearanceXp(persisted.clearanceXp ?? 0);
+  if (persisted.shiftChecklist && persisted.shiftChecklist.role === currentRole) {
+    setShiftChecklist(persisted.shiftChecklist);
+  } else {
+    setShiftChecklist(generateShiftChecklist(currentRole, 1));
+  }
+}
+
+interface ShiftProgressionContext {
+  dutyId: string;
+  role: StartingRole;
+  shiftChecklist: ShiftChecklistState;
+  vitals: PlayerVitals;
+  onReward: (credits: number, xp: number) => void;
+  setShiftChecklist: React.Dispatch<React.SetStateAction<ShiftChecklistState>>;
+  onFinishShift: (evaluation: ShiftEvaluation) => void;
+  onNotice: (msg: string) => void;
+}
+
+// fallow-ignore-next-line complexity
+function processShiftDutyCompletion(ctx: ShiftProgressionContext): void {
+  const activeTask = ctx.shiftChecklist.tasks[ctx.shiftChecklist.currentTaskIndex];
+  const isScheduled =
+    Boolean(activeTask) && activeTask.dutyId === ctx.dutyId && !ctx.shiftChecklist.isCompleted;
+
+  if (!isScheduled) {
+    ctx.onNotice('[UNSCHEDULED TASK] Action completed - No shift XP awarded');
+    return;
+  }
+
+  const rew = calculateDutyRewards(ctx.dutyId, ctx.role);
+  ctx.onReward(rew.credits, rew.xp);
+
+  const stepRes = advanceShiftTask(ctx.shiftChecklist, ctx.dutyId);
+  ctx.setShiftChecklist(stepRes.nextShift);
+
+  if (stepRes.shiftFinished) {
+    const evalResult = evaluateShiftPerformance(stepRes.nextShift, ctx.vitals);
+    ctx.onFinishShift(evalResult);
+  } else {
+    ctx.onNotice(`[SHIFT TASK COMPLETE] +${rew.credits} Cr, +${rew.xp} XP`);
+  }
 }
 
 // fallow-ignore-next-line complexity
@@ -148,7 +199,24 @@ export const App: React.FC = () => {
 
   const [role, setRole] = useState<StartingRole>('wiper');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
+  const [shiftChecklist, setShiftChecklist] = useState<ShiftChecklistState>(() =>
+    generateShiftChecklist('wiper', 1)
+  );
+  const [showDebriefModal, setShowDebriefModal] = useState(false);
+  const [shiftEvaluation, setShiftEvaluation] = useState<ShiftEvaluation | null>(null);
   const [vitals, setVitals] = useState(createInitialPlayerVitals);
+  const [shiftElapsedSec, setShiftElapsedSec] = useState(0);
+
+  const projectedGrade = useMemo(
+    () => calculateProjectedGrade(shiftElapsedSec, vitals),
+    [shiftElapsedSec, vitals]
+  );
+
+  const shiftTimerFormatted = useMemo(() => {
+    const mins = Math.floor(shiftElapsedSec / 60);
+    const secs = shiftElapsedSec % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }, [shiftElapsedSec]);
   const [credits, setCredits] = useState(120);
   const [clearanceXp, setClearanceXp] = useState(0);
   const [clearanceLevel, setClearanceLevel] = useState(1);
@@ -209,6 +277,7 @@ export const App: React.FC = () => {
       credits,
       clearanceLevel,
       clearanceXp,
+      shiftChecklist,
     });
   }, [
     activeVesselCode,
@@ -223,6 +292,7 @@ export const App: React.FC = () => {
     credits,
     clearanceLevel,
     clearanceXp,
+    shiftChecklist,
   ]);
 
   const startSession = useCallback(
@@ -249,7 +319,9 @@ export const App: React.FC = () => {
           setVitals,
           setCredits,
           setClearanceLevel,
-          setClearanceXp
+          setClearanceXp,
+          setShiftChecklist,
+          chosenRole
         );
       } else {
         resetToSpawn(chosenRole);
@@ -259,6 +331,7 @@ export const App: React.FC = () => {
           role: chosenRole,
           color: chosenColor,
         }));
+        setShiftChecklist(generateShiftChecklist(chosenRole, 1));
       }
 
       setActiveVesselCode(cleanCode);
@@ -375,16 +448,45 @@ export const App: React.FC = () => {
     });
   };
 
+  const activeDutyId = shiftChecklist.tasks[shiftChecklist.currentTaskIndex]?.dutyId;
+
   const { interaction, startInteraction, abortInteraction, tickInteraction } =
     useStationInteraction({
       role,
+      activeDutyId,
       onCompleteDuty: (dutyId) => {
-        const rew = calculateDutyRewards(dutyId, role);
-        setCredits((c) => c + rew.credits);
-        setClearanceXp((xp) => {
-          const nextXp = xp + rew.xp;
-          if (nextXp >= 100 * clearanceLevel) setClearanceLevel((lvl) => lvl + 1);
-          return nextXp;
+        processShiftDutyCompletion({
+          dutyId,
+          role,
+          shiftChecklist,
+          vitals,
+          onReward: (creditsDelta, xpDelta) => {
+            setCredits((c) => c + creditsDelta);
+            setClearanceXp((prev) => {
+              const nextXp = prev + xpDelta;
+              if (nextXp >= 100 * clearanceLevel) setClearanceLevel((lvl) => lvl + 1);
+              return nextXp;
+            });
+          },
+          setShiftChecklist,
+          onFinishShift: (evalResult) => {
+            setShiftEvaluation(evalResult);
+            setCredits((c) => c + evalResult.bonusCredits);
+            setClearanceXp((prev) => {
+              const nextXp = prev + evalResult.bonusXp;
+              if (nextXp >= 100 * clearanceLevel) setClearanceLevel((lvl) => lvl + 1);
+              return nextXp;
+            });
+            setShowDebriefModal(true);
+            setInGameNotice(
+              `[SHIFT #${shiftChecklist.shiftNumber} COMPLETE] Rating: Grade ${evalResult.grade}!`
+            );
+            setTimeout(() => setInGameNotice(null), 3000);
+          },
+          onNotice: (msg) => {
+            setInGameNotice(msg);
+            setTimeout(() => setInGameNotice(null), 3000);
+          },
         });
       },
       onConsumePaste: () => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) })),
@@ -486,6 +588,16 @@ export const App: React.FC = () => {
     sendAction,
   ]);
 
+  const handleCommenceNextShift = useCallback(() => {
+    setShowDebriefModal(false);
+    setShiftChecklist((prev) => {
+      const nextShift = generateShiftChecklist(role, prev.shiftNumber + 1);
+      return nextShift;
+    });
+    setInGameNotice(`[WATCH ROTATION] Commencing Shift #${shiftChecklist.shiftNumber + 1}`);
+    setTimeout(() => setInGameNotice(null), 3000);
+  }, [role, shiftChecklist.shiftNumber]);
+
   // Main simulation tick loop
   useEffect(() => {
     const timer = setInterval(() => {
@@ -494,15 +606,24 @@ export const App: React.FC = () => {
       setVitals((v) =>
         updatePlayerVitals(v, dt, Boolean(pawn.isResting), Boolean(pawn.isOperating))
       );
+      if (!shiftChecklist.isCompleted) {
+        setShiftElapsedSec(Math.max(0, Math.floor((Date.now() - shiftChecklist.startedAt) / 1000)));
+      }
     }, 100);
 
     return () => clearInterval(timer);
-  }, [tickInteraction, pawn.isResting, pawn.isOperating]);
+  }, [
+    tickInteraction,
+    pawn.isResting,
+    pawn.isOperating,
+    shiftChecklist.isCompleted,
+    shiftChecklist.startedAt,
+  ]);
 
   // Determine current prompt text for nearest station
   const nearestActionConfig = useMemo(() => {
-    return nearestStation ? getStationActionConfig(nearestStation, role) : null;
-  }, [nearestStation, role]);
+    return nearestStation ? getStationActionConfig(nearestStation, role, activeDutyId) : null;
+  }, [nearestStation, role, activeDutyId]);
 
   if (!activeVesselCode) {
     return (
@@ -549,6 +670,9 @@ export const App: React.FC = () => {
           clearanceXp={clearanceXp}
           credits={credits}
           equippedWeapon={equippedWeapon}
+          shiftChecklist={shiftChecklist}
+          projectedGrade={projectedGrade}
+          shiftTimerFormatted={shiftTimerFormatted}
           triageNotice={triageNotice}
           inGameNotice={inGameNotice}
           dualProtocol={dualProtocol}
@@ -594,6 +718,7 @@ export const App: React.FC = () => {
             resetToSpawn(r);
             setShowRoleSelect(false);
             abortInteraction();
+            setShiftChecklist(generateShiftChecklist(r, 1));
             sendAction({
               type: 'JOIN_VESSEL',
               vesselCode: beaconCode,
@@ -602,6 +727,14 @@ export const App: React.FC = () => {
             });
           }}
           onClose={() => setShowRoleSelect(false)}
+        />
+      )}
+
+      {showDebriefModal && shiftEvaluation && (
+        <ShiftDebriefModal
+          evaluation={shiftEvaluation}
+          onCommenceNextShift={handleCommenceNextShift}
+          onClose={() => setShowDebriefModal(false)}
         />
       )}
 

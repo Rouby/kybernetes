@@ -5,6 +5,8 @@ import type {
   PawnState,
   PlayerVitals,
   ProjectileState,
+  ShiftChecklistState,
+  ShiftEvaluationGrade,
   StationFixture,
   TelemetryDeltaBroadcast,
   WeaponType,
@@ -39,6 +41,9 @@ interface VesselCanvasProps {
   clearanceXp?: number;
   credits?: number;
   equippedWeapon?: WeaponType;
+  shiftChecklist?: ShiftChecklistState;
+  projectedGrade?: ShiftEvaluationGrade;
+  shiftTimerFormatted?: string;
   triageNotice?: string | null;
   inGameNotice?: string | null;
   dualProtocol?: DualProtocolBroadcast | null;
@@ -181,6 +186,7 @@ function handleCanvasMouseDown(
   camera: { x: number; y: number },
   doors: DoorState[] | undefined,
   nearestStation: StationFixture | null,
+  zoom = 1.0,
   onStationClick?: (station: StationFixture) => void,
   onToggleDoor?: (doorId: string, open: boolean) => void,
   startFiring?: () => void
@@ -199,10 +205,10 @@ function handleCanvasMouseDown(
     return;
   }
 
-  const clickX = e.clientX - rect.left;
-  const clickY = e.clientY - rect.top;
-  const worldX = clickX - canvas.width / 2 + camera.x;
-  const worldY = clickY - canvas.height / 2 + camera.y;
+  const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const worldX = (clickX - canvas.width / 2) / zoom + camera.x;
+  const worldY = (clickY - canvas.height / 2) / zoom + camera.y;
 
   if (doors && onToggleDoor) {
     const clickedDoor = doors.find((d) => {
@@ -244,6 +250,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   clearanceXp,
   credits,
   equippedWeapon = 'kinetic_carbine',
+  shiftChecklist,
+  projectedGrade,
+  shiftTimerFormatted,
   triageNotice,
   inGameNotice,
   dualProtocol,
@@ -275,6 +284,12 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   const queuedImpactsRef = useRef<
     Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>
   >([]);
+  const queuedMuzzleFlashesRef = useRef<Array<{ x: number; y: number; weaponType: WeaponType }>>(
+    []
+  );
+  const shakeIntensityRef = useRef(0);
+  const zoomRef = useRef(1.0);
+  const targetZoomRef = useRef(1.0);
 
   const isFiringRef = useRef(false);
   const wasWeldingRef = useRef(false);
@@ -315,6 +330,20 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         chargeRatio
       );
       localProjectilesRef.current.push({ ...proj, spawnTime: performance.now() });
+
+      // Trigger instantaneous muzzle flash
+      queuedMuzzleFlashesRef.current.push({
+        x: originX,
+        y: originY,
+        weaponType,
+      });
+
+      // Micro screenshake impulse
+      shakeIntensityRef.current = Math.min(
+        8,
+        shakeIntensityRef.current + (weaponType === 'kinetic_carbine' ? 1.8 : 3.6 * chargeRatio)
+      );
+
       onFireWeapon?.(originX, originY, targetX, targetY, weaponType, chargeRatio);
     },
     [onFireWeapon]
@@ -413,6 +442,20 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   }, []);
 
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.0012;
+      targetZoomRef.current = Math.max(0.75, Math.min(1.25, targetZoomRef.current + delta));
+    };
+
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  useEffect(() => {
     // fallow-ignore-next-line complexity
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -477,11 +520,30 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         localProjectilesRef.current,
         dt,
         doors,
-        (hitX, hitY, type) => queuedImpactsRef.current.push({ x: hitX, y: hitY, type })
+        (hitX, hitY, type) => {
+          queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
+          shakeIntensityRef.current = Math.min(8, shakeIntensityRef.current + 1.4);
+        }
       );
 
-      cameraRef.current.x += (pawn.x - cameraRef.current.x) * 0.12;
-      cameraRef.current.y += (pawn.y - cameraRef.current.y) * 0.12;
+      // Look-ahead camera lead towards aiming crosshair
+      const leadFactor = 0.15;
+      const targetCamX = pawn.x + (mouseWorldRef.current.x - pawn.x) * leadFactor;
+      const targetCamY = pawn.y + (mouseWorldRef.current.y - pawn.y) * leadFactor;
+      cameraRef.current.x += (targetCamX - cameraRef.current.x) * 0.12;
+      cameraRef.current.y += (targetCamY - cameraRef.current.y) * 0.12;
+
+      // Micro screenshake decaying impulse
+      shakeIntensityRef.current = Math.max(0, shakeIntensityRef.current - dt * 14.0);
+      const shakeX = (Math.random() - 0.5) * shakeIntensityRef.current;
+      const shakeY = (Math.random() - 0.5) * shakeIntensityRef.current;
+      const renderCam = {
+        x: cameraRef.current.x + shakeX,
+        y: cameraRef.current.y + shakeY,
+      };
+
+      // Tactical zoom interpolation
+      zoomRef.current += (targetZoomRef.current - zoomRef.current) * 0.15;
 
       const aimAngle = Math.atan2(
         mouseWorldRef.current.y - pawn.y,
@@ -620,6 +682,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         }
       }
 
+      const muzzleFlashes = queuedMuzzleFlashesRef.current;
+      queuedMuzzleFlashesRef.current = [];
+
       rendererRef.current?.render(
         {
           pawn: activePawn,
@@ -641,11 +706,16 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           inGameNotice,
           dualProtocol,
           collabShift,
-          camera: cameraRef.current,
+          shiftChecklist,
+          projectedGrade,
+          shiftTimerFormatted,
+          camera: renderCam,
+          zoom: zoomRef.current,
           mouseWorld: mouseWorldRef.current,
           mouseScreen: mouseScreenRef.current,
           timeMs: now,
           impacts,
+          muzzleFlashes,
           chargingState: {
             active: isFiringRef.current && equippedWeapon === 'pulse_laser',
             ratio: laserChargeRatio,
@@ -704,6 +774,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     inGameNotice,
     dualProtocol,
     collabShift,
+    shiftChecklist,
+    projectedGrade,
+    shiftTimerFormatted,
     fireKineticRound,
     onWelderAoe,
     onWeldingStateChange,
@@ -748,11 +821,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             canvas.style.cursor = isHit ? 'pointer' : 'crosshair';
           }
 
-          const clickX = e.clientX - rect.left;
-          const clickY = e.clientY - rect.top;
+          const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+          const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
           mouseWorldRef.current = {
-            x: clickX - canvas.width / 2 + cameraRef.current.x,
-            y: clickY - canvas.height / 2 + cameraRef.current.y,
+            x: (clickX - canvas.width / 2) / zoomRef.current + cameraRef.current.x,
+            y: (clickY - canvas.height / 2) / zoomRef.current + cameraRef.current.y,
           };
         }}
         onMouseDown={(e) =>
@@ -763,6 +836,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             cameraRef.current,
             activeDoors,
             nearestStation,
+            zoomRef.current,
             onStationClick,
             onToggleDoor,
             startFiring

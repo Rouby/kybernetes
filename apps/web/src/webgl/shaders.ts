@@ -107,6 +107,8 @@ in vec2 v_worldPos;
 uniform vec3 u_floorColor;
 uniform float u_isVacuum;
 uniform float u_time;
+uniform int u_roomType;
+uniform vec4 u_roomBounds; // xy = origin, zw = dimensions
 uniform vec4 u_projLights[6]; // xy = pos, z = radius, w = intensity
 uniform vec3 u_projColors[6];
 
@@ -114,19 +116,96 @@ out vec4 fragColor;
 
 void main() {
   vec3 baseColor;
+
   if (u_isVacuum > 0.5) {
-    // FTL signature diagonal hazard vacuum stripes
-    float stripe = step(0.5, fract((v_worldPos.x + v_worldPos.y - u_time * 24.0) / 28.0));
-    baseColor = mix(vec3(1.0, 0.78, 0.82), vec3(0.92, 0.48, 0.52), stripe);
-  } else {
-    // 35px FTL grid tiles
-    vec2 coord = v_worldPos / 35.0;
+    // Dynamic FTL hazard decompression stripes
+    float stripe = step(0.5, fract((v_worldPos.x + v_worldPos.y - u_time * 28.0) / 24.0));
+    baseColor = mix(vec3(0.92, 0.28, 0.32), vec3(0.35, 0.08, 0.12), stripe);
+  } else if (u_roomType == 0) {
+    // COMMAND BRIDGE: High-tech dark slate decking with cyan edge telemetry and central command circle
+    vec2 coord = v_worldPos / 32.0;
     vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
     float line = 1.0 - min(min(grid.x, grid.y), 1.0);
-    baseColor = mix(u_floorColor, vec3(0.70, 0.76, 0.84), clamp(line * 0.9, 0.0, 1.0));
+    vec3 bridgePlate = mix(vec3(0.11, 0.14, 0.20), vec3(0.18, 0.23, 0.32), clamp(line * 0.8, 0.0, 1.0));
+
+    // Command helm dais concentric tactical ring (at helm vicinity x=220, y=160)
+    float dCenter = length(v_worldPos - vec2(220.0, 160.0));
+    float ring = smoothstep(1.5, 0.0, abs(dCenter - 64.0)) * 0.45;
+    float innerRing = smoothstep(1.2, 0.0, abs(dCenter - 36.0)) * 0.35;
+    baseColor = bridgePlate + vec3(0.0, 0.85, 1.0) * (ring + innerRing);
+
+  } else if (u_roomType == 6) {
+    // REACTOR ENGINEERING: Industrial steel diamond tread plate with high-voltage hazard zone
+    vec2 dPos = v_worldPos * 0.18;
+    float diamond = abs(fract(dPos.x + dPos.y) - 0.5) + abs(fract(dPos.x - dPos.y) - 0.5);
+    float plate = step(0.68, diamond) * 0.15;
+    vec3 engMetal = mix(vec3(0.14, 0.16, 0.20), vec3(0.24, 0.27, 0.33), plate);
+
+    // Hazard warning zone around reactor core monitor (x=970, y=570)
+    float dCore = length(v_worldPos - vec2(970.0, 570.0));
+    if (dCore > 46.0 && dCore < 56.0) {
+      float hStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 14.0));
+      baseColor = mix(vec3(0.95, 0.78, 0.05), vec3(0.1, 0.1, 0.12), hStripes);
+    } else {
+      baseColor = engMetal;
+    }
+
+  } else if (u_roomType == 5) {
+    // CARGO BAY & ORE HOLD: Scuffed heavy freight plating with yellow/black loading zone markings
+    vec2 cCoord = (v_worldPos - u_roomBounds.xy) / 55.0;
+    vec2 cGrid = abs(fract(cCoord - 0.5) - 0.5) / fwidth(cCoord);
+    float cLine = 1.0 - min(min(cGrid.x, cGrid.y), 1.0);
+    vec3 cargoMetal = mix(vec3(0.19, 0.20, 0.23), vec3(0.26, 0.28, 0.31), clamp(cLine * 0.75, 0.0, 1.0));
+
+    // Staging mag-pad hazard box perimeter (around winch x=590, y=570)
+    vec2 cargoRel = abs(v_worldPos - vec2(590.0, 570.0));
+    if (max(cargoRel.x, cargoRel.y) > 42.0 && max(cargoRel.x, cargoRel.y) < 50.0) {
+      float hStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 12.0));
+      baseColor = mix(vec3(0.92, 0.74, 0.08), vec3(0.12, 0.12, 0.14), hStripes);
+    } else {
+      baseColor = cargoMetal;
+    }
+
+  } else if (u_roomType == 4) {
+    // ARMORY & SECURITY: Reinforced ballistic dark gunmetal deck with crimson security perimeter
+    vec2 aCoord = v_worldPos / 30.0;
+    vec2 aGrid = abs(fract(aCoord - 0.5) - 0.5) / fwidth(aCoord);
+    float aLine = 1.0 - min(min(aGrid.x, aGrid.y), 1.0);
+    vec3 armoryBase = mix(vec3(0.13, 0.15, 0.19), vec3(0.22, 0.25, 0.30), clamp(aLine * 0.7, 0.0, 1.0));
+
+    // Perimeter security red warning line inset 8px from walls
+    vec2 dWall = min(v_worldPos - u_roomBounds.xy, u_roomBounds.xy + u_roomBounds.zw - v_worldPos);
+    if ((dWall.x > 7.0 && dWall.x < 11.0) || (dWall.y > 7.0 && dWall.y < 11.0)) {
+      baseColor = mix(armoryBase, vec3(0.9, 0.15, 0.2), 0.75);
+    } else {
+      baseColor = armoryBase;
+    }
+
+  } else if (u_roomType == 3) {
+    // CENTRAL TRANSIT CONDUIT: Industrial non-slip transit runner walkway with navigation track
+    float distFromCenter = abs(v_worldPos.y - 340.0);
+    float runner = step(distFromCenter, 24.0);
+    float rib = step(0.45, fract(v_worldPos.x / 18.0)) * 0.14;
+    vec3 conduitBase = mix(vec3(0.12, 0.14, 0.18), vec3(0.18, 0.22, 0.27), rib);
+
+    // Glowing cyan transit guide line at runner borders
+    float runnerEdge = smoothstep(1.2, 0.0, abs(distFromCenter - 24.0));
+    baseColor = mix(conduitBase, vec3(0.0, 0.8, 0.95), runnerEdge * 0.7);
+
+  } else {
+    // CREW BUNKS (1) & MESS HALL (2): Modular clean living panels
+    vec2 qCoord = v_worldPos / 38.0;
+    vec2 qGrid = abs(fract(qCoord - 0.5) - 0.5) / fwidth(qCoord);
+    float qLine = 1.0 - min(min(qGrid.x, qGrid.y), 1.0);
+    baseColor = mix(u_floorColor, vec3(0.68, 0.74, 0.82), clamp(qLine * 0.85, 0.0, 1.0));
   }
 
-  // Subtle localized floor glow from nearby laser fire
+  // Soft Ambient Occlusion / Wall Drop Shadow along room perimeter
+  vec2 dPerimeter = min(v_worldPos - u_roomBounds.xy, u_roomBounds.xy + u_roomBounds.zw - v_worldPos);
+  float wallShadow = smoothstep(0.0, 14.0, min(dPerimeter.x, dPerimeter.y));
+  baseColor *= mix(0.55, 1.0, wallShadow);
+
+  // Dynamic light accumulation from nearby projectile energy
   vec3 lightAccum = vec3(0.0);
   for (int i = 0; i < 6; i++) {
     if (u_projLights[i].z <= 0.0) continue;
@@ -138,7 +217,6 @@ void main() {
     }
   }
 
-  // A subtle glow on the floor (~28% intensity)
   vec3 finalColor = baseColor + lightAccum * 0.28;
   fragColor = vec4(finalColor, 1.0);
 }

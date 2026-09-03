@@ -1,5 +1,7 @@
+export * from './bots/botManager';
 export * from './duties';
 export * from './gameLoop';
+export * from './quests/shiftChecklist';
 export * from './roles';
 export * from './spatial/collision';
 export * from './spatial/deck';

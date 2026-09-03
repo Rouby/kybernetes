@@ -1,6 +1,6 @@
 import type { StartingRole, StationFixture } from '@kybernetes/protocol';
 import { getDutiesForStation } from '@kybernetes/sim-core';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { ActiveInteraction } from '../types';
 
 export interface StationActionConfig {
@@ -15,7 +15,8 @@ export interface StationActionConfig {
 // fallow-ignore-next-line complexity
 export function getStationActionConfig(
   station: StationFixture,
-  role: StartingRole
+  role: StartingRole,
+  activeDutyId?: string
 ): StationActionConfig {
   if (station.stationType === 'bunk') {
     return {
@@ -54,9 +55,12 @@ export function getStationActionConfig(
     };
   }
 
-  // Work Stations: choose specialized role duty or station default duty
+  // Work Stations: prioritize active scheduled duty, or role specialized duty
   const duties = getDutiesForStation(station.stationType);
-  const matched = duties.find((d) => d.roleBonus === role) || duties[0];
+  const matched =
+    (activeDutyId ? duties.find((d) => d.id === activeDutyId) : undefined) ||
+    duties.find((d) => d.roleBonus === role) ||
+    duties[0];
   const dutyName = matched ? matched.name : `Operate ${station.name}`;
   const dutyId = matched?.id;
   const duration = matched ? matched.durationSeconds : 6.0;
@@ -102,11 +106,13 @@ function dispatchActionCompletion(current: ActiveInteraction, handlers: ActionHa
 
 interface UseStationInteractionProps extends ActionHandlers {
   role: StartingRole;
+  activeDutyId?: string;
 }
 
 // fallow-ignore-next-line complexity
 export function useStationInteraction({
   role,
+  activeDutyId,
   onCompleteDuty,
   onConsumePaste,
   onDrinkWater,
@@ -116,9 +122,29 @@ export function useStationInteraction({
 }: UseStationInteractionProps) {
   const [interaction, setInteraction] = useState<ActiveInteraction | null>(null);
 
+  const handlersRef = useRef<ActionHandlers>({
+    onCompleteDuty,
+    onConsumePaste,
+    onDrinkWater,
+    onRestInBunk,
+    onVentCoolant,
+    onNotice,
+  });
+  handlersRef.current = {
+    onCompleteDuty,
+    onConsumePaste,
+    onDrinkWater,
+    onRestInBunk,
+    onVentCoolant,
+    onNotice,
+  };
+
+  const interactionRef = useRef<ActiveInteraction | null>(null);
+  interactionRef.current = interaction;
+
   const startInteraction = useCallback(
     (station: StationFixture) => {
-      const config = getStationActionConfig(station, role);
+      const config = getStationActionConfig(station, role, activeDutyId);
       setInteraction({
         stationId: station.id,
         stationName: station.name,
@@ -133,7 +159,7 @@ export function useStationInteraction({
         color: config.color,
       });
     },
-    [role]
+    [role, activeDutyId]
   );
 
   const abortInteraction = useCallback(() => {
@@ -141,37 +167,20 @@ export function useStationInteraction({
   }, []);
 
   // fallow-ignore-next-line complexity
-  const tickInteraction = useCallback(
-    (dt: number) => {
-      if (!interaction) return;
+  const tickInteraction = useCallback((dt: number) => {
+    const current = interactionRef.current;
+    if (!current) return;
 
-      const nextElapsed = interaction.progress * interaction.durationSeconds + dt;
-      const nextProgress = Math.min(1, nextElapsed / interaction.durationSeconds);
+    const nextElapsed = current.progress * current.durationSeconds + dt;
+    const nextProgress = Math.min(1, nextElapsed / current.durationSeconds);
 
-      if (nextProgress >= 1) {
-        dispatchActionCompletion(interaction, {
-          onCompleteDuty,
-          onConsumePaste,
-          onDrinkWater,
-          onRestInBunk,
-          onVentCoolant,
-          onNotice,
-        });
-        setInteraction(null);
-      } else {
-        setInteraction((prev) => (prev ? { ...prev, progress: nextProgress } : null));
-      }
-    },
-    [
-      interaction,
-      onCompleteDuty,
-      onConsumePaste,
-      onDrinkWater,
-      onRestInBunk,
-      onVentCoolant,
-      onNotice,
-    ]
-  );
+    if (nextProgress >= 1) {
+      dispatchActionCompletion(current, handlersRef.current);
+      setInteraction(null);
+    } else {
+      setInteraction({ ...current, progress: nextProgress });
+    }
+  }, []);
 
   return {
     interaction,

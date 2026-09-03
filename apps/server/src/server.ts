@@ -17,7 +17,9 @@ import type {
 } from '@kybernetes/protocol';
 import {
   applyWelderAoeDamage,
+  type BotState,
   type CollabShiftState,
+  createBotSession,
   createCollabShift,
   createDualProtocol,
   createInitialVesselState,
@@ -40,6 +42,7 @@ import {
   repairHullPlating,
   spawnBoardingEvent,
   stateToTelemetryBroadcast,
+  tickBot,
   tickCollabShift,
   tickDualProtocol,
   tickVesselState,
@@ -68,6 +71,7 @@ interface VesselSession {
   vesselState: VesselSimulationState;
   clients: Map<WebSocket, ClientSession>;
   persistedCrew: Map<string, PersistedCrewMember>;
+  bots: Map<StartingRole, BotState>;
   dualProtocol: DualProtocolState;
   collabShift: CollabShiftState;
   loop: GameLoop;
@@ -203,14 +207,37 @@ export class VesselServer {
       vesselState: createInitialVesselState(),
       clients: new Map(),
       persistedCrew,
+      bots: new Map(),
       dualProtocol: createDualProtocol('ftl_jump_alignment'),
       collabShift: createCollabShift(),
       // 20Hz tick loop (50ms interval) for real-time multiplayer spatial replication
       loop: new GameLoop(50, (dtSeconds) => this.onSimulationTick(session, dtSeconds)),
     };
+    this.reconcileBotsForSession(session);
     session.loop.start();
     this.sessions.set(code, session);
     return session;
+  }
+
+  // fallow-ignore-next-line complexity
+  private reconcileBotsForSession(session: VesselSession): void {
+    const allRoles: StartingRole[] = [
+      'wiper',
+      'galley_hand',
+      'security_private',
+      'hydro_tender',
+      'stevedore',
+    ];
+    const humanRoles = new Set(Array.from(session.clients.values()).map((c) => c.role));
+
+    for (let i = 0; i < allRoles.length; i++) {
+      const role = allRoles[i];
+      if (humanRoles.has(role)) {
+        session.bots.delete(role);
+      } else if (!session.bots.has(role)) {
+        session.bots.set(role, createBotSession(role, i * 4));
+      }
+    }
   }
 
   private registerClient(ws: WebSocket): ClientSession {
@@ -301,6 +328,7 @@ export class VesselServer {
     const session = this.sessions.get(client.vesselCode);
     if (session) {
       session.clients.delete(ws);
+      this.reconcileBotsForSession(session);
       console.log(
         `[Kybernetes Server] Crew ${client.callsign} left session ${session.code}. Remaining: ${session.clients.size}`
       );
@@ -368,8 +396,31 @@ export class VesselServer {
     }
 
     this.tickActiveWelders(session);
+    this.tickSessionBots(session, dtSeconds);
     this.broadcastSpatialSnapshot(session);
     this.broadcastToSession(session, stateToTelemetryBroadcast(session.vesselState));
+  }
+
+  private tickSessionBots(session: VesselSession, dtSeconds: number): void {
+    for (const [role, bot] of session.bots.entries()) {
+      const { nextBot, assistance } = tickBot(bot, dtSeconds, session.vesselState.boarding.doors);
+      session.bots.set(role, nextBot);
+
+      if (assistance.reactorTempDelta !== 0) {
+        session.vesselState.reactorTemp = Math.max(
+          290,
+          Number((session.vesselState.reactorTemp + assistance.reactorTempDelta).toFixed(2))
+        );
+      }
+      if (assistance.o2Delta !== 0) {
+        const nextO2 = Math.min(
+          100,
+          Number((session.vesselState.oxygenLevelPercent + assistance.o2Delta).toFixed(2))
+        );
+        session.vesselState.oxygenLevelPercent = nextO2;
+        session.vesselState.lifeSupport.o2LevelPercent = nextO2;
+      }
+    }
   }
 
   private tickActiveWelders(session: VesselSession): void {
@@ -440,6 +491,7 @@ export class VesselServer {
       const oldSession = this.sessions.get(client.vesselCode);
       if (oldSession) {
         oldSession.clients.delete(client.ws);
+        this.reconcileBotsForSession(oldSession);
         this.broadcastCrewManifest(oldSession);
         this.broadcastSpatialSnapshot(oldSession);
         if (oldSession.clients.size === 0 && oldSession.code !== this.defaultCode) {
@@ -456,6 +508,7 @@ export class VesselServer {
     const session = this.getOrCreateSession(targetCode);
     this.resolveClientPawn(session, client, action);
     session.clients.set(client.ws, client);
+    this.reconcileBotsForSession(session);
 
     console.log(
       `[Kybernetes Server] Crew ${client.callsign} boarded vessel ${session.code} (${client.role}). Total crew: ${session.clients.size}`
@@ -818,7 +871,7 @@ export class VesselServer {
   }
 
   private broadcastCrewManifest(session: VesselSession): void {
-    const crew = Array.from(session.clients.values()).map((c) => ({
+    const humanCrew = Array.from(session.clients.values()).map((c) => ({
       id: c.id,
       callsign: c.callsign,
       role: c.role,
@@ -826,15 +879,26 @@ export class VesselServer {
       status: c.status,
       dutyName: c.dutyName,
     }));
+    const botCrew = Array.from(session.bots.values()).map((b) => ({
+      id: b.id,
+      callsign: b.persona.callsign,
+      role: b.role,
+      deckId: 'deck_a',
+      status: (b.state === 'working_station' ? 'on_duty' : 'idle') as 'on_duty' | 'idle',
+      dutyName: b.state === 'working_station' ? 'Department Maintenance' : undefined,
+    }));
     const broadcast: CrewManifestBroadcast = {
       type: 'CREW_MANIFEST',
-      crew,
+      crew: [...humanCrew, ...botCrew],
     };
     this.broadcastToSession(session, broadcast);
   }
 
   private broadcastSpatialSnapshot(session: VesselSession): void {
-    const pawns: PawnState[] = Array.from(session.clients.values()).map((c) => c.pawn);
+    const pawns: PawnState[] = [
+      ...Array.from(session.clients.values()).map((c) => c.pawn),
+      ...Array.from(session.bots.values()).map((b) => b.pawn),
+    ];
     const snapshot: SpatialSnapshotBroadcast = {
       type: 'SPATIAL_SNAPSHOT',
       timestamp: Date.now(),

@@ -3,6 +3,8 @@ import type {
   DualProtocolBroadcast,
   PawnState,
   PlayerVitals,
+  ShiftChecklistState,
+  ShiftEvaluationGrade,
   StationFixture,
   TelemetryDeltaBroadcast,
   WeaponType,
@@ -46,6 +48,9 @@ export interface HudDrawState {
     reloadProgress?: number;
   };
   welderThermal?: { heat: number; isOverheated: boolean };
+  shiftChecklist?: ShiftChecklistState;
+  projectedGrade?: ShiftEvaluationGrade;
+  shiftTimerFormatted?: string;
 
   triageNotice?: string | null;
   inGameNotice?: string | null;
@@ -268,12 +273,11 @@ export class HudRenderer {
     isReloading: boolean,
     isLowAmmo: boolean
   ): void {
-    const w = 5;
-    const h = 12;
+    const w = 7.5;
+    const h = 18;
 
     if (!isLoaded) {
-      // Empty spent slot in magazine: faint wireframe outline
-      this.addBorder(x, y + 3, w, h - 3, 1, 0.2, 0.3, 0.4, 0.22);
+      this.addBorder(x, y + 4.5, w, h - 4.5, 1, 0.2, 0.3, 0.4, 0.22);
       return;
     }
 
@@ -285,7 +289,6 @@ export class HudRenderer {
     let tipB = 0.18;
 
     if (isReloading) {
-      // Pulsing cyan glow while rounds are inserted into the magazine
       bodyR = 0.2;
       bodyG = 0.85;
       bodyB = 1.0;
@@ -293,7 +296,6 @@ export class HudRenderer {
       tipG = 0.95;
       tipB = 1.0;
     } else if (isLowAmmo) {
-      // Warning amber/red when low ammo
       bodyR = 0.95;
       bodyG = 0.25;
       bodyB = 0.2;
@@ -302,12 +304,9 @@ export class HudRenderer {
       tipB = 0.2;
     }
 
-    // Extractor rim base
-    this.addQuad(x - 0.5, y + h - 2, w + 1, 2, bodyR * 0.7, bodyG * 0.7, bodyB * 0.7, 0.95);
-    // Brass casing body
-    this.addQuad(x, y + 3.5, w, h - 5.5, bodyR, bodyG, bodyB, 0.95);
-    // Projectile tip triangle
-    this.addTriangle(x, y + 3.5, x + w, y + 3.5, x + w * 0.5, y, tipR, tipG, tipB, 1.0);
+    this.addQuad(x - 0.75, y + h - 3, w + 1.5, 3, bodyR * 0.7, bodyG * 0.7, bodyB * 0.7, 0.95);
+    this.addQuad(x, y + 5.25, w, h - 8.25, bodyR, bodyG, bodyB, 0.95);
+    this.addTriangle(x, y + 5.25, x + w, y + 5.25, x + w * 0.5, y, tipR, tipG, tipB, 1.0);
   }
 
   private addProgressBar(
@@ -333,7 +332,7 @@ export class HudRenderer {
     const td = this.textData;
 
     // Subdivide wide text labels so they curve smoothly with the visor shader
-    const segs = entry.width > 35 ? Math.min(6, Math.ceil(entry.width / 24)) : 1;
+    const segs = entry.width > 70 ? Math.min(8, Math.ceil(entry.width / 48)) : 1;
     if (segs === 1) {
       const x2 = x + entry.width;
       td.push(x, y, entry.u0, entry.v0, x2, y, entry.u1, entry.v0, x, y2, entry.u0, entry.v1);
@@ -371,9 +370,13 @@ export class HudRenderer {
     this.addQuad(x, y, w, h, bgR, bgG, bgB, alpha);
     this.addBorder(x, y, w, h, 1, 0.0, isHovered ? 1.0 : 0.8, 1.0, isHovered ? 0.9 : 0.4);
 
-    const padX = Math.max(4, Math.floor((w - label.length * 7) / 2));
-    this.addText(label, x + padX, y + Math.floor((h - 13) / 2), {
+    const fontSize = opts.fontSize ?? 16;
+    const charW = fontSize * 0.6;
+    const padX = Math.max(4, Math.floor((w - label.length * charW) / 2));
+    const padY = Math.max(1, Math.floor((h - fontSize) / 2) - 1);
+    this.addText(label, x + padX, y + padY, {
       ...opts,
+      fontSize,
       color: isHovered ? '#ffffff' : (opts.color ?? '#00e5ff'),
     });
 
@@ -398,44 +401,44 @@ export class HudRenderer {
 
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(52, Math.round(height * 0.065));
-    const panelW = 260;
-    const panelH = 120;
+    const panelW = 390;
+    const panelH = 180;
     const x = marginX;
     const y = height - panelH - marginY;
 
-    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.03, 0.06, 0.1, 0.82);
+    this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
 
-    this.addText('SUIT TELEMETRY // CREW VITALS', x + 10, y + 8, {
-      fontSize: 11,
+    this.addText('SUIT TELEMETRY // CREW VITALS', x + 15, y + 12, {
+      fontSize: 22,
       fontWeight: 'bold',
       color: '#00e5ff',
     });
-    this.addText(`${state.pawn.callsign} [${state.pawn.role.toUpperCase()}]`, x + 10, y + 24, {
-      fontSize: 10,
+    this.addText(`${state.pawn.callsign} [${state.pawn.role.toUpperCase()}]`, x + 15, y + 38, {
+      fontSize: 20,
       color: state.pawn.color || '#ffb000',
     });
 
     // 1. Vitality / Health
     const hpCol: [number, number, number] =
       vitals.health < 25 ? [1.0, 0.13, 0.27] : [0.0, 0.9, 1.0];
-    this.addText(`HEALTH: ${Math.round(vitals.health)}%`, x + 10, y + 40, {
-      fontSize: 9,
+    this.addText(`HEALTH: ${Math.round(vitals.health)}%`, x + 15, y + 62, {
+      fontSize: 18,
       color: '#e0e6ed',
     });
-    this.addProgressBar(x + 10, y + 51, panelW - 20, 5, vitals.health, hpCol);
+    this.addProgressBar(x + 15, y + 80, panelW - 30, 8, vitals.health, hpCol);
 
     // 2. Stamina
     this.addText(
       `STAMINA: ${Math.round(vitals.stamina)} / ${Math.round(vitals.maxStamina)}`,
-      x + 10,
-      y + 59,
-      { fontSize: 9, color: '#e0e6ed' }
+      x + 15,
+      y + 92,
+      { fontSize: 18, color: '#e0e6ed' }
     );
     this.addProgressBar(
-      x + 10,
-      y + 70,
-      panelW - 20,
-      5,
+      x + 15,
+      y + 110,
+      panelW - 30,
+      8,
       (vitals.stamina / vitals.maxStamina) * 100,
       [0.0, 1.0, 0.4]
     );
@@ -443,29 +446,29 @@ export class HudRenderer {
     // 3. Nutrition & Hydration & Fatigue row
     const hungerCol: [number, number, number] =
       vitals.hunger < 20 ? [1.0, 0.13, 0.27] : [1.0, 0.69, 0.0];
-    this.addText(`NUT: ${Math.round(vitals.hunger)}%`, x + 10, y + 78, {
-      fontSize: 8,
+    this.addText(`NUT: ${Math.round(vitals.hunger)}%`, x + 15, y + 124, {
+      fontSize: 16,
       color: '#c0d0e0',
     });
-    this.addProgressBar(x + 10, y + 88, 70, 4, vitals.hunger, hungerCol);
+    this.addProgressBar(x + 15, y + 142, 110, 6, vitals.hunger, hungerCol);
 
     const thirstCol: [number, number, number] =
       vitals.thirst < 20 ? [1.0, 0.13, 0.27] : [0.0, 0.9, 1.0];
-    this.addText(`HYD: ${Math.round(vitals.thirst)}%`, x + 95, y + 78, {
-      fontSize: 8,
+    this.addText(`HYD: ${Math.round(vitals.thirst)}%`, x + 140, y + 124, {
+      fontSize: 16,
       color: '#c0d0e0',
     });
-    this.addProgressBar(x + 95, y + 88, 70, 4, vitals.thirst, thirstCol);
+    this.addProgressBar(x + 140, y + 142, 110, 6, vitals.thirst, thirstCol);
 
     const fatigueCol: [number, number, number] =
       vitals.fatigue > 80 ? [1.0, 0.13, 0.27] : [1.0, 0.69, 0.0];
-    this.addText(`FTG: ${Math.round(vitals.fatigue)}%`, x + 180, y + 78, {
-      fontSize: 8,
+    this.addText(`FTG: ${Math.round(vitals.fatigue)}%`, x + 265, y + 124, {
+      fontSize: 16,
       color: '#c0d0e0',
     });
-    this.addProgressBar(x + 180, y + 88, 68, 4, vitals.fatigue, fatigueCol);
-    this.addText('[W][A][S][D] Locomotion  •  [E] Station Action', x + 10, y + 102, {
-      fontSize: 8,
+    this.addProgressBar(x + 265, y + 142, 110, 6, vitals.fatigue, fatigueCol);
+    this.addText('[W][A][S][D] Locomotion  •  [E] Station Action', x + 15, y + 156, {
+      fontSize: 16,
       color: '#55708a',
     });
   }
@@ -477,16 +480,16 @@ export class HudRenderer {
     const isKinetic = eq === 'kinetic_carbine';
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(52, Math.round(height * 0.065));
-    const panelW = 250;
-    const panelH = isKinetic ? (inter ? 142 : 106) : inter ? 125 : 84;
+    const panelW = 375;
+    const panelH = isKinetic ? (inter ? 220 : 160) : inter ? 190 : 130;
     const x = width - panelW - marginX;
     const y = height - panelH - marginY;
 
-    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.03, 0.06, 0.1, 0.82);
+    this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
 
     // Tool Header with hotkey hint
-    this.addText('EQUIPPED TOOL // [1-3] SELECT', x + 10, y + 8, {
-      fontSize: 9,
+    this.addText('EQUIPPED TOOL // [1-3] SELECT', x + 15, y + 12, {
+      fontSize: 18,
       fontWeight: 'bold',
       color: '#7088a0',
     });
@@ -508,27 +511,27 @@ export class HudRenderer {
           : '[R] RELOAD';
       const ammoCol = ammo.isReloading ? '#00e5ff' : ammo.current < 8 ? '#ff3344' : '#00ff88';
 
-      this.addText('KINETIC CARBINE', x + 10, y + 18, {
-        fontSize: 10,
+      this.addText('KINETIC CARBINE', x + 15, y + 36, {
+        fontSize: 20,
         fontWeight: 'bold',
         color: ammoCol,
       });
 
       const resStr = ammo.reserve !== undefined ? `  RES: ${ammo.reserve}` : '';
-      this.addText(`MAG: ${ammo.current}/${ammo.max}${resStr}  ${statusText}`, x + 10, y + 31, {
-        fontSize: 8,
+      this.addText(`MAG: ${ammo.current}/${ammo.max}${resStr}  ${statusText}`, x + 15, y + 58, {
+        fontSize: 16,
         color: '#c8d6e5',
       });
 
       // Render 30 individual cartridges in double-stack magazine rack (2 rows of 15)
       const isLow = ammo.current < 8 && !ammo.isReloading;
-      const startX = x + 12;
-      const colStep = 7.5;
+      const startX = x + 18;
+      const colStep = 11.25;
       for (let i = 0; i < 30; i++) {
         const row = i < 15 ? 0 : 1;
         const col = i % 15;
         const bx = startX + col * colStep;
-        const by = y + 44 + row * 14;
+        const by = y + 78 + row * 21;
 
         let isBulletLoaded = i < ammo.current;
         if (ammo.isReloading) {
@@ -549,18 +552,18 @@ export class HudRenderer {
           : '[STANDBY]';
       const laserCol = isPrimed ? '#c084fc' : '#00e5ff';
 
-      this.addText('PULSE LASER', x + 10, y + 20, {
-        fontSize: 11,
+      this.addText('PULSE LASER', x + 15, y + 36, {
+        fontSize: 22,
         fontWeight: 'bold',
         color: laserCol,
       });
 
-      this.addText(`CHARGE: ${pct}%  ${statusText}`, x + 10, y + 36, {
-        fontSize: 9,
+      this.addText(`CHARGE: ${pct}%  ${statusText}`, x + 15, y + 60, {
+        fontSize: 18,
         color: '#e0e6ed',
       });
       const barCol: [number, number, number] = isPrimed ? [0.75, 0.3, 1.0] : [0.0, 0.9, 1.0];
-      this.addProgressBar(x + 10, y + 48, panelW - 20, 5, Math.max(pct, 5), barCol);
+      this.addProgressBar(x + 15, y + 80, panelW - 30, 8, Math.max(pct, 5), barCol);
     } else {
       // arc_welder
       const heat = state.welderThermal?.heat ?? 0;
@@ -574,14 +577,14 @@ export class HudRenderer {
           : '[OPTIMAL]';
       const welderCol = isOverheated ? '#ff2244' : heat > 0.7 ? '#ffaa00' : '#ffb000';
 
-      this.addText('ARC WELDER', x + 10, y + 20, {
-        fontSize: 11,
+      this.addText('ARC WELDER', x + 15, y + 36, {
+        fontSize: 22,
         fontWeight: 'bold',
         color: welderCol,
       });
 
-      this.addText(`HEAT: ${heatPct}%  ${statusText}`, x + 10, y + 36, {
-        fontSize: 9,
+      this.addText(`HEAT: ${heatPct}%  ${statusText}`, x + 15, y + 60, {
+        fontSize: 18,
         color: isOverheated ? '#ff3344' : '#e0e6ed',
       });
       const barCol: [number, number, number] =
@@ -590,39 +593,39 @@ export class HudRenderer {
           : heat > 0.4
             ? [1.0, 0.69, 0.0]
             : [0.0, 0.9, 1.0];
-      this.addProgressBar(x + 10, y + 48, panelW - 20, 5, Math.max(heatPct, 4), barCol);
+      this.addProgressBar(x + 15, y + 80, panelW - 30, 8, Math.max(heatPct, 4), barCol);
     }
 
     // Station Shift progress indicator (when active)
-    const shiftY = isKinetic ? y + 76 : y + 60;
+    const shiftY = isKinetic ? y + 124 : y + 96;
     if (inter) {
       const shiftPct = Math.round(inter.progress * 100);
-      this.addText(`SHIFT: ${inter.actionName.toUpperCase()} (${shiftPct}%)`, x + 10, shiftY, {
-        fontSize: 8,
+      this.addText(`SHIFT: ${inter.actionName.toUpperCase()} (${shiftPct}%)`, x + 15, shiftY, {
+        fontSize: 16,
         fontWeight: 'bold',
         color: '#00e5ff',
       });
-      this.addProgressBar(x + 10, shiftY + 11, panelW - 20, 4, shiftPct, [0.0, 0.9, 1.0]);
+      this.addProgressBar(x + 15, shiftY + 18, panelW - 30, 6, shiftPct, [0.0, 0.9, 1.0]);
       this.addButton(
         'abort_shift',
-        x + 10,
-        shiftY + 20,
-        panelW - 20,
-        16,
+        x + 15,
+        shiftY + 30,
+        panelW - 30,
+        24,
         'ABORT SHIFT [ESC]',
-        { fontSize: 8, color: '#ff2244' },
+        { fontSize: 16, color: '#ff2244' },
         state.onAbortInteraction
       );
-      this.addText('[L-CLICK / SPACE] Discharge Weapon', x + 10, shiftY + 41, {
-        fontSize: 8,
+      this.addText('[L-CLICK / SPACE] Discharge Weapon', x + 15, shiftY + 62, {
+        fontSize: 16,
         color: '#506680',
       });
     } else {
       const hint = isKinetic
         ? '[L-CLICK / SPACE] Fire  •  [R] Reload'
         : '[L-CLICK / SPACE] Discharge Tool';
-      this.addText(hint, x + 10, isKinetic ? y + 80 : y + 62, {
-        fontSize: 8,
+      this.addText(hint, x + 15, isKinetic ? y + 128 : y + 98, {
+        fontSize: 16,
         color: '#506680',
       });
     }
@@ -633,16 +636,16 @@ export class HudRenderer {
     const telemetry = state.telemetry;
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(38, Math.round(height * 0.055));
-    const panelW = 270;
-    const panelH = 34;
+    const panelW = 405;
+    const panelH = 54;
     const x = width - panelW - marginX;
     const y = marginY;
 
-    this.addCurvedPanel(x, y, panelW, panelH, 4, 0.02, 0.05, 0.08, 0.75);
+    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.08, 0.75);
 
     const shipName = telemetry?.shipName ?? 'CSS HESPERIA';
-    this.addText(`VSSL: ${shipName}`, x + 10, y + 6, {
-      fontSize: 9,
+    this.addText(`VSSL: ${shipName}`, x + 14, y + 4, {
+      fontSize: 14,
       fontWeight: 'bold',
       color: '#7090b0',
     });
@@ -650,48 +653,111 @@ export class HudRenderer {
     // Minimal navigation buttons: BCN, CREW, and DISEMBARK
     this.addButton(
       'btn_beacon',
-      x + 10,
-      y + 16,
-      60,
-      16,
+      x + 12,
+      y + 21,
+      96,
+      27,
       `BCN: ${state.beaconCode ?? 'HESP01'}`,
-      { fontSize: 8 },
+      { fontSize: 14 },
       state.onBeaconClick
     );
     this.addButton(
       'btn_crew',
-      x + 74,
-      y + 16,
-      48,
-      16,
+      x + 114,
+      y + 21,
+      78,
+      27,
       `CREW: ${state.crewCount ?? 1}`,
-      { fontSize: 8 },
+      { fontSize: 14 },
       state.onManifestClick
     );
-    this.addButton('btn_role', x + 126, y + 16, 40, 16, 'ROLE', { fontSize: 8 }, state.onRoleClick);
+    this.addButton(
+      'btn_role',
+      x + 198,
+      y + 21,
+      58,
+      27,
+      'ROLE',
+      { fontSize: 14 },
+      state.onRoleClick
+    );
     this.addButton(
       'btn_leave',
-      x + 170,
-      y + 16,
-      95,
-      16,
+      x + 262,
+      y + 21,
+      132,
+      27,
       'DISEMBARK',
-      { fontSize: 8, color: '#ff4466' },
+      { fontSize: 14, color: '#ff4466' },
       state.onDisembarkClick
     );
 
     // Diegetic Alert Warning (Text indicator only, NO debug buttons to force-change it!)
     if (state.alertLevel === 'red') {
-      this.addText('CONDITION: RED', x - 110, y + 12, {
-        fontSize: 9,
+      this.addText('CONDITION: RED', x - 170, y + 16, {
+        fontSize: 18,
         fontWeight: 'bold',
         color: '#ff2244',
       });
     } else if (state.alertLevel === 'yellow') {
-      this.addText('CONDITION: YELLOW', x - 125, y + 12, {
-        fontSize: 9,
+      this.addText('CONDITION: YELLOW', x - 195, y + 16, {
+        fontSize: 18,
         fontWeight: 'bold',
         color: '#ffaa00',
+      });
+    }
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderTopLeftShiftChecklist(state: HudDrawState, width: number, height: number): void {
+    const shift = state.shiftChecklist;
+    if (!shift) return;
+
+    const marginX = Math.max(72, Math.round(width * 0.055));
+    const marginY = Math.max(38, Math.round(height * 0.055));
+    const panelW = 405;
+    const panelH = 140;
+    const x = marginX;
+    const y = marginY;
+
+    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.08, 0.82);
+
+    this.addText(`DEPARTMENTAL SHIFT #${shift.shiftNumber}`, x + 15, y + 10, {
+      fontSize: 18,
+      fontWeight: 'bold',
+      color: '#00e5ff',
+    });
+
+    const grade = state.projectedGrade || 'A';
+    const timer = state.shiftTimerFormatted || '00:00';
+    const gradeColor =
+      grade === 'S' ? '#00ff88' : grade === 'A' ? '#00e5ff' : grade === 'B' ? '#ffb000' : '#ff3344';
+
+    this.addText(`RATING: [${grade}]  TIME: ${timer}`, x + 15, y + 36, {
+      fontSize: 16,
+      color: gradeColor,
+    });
+
+    for (let i = 0; i < shift.tasks.length; i++) {
+      const task = shift.tasks[i];
+      const ty = y + 60 + i * 26;
+      const isDone = task.completed;
+      const isActive = i === shift.currentTaskIndex && !shift.isCompleted;
+
+      let prefix = '[ ] ';
+      let col = '#55708a';
+      if (isDone) {
+        prefix = '[X] ';
+        col = '#00ff88';
+      } else if (isActive) {
+        prefix = '[>] ';
+        col = '#00e5ff';
+      }
+
+      this.addText(`${prefix}${task.name}`, x + 15, ty, {
+        fontSize: 16,
+        fontWeight: isActive ? 'bold' : 'normal',
+        color: col,
       });
     }
   }
@@ -700,31 +766,31 @@ export class HudRenderer {
   private renderCenterAlerts(state: HudDrawState, width: number): void {
     const notice = state.inGameNotice || state.triageNotice;
     if (notice) {
-      const bannerW = 380;
+      const bannerW = 570;
       const x = Math.floor((width - bannerW) / 2);
-      this.addCurvedPanel(x, 18, bannerW, 26, 4, 0.05, 0.08, 0.12, 0.94);
-      this.addText(notice, x + 12, 24, { fontSize: 10, fontWeight: 'bold', color: '#00e5ff' });
+      this.addCurvedPanel(x, 18, bannerW, 40, 6, 0.05, 0.08, 0.12, 0.94);
+      this.addText(notice, x + 16, 26, { fontSize: 20, fontWeight: 'bold', color: '#00e5ff' });
     }
 
     // Dual Protocol banner
     if (state.dualProtocol?.stage === 'primed') {
       const p = state.dualProtocol;
-      const dpW = 400;
+      const dpW = 600;
       const x = Math.floor((width - dpW) / 2);
-      this.addCurvedPanel(x, 50, dpW, 30, 4, 0.15, 0.02, 0.04, 0.95);
-      this.addText(`DUAL PROTOCOL: ${p.title} (${p.remainingSeconds.toFixed(1)}s)`, x + 12, 58, {
-        fontSize: 10,
+      this.addCurvedPanel(x, 66, dpW, 45, 6, 0.15, 0.02, 0.04, 0.95);
+      this.addText(`DUAL PROTOCOL: ${p.title} (${p.remainingSeconds.toFixed(1)}s)`, x + 16, 76, {
+        fontSize: 20,
         fontWeight: 'bold',
         color: '#ff2244',
       });
       this.addButton(
         'btn_exec_dual',
-        x + dpW - 130,
-        54,
-        120,
-        22,
+        x + dpW - 195,
+        72,
+        180,
+        33,
         'EXECUTE [E]',
-        { fontSize: 9, color: '#00ff66' },
+        { fontSize: 18, color: '#00ff66' },
         state.onExecuteDualProtocol
       );
     }
@@ -736,15 +802,15 @@ export class HudRenderer {
       state.collabShift.participants.length > 0
     ) {
       const cs = state.collabShift;
-      const csW = 420;
+      const csW = 630;
       const x = Math.floor((width - csW) / 2);
-      this.addCurvedPanel(x, 86, csW, 28, 4, 0.04, 0.08, 0.12, 0.92);
+      this.addCurvedPanel(x, 118, csW, 42, 6, 0.04, 0.08, 0.12, 0.92);
       this.addText(
         `CO-OP SHIFT: ${cs.title} (${Math.round(cs.progressPercent)}%) [${cs.participants.length} OPS]`,
-        x + 12,
-        93,
+        x + 16,
+        127,
         {
-          fontSize: 10,
+          fontSize: 20,
           color: '#00e5ff',
         }
       );
@@ -755,7 +821,6 @@ export class HudRenderer {
   private renderWorldNametags(
     pawns: PawnState[],
     camera: { x: number; y: number },
-
     width: number,
     height: number,
     losPoly: Point2D[]
@@ -766,16 +831,41 @@ export class HudRenderer {
     for (const p of pawns) {
       if (losPoly.length >= 3 && !isPointInPolygon({ x: p.x, y: p.y }, losPoly)) continue;
       const sx = halfW + (p.x - camera.x);
-      const sy = halfH + (p.y - camera.y) - 26;
+      const sy = halfH + (p.y - camera.y) - 36;
 
       const tagText = `${p.callsign} [${p.role.toUpperCase()}]`;
       const col = p.color || '#00e5ff';
-      const approxW = tagText.length * 6.5 + 12;
+      const approxW = tagText.length * 11 + 20;
       const startX = sx - approxW / 2;
 
-      this.addQuad(startX, sy, approxW, 16, 0.02, 0.04, 0.08, 0.88);
-      this.addBorder(startX, sy, approxW, 16, 1, 0.0, 0.9, 1.0, 0.6);
-      this.addText(tagText, startX + 6, sy + 2, { fontSize: 9, fontWeight: 'bold', color: col });
+      this.addQuad(startX, sy, approxW, 24, 0.02, 0.04, 0.08, 0.88);
+      this.addBorder(startX, sy, approxW, 24, 1, 0.0, 0.9, 1.0, 0.6);
+      this.addText(tagText, startX + 8, sy + 3, { fontSize: 18, fontWeight: 'bold', color: col });
+
+      // Render floating speech bubble if active
+      if (p.speechBubble && p.speechBubble.expiresAt > Date.now()) {
+        const bubbleText = `"${p.speechBubble.text}"`;
+        const bWidth = Math.min(420, bubbleText.length * 9.5 + 24);
+        const bHeight = 28;
+        const bX = sx - bWidth / 2;
+        const bY = sy - 34;
+
+        let br = 0.0;
+        let bg = 0.9;
+        let bb = 1.0;
+        if (p.color?.startsWith('#') && p.color.length >= 7) {
+          br = parseInt(p.color.slice(1, 3), 16) / 255;
+          bg = parseInt(p.color.slice(3, 5), 16) / 255;
+          bb = parseInt(p.color.slice(5, 7), 16) / 255;
+        }
+
+        this.addQuad(bX, bY, bWidth, bHeight, 0.02, 0.05, 0.09, 0.94);
+        this.addBorder(bX, bY, bWidth, bHeight, 1, br, bg, bb, 0.85);
+        this.addText(bubbleText, bX + 10, bY + 4, {
+          fontSize: 16,
+          color: '#ffffff',
+        });
+      }
     }
   }
 
@@ -819,6 +909,7 @@ export class HudRenderer {
     this.renderLowerLeftVitals(state, width, height);
     this.renderLowerRightCombat(state, width, height);
     this.renderTopVisor(state, width, height);
+    this.renderTopLeftShiftChecklist(state, width, height);
     this.renderCenterAlerts(state, width);
 
     const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];

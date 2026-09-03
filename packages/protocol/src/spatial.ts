@@ -14,6 +14,11 @@ export interface PawnState {
   isResting: boolean;
   color: string;
   isWelding?: boolean;
+  isBot?: boolean;
+  speechBubble?: {
+    text: string;
+    expiresAt: number;
+  };
 }
 
 export interface BulkheadState {
@@ -69,4 +74,38 @@ export interface DeckDefinition {
   walls: WallSegment[];
   stations: StationFixture[];
   spawnPoints: Record<StartingRole, { x: number; y: number }>;
+}
+
+export type ShiftEvaluationGrade = 'S' | 'A' | 'B' | 'C';
+
+export interface ShiftTask {
+  id: string;
+  dutyId: string;
+  stationType: StationFixture['stationType'];
+  name: string;
+  description: string;
+  targetStationId: string;
+  completed: boolean;
+}
+
+export interface ShiftEvaluation {
+  shiftNumber: number;
+  grade: ShiftEvaluationGrade;
+  elapsedSeconds: number;
+  vitalsAverage: number;
+  baseCredits: number;
+  bonusCredits: number;
+  baseXp: number;
+  bonusXp: number;
+  evaluationText: string;
+}
+
+export interface ShiftChecklistState {
+  shiftNumber: number;
+  role: StartingRole;
+  tasks: ShiftTask[];
+  currentTaskIndex: number;
+  startedAt: number;
+  isCompleted: boolean;
+  evaluation?: ShiftEvaluation;
 }

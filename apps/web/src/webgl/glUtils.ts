@@ -38,10 +38,11 @@ export function createCameraMatrix(
   width: number,
   height: number,
   cameraX: number,
-  cameraY: number
+  cameraY: number,
+  zoom = 1.0
 ): Float32Array {
-  const sx = 2 / width;
-  const sy = -2 / height;
+  const sx = (2 / width) * zoom;
+  const sy = (-2 / height) * zoom;
   const tx = -cameraX * sx;
   const ty = -cameraY * sy;
 
