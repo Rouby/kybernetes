@@ -28,6 +28,8 @@ export class BallisticsSynth {
   ): void {
     if (weaponType === 'kinetic_carbine') {
       this.playKineticCarbine(destination, volume);
+    } else if (weaponType === 'railgun_pistol') {
+      this.playRailgunPistol(destination, volume);
     } else if (weaponType === 'pulse_laser') {
       this.playPulseLaser(destination, chargeRatio, volume);
     } else if (weaponType === 'arc_welder') {
@@ -133,6 +135,42 @@ export class BallisticsSynth {
     action.stop(t + 0.07);
     tail.start(t);
     tail.stop(t + 0.16);
+  }
+
+  // fallow-ignore-next-line complexity
+  private playRailgunPistol(destination: AudioNode, volume: number): void {
+    const t = this.ctx.currentTime;
+    const dur = 0.26;
+    const variation = 0.96 + Math.random() * 0.08;
+
+    const crack = this.ctx.createBufferSource();
+    crack.buffer = this.crackBuffer;
+    const crackFilter = this.ctx.createBiquadFilter();
+    crackFilter.type = 'highpass';
+    crackFilter.frequency.setValueAtTime(3200, t);
+    const crackGain = this.ctx.createGain();
+    crackGain.gain.setValueAtTime(0.001, t);
+    crackGain.gain.linearRampToValueAtTime(1.1 * volume * variation, t + 0.001);
+    crackGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    crack.connect(crackFilter);
+    crackFilter.connect(crackGain);
+    crackGain.connect(destination);
+
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(85 * variation, t);
+    sub.frequency.exponentialRampToValueAtTime(28, t + dur);
+    const subGain = this.ctx.createGain();
+    subGain.gain.setValueAtTime(0.001, t);
+    subGain.gain.linearRampToValueAtTime(1.2 * volume * variation, t + 0.002);
+    subGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    sub.connect(subGain);
+    subGain.connect(destination);
+
+    crack.start(t);
+    crack.stop(t + 0.04);
+    sub.start(t);
+    sub.stop(t + dur);
   }
 
   private playPulseLaser(destination: AudioNode, chargeRatio: number, volume: number): void {

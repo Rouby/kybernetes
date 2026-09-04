@@ -1,5 +1,11 @@
 import type { DoorState } from '@kybernetes/protocol';
-import { HESPERIA_LIGHTS, HESPERIA_ROOMS, HESPERIA_WALLS } from '@kybernetes/sim-core';
+import {
+  carveBreachedWallSegments,
+  getBreachLocation,
+  HESPERIA_LIGHTS,
+  HESPERIA_ROOMS,
+  HESPERIA_WALLS,
+} from '@kybernetes/sim-core';
 import { renderDeckFurniture } from '../DeckFurniture';
 import { addThickSegment, bufferAndDraw, createProgram, drawQuad } from '../glUtils';
 import { DECK_FLOOR_FS, DECK_FLOOR_VS } from '../shaders';
@@ -23,6 +29,136 @@ function drawDoorBrackets(
   drawQuad(gl, dynamicBuffer, x - 3, y + h + 3 - b, 1.5, b);
   drawQuad(gl, dynamicBuffer, x + w + 3 - b, y + h + 1.5, b, 1.5);
   drawQuad(gl, dynamicBuffer, x + w + 1.5, y + h + 3 - b, 1.5, b);
+}
+
+function renderPanelSeams(
+  gl: WebGL2RenderingContext,
+  dynamicBuffer: WebGLBuffer,
+  flatProg: WebGLProgram,
+  walls: Array<{ x1: number; y1: number; x2: number; y2: number }>
+): void {
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.52, 0.58, 0.7, 1.0);
+  const detailLines: number[] = [];
+  for (const wall of walls) {
+    const dx = wall.x2 - wall.x1;
+    const dy = wall.y2 - wall.y1;
+    const len = Math.hypot(dx, dy);
+    if (len > 32) {
+      const nx = -dy / len;
+      const ny = dx / len;
+      const steps = Math.floor(len / 32);
+      for (let i = 1; i < steps; i++) {
+        const px = wall.x1 + (dx * i) / steps;
+        const py = wall.y1 + (dy * i) / steps;
+        addThickSegment(
+          detailLines,
+          px - nx * 3.5,
+          py - ny * 3.5,
+          px + nx * 3.5,
+          py + ny * 3.5,
+          1.4
+        );
+      }
+    }
+  }
+  bufferAndDraw(gl, dynamicBuffer, new Float32Array(detailLines));
+}
+
+function renderBreachFractureHoles(
+  gl: WebGL2RenderingContext,
+  dynamicBuffer: WebGLBuffer,
+  flatProg: WebGLProgram,
+  breaches: string[],
+  timeSec = 0
+): void {
+  const glowLines: number[] = [];
+  const frostLines: number[] = [];
+  const pulse = 0.75 + 0.25 * Math.sin(timeSec * 7);
+
+  for (const b of breaches) {
+    const loc = getBreachLocation(b);
+    if (!loc) continue;
+
+    const nx = loc.normalX;
+    const ny = loc.normalY;
+    const tx = -ny;
+    const ty = nx;
+
+    // Glowing molten jagged edges along the opening (-9 to +9)
+    addThickSegment(
+      glowLines,
+      loc.x - tx * 9,
+      loc.y - ty * 9,
+      loc.x - tx * 9 - nx * 4,
+      loc.y - ty * 9 - ny * 4,
+      3.2
+    );
+    addThickSegment(
+      glowLines,
+      loc.x + tx * 9,
+      loc.y + ty * 9,
+      loc.x + tx * 9 - nx * 4,
+      loc.y + ty * 9 - ny * 4,
+      3.2
+    );
+    addThickSegment(glowLines, loc.x - tx * 7, loc.y - ty * 7, loc.x + tx * 7, loc.y + ty * 7, 1.8);
+
+    // Cyan vacuum frost fracture spurs
+    addThickSegment(
+      frostLines,
+      loc.x - tx * 11,
+      loc.y - ty * 11,
+      loc.x - tx * 14 + nx * 3,
+      loc.y - ty * 14 + ny * 3,
+      1.5
+    );
+    addThickSegment(
+      frostLines,
+      loc.x + tx * 11,
+      loc.y + ty * 11,
+      loc.x + tx * 14 + nx * 3,
+      loc.y + ty * 14 + ny * 3,
+      1.5
+    );
+  }
+
+  if (glowLines.length > 0) {
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 1.0, 0.42, 0.12, pulse);
+    bufferAndDraw(gl, dynamicBuffer, new Float32Array(glowLines));
+  }
+  if (frostLines.length > 0) {
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.2, 0.85, 1.0, 0.8);
+    bufferAndDraw(gl, dynamicBuffer, new Float32Array(frostLines));
+  }
+}
+
+function renderPartitionHoles(
+  gl: WebGL2RenderingContext,
+  dynamicBuffer: WebGLBuffer,
+  flatProg: WebGLProgram,
+  holes: Array<{ x: number; y: number }>
+): void {
+  if (holes.length === 0) return;
+  const scorchVerts: number[] = [];
+  const coreVerts: number[] = [];
+  const rimVerts: number[] = [];
+
+  for (const h of holes) {
+    addThickSegment(scorchVerts, h.x - 3.5, h.y, h.x + 3.5, h.y, 3.5);
+    addThickSegment(scorchVerts, h.x, h.y - 3.5, h.x, h.y + 3.5, 3.5);
+    addThickSegment(rimVerts, h.x - 2.5, h.y - 1.5, h.x + 2.5, h.y - 1.5, 1.2);
+    addThickSegment(coreVerts, h.x - 1.5, h.y, h.x + 1.5, h.y, 2.0);
+    addThickSegment(coreVerts, h.x, h.y - 1.5, h.x, h.y + 1.5, 2.0);
+  }
+
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.08, 0.1, 0.14, 0.95);
+  bufferAndDraw(gl, dynamicBuffer, new Float32Array(scorchVerts));
+
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.65, 0.72, 0.82, 0.9);
+  bufferAndDraw(gl, dynamicBuffer, new Float32Array(rimVerts));
+
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.02, 0.02, 0.04, 1.0);
+  bufferAndDraw(gl, dynamicBuffer, new Float32Array(coreVerts));
 }
 
 export class DeckPass {
@@ -109,21 +245,28 @@ export class DeckPass {
     gl.bindVertexArray(null);
   }
 
-  // fallow-ignore-next-line complexity
   public renderBulkheads(
     flatProg: WebGLProgram,
     flatVAO: WebGLVertexArrayObject,
-    matrix: Float32Array
+    matrix: Float32Array,
+    breaches?: string[],
+    timeSec = 0,
+    partitionHoles?: Array<{ x: number; y: number }>
   ): void {
     const gl = this.gl;
     gl.useProgram(flatProg);
     gl.bindVertexArray(flatVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
 
+    const walls =
+      breaches && breaches.length > 0
+        ? carveBreachedWallSegments(HESPERIA_WALLS, breaches)
+        : HESPERIA_WALLS;
+
     // 1. Soft Wall Drop Shadows cast onto the floor along bottom/right (+4, +5)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.0, 0.0, 0.42);
     const shadowLines: number[] = [];
-    for (const wall of HESPERIA_WALLS) {
+    for (const wall of walls) {
       addThickSegment(shadowLines, wall.x1 + 4, wall.y1 + 5, wall.x2 + 4, wall.y2 + 5, 10);
     }
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(shadowLines));
@@ -131,7 +274,7 @@ export class DeckPass {
     // 2. Heavy Armored Structural Casing Core (7.5px dark charcoal gunmetal)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
     const coreLines: number[] = [];
-    for (const wall of HESPERIA_WALLS) {
+    for (const wall of walls) {
       addThickSegment(coreLines, wall.x1, wall.y1, wall.x2, wall.y2, 7.5);
     }
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(coreLines));
@@ -139,37 +282,24 @@ export class DeckPass {
     // 3. Metallic Beveled Edge Highlight (2.8px steel blue)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.32, 0.38, 0.48, 1.0);
     const bevelLines: number[] = [];
-    for (const wall of HESPERIA_WALLS) {
+    for (const wall of walls) {
       addThickSegment(bevelLines, wall.x1, wall.y1, wall.x2, wall.y2, 2.8);
     }
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(bevelLines));
 
     // 4. Panel Seams
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.52, 0.58, 0.7, 1.0);
-    const detailLines: number[] = [];
-    for (const wall of HESPERIA_WALLS) {
-      const dx = wall.x2 - wall.x1;
-      const dy = wall.y2 - wall.y1;
-      const len = Math.hypot(dx, dy);
-      if (len > 32) {
-        const nx = -dy / len;
-        const ny = dx / len;
-        const steps = Math.floor(len / 32);
-        for (let i = 1; i < steps; i++) {
-          const px = wall.x1 + (dx * i) / steps;
-          const py = wall.y1 + (dy * i) / steps;
-          addThickSegment(
-            detailLines,
-            px - nx * 3.5,
-            py - ny * 3.5,
-            px + nx * 3.5,
-            py + ny * 3.5,
-            1.4
-          );
-        }
-      }
+    renderPanelSeams(gl, this.dynamicBuffer, flatProg, walls);
+
+    // 5. Active Wall Breach Fracture Holes
+    if (breaches && breaches.length > 0) {
+      renderBreachFractureHoles(gl, this.dynamicBuffer, flatProg, breaches, timeSec);
     }
-    bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(detailLines));
+
+    // 6. Partition Bullet Holes (Impact craters)
+    if (partitionHoles && partitionHoles.length > 0) {
+      renderPartitionHoles(gl, this.dynamicBuffer, flatProg, partitionHoles);
+    }
+
     gl.bindVertexArray(null);
   }
 

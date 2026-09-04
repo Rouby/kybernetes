@@ -189,7 +189,13 @@ export function useCanvasWeapons({
         weaponType,
       });
 
-      addScreenShake(weaponType === 'kinetic_carbine' ? 1.8 : 3.6 * chargeRatio);
+      addScreenShake(
+        weaponType === 'kinetic_carbine'
+          ? 1.8
+          : weaponType === 'railgun_pistol'
+            ? 3.5
+            : 3.6 * chargeRatio
+      );
       ShipAudioEngine.getInstance().playWeaponFire(originX, originY, weaponType, chargeRatio, true);
       onFireWeapon?.(originX, originY, targetX, targetY, weaponType, chargeRatio);
     },
@@ -204,36 +210,40 @@ export function useCanvasWeapons({
     ammo.reloadProgress = 0;
   }, []);
 
-  const fireKineticRound = useCallback(() => {
-    const ammo = kineticAmmoRef.current;
-    if (ammo.isReloading) return;
-    if (ammo.current <= 0) {
-      triggerReload();
-      return;
-    }
+  const fireKineticRound = useCallback(
+    (wType: WeaponType = 'kinetic_carbine') => {
+      const ammo = kineticAmmoRef.current;
+      if (ammo.isReloading) return;
+      if (ammo.current <= 0) {
+        triggerReload();
+        return;
+      }
 
-    ammo.current -= 1;
-    const spreadAngle = (Math.random() - 0.5) * 0.1;
-    const dx = mouseWorldRef.current.x - pawn.x;
-    const dy = mouseWorldRef.current.y - pawn.y;
-    const baseAngle = Math.atan2(dy, dx);
-    const finalAngle = baseAngle + spreadAngle;
-    const targetX = pawn.x + Math.cos(finalAngle) * 300;
-    const targetY = pawn.y + Math.sin(finalAngle) * 300;
+      ammo.current -= 1;
+      const isRailgun = wType === 'railgun_pistol';
+      const spreadAngle = isRailgun ? (Math.random() - 0.5) * 0.02 : (Math.random() - 0.5) * 0.1;
+      const dx = mouseWorldRef.current.x - pawn.x;
+      const dy = mouseWorldRef.current.y - pawn.y;
+      const baseAngle = Math.atan2(dy, dx);
+      const finalAngle = baseAngle + spreadAngle;
+      const targetX = pawn.x + Math.cos(finalAngle) * 300;
+      const targetY = pawn.y + Math.sin(finalAngle) * 300;
 
-    handleInstantFire(pawn.x, pawn.y, targetX, targetY, 'kinetic_carbine');
-    lastKineticFireRef.current = performance.now();
+      handleInstantFire(pawn.x, pawn.y, targetX, targetY, wType);
+      lastKineticFireRef.current = performance.now();
 
-    if (ammo.current === 0) {
-      triggerReload();
-    }
-  }, [handleInstantFire, mouseWorldRef, pawn.x, pawn.y, triggerReload]);
+      if (ammo.current === 0) {
+        triggerReload();
+      }
+    },
+    [handleInstantFire, mouseWorldRef, pawn.x, pawn.y, triggerReload]
+  );
 
   const startFiring = useCallback(() => {
     isFiringRef.current = true;
     const now = performance.now();
-    if (equippedWeapon === 'kinetic_carbine') {
-      fireKineticRound();
+    if (equippedWeapon === 'kinetic_carbine' || equippedWeapon === 'railgun_pistol') {
+      fireKineticRound(equippedWeapon);
     } else if (equippedWeapon === 'pulse_laser') {
       laserChargeStartRef.current = now;
     } else if (equippedWeapon === 'arc_welder') {
@@ -305,12 +315,11 @@ export function useCanvasWeapons({
     ): StepWeaponsResult => {
       advanceKineticReload(kineticAmmoRef.current, now);
 
-      if (
-        isFiringRef.current &&
-        equippedWeapon === 'kinetic_carbine' &&
-        now - lastKineticFireRef.current >= 105
-      ) {
-        fireKineticRound();
+      const isKinetic = equippedWeapon === 'kinetic_carbine' || equippedWeapon === 'railgun_pistol';
+      const fireInterval = equippedWeapon === 'railgun_pistol' ? 450 : 105;
+
+      if (isFiringRef.current && isKinetic && now - lastKineticFireRef.current >= fireInterval) {
+        fireKineticRound(equippedWeapon);
       }
 
       const laserChargeRatio =

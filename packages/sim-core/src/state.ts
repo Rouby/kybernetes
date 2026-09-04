@@ -19,7 +19,11 @@ import {
 import { createInitialDoors } from './spatial/doors';
 import { createInitialBoardingState, tickBoardingCombat } from './systems/boardingCombat';
 import { createInitialHull, createInitialShields, tickShields } from './systems/hull';
-import { createInitialLifeSupport, tickLifeSupport } from './systems/lifeSupport';
+import {
+  calculateLifeSupportStatus,
+  createInitialLifeSupport,
+  tickLifeSupport,
+} from './systems/lifeSupport';
 import { createInitialDefense, resolveEventImpact } from './systems/navalCombat';
 import { createInitialReactor, tickReactor } from './systems/reactor';
 
@@ -162,10 +166,20 @@ export function tickVesselState(
   const boardingRes = tickBoardingCombat(boarding, dtSeconds);
   boarding = boardingRes.nextState;
 
-  if (boardingRes.sabotageDetonated) {
+  if (boardingRes.sabotageDetonated || boardingRes.hullDamageInflicted > 0) {
     hull = {
       ...hull,
-      integrityPercent: Math.max(0, hull.integrityPercent - boardingRes.hullDamageInflicted),
+      integrityPercent: Math.max(
+        0,
+        Number((hull.integrityPercent - boardingRes.hullDamageInflicted).toFixed(2))
+      ),
+    };
+  }
+
+  if (boardingRes.newBreaches && boardingRes.newBreaches.length > 0) {
+    hull = {
+      ...hull,
+      breaches: Array.from(new Set([...hull.breaches, ...boardingRes.newBreaches])),
     };
   }
 
@@ -176,8 +190,20 @@ export function tickVesselState(
     doors,
     hull.breaches,
     activeFires,
-    dtSeconds
+    dtSeconds,
+    boarding.partitionHoles
   );
+  if (atmos.ecsDrainPercent && atmos.ecsDrainPercent > 0) {
+    const nextO2 = Math.max(
+      0,
+      Number((lifeSupport.o2LevelPercent - atmos.ecsDrainPercent).toFixed(2))
+    );
+    lifeSupport = {
+      ...lifeSupport,
+      o2LevelPercent: nextO2,
+      status: calculateLifeSupportStatus(nextO2),
+    };
+  }
   const roomAtmospheres = summarizeRoomAtmospheres(atmos, doors, hull.breaches);
 
   // Filter extinguished fires (if cellular fire starved or smothered)

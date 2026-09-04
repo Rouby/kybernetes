@@ -846,3 +846,238 @@ export const ROOM_AMBIENTS: Record<string, [number, number, number]> = {
   cargo: [0.2, 0.2, 0.2],
   engineering: [0.24, 0.2, 0.2],
 };
+
+export interface BreachLocation {
+  roomId: string;
+  wallId: string;
+  x: number;
+  y: number;
+  normalX: number;
+  normalY: number;
+}
+
+function findWallForHullPoint(x: number, y: number): WallSegment | undefined {
+  return HESPERIA_WALLS.find((w) => {
+    if (!w.id.startsWith('hull_')) return false;
+    const minX = Math.min(w.x1, w.x2) - 4;
+    const maxX = Math.max(w.x1, w.x2) + 4;
+    const minY = Math.min(w.y1, w.y2) - 4;
+    const maxY = Math.max(w.y1, w.y2) + 4;
+    return x >= minX && x <= maxX && y >= minY && y <= maxY;
+  });
+}
+
+function getHullNormalAt(x: number, y: number): { normalX: number; normalY: number } {
+  if (Math.abs(y - 228) <= 4) return { normalX: 0, normalY: -1 };
+  if (Math.abs(y - 572) <= 4) return { normalX: 0, normalY: 1 };
+  if (Math.abs(x - 120) <= 4) return { normalX: -1, normalY: 0 };
+  if (Math.abs(x - 1020) <= 4) return { normalX: 1, normalY: 0 };
+  return { normalX: 0, normalY: -1 };
+}
+
+export function normalizeBreachRoomId(breachId: string): string {
+  if (breachId.startsWith('puncture_')) {
+    const parts = breachId.split('_');
+    if (parts.length >= 4) {
+      const yStr = parts[parts.length - 1];
+      const xStr = parts[parts.length - 2];
+      if (!Number.isNaN(Number(xStr)) && !Number.isNaN(Number(yStr))) {
+        const roomParts = parts.slice(1, parts.length - 2);
+        const clean = roomParts.join('_');
+        return clean === 'reactor' ? 'engineering' : clean;
+      }
+    }
+    const clean = breachId.replace('puncture_', '');
+    return clean === 'reactor' ? 'engineering' : clean;
+  }
+  return breachId === 'reactor' ? 'engineering' : breachId;
+}
+
+export function getBreachLocation(breachId: string): BreachLocation | null {
+  if (!breachId) return null;
+
+  if (breachId.startsWith('puncture_')) {
+    const parts = breachId.split('_');
+    if (parts.length >= 4) {
+      const y = Number.parseInt(parts[parts.length - 1], 10);
+      const x = Number.parseInt(parts[parts.length - 2], 10);
+      if (!Number.isNaN(x) && !Number.isNaN(y)) {
+        const roomId = normalizeBreachRoomId(breachId);
+        const normal = getHullNormalAt(x, y);
+        const wall = findWallForHullPoint(x, y);
+        return {
+          roomId,
+          wallId: wall ? wall.id : 'hull_top_l',
+          x,
+          y,
+          normalX: normal.normalX,
+          normalY: normal.normalY,
+        };
+      }
+    }
+  }
+
+  const norm = normalizeBreachRoomId(breachId);
+  return HESPERIA_BREACH_LOCATIONS[norm] || null;
+}
+
+export const HESPERIA_BREACH_LOCATIONS: Record<string, BreachLocation> = {
+  bridge: { roomId: 'bridge', wallId: 'hull_top_l', x: 220, y: 228, normalX: 0, normalY: -1 },
+  avionics: { roomId: 'avionics', wallId: 'hull_top_l', x: 380, y: 228, normalX: 0, normalY: -1 },
+  life_support: {
+    roomId: 'life_support',
+    wallId: 'hull_top_l',
+    x: 520,
+    y: 228,
+    normalX: 0,
+    normalY: -1,
+  },
+  quarters: { roomId: 'quarters', wallId: 'hull_top_l', x: 680, y: 228, normalX: 0, normalY: -1 },
+  mess: { roomId: 'mess', wallId: 'hull_top_l', x: 840, y: 228, normalX: 0, normalY: -1 },
+  airlock_stbd: {
+    roomId: 'airlock_stbd',
+    wallId: 'hull_right_upper',
+    x: 1020,
+    y: 298,
+    normalX: 1,
+    normalY: 0,
+  },
+  armory: { roomId: 'armory', wallId: 'hull_bottom_l', x: 220, y: 572, normalX: 0, normalY: 1 },
+  airlock_port: {
+    roomId: 'airlock_port',
+    wallId: 'hull_bottom_l',
+    x: 340,
+    y: 572,
+    normalX: 0,
+    normalY: 1,
+  },
+  cargo: { roomId: 'cargo', wallId: 'hull_bottom_r', x: 600, y: 572, normalX: 0, normalY: 1 },
+  engineering: {
+    roomId: 'engineering',
+    wallId: 'hull_bottom_r',
+    x: 890,
+    y: 572,
+    normalX: 0,
+    normalY: 1,
+  },
+  reactor: {
+    roomId: 'engineering',
+    wallId: 'hull_bottom_r',
+    x: 890,
+    y: 572,
+    normalX: 0,
+    normalY: 1,
+  },
+  corridor: { roomId: 'corridor', wallId: 'hull_left', x: 120, y: 400, normalX: -1, normalY: 0 },
+};
+
+interface BreachPointOnWall {
+  t: number;
+  x: number;
+  y: number;
+}
+
+function findBreachesOnWall(
+  wall: WallSegment,
+  activeLocs: BreachLocation[],
+  halfGap: number
+): BreachPointOnWall[] {
+  const isHorizontal = Math.abs(wall.y1 - wall.y2) < 1;
+  const isVertical = Math.abs(wall.x1 - wall.x2) < 1;
+  const list: BreachPointOnWall[] = [];
+
+  for (const loc of activeLocs) {
+    if (isHorizontal && Math.abs(loc.y - wall.y1) < 4) {
+      const minX = Math.min(wall.x1, wall.x2);
+      const maxX = Math.max(wall.x1, wall.x2);
+      if (loc.x >= minX - 1 && loc.x <= maxX + 1) {
+        const clampedX = Math.max(minX + halfGap, Math.min(maxX - halfGap, loc.x));
+        const t = (clampedX - wall.x1) / (wall.x2 - wall.x1);
+        list.push({ t, x: clampedX, y: loc.y });
+      }
+    } else if (isVertical && Math.abs(loc.x - wall.x1) < 4) {
+      const minY = Math.min(wall.y1, wall.y2);
+      const maxY = Math.max(wall.y1, wall.y2);
+      if (loc.y >= minY - 1 && loc.y <= maxY + 1) {
+        const clampedY = Math.max(minY + halfGap, Math.min(maxY - halfGap, loc.y));
+        const t = (clampedY - wall.y1) / (wall.y2 - wall.y1);
+        list.push({ t, x: loc.x, y: clampedY });
+      }
+    }
+  }
+
+  return list.sort((a, b) => a.t - b.t);
+}
+
+function carveWallAtBreaches(
+  wall: WallSegment,
+  breaches: BreachPointOnWall[],
+  halfGap: number
+): WallSegment[] {
+  const isHorizontal = Math.abs(wall.y1 - wall.y2) < 1;
+  const segments: WallSegment[] = [];
+  let currX = wall.x1;
+  let currY = wall.y1;
+
+  for (let i = 0; i < breaches.length; i++) {
+    const b = breaches[i];
+    const dir = isHorizontal ? (wall.x2 > wall.x1 ? 1 : -1) : wall.y2 > wall.y1 ? 1 : -1;
+    const p2X = isHorizontal ? b.x - dir * halfGap : wall.x1;
+    const p2Y = isHorizontal ? wall.y1 : b.y - dir * halfGap;
+
+    if (Math.hypot(p2X - currX, p2Y - currY) > 1) {
+      segments.push({ ...wall, id: `${wall.id}_br_${i}`, x1: currX, y1: currY, x2: p2X, y2: p2Y });
+    }
+    currX = isHorizontal ? b.x + dir * halfGap : wall.x1;
+    currY = isHorizontal ? wall.y1 : b.y + dir * halfGap;
+  }
+
+  if (Math.hypot(wall.x2 - currX, wall.y2 - currY) > 1) {
+    segments.push({
+      ...wall,
+      id: `${wall.id}_br_tail`,
+      x1: currX,
+      y1: currY,
+      x2: wall.x2,
+      y2: wall.y2,
+    });
+  }
+
+  return segments;
+}
+
+export function carveBreachedWallSegments(
+  walls: WallSegment[],
+  breaches: string[] = [],
+  gapSize = 18
+): WallSegment[] {
+  if (!breaches || breaches.length === 0) return walls;
+
+  const halfGap = gapSize / 2;
+  const activeLocs = breaches
+    .map((b) => getBreachLocation(b))
+    .filter((loc): loc is BreachLocation => Boolean(loc));
+
+  if (activeLocs.length === 0) return walls;
+
+  const carved: WallSegment[] = [];
+  for (const wall of walls) {
+    const wallBreaches = findBreachesOnWall(wall, activeLocs, halfGap);
+    if (wallBreaches.length === 0) {
+      carved.push(wall);
+    } else {
+      carved.push(...carveWallAtBreaches(wall, wallBreaches, halfGap));
+    }
+  }
+
+  return carved;
+}
+
+export function findRoomAtHullImpact(x: number, y: number): string | null {
+  for (const r of HESPERIA_ROOMS) {
+    if (x >= r.x - 4 && x <= r.x + r.width + 4 && y >= r.y - 4 && y <= r.y + r.height + 4) {
+      return r.id;
+    }
+  }
+  return null;
+}

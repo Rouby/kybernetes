@@ -593,5 +593,25 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
       );
       expect(cascadingSources.length).toBeGreaterThanOrEqual(2);
     });
+
+    it('aligns venting particle sources and drag vectors to exact impact coordinates instead of room center', () => {
+      const doors = createInitialDoors();
+      // Breach at x: 815, y: 228 (mess room center is x: 840)
+      const sources = getDecompressionAirflowSources(doors, ['puncture_mess_815_228']);
+      expect(sources).toHaveLength(1);
+
+      const src = sources[0];
+      // Origin is aligned with exact hit at x: 815 (not room center 840)
+      expect(src.x).toBe(815);
+      expect(src.y).toBe(228 + 4); // 4px inside bulkhead opening
+      // Vectors are aligned along outward hull normal (0, -1) into space, not diagonally from room center
+      expect(src.u).toBe(0);
+      expect(src.v).toBeLessThan(-200);
+
+      // Pawn in mess at x: 800, y: 300 should be dragged East towards x: 815 and North towards y: 228
+      const drag = getAirflowDragVector(800, 300, doors, ['puncture_mess_815_228']);
+      expect(drag.u).toBeGreaterThan(0); // Pulls towards x: 815
+      expect(drag.v).toBeLessThan(0); // Pulls towards y: 228
+    });
   });
 });

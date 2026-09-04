@@ -1,5 +1,10 @@
 import type { AtmosOverlayMode, DoorState, RoomAtmosphereSummary } from '@kybernetes/protocol';
-import { HESPERIA_ROOMS, type RoomDefinition } from './deck';
+import {
+  getBreachLocation,
+  HESPERIA_ROOMS,
+  normalizeBreachRoomId,
+  type RoomDefinition,
+} from './deck';
 
 export const ATMOS_CELL_SIZE = 20;
 export const ATMOS_GRID_COLS = 60; // 1200 / 20
@@ -28,6 +33,7 @@ export interface CellularAtmosGrid {
   cellRoomId: Array<string | null>;
   isFireActive: Uint8Array;
   condensationPlume: Float32Array;
+  ecsDrainPercent?: number;
 }
 
 export function cellCoordsToIndex(col: number, row: number): number {
@@ -143,23 +149,26 @@ function addRoomBreachCells(
   breachRoomId: string
 ): void {
   const isPuncture = breachRoomId.startsWith('puncture_');
-  const actualRoomId = isPuncture ? breachRoomId.replace('puncture_', '') : breachRoomId;
+  const actualRoomId = normalizeBreachRoomId(breachRoomId);
   const room = HESPERIA_ROOMS.find((r) => r.id === actualRoomId);
   if (!room) return;
 
   const kRate = isPuncture ? 0.04 : 25.0;
-  const col = Math.floor((room.x + room.width / 2) / ATMOS_CELL_SIZE);
-  let r = 11;
-  let c = col;
-  if (actualRoomId === 'corridor') {
+  const loc = getBreachLocation(breachRoomId);
+  let col = Math.floor((room.x + room.width / 2) / ATMOS_CELL_SIZE);
+  let r = room.y > 368 ? 28 : 11;
+  if (loc) {
+    const inX = loc.x - loc.normalX * 6;
+    const inY = loc.y - loc.normalY * 6;
+    col = Math.max(0, Math.min(ATMOS_GRID_COLS - 1, Math.floor(inX / ATMOS_CELL_SIZE)));
+    r = Math.max(0, Math.min(ATMOS_GRID_ROWS - 1, Math.floor(inY / ATMOS_CELL_SIZE)));
+  } else if (actualRoomId === 'corridor') {
     r = 19;
-    c = 6;
-  } else if (room.y > 368) {
-    r = 28;
+    col = 6;
   }
 
-  const c1 = isPuncture ? c : c - 1;
-  const c2 = isPuncture ? c : c + 1;
+  const c1 = isPuncture ? col : col - 1;
+  const c2 = isPuncture ? col : col + 1;
   for (let colIdx = c1; colIdx <= c2; colIdx++) {
     const idx = cellCoordsToIndex(colIdx, r);
     if (idx !== -1 && grid.cellRoomId[idx] === actualRoomId) {
@@ -270,12 +279,44 @@ function isBlockedBySpineDoor(
   return false;
 }
 
+function buildPartitionHolePairs(
+  holes?: Array<{ x: number; y: number; wallId: string }>
+): Map<string, number> {
+  const pairs = new Map<string, number>();
+  if (!holes || holes.length === 0) return pairs;
+
+  for (const h of holes) {
+    let idx1 = -1;
+    let idx2 = -1;
+    if (h.wallId.startsWith('part_')) {
+      const colLeft = Math.round(h.x / ATMOS_CELL_SIZE) - 1;
+      const colRight = Math.round(h.x / ATMOS_CELL_SIZE);
+      const row = Math.floor(h.y / ATMOS_CELL_SIZE);
+      idx1 = cellCoordsToIndex(colLeft, row);
+      idx2 = cellCoordsToIndex(colRight, row);
+    } else if (h.wallId.startsWith('spine_')) {
+      const col = Math.floor(h.x / ATMOS_CELL_SIZE);
+      const rowTop = Math.round(h.y / ATMOS_CELL_SIZE) - 1;
+      const rowBot = Math.round(h.y / ATMOS_CELL_SIZE);
+      idx1 = cellCoordsToIndex(col, rowTop);
+      idx2 = cellCoordsToIndex(col, rowBot);
+    }
+    if (idx1 !== -1 && idx2 !== -1) {
+      const key = idx1 < idx2 ? `${idx1}_${idx2}` : `${idx2}_${idx1}`;
+      pairs.set(key, (pairs.get(key) || 0) + 1);
+    }
+  }
+
+  return pairs;
+}
+
 function canDiffuse(
   grid: CellularAtmosGrid,
   i: number,
   j: number,
   doorOpenMap: Record<string, boolean>,
-  breachCells: Set<number>
+  breachCells: Set<number>,
+  partitionHolePairs?: Map<string, number> | Set<string>
 ): boolean {
   const rA = grid.cellRoomId[i];
   const rB = grid.cellRoomId[j];
@@ -289,6 +330,11 @@ function canDiffuse(
   if (rA === null || rB === null) {
     const inIdx = rA !== null ? i : j;
     return canCrossOuterHull(c1, r1, c2, r2, inIdx, doorOpenMap, breachCells);
+  }
+
+  if (partitionHolePairs) {
+    const pairKey = i < j ? `${i}_${j}` : `${j}_${i}`;
+    if (partitionHolePairs.has(pairKey)) return true;
   }
 
   if (rA !== rB) {
@@ -305,7 +351,8 @@ function diffusePair(
   j: number,
   dt: number,
   dirX: number,
-  dirY: number
+  dirY: number,
+  holeCount = 0
 ): void {
   const isSpaceI = grid.cellRoomId[i] === null;
   const isSpaceJ = grid.cellRoomId[j] === null;
@@ -325,9 +372,14 @@ function diffusePair(
   const pDiff = grid.pressure[i] - grid.pressure[j];
   if (Math.abs(pDiff) < 0.05) return;
 
+  const isHole = holeCount > 0;
+  const countMultiplier = Math.min(4, Math.max(1, holeCount));
+  const baseRate = isHole ? 0.35 * countMultiplier : 8.0;
+  const boostFactor = isHole ? 0.02 : 1.0;
   const boost = Math.min(24.0, Math.abs(pDiff) * 0.3);
-  const flowRate = (8.0 + boost) * dt;
-  const pTransfer = Math.max(-50, Math.min(50, pDiff * flowRate));
+  const flowRate = (baseRate + boost * boostFactor) * dt;
+  const maxTransfer = isHole ? 1.5 * countMultiplier : 50;
+  const pTransfer = Math.max(-maxTransfer, Math.min(maxTransfer, pDiff * flowRate));
 
   if (isSpaceI) {
     grid.pressure[j] = Math.max(0, grid.pressure[j] - Math.abs(pTransfer));
@@ -340,7 +392,7 @@ function diffusePair(
 
   // Only generate aerodynamic velocity for significant pressure gradients
   if (Math.abs(pDiff) > 1.5) {
-    const vMag = pTransfer * 10.0;
+    const vMag = isHole ? pTransfer * 1.5 : pTransfer * 10.0;
     grid.velX[i] += dirX * vMag;
     grid.velY[i] += dirY * vMag;
     grid.velX[j] += dirX * vMag;
@@ -348,17 +400,127 @@ function diffusePair(
   }
 
   // Advection of O2, smoke, temp
+  const advRate = isHole ? flowRate * 0.15 : flowRate * 0.4;
   const gasRatioDiff = grid.o2Ratio[i] - grid.o2Ratio[j];
-  grid.o2Ratio[i] -= gasRatioDiff * flowRate * 0.4;
-  grid.o2Ratio[j] += gasRatioDiff * flowRate * 0.4;
+  grid.o2Ratio[i] -= gasRatioDiff * advRate;
+  grid.o2Ratio[j] += gasRatioDiff * advRate;
 
   const smokeDiff = grid.toxicSmoke[i] - grid.toxicSmoke[j];
-  grid.toxicSmoke[i] -= smokeDiff * flowRate * 0.4;
-  grid.toxicSmoke[j] += smokeDiff * flowRate * 0.4;
+  grid.toxicSmoke[i] -= smokeDiff * advRate;
+  grid.toxicSmoke[j] += smokeDiff * advRate;
 
   const tempDiff = grid.tempKelvin[i] - grid.tempKelvin[j];
-  grid.tempKelvin[i] -= tempDiff * flowRate * 0.25;
-  grid.tempKelvin[j] += tempDiff * flowRate * 0.25;
+  const tempRate = isHole ? flowRate * 0.1 : flowRate * 0.25;
+  grid.tempKelvin[i] -= tempDiff * tempRate;
+  grid.tempKelvin[j] += tempDiff * tempRate;
+}
+
+// fallow-ignore-next-line complexity
+function applyCellDecompression(
+  grid: CellularAtmosGrid,
+  idx: number,
+  kRate: number,
+  dt: number,
+  c: number,
+  r: number,
+  vCol: number,
+  vRow: number
+): void {
+  const pCurrent = grid.pressure[idx];
+  if (pCurrent <= 0.05) {
+    grid.condensationPlume[idx] = Math.max(0, grid.condensationPlume[idx] - 1.5 * dt);
+    return;
+  }
+
+  const dropFraction = 1 - Math.exp(-kRate * dt);
+  const pDrop = pCurrent * dropFraction;
+  let nextP = Math.max(0, pCurrent - pDrop);
+  let nextO2 = Math.max(0, grid.o2Ratio[idx] * (1 - dropFraction * 0.95));
+
+  // Hard vacuum cutoff: explosive decompression snaps to true 0.0 kPa quickly
+  if ((kRate > 1.0 && nextP < 15.0) || nextP < 1.0) {
+    nextP = 0;
+    nextO2 = 0;
+    grid.tempKelvin[idx] = 3.0;
+    grid.toxicSmoke[idx] = 0;
+  }
+
+  grid.pressure[idx] = nextP;
+  grid.o2Ratio[idx] = nextO2;
+  grid.toxicSmoke[idx] = Math.max(0, grid.toxicSmoke[idx] * (1 - dropFraction));
+
+  const dx = (vCol - c) * ATMOS_CELL_SIZE;
+  const dy = (vRow - r) * ATMOS_CELL_SIZE;
+  const dist = Math.hypot(dx, dy);
+  if (dist > 0.1 && nextP > 0) {
+    const rateFactor = Math.min(1.0, kRate / 2.0);
+    const pullSpeed = Math.min(320, (30.0 + pCurrent * 2.2) * rateFactor);
+    grid.velX[idx] += (dx / dist) * pullSpeed * dt * 8.0;
+    grid.velY[idx] += (dy / dist) * pullSpeed * dt * 8.0;
+  }
+
+  if (pDrop / dt > 15.0 && pCurrent > 12.0) {
+    const tDrop = (pDrop / (pCurrent + 0.1)) * grid.tempKelvin[idx] * 0.28;
+    grid.tempKelvin[idx] = Math.max(25, grid.tempKelvin[idx] - tDrop);
+    grid.condensationPlume[idx] = Math.min(1.0, grid.condensationPlume[idx] + 0.9);
+  } else {
+    grid.condensationPlume[idx] = Math.max(0, grid.condensationPlume[idx] - 1.5 * dt);
+  }
+}
+
+interface WaveQueueState {
+  visited: Uint8Array;
+  queueCol: Int16Array;
+  queueRow: Int16Array;
+  queueVentCol: Int16Array;
+  queueVentRow: Int16Array;
+  queueRate: Float32Array;
+  tail: number;
+}
+
+function queueDecompressionNeighbors(
+  grid: CellularAtmosGrid,
+  idx: number,
+  c: number,
+  r: number,
+  kRate: number,
+  doorOpenMap: Record<string, boolean>,
+  breachCells: Set<number>,
+  partitionHolePairs: Map<string, number> | Set<string> | undefined,
+  q: WaveQueueState
+): void {
+  const neighbors = [
+    { col: c + 1, row: r },
+    { col: c - 1, row: r },
+    { col: c, row: r + 1 },
+    { col: c, row: r - 1 },
+  ];
+
+  for (const nb of neighbors) {
+    const nIdx = cellCoordsToIndex(nb.col, nb.row);
+    if (nIdx !== -1 && q.visited[nIdx] === 0) {
+      if (canDiffuse(grid, idx, nIdx, doorOpenMap, breachCells, partitionHolePairs)) {
+        const pairKey = idx < nIdx ? `${idx}_${nIdx}` : `${nIdx}_${idx}`;
+        const holeCount =
+          partitionHolePairs instanceof Map
+            ? (partitionHolePairs.get(pairKey) ?? 0)
+            : partitionHolePairs?.has(pairKey)
+              ? 1
+              : 0;
+        const isHole = holeCount > 0;
+        const holeLimit = Math.min(0.12, 0.035 * Math.min(3, holeCount));
+        const stepRate = isHole ? Math.min(kRate, holeLimit) : kRate;
+
+        q.visited[nIdx] = 1;
+        q.queueCol[q.tail] = nb.col;
+        q.queueRow[q.tail] = nb.row;
+        q.queueVentCol[q.tail] = c;
+        q.queueVentRow[q.tail] = r;
+        q.queueRate[q.tail] = stepRate;
+        q.tail++;
+      }
+    }
+  }
 }
 
 // fallow-ignore-next-line complexity
@@ -367,7 +529,8 @@ function propagateDecompressionWave(
   ventSources: VentSourceInfo[],
   doorOpenMap: Record<string, boolean>,
   breachCells: Set<number>,
-  dt: number
+  dt: number,
+  partitionHolePairs?: Map<string, number> | Set<string>
 ): void {
   if (ventSources.length === 0) {
     for (let i = 0; i < ATMOS_TOTAL_CELLS; i++) {
@@ -380,104 +543,59 @@ function propagateDecompressionWave(
     return;
   }
 
-  const visited = new Uint8Array(ATMOS_TOTAL_CELLS);
-  const queueCol = new Int16Array(ATMOS_TOTAL_CELLS);
-  const queueRow = new Int16Array(ATMOS_TOTAL_CELLS);
-  const queueVentCol = new Int16Array(ATMOS_TOTAL_CELLS);
-  const queueVentRow = new Int16Array(ATMOS_TOTAL_CELLS);
-  const queueRate = new Float32Array(ATMOS_TOTAL_CELLS);
+  const q: WaveQueueState = {
+    visited: new Uint8Array(ATMOS_TOTAL_CELLS),
+    queueCol: new Int16Array(ATMOS_TOTAL_CELLS),
+    queueRow: new Int16Array(ATMOS_TOTAL_CELLS),
+    queueVentCol: new Int16Array(ATMOS_TOTAL_CELLS),
+    queueVentRow: new Int16Array(ATMOS_TOTAL_CELLS),
+    queueRate: new Float32Array(ATMOS_TOTAL_CELLS),
+    tail: 0,
+  };
   let head = 0;
-  let tail = 0;
 
   for (const vs of ventSources) {
-    if (visited[vs.idx] === 0) {
-      visited[vs.idx] = 1;
-      queueCol[tail] = vs.col;
-      queueRow[tail] = vs.row;
-      queueVentCol[tail] = vs.col;
-      queueVentRow[tail] = vs.row;
-      queueRate[tail] = vs.kRate;
-      tail++;
+    if (q.visited[vs.idx] === 0) {
+      q.visited[vs.idx] = 1;
+      q.queueCol[q.tail] = vs.col;
+      q.queueRow[q.tail] = vs.row;
+      q.queueVentCol[q.tail] = vs.col;
+      q.queueVentRow[q.tail] = vs.row;
+      q.queueRate[q.tail] = vs.kRate;
+      q.tail++;
     }
   }
 
-  while (head < tail) {
-    const c = queueCol[head];
-    const r = queueRow[head];
-    const vCol = queueVentCol[head];
-    const vRow = queueVentRow[head];
-    const kRate = queueRate[head];
+  while (head < q.tail) {
+    const c = q.queueCol[head];
+    const r = q.queueRow[head];
+    const vCol = q.queueVentCol[head];
+    const vRow = q.queueVentRow[head];
+    const kRate = q.queueRate[head];
     const idx = cellCoordsToIndex(c, r);
     head++;
 
     if (idx === -1) continue;
 
     if (grid.cellRoomId[idx] !== null) {
-      const pCurrent = grid.pressure[idx];
-      if (pCurrent > 0.05) {
-        const dropFraction = 1 - Math.exp(-kRate * dt);
-        const pDrop = pCurrent * dropFraction;
-        let nextP = Math.max(0, pCurrent - pDrop);
-        let nextO2 = Math.max(0, grid.o2Ratio[idx] * (1 - dropFraction * 0.95));
-
-        // Hard vacuum cutoff: explosive decompression snaps to true 0.0 kPa quickly
-        if ((kRate > 1.0 && nextP < 15.0) || nextP < 1.0) {
-          nextP = 0;
-          nextO2 = 0;
-          grid.tempKelvin[idx] = 3.0;
-          grid.toxicSmoke[idx] = 0;
-        }
-
-        grid.pressure[idx] = nextP;
-        grid.o2Ratio[idx] = nextO2;
-        grid.toxicSmoke[idx] = Math.max(0, grid.toxicSmoke[idx] * (1 - dropFraction));
-
-        const dx = (vCol - c) * ATMOS_CELL_SIZE;
-        const dy = (vRow - r) * ATMOS_CELL_SIZE;
-        const dist = Math.hypot(dx, dy);
-        if (dist > 0.1 && nextP > 0) {
-          const pullSpeed = Math.min(320, 30.0 + pCurrent * 2.2);
-          grid.velX[idx] += (dx / dist) * pullSpeed * dt * 8.0;
-          grid.velY[idx] += (dy / dist) * pullSpeed * dt * 8.0;
-        }
-
-        if (pDrop / dt > 15.0 && pCurrent > 12.0) {
-          const tDrop = (pDrop / (pCurrent + 0.1)) * grid.tempKelvin[idx] * 0.28;
-          grid.tempKelvin[idx] = Math.max(25, grid.tempKelvin[idx] - tDrop);
-          grid.condensationPlume[idx] = Math.min(1.0, grid.condensationPlume[idx] + 0.9);
-        } else {
-          grid.condensationPlume[idx] = Math.max(0, grid.condensationPlume[idx] - 1.5 * dt);
-        }
-      } else {
-        grid.condensationPlume[idx] = Math.max(0, grid.condensationPlume[idx] - 1.5 * dt);
-      }
+      applyCellDecompression(grid, idx, kRate, dt, c, r, vCol, vRow);
     }
 
-    const neighbors = [
-      { col: c + 1, row: r },
-      { col: c - 1, row: r },
-      { col: c, row: r + 1 },
-      { col: c, row: r - 1 },
-    ];
-
-    for (const nb of neighbors) {
-      const nIdx = cellCoordsToIndex(nb.col, nb.row);
-      if (nIdx !== -1 && visited[nIdx] === 0) {
-        if (canDiffuse(grid, idx, nIdx, doorOpenMap, breachCells)) {
-          visited[nIdx] = 1;
-          queueCol[tail] = nb.col;
-          queueRow[tail] = nb.row;
-          queueVentCol[tail] = c;
-          queueVentRow[tail] = r;
-          queueRate[tail] = kRate;
-          tail++;
-        }
-      }
-    }
+    queueDecompressionNeighbors(
+      grid,
+      idx,
+      c,
+      r,
+      kRate,
+      doorOpenMap,
+      breachCells,
+      partitionHolePairs,
+      q
+    );
   }
 
   for (let i = 0; i < ATMOS_TOTAL_CELLS; i++) {
-    if (visited[i] === 0 && grid.condensationPlume[i] > 0) {
+    if (q.visited[i] === 0 && grid.condensationPlume[i] > 0) {
       grid.condensationPlume[i] = Math.max(0, grid.condensationPlume[i] - 1.5 * dt);
     }
   }
@@ -487,7 +605,8 @@ function runCellularDiffusionSubsteps(
   grid: CellularAtmosGrid,
   doorOpenMap: Record<string, boolean>,
   breachCells: Set<number>,
-  dt: number
+  dt: number,
+  partitionHolePairs?: Map<string, number> | Set<string>
 ): void {
   const SUB_STEPS = 2;
   const subDt = dt / SUB_STEPS;
@@ -497,8 +616,15 @@ function runCellularDiffusionSubsteps(
       for (let c = 0; c < ATMOS_GRID_COLS - 1; c++) {
         const i = cellCoordsToIndex(c, r);
         const j = cellCoordsToIndex(c + 1, r);
-        if (!canDiffuse(grid, i, j, doorOpenMap, breachCells)) continue;
-        diffusePair(grid, i, j, subDt, 1, 0);
+        if (!canDiffuse(grid, i, j, doorOpenMap, breachCells, partitionHolePairs)) continue;
+        const pairKey = i < j ? `${i}_${j}` : `${j}_${i}`;
+        const holeCount =
+          partitionHolePairs instanceof Map
+            ? (partitionHolePairs.get(pairKey) ?? 0)
+            : partitionHolePairs?.has(pairKey)
+              ? 1
+              : 0;
+        diffusePair(grid, i, j, subDt, 1, 0, holeCount);
       }
     }
 
@@ -506,8 +632,15 @@ function runCellularDiffusionSubsteps(
       for (let c = 0; c < ATMOS_GRID_COLS; c++) {
         const i = cellCoordsToIndex(c, r);
         const j = cellCoordsToIndex(c, r + 1);
-        if (!canDiffuse(grid, i, j, doorOpenMap, breachCells)) continue;
-        diffusePair(grid, i, j, subDt, 0, 1);
+        if (!canDiffuse(grid, i, j, doorOpenMap, breachCells, partitionHolePairs)) continue;
+        const pairKey = i < j ? `${i}_${j}` : `${j}_${i}`;
+        const holeCount =
+          partitionHolePairs instanceof Map
+            ? (partitionHolePairs.get(pairKey) ?? 0)
+            : partitionHolePairs?.has(pairKey)
+              ? 1
+              : 0;
+        diffusePair(grid, i, j, subDt, 0, 1, holeCount);
       }
     }
   }
@@ -757,16 +890,79 @@ function equalizeConnectedZones(
   applyZoneEqualization(grid, avgs, flows);
 }
 
+export function getZoneRepressurizeRate(zoneId: string): number {
+  if (zoneId === 'airlock_stbd' || zoneId === 'airlock_port' || zoneId === 'avionics') {
+    return 25.0; // Small compartments & airlocks: ~3-5s
+  }
+  if (zoneId === 'cargo' || zoneId === 'engineering') {
+    return 6.5; // Large bays: ~12-18s
+  }
+  return 12.0; // Medium rooms: ~7-10s
+}
+
+function repressurizeZoneCells(
+  grid: CellularAtmosGrid,
+  indices: number[],
+  rate: number,
+  dt: number
+): number {
+  let totalPAdded = 0;
+  for (let k = 0; k < indices.length; k++) {
+    const idx = indices[k];
+    const p = grid.pressure[idx];
+    if (p < 101.3) {
+      const pAdd = Math.min(101.3 - p, rate * dt);
+      grid.pressure[idx] = p + pAdd;
+      totalPAdded += pAdd;
+
+      const blend = Math.min(1.0, 0.4 * dt + (pAdd / 101.3) * 2);
+      grid.tempKelvin[idx] = Math.min(
+        294.15,
+        grid.tempKelvin[idx] + (294.15 - grid.tempKelvin[idx]) * blend
+      );
+      grid.o2Ratio[idx] = Math.min(0.209, grid.o2Ratio[idx] + (0.209 - grid.o2Ratio[idx]) * blend);
+      grid.toxicSmoke[idx] = Math.max(0, grid.toxicSmoke[idx] * (1 - 0.35 * dt));
+    }
+  }
+  return totalPAdded;
+}
+
+export function applyEcsRepressurization(
+  grid: CellularAtmosGrid,
+  doors?: DoorState[],
+  breaches?: string[],
+  dtSeconds = 0.05
+): number {
+  const dt = Math.min(0.1, dtSeconds);
+  const portals = collectActiveVentPortals(doors, breaches);
+  const connections = getOpenRoomConnections(doors);
+  let totalPAdded = 0;
+
+  for (let z = 0; z < ZONE_DEFS.length; z++) {
+    const zone = ZONE_DEFS[z];
+    if (isSubRoomVentingToVacuum(zone.id, portals, connections)) continue;
+
+    const rate = getZoneRepressurizeRate(zone.id);
+    const indices = ZONE_CELL_INDICES[z];
+    totalPAdded += repressurizeZoneCells(grid, indices, rate, dt);
+  }
+
+  const o2DrainedPercent = (totalPAdded / 81040) * 100 * 0.209;
+  return Number(o2DrainedPercent.toFixed(4));
+}
+
 export function tickCellularAtmos(
   grid: CellularAtmosGrid,
   doors: DoorState[],
   breaches: string[],
   activeFires: string[],
-  dtSeconds: number
+  dtSeconds: number,
+  partitionHoles?: Array<{ x: number; y: number; wallId: string }>
 ): CellularAtmosGrid {
   const dt = Math.min(0.1, dtSeconds);
   const doorOpenMap = createDoorOpenMap(doors);
   const { breachCells, ventSources } = applyVentSources(grid, breaches, doorOpenMap);
+  const partitionHolePairs = buildPartitionHolePairs(partitionHoles);
 
   // Sync active room fires to grid
   for (const fireRoom of activeFires) {
@@ -782,13 +978,17 @@ export function tickCellularAtmos(
   tickCombustion(grid, dt);
 
   // Compressible flow & Sonic Rarefaction Wavefront Decompression
-  propagateDecompressionWave(grid, ventSources, doorOpenMap, breachCells, dt);
+  propagateDecompressionWave(grid, ventSources, doorOpenMap, breachCells, dt, partitionHolePairs);
 
   // Fast inter-room pneumatic pressure equalization across open blast doors
   equalizeConnectedZones(grid, doorOpenMap, dt);
 
   // Multi-substep local equalization
-  runCellularDiffusionSubsteps(grid, doorOpenMap, breachCells, dt);
+  runCellularDiffusionSubsteps(grid, doorOpenMap, breachCells, dt, partitionHolePairs);
+
+  // Automatic Environmental Control System (ECS) Repressurization
+  const ecsDrain = applyEcsRepressurization(grid, doors, breaches, dt);
+  grid.ecsDrainPercent = ecsDrain;
 
   // Velocity decay
   const vDecay = Math.max(0, 1 - 4.5 * dt);
@@ -856,38 +1056,54 @@ function getSubRoomId(roomId: string, x: number): string {
   return 'corridor_aft';
 }
 
+function addDoorVentPortals(doors: DoorState[] | undefined, portals: VentPortal[]): void {
+  if (!doors) return;
+  for (const d of doors) {
+    if ((d.isAirlock || d.roomA === 'vacuum' || d.roomB === 'vacuum') && d.isOpen) {
+      const rId = d.roomA !== 'vacuum' ? d.roomA : d.roomB;
+      const midX = (d.x1 + d.x2) / 2;
+      portals.push({
+        roomId: getSubRoomId(rId, midX),
+        x: midX,
+        y: (d.y1 + d.y2) / 2,
+        kRate: 25.0,
+      });
+    }
+  }
+}
+
+function addBreachVentPortals(breaches: string[] | undefined, portals: VentPortal[]): void {
+  if (!breaches) return;
+  for (const breach of breaches) {
+    const loc = getBreachLocation(breach);
+    const isPuncture = breach.startsWith('puncture_');
+    const rId = normalizeBreachRoomId(breach);
+    const room = HESPERIA_ROOMS.find((r) => r.id === rId);
+    const kRate = isPuncture ? 0.04 : 25.0;
+    if (loc) {
+      portals.push({
+        roomId: getSubRoomId(rId, loc.x),
+        x: loc.x,
+        y: loc.y,
+        kRate,
+      });
+    } else if (room) {
+      const midX = rId === 'corridor' ? 130 : room.x + room.width / 2;
+      const targetY = room.y > 368 ? room.y + room.height : room.y;
+      portals.push({
+        roomId: getSubRoomId(rId, midX),
+        x: midX,
+        y: targetY,
+        kRate,
+      });
+    }
+  }
+}
+
 function collectActiveVentPortals(doors?: DoorState[], breaches?: string[]): VentPortal[] {
   const portals: VentPortal[] = [];
-  if (doors) {
-    for (const d of doors) {
-      if ((d.isAirlock || d.roomA === 'vacuum' || d.roomB === 'vacuum') && d.isOpen) {
-        const rId = d.roomA !== 'vacuum' ? d.roomA : d.roomB;
-        const midX = (d.x1 + d.x2) / 2;
-        portals.push({
-          roomId: getSubRoomId(rId, midX),
-          x: midX,
-          y: (d.y1 + d.y2) / 2,
-          kRate: 25.0,
-        });
-      }
-    }
-  }
-  if (breaches) {
-    for (const breach of breaches) {
-      const isPuncture = breach.startsWith('puncture_');
-      const rId = isPuncture ? breach.replace('puncture_', '') : breach;
-      const room = HESPERIA_ROOMS.find((r) => r.id === rId);
-      if (room) {
-        const midX = rId === 'corridor' ? 130 : room.x + room.width / 2;
-        portals.push({
-          roomId: getSubRoomId(rId, midX),
-          x: midX,
-          y: room.y + 10,
-          kRate: isPuncture ? 0.04 : 25.0,
-        });
-      }
-    }
-  }
+  addDoorVentPortals(doors, portals);
+  addBreachVentPortals(breaches, portals);
   return portals;
 }
 
@@ -1093,8 +1309,12 @@ export function summarizeRoomAtmospheres(
     const avgT = count > 0 ? sumT / count : 294.15;
 
     const isVenting = isRoomVentingToVacuum(r.id, doors, breaches) && rawAvgP > 0.5;
+    const isRepressurizing =
+      !isVenting && avgP < 100.5 && !isRoomVentingToVacuum(r.id, doors, breaches);
     const activeBreaches = breaches
-      ? breaches.filter((b) => b === r.id || b === `puncture_${r.id}`).length
+      ? breaches.filter(
+          (b) => b === r.id || b === `puncture_${r.id}` || b.startsWith(`puncture_${r.id}_`)
+        ).length
       : 0;
 
     summary[r.id] = {
@@ -1105,6 +1325,7 @@ export function summarizeRoomAtmospheres(
       tempCelsius: Number((avgT - 273.15).toFixed(1)),
       toxicSmokePercent: Number((avgSmoke * 100).toFixed(1)),
       isVenting,
+      isRepressurizing,
       activeFires,
       activeBreaches,
     };
@@ -1138,6 +1359,7 @@ export function summarizeRoomAtmospheres(
     const avgO2 = avgP === 0 || rawAvgO2 < 0.5 ? 0 : rawAvgO2;
     const avgSmoke = sumSmoke / count;
     const avgT = sumT / count;
+    const isSubVenting = isSubRoomVentingToVacuum(zone.id, portals, connections);
 
     summary[zone.id] = {
       roomId: zone.id,
@@ -1146,7 +1368,8 @@ export function summarizeRoomAtmospheres(
       co2Ppm: Math.round(400 + avgSmoke * 8000),
       tempCelsius: Number((avgT - 273.15).toFixed(1)),
       toxicSmokePercent: Number((avgSmoke * 100).toFixed(1)),
-      isVenting: isSubRoomVentingToVacuum(zone.id, portals, connections) && rawAvgP > 0.5,
+      isVenting: isSubVenting && rawAvgP > 0.5,
+      isRepressurizing: !isSubVenting && avgP < 100.5,
       activeFires,
       activeBreaches: zone.id === 'corridor_fwd' && breaches?.includes('corridor') ? 1 : 0,
     };
@@ -1348,9 +1571,14 @@ function getDoorAirflowSource(
 }
 
 function getBreachCoordinates(
-  roomId: string,
+  breach: string,
   room: { x: number; y: number; width: number; height: number }
 ): { x: number; y: number } {
+  const loc = getBreachLocation(breach);
+  if (loc) {
+    return { x: loc.x, y: loc.y };
+  }
+  const roomId = normalizeBreachRoomId(breach);
   if (roomId === 'corridor') {
     return { x: room.x, y: room.y + room.height / 2 };
   }
@@ -1363,11 +1591,29 @@ function getBreachAirflowSource(
   doors: DoorState[],
   atmospheres?: Record<string, RoomAtmosphereSummary>
 ): DecompressionAirflowSource | undefined {
-  const roomId = breach.startsWith('puncture_') ? breach.replace('puncture_', '') : breach;
+  const roomId = normalizeBreachRoomId(breach);
   const room = HESPERIA_ROOMS.find((c) => c.id === roomId);
   if (!room) return undefined;
   const pressure = getConnectedVentingPressure(roomId, doors, atmospheres);
-  const { x, y } = getBreachCoordinates(roomId, room);
+  if (pressure <= 0.5) return undefined;
+
+  const loc = getBreachLocation(breach);
+  const pressureRatio = Math.min(1.0, pressure / 101.3);
+  const ventSpeed = 160 + 140 * pressureRatio;
+
+  if (loc) {
+    const dirX = loc.normalX;
+    const dirY = loc.normalY;
+    return {
+      x: loc.x - dirX * 4,
+      y: loc.y - dirY * 4,
+      u: dirX * ventSpeed,
+      v: dirY * ventSpeed,
+      intensity: pressureRatio,
+    };
+  }
+
+  const { x, y } = getBreachCoordinates(breach, room);
   return createAirflowSource(roomId, x, y, pressure);
 }
 

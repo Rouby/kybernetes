@@ -689,10 +689,12 @@ export const App: React.FC = () => {
           setEquippedWeapon((w) => {
             const next =
               w === 'kinetic_carbine'
-                ? 'pulse_laser'
-                : w === 'pulse_laser'
-                  ? 'arc_welder'
-                  : 'kinetic_carbine';
+                ? 'railgun_pistol'
+                : w === 'railgun_pistol'
+                  ? 'pulse_laser'
+                  : w === 'pulse_laser'
+                    ? 'arc_welder'
+                    : 'kinetic_carbine';
             setInGameNotice(`[ARMORY LOCKER] Equipped: ${next.toUpperCase()}`);
             return next;
           });
@@ -726,6 +728,9 @@ export const App: React.FC = () => {
       } else if (e.code === 'Digit3') {
         setEquippedWeapon('arc_welder');
         setInGameNotice('[LOADOUT] Equipped Arc Welder');
+      } else if (e.code === 'Digit4') {
+        setEquippedWeapon('railgun_pistol');
+        setInGameNotice('[LOADOUT] Equipped Railgun Pistol');
       } else if (e.code === 'KeyF') {
         const active = telemetry.boarding?.intruders.find((i) => i.state !== 'neutralized');
         if (active) {
@@ -791,8 +796,12 @@ export const App: React.FC = () => {
 
   // Main simulation tick loop
   useEffect(() => {
+    let lastTime = performance.now();
     const timer = setInterval(() => {
-      const dt = 0.1;
+      const now = performance.now();
+      const rawDt = (now - lastTime) / 1000;
+      lastTime = now;
+      const dt = Math.min(0.25, Math.max(0.01, rawDt));
       tickInteraction(dt);
       const summary = telemetryAtmospheresRef.current?.[currentRoomIdRef.current ?? 'corridor'];
       const cellAtmos = summary
@@ -817,13 +826,17 @@ export const App: React.FC = () => {
         )
       );
       const curShift = shiftChecklistRef.current;
+      if (urlParams.isE2E) {
+        (window as unknown as { __shiftChecklist?: ShiftChecklistState }).__shiftChecklist =
+          curShift;
+      }
       if (!curShift.isCompleted) {
         setShiftElapsedSec(Math.max(0, Math.floor((Date.now() - curShift.startedAt) / 1000)));
       }
     }, 100);
 
     return () => clearInterval(timer);
-  }, [tickInteraction]);
+  }, [tickInteraction, urlParams.isE2E]);
 
   // Initialize headless ShipAudioEngine and register user gesture unlock immediately
   useEffect(() => {

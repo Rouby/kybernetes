@@ -8,7 +8,13 @@ export type IntruderAiState =
   | 'sabotaging'
   | 'neutralized';
 
-export type WeaponType = 'kinetic_carbine' | 'pulse_laser' | 'arc_welder';
+export type WeaponType = 'kinetic_carbine' | 'pulse_laser' | 'arc_welder' | 'railgun_pistol';
+
+export interface PartitionHole {
+  x: number;
+  y: number;
+  wallId: string;
+}
 
 export interface IntruderState {
   id: string;
@@ -86,4 +92,5 @@ export interface BoardingTacticsTelemetry {
   doors: DoorState[];
   projectiles: ProjectileState[];
   roomO2: Record<string, number>; // 0..100% per room
+  partitionHoles?: PartitionHole[];
 }

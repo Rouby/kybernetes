@@ -537,7 +537,7 @@ export class HudRenderer {
   private renderLowerRightCombat(state: HudDrawState, width: number, height: number): void {
     const inter = state.activeInteraction;
     const eq = state.equippedWeapon ?? 'kinetic_carbine';
-    const isKinetic = eq === 'kinetic_carbine';
+    const isKinetic = eq === 'kinetic_carbine' || eq === 'railgun_pistol';
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(52, Math.round(height * 0.065));
     const panelW = 375;
@@ -548,7 +548,7 @@ export class HudRenderer {
     this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
 
     // Tool Header with hotkey hint
-    this.addText('EQUIPPED TOOL // [1-3] SELECT', x + 15, y + 12, {
+    this.addText('EQUIPPED TOOL // [1-4] SELECT', x + 15, y + 12, {
       fontSize: 18,
       fontWeight: 'bold',
       color: '#7088a0',
@@ -571,7 +571,8 @@ export class HudRenderer {
           : '[R] RELOAD';
       const ammoCol = ammo.isReloading ? '#00e5ff' : ammo.current < 8 ? '#ff3344' : '#00ff88';
 
-      this.addText('KINETIC CARBINE', x + 15, y + 36, {
+      const weaponTitle = eq === 'railgun_pistol' ? 'RAILGUN PISTOL' : 'KINETIC CARBINE';
+      this.addText(weaponTitle, x + 15, y + 36, {
         fontSize: 20,
         fontWeight: 'bold',
         color: ammoCol,

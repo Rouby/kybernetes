@@ -45,4 +45,5 @@ export interface VesselSession {
   activeSection: 'alpha' | 'bravo';
   watchPhase: 'active_watch' | 'off_duty';
   timeRemainingSeconds: number;
+  breachRepairProgress: Map<string, number>;
 }

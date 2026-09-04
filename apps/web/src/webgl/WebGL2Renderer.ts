@@ -398,6 +398,13 @@ export class WebGL2Renderer {
         b = 0.25;
         beamLen = 32;
         halfW = 2.0;
+      } else if (proj.weaponType === 'railgun_pistol') {
+        style = 0;
+        r = 1.0;
+        g = 0.95;
+        b = 0.75;
+        beamLen = 45;
+        halfW = 2.2;
       } else if (proj.weaponType === 'pulse_laser') {
         const charge = proj.chargeRatio ?? 1.0;
         style = 1;
@@ -714,7 +721,11 @@ export class WebGL2Renderer {
     }
     this.particleSystem.update(dt);
 
-    const opaqueWalls = getOpaqueWallSegments(HESPERIA_WALLS, doors);
+    const opaqueWalls = getOpaqueWallSegments(
+      HESPERIA_WALLS,
+      doors,
+      state.telemetry?.hull?.breaches
+    );
     const doorsHash = (state.boarding?.doors || [])
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
       .join('|');
@@ -766,7 +777,16 @@ export class WebGL2Renderer {
       timeSec
     );
     this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
-    this.deckPass.renderBulkheads(this.flatProg, this.flatVAO, matrix);
+    const partitionHoles =
+      state.telemetry?.boarding?.partitionHoles || state.boarding?.partitionHoles;
+    this.deckPass.renderBulkheads(
+      this.flatProg,
+      this.flatVAO,
+      matrix,
+      state.telemetry?.hull?.breaches,
+      timeSec,
+      partitionHoles
+    );
     this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);
     this.renderStations(matrix, state.nearestStation?.id, timeSec);

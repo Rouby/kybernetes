@@ -1,6 +1,6 @@
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { type Point2D, segmentsIntersect } from './collision';
-import { HESPERIA_WALLS } from './deck';
+import { carveBreachedWallSegments, HESPERIA_WALLS } from './deck';
 
 export interface VisibilityRayHit {
   angle: number;
@@ -9,8 +9,14 @@ export interface VisibilityRayHit {
   distance: number;
 }
 
-export function getOpaqueWallSegments(walls: WallSegment[], doors?: DoorState[]): WallSegment[] {
-  const opaqueWalls = walls.filter((w) => w.isOpaque !== false);
+export function getOpaqueWallSegments(
+  walls: WallSegment[],
+  doors?: DoorState[],
+  breaches?: string[]
+): WallSegment[] {
+  const carvedWalls =
+    breaches && breaches.length > 0 ? carveBreachedWallSegments(walls, breaches) : walls;
+  const opaqueWalls = carvedWalls.filter((w) => w.isOpaque !== false);
   if (!doors) return opaqueWalls;
 
   const result = [...opaqueWalls];

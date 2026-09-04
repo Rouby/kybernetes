@@ -7,8 +7,9 @@ async function embarkAsWiper(page: Page, callsign = 'Cadet-Solo') {
   await page.getByTestId('dossier-callsign-input').fill(callsign);
   await page.getByTestId('dossier-role-wiper').click();
   await page.getByTestId('confirm-dossier-btn').click();
-  await expect(page.getByTestId('character-creation-modal')).not.toBeVisible();
-  await expect(page.getByTestId('vessel-canvas')).toBeVisible();
+  const canvas = page.getByTestId('vessel-canvas');
+  await expect(canvas).toBeVisible();
+  await canvas.focus();
 }
 
 test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
@@ -51,15 +52,30 @@ test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
     // Wiper spawns in Engineering right by reactor_primary_console (x: 850, y: 560)
     // Task 1: Scrub Plasma Grids (10s)
     await page.keyboard.press('KeyE');
-    await page.waitForTimeout(12500);
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __shiftChecklist?: { tasks: { completed: boolean }[] } })
+          .__shiftChecklist?.tasks[0]?.completed,
+      { timeout: 25000 }
+    );
 
     // Task 2: Purge Coolant Lines (15s)
     await page.keyboard.press('KeyE');
-    await page.waitForTimeout(18000);
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __shiftChecklist?: { tasks: { completed: boolean }[] } })
+          .__shiftChecklist?.tasks[1]?.completed,
+      { timeout: 30000 }
+    );
 
     // Task 3: Scrub Plasma Grids (10s)
     await page.keyboard.press('KeyE');
-    await page.waitForTimeout(12500);
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __shiftChecklist?: { tasks: { completed: boolean }[] } })
+          .__shiftChecklist?.tasks[2]?.completed,
+      { timeout: 25000 }
+    );
 
     // After task 3 finishes, ShiftDebriefModal should pop up
     const debriefModal = page.getByTestId('shift-debrief-modal');

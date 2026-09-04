@@ -56,6 +56,7 @@ export interface RoomAtmosphereSummary {
   tempCelsius: number;
   toxicSmokePercent: number;
   isVenting: boolean;
+  isRepressurizing?: boolean;
   activeFires: number;
   activeBreaches: number;
 }

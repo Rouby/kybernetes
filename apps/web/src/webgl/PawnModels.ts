@@ -48,6 +48,27 @@ function renderWeaponInHands(
       2.0
     );
     ctx.bufferAndDraw(new Float32Array(bodyVerts));
+  } else if (weaponType === 'railgun_pistol') {
+    setColor(ctx, 0.16, 0.18, 0.22);
+    const bodyVerts: number[] = [];
+    ctx.addThickSegment(bodyVerts, wx, wy, wx + cos * 13, wy + sin * 13, 3.8);
+    ctx.addThickSegment(
+      bodyVerts,
+      wx + cos * 13 - normX * 1.5,
+      wy + sin * 13 - normY * 1.5,
+      wx + cos * 19 - normX * 1.5,
+      wy + sin * 19 - normY * 1.5,
+      1.4
+    );
+    ctx.addThickSegment(
+      bodyVerts,
+      wx + cos * 13 + normX * 1.5,
+      wy + sin * 13 + normY * 1.5,
+      wx + cos * 19 + normX * 1.5,
+      wy + sin * 19 + normY * 1.5,
+      1.4
+    );
+    ctx.bufferAndDraw(new Float32Array(bodyVerts));
   } else if (weaponType === 'pulse_laser') {
     // High-tech laser rail rifle chassis
     setColor(ctx, 0.14, 0.16, 0.22);

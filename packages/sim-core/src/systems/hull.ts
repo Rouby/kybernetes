@@ -105,12 +105,22 @@ export function repairHullPlating(
   hull: HullTelemetry,
   targetRoomId?: string
 ): { nextHull: HullTelemetry; patchedBreach: boolean } {
-  let breaches = [...hull.breaches];
+  const breaches = [...hull.breaches];
   let patchedBreach = false;
 
-  if (targetRoomId && breaches.includes(targetRoomId)) {
-    breaches = breaches.filter((b) => b !== targetRoomId);
-    patchedBreach = true;
+  if (targetRoomId) {
+    const clean = targetRoomId.replace('puncture_', '');
+    const idx = breaches.findIndex(
+      (b) =>
+        b === targetRoomId ||
+        b === clean ||
+        b === `puncture_${clean}` ||
+        b.startsWith(`puncture_${clean}_`)
+    );
+    if (idx !== -1) {
+      breaches.splice(idx, 1);
+      patchedBreach = true;
+    }
   } else if (breaches.length > 0) {
     breaches.pop();
     patchedBreach = true;
@@ -131,4 +141,24 @@ export function repairHullPlating(
     },
     patchedBreach,
   };
+}
+
+export function trackBreachWelding(
+  currentProgress: Map<string, number>,
+  breachRoomId: string,
+  dtSeconds: number,
+  requiredSeconds = 3.0
+): { nextProgress: Map<string, number>; completed: boolean; currentPercent: number } {
+  const next = new Map(currentProgress);
+  const currentVal = next.get(breachRoomId) ?? 0;
+  const nextVal = currentVal + dtSeconds;
+
+  if (nextVal >= requiredSeconds) {
+    next.delete(breachRoomId);
+    return { nextProgress: next, completed: true, currentPercent: 100 };
+  }
+
+  next.set(breachRoomId, nextVal);
+  const currentPercent = Math.min(100, Math.round((nextVal / requiredSeconds) * 100));
+  return { nextProgress: next, completed: false, currentPercent };
 }

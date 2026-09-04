@@ -1,12 +1,13 @@
 import type {
   DoorState,
   IntruderState,
+  PartitionHole,
   ProjectileState,
   WallSegment,
   WeaponType,
 } from '@kybernetes/protocol';
 import { isSegmentBlockedByDoors, segmentsIntersect } from '../spatial/collision';
-import { HESPERIA_WALLS } from '../spatial/deck';
+import { findRoomAtHullImpact, HESPERIA_WALLS } from '../spatial/deck';
 
 export function createProjectile(
   originX: number,
@@ -20,12 +21,23 @@ export function createProjectile(
   const dx = targetX - originX;
   const dy = targetY - originY;
   const angle = Math.atan2(dy, dx);
-  let speed = fromPlayer ? (weaponType === 'kinetic_carbine' ? 1050 : 620) : 360;
+  let speed = fromPlayer
+    ? weaponType === 'kinetic_carbine'
+      ? 1050
+      : weaponType === 'railgun_pistol'
+        ? 1400
+        : 620
+    : 360;
   let damage = 25;
   let color = '#ffd166'; // Hot metallic brass bullet
   let lifeSeconds = weaponType === 'kinetic_carbine' ? 0.9 : 1.2;
 
-  if (weaponType === 'pulse_laser') {
+  if (weaponType === 'railgun_pistol') {
+    speed = 1400; // Hypervelocity tungsten sabot
+    damage = 80; // Devastating kinetic punch
+    color = '#ffeaa7'; // Blinding white-hot sabot slug
+    lifeSeconds = 0.75;
+  } else if (weaponType === 'pulse_laser') {
     const clampedCharge = Math.max(0.2, Math.min(1.0, chargeRatio));
     speed = Math.round(480 + clampedCharge * 120);
     damage = Math.round(20 + clampedCharge * 70); // 20 to 90 damage based on charge!
@@ -112,6 +124,66 @@ export interface ProjectileTickResult {
   nextProjectiles: ProjectileState[];
   damagedIntruders: Array<{ id: string; damage: number }>;
   playerDamageTaken: number;
+  newBreaches?: string[];
+  partitionHits?: PartitionHole[];
+  hullDamageTaken?: number;
+}
+
+function getWallHitPoint(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  wall: WallSegment
+): { x: number; y: number } {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const wx = wall.x2 - wall.x1;
+  const wy = wall.y2 - wall.y1;
+  const det = dx * wy - dy * wx;
+  const isHorizontal = Math.abs(wall.y1 - wall.y2) < 1;
+  const isVertical = Math.abs(wall.x1 - wall.x2) < 1;
+
+  if (Math.abs(det) < 1e-5) {
+    const rawX = (p1.x + p2.x) / 2;
+    const rawY = (p1.y + p2.y) / 2;
+    return {
+      x: isVertical ? wall.x1 : Math.round(rawX),
+      y: isHorizontal ? wall.y1 : Math.round(rawY),
+    };
+  }
+  const t = Math.max(0, Math.min(1, ((wall.x1 - p1.x) * wy - (wall.y1 - p1.y) * wx) / det));
+  const rawX = p1.x + t * dx;
+  const rawY = p1.y + t * dy;
+  return {
+    x: isVertical ? wall.x1 : Math.round(rawX),
+    y: isHorizontal ? wall.y1 : Math.round(rawY),
+  };
+}
+
+function handleWallHit(
+  proj: ProjectileState,
+  hitWall: WallSegment,
+  hitPos: { x: number; y: number },
+  newBreaches: string[],
+  partitionHits: PartitionHole[]
+): number {
+  const isKinetic = proj.weaponType === 'kinetic_carbine' || proj.weaponType === 'railgun_pistol';
+  if (!isKinetic) return 0;
+
+  if (hitWall.id.startsWith('hull_')) {
+    const isRailgun = proj.weaponType === 'railgun_pistol';
+    const punctureChance = isRailgun ? 0.35 : 0.05;
+    const dmg = isRailgun ? 1.5 : 0.4;
+    if (Math.random() < punctureChance) {
+      const roomId = findRoomAtHullImpact(hitPos.x, hitPos.y);
+      if (roomId) {
+        newBreaches.push(`puncture_${roomId}_${Math.round(hitPos.x)}_${Math.round(hitPos.y)}`);
+      }
+    }
+    return dmg;
+  }
+
+  partitionHits.push({ x: hitPos.x, y: hitPos.y, wallId: hitWall.id });
+  return 0;
 }
 
 function findHitIntruder(
@@ -150,7 +222,10 @@ export function tickProjectiles(
 ): ProjectileTickResult {
   const nextProjectiles: ProjectileState[] = [];
   const damagedIntruders: Array<{ id: string; damage: number }> = [];
+  const newBreaches: string[] = [];
+  const partitionHits: PartitionHole[] = [];
   let playerDamageTaken = 0;
+  let hullDamageTaken = 0;
 
   for (const proj of projectiles) {
     const nextX = proj.x + proj.vx * dtSeconds;
@@ -163,11 +238,15 @@ export function tickProjectiles(
     const p2 = { x: nextX, y: nextY };
 
     // 1. Line-segment collision with ship walls
-    const hitWall = walls.some(
+    const hitWall = walls.find(
       (w) =>
         !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
     );
-    if (hitWall) continue; // Projectile stopped and absorbed by wall
+    if (hitWall) {
+      const hitPos = getWallHitPoint(p1, p2, hitWall);
+      hullDamageTaken += handleWallHit(proj, hitWall, hitPos, newBreaches, partitionHits);
+      continue; // Projectile stopped and absorbed by wall
+    }
 
     // 2. Line-segment collision with closed blast doors
     if (isSegmentBlockedByDoors(p1, p2, doors)) continue;
@@ -201,5 +280,8 @@ export function tickProjectiles(
     nextProjectiles,
     damagedIntruders,
     playerDamageTaken,
+    newBreaches,
+    partitionHits,
+    hullDamageTaken: Number(hullDamageTaken.toFixed(2)),
   };
 }

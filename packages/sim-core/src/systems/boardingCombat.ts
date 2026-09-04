@@ -311,6 +311,7 @@ export interface BoardingCombatTickResult {
   sabotageDetonated: boolean;
   hullDamageInflicted: number;
   playerDamageTaken: number;
+  newBreaches?: string[];
 }
 
 // fallow-ignore-next-line complexity
@@ -383,6 +384,13 @@ export function tickBoardingCombat(
     }
   }
 
+  hullDamageInflicted += projRes.hullDamageTaken || 0;
+
+  let nextPartitionHoles = state.partitionHoles || [];
+  if (projRes.partitionHits && projRes.partitionHits.length > 0) {
+    nextPartitionHoles = [...nextPartitionHoles, ...projRes.partitionHits].slice(-40);
+  }
+
   return {
     nextState: {
       ...state,
@@ -392,10 +400,12 @@ export function tickBoardingCombat(
       sentries: nextSentries,
       intruders: nextIntruders,
       projectiles: projRes.nextProjectiles,
+      partitionHoles: nextPartitionHoles,
     },
     sabotageDetonated,
-    hullDamageInflicted,
+    hullDamageInflicted: Number(hullDamageInflicted.toFixed(2)),
     playerDamageTaken: projRes.playerDamageTaken,
+    newBreaches: projRes.newBreaches,
   };
 }
 

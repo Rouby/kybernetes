@@ -1,6 +1,7 @@
 import type {
   ClientAction,
   CollabShiftUpdateBroadcast,
+  DamageTriageBroadcast,
   DualProtocolBroadcast,
   PawnState,
   ShipAlertBroadcast,
@@ -15,10 +16,13 @@ import {
   createInitialVesselState,
   GameLoop,
   generateShiftChecklist,
+  getBreachLocation,
   HESPERIA_SPAWNS,
   HESPERIA_WALLS,
+  normalizeBreachRoomId,
   type PersistedCrewMember,
   ROLE_DEFINITIONS,
+  repairHullPlating,
   resolvePawnMovement,
   sampleAirflowVelocityAt,
   sampleAtmosphereAt,
@@ -28,6 +32,7 @@ import {
   tickDualProtocol,
   tickVesselState,
   toggleDoor,
+  trackBreachWelding,
   updatePlayerVitals,
 } from '@kybernetes/sim-core';
 import { type WebSocket, WebSocketServer } from 'ws';
@@ -138,6 +143,7 @@ export class VesselServer {
       activeSection: 'alpha',
       watchPhase: 'active_watch',
       timeRemainingSeconds: 180,
+      breachRepairProgress: new Map(),
     };
     this.reconcileBotsForSession(session);
     session.loop.start();
@@ -284,7 +290,7 @@ export class VesselServer {
     }
 
     this.tickClientVitalsAndAtmosphere(session, dtSeconds);
-    this.tickActiveWelders(session);
+    this.tickActiveWelders(session, dtSeconds);
     this.tickSessionBots(session, dtSeconds);
     broadcastSpatialSnapshot(session);
     broadcastToSession(session, stateToTelemetryBroadcast(session.vesselState));
@@ -377,10 +383,47 @@ export class VesselServer {
     }
   }
 
-  private tickActiveWelders(session: VesselSession): void {
-    if (session.vesselState.boarding.intruders.length === 0) return;
+  private tickWelderBreachRepairs(
+    session: VesselSession,
+    cl: ClientSession,
+    dtSeconds: number
+  ): void {
+    const breaches = session.vesselState.hull.breaches;
+    if (breaches.length === 0) return;
+
+    for (const breach of breaches) {
+      const norm = normalizeBreachRoomId(breach);
+      const loc = getBreachLocation(breach);
+      if (!loc) continue;
+
+      const dist = Math.hypot(cl.pawn.x - loc.x, cl.pawn.y - loc.y);
+      if (dist <= 75) {
+        const res = trackBreachWelding(session.breachRepairProgress, breach, dtSeconds, 3.0);
+        session.breachRepairProgress = res.nextProgress;
+        if (res.completed) {
+          const repairRes = repairHullPlating(session.vesselState.hull, breach);
+          session.vesselState.hull = repairRes.nextHull;
+          session.vesselState.hullIntegrityPercent = repairRes.nextHull.integrityPercent;
+
+          const triage: DamageTriageBroadcast = {
+            type: 'DAMAGE_TRIAGE_RESULT',
+            actionType: 'HULL_REPAIR',
+            success: true,
+            message: `Breach patched and plating welded in ${norm.toUpperCase()} by ${cl.callsign}`,
+            timestamp: Date.now(),
+          };
+          broadcastToSession(session, triage);
+          break;
+        }
+      }
+    }
+  }
+
+  private tickActiveWelders(session: VesselSession, dtSeconds: number): void {
     for (const cl of session.clients.values()) {
-      if (cl.pawn.isWelding) {
+      if (!cl.pawn.isWelding) continue;
+
+      if (session.vesselState.boarding.intruders.length > 0) {
         const res = applyWelderAoeDamage(
           session.vesselState.boarding.intruders,
           cl.pawn.x,
@@ -392,6 +435,8 @@ export class VesselServer {
         );
         session.vesselState.boarding.intruders = res.nextIntruders;
       }
+
+      this.tickWelderBreachRepairs(session, cl, dtSeconds);
     }
   }
 
