@@ -6,6 +6,7 @@ import type {
   PawnState,
   ServerBroadcast,
   SpatialSnapshotBroadcast,
+  VitalsDeltaBroadcast,
 } from '@kybernetes/protocol';
 import { stateToTelemetryBroadcast } from '@kybernetes/sim-core';
 import { WebSocket } from 'ws';
@@ -18,6 +19,18 @@ export function broadcastToSession(session: VesselSession, broadcast: ServerBroa
       client.ws.send(payload);
     }
   }
+}
+
+export function broadcastVitals(client: ClientSession): void {
+  if (client.ws.readyState !== WebSocket.OPEN) return;
+  const broadcast: VitalsDeltaBroadcast = {
+    type: 'VITALS_DELTA',
+    playerId: client.id,
+    vitals: client.vitals,
+    credits: client.credits,
+    clearanceLevel: client.clearanceLevel,
+  };
+  client.ws.send(JSON.stringify(broadcast));
 }
 
 export function broadcastCrewManifest(session: VesselSession): void {
@@ -68,6 +81,7 @@ export function sendInitialPackets(client: ClientSession, session: VesselSession
   const telemetry = stateToTelemetryBroadcast(session.vesselState);
   client.ws.send(JSON.stringify(lobbyBroadcast));
   client.ws.send(JSON.stringify(telemetry));
+  broadcastVitals(client);
 
   if (session.dualProtocol.stage === 'primed') {
     const protoUpdate: DualProtocolBroadcast = {

@@ -28,17 +28,29 @@ export interface VentingSimulationResult {
 }
 
 // fallow-ignore-next-line complexity
-export function getVentedRooms(doors: DoorState[]): {
+export function getVentedRooms(
+  doors: DoorState[],
+  breaches: string[] = []
+): {
   ventedRooms: string[];
   openAirlocks: DoorState[];
 } {
-  const openAirlocks = doors.filter((d) => d.isAirlock && d.isOpen);
+  const openAirlocks = doors.filter(
+    (d) => (d.isAirlock || d.roomA === 'vacuum' || d.roomB === 'vacuum') && d.isOpen
+  );
   const vented = new Set<string>();
 
   // Any room directly connected to an open airlock is vented
   for (const airlock of openAirlocks) {
     if (airlock.roomA && airlock.roomA !== 'vacuum') vented.add(airlock.roomA);
     if (airlock.roomB && airlock.roomB !== 'vacuum') vented.add(airlock.roomB);
+  }
+
+  // Any room with an active full hull breach is vented
+  for (const b of breaches) {
+    if (!b.startsWith('puncture_')) {
+      vented.add(b);
+    }
   }
 
   // Multi-room air equalization: if an interior door is open to a vented room, that room also vents
@@ -64,15 +76,17 @@ export function getVentedRooms(doors: DoorState[]): {
 export function tickAirVenting(
   currentO2: Record<string, number>,
   doors: DoorState[],
-  dtSeconds: number
+  dtSeconds: number,
+  breaches: string[] = []
 ): VentingSimulationResult {
-  const { ventedRooms, openAirlocks } = getVentedRooms(doors);
+  const { ventedRooms, openAirlocks } = getVentedRooms(doors, breaches);
   const nextO2 = { ...currentO2 };
 
   // Deplete O2 in vented rooms rapidly, recover in sealed rooms
   for (const roomId of Object.keys(nextO2)) {
     if (ventedRooms.includes(roomId)) {
-      nextO2[roomId] = Math.max(0, Number((nextO2[roomId] - 30 * dtSeconds).toFixed(1)));
+      const remaining = nextO2[roomId] - 140 * dtSeconds;
+      nextO2[roomId] = remaining < 2.0 ? 0 : Number(remaining.toFixed(1));
     } else {
       nextO2[roomId] = Math.min(100, Number((nextO2[roomId] + 5 * dtSeconds).toFixed(1)));
     }

@@ -159,6 +159,27 @@ export interface ContributeCollabShiftAction {
   active: boolean;
 }
 
+export interface ToggleHelmetAction {
+  type: 'TOGGLE_HELMET';
+  sealed?: boolean;
+}
+
+export interface RefillSuitAction {
+  type: 'REFILL_SUIT';
+  resource: 'o2' | 'battery';
+  stationId: string;
+}
+
+export interface PatchSuitAction {
+  type: 'PATCH_SUIT';
+  targetPlayerId?: string;
+}
+
+export interface ReviveCrewAction {
+  type: 'REVIVE_CREW';
+  targetPlayerId: string;
+}
+
 export type ClientAction =
   | JoinVesselAction
   | PlayerMoveIntent
@@ -184,4 +205,8 @@ export type ClientAction =
   | ToggleDoorAction
   | InitiateDualProtocolAction
   | ExecuteDualProtocolAction
-  | ContributeCollabShiftAction;
+  | ContributeCollabShiftAction
+  | ToggleHelmetAction
+  | RefillSuitAction
+  | PatchSuitAction
+  | ReviveCrewAction;

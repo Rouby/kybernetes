@@ -102,16 +102,23 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     const canvas = page.getByTestId('vessel-canvas');
     await expect(canvas).toBeVisible();
 
-    // Click the AUDIO [O] button on the curved visor glass: x ~ 1030, y ~ 60
-    await page.mouse.click(1030, 60);
+    const box = await canvas.boundingBox();
+    const width = box?.width ?? 1280;
+    const height = box?.height ?? 720;
+    const marginX = Math.max(72, Math.round(width * 0.055));
+    const marginY = Math.max(38, Math.round(height * 0.055));
+    const topVisorX = width - 595 - marginX;
+
+    // Click the AUDIO [O] button on the curved visor glass (x: topVisorX + 220 + 40, y: marginY + 21 + 13)
+    await page.mouse.click(topVisorX + 260, marginY + 34);
     await expect(page.getByTestId('audio-settings-modal')).toBeVisible();
 
     // Close modal via Escape
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('audio-settings-modal')).not.toBeVisible();
 
-    // Click BCN button on the curved visor glass: x ~ 794, y ~ 63
-    await page.mouse.click(794, 63);
+    // Click BCN button on the curved visor glass (x: topVisorX + 10 + 35, y: marginY + 21 + 13)
+    await page.mouse.click(topVisorX + 45, marginY + 34);
     await expect(page.getByTestId('beacon-modal')).toBeVisible();
 
     // Close beacon modal

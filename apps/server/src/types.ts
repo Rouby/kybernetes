@@ -1,4 +1,4 @@
-import type { PawnState, StartingRole } from '@kybernetes/protocol';
+import type { PawnState, PlayerVitals, StartingRole } from '@kybernetes/protocol';
 import type {
   BotState,
   CollabShiftState,
@@ -16,6 +16,9 @@ export interface ClientSession {
   callsign: string;
   role: StartingRole;
   pawn: PawnState;
+  vitals: PlayerVitals;
+  credits: number;
+  clearanceLevel: number;
   status: 'on_duty' | 'idle' | 'resting' | 'in_combat';
   dutyName?: string;
   vesselCode: string;

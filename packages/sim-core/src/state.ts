@@ -6,9 +6,17 @@ import type {
   MacroCrewSupplies,
   NavalDamageEvent,
   ReactorTelemetry,
+  RoomAtmosphereSummary,
   ShieldTelemetry,
   TelemetryDeltaBroadcast,
 } from '@kybernetes/protocol';
+import {
+  type CellularAtmosGrid,
+  createInitialAtmosGrid,
+  summarizeRoomAtmospheres,
+  tickCellularAtmos,
+} from './spatial/atmosGrid';
+import { createInitialDoors } from './spatial/doors';
 import { createInitialBoardingState, tickBoardingCombat } from './systems/boardingCombat';
 import { createInitialHull, createInitialShields, tickShields } from './systems/hull';
 import { createInitialLifeSupport, tickLifeSupport } from './systems/lifeSupport';
@@ -33,6 +41,8 @@ export interface VesselSimulationState {
   activeEvents: NavalDamageEvent[];
   activeFires: string[];
   boarding: BoardingTacticsTelemetry;
+  atmos: CellularAtmosGrid;
+  roomAtmospheres?: Record<string, RoomAtmosphereSummary>;
 }
 
 export function createInitialVesselState(): VesselSimulationState {
@@ -42,6 +52,8 @@ export function createInitialVesselState(): VesselSimulationState {
   const shields = createInitialShields();
   const defense = createInitialDefense();
   const boarding = createInitialBoardingState();
+  const atmos = createInitialAtmosGrid();
+  const roomAtmospheres = summarizeRoomAtmospheres(atmos);
 
   return {
     shipName: 'CSS Hesperia',
@@ -58,6 +70,8 @@ export function createInitialVesselState(): VesselSimulationState {
       oxygenPercent: 99.4,
       morale: 85,
       mutinyRisk: 5,
+      biomassStock: 120,
+      greywaterLitres: 400,
     },
     reactor,
     lifeSupport,
@@ -67,6 +81,8 @@ export function createInitialVesselState(): VesselSimulationState {
     activeEvents: [],
     activeFires: [],
     boarding,
+    atmos,
+    roomAtmospheres,
   };
 }
 
@@ -153,10 +169,34 @@ export function tickVesselState(
     };
   }
 
+  // Cellular atmospheric tick
+  const doors = boarding.doors || createInitialDoors();
+  const atmos = tickCellularAtmos(
+    state.atmos || createInitialAtmosGrid(),
+    doors,
+    hull.breaches,
+    activeFires,
+    dtSeconds
+  );
+  const roomAtmospheres = summarizeRoomAtmospheres(atmos, doors, hull.breaches);
+
+  // Filter extinguished fires (if cellular fire starved or smothered)
+  const remainingFires = activeFires.filter((fRoom) => {
+    const summary = roomAtmospheres[fRoom];
+    return summary && summary.activeFires > 0;
+  });
+
+  // Closed loop macro supplies decay/morale
+  const supplies = { ...state.supplies };
+  if (supplies.rations < 50 || supplies.waterLitres < 100) {
+    supplies.morale = Math.max(10, supplies.morale - dtSeconds * 0.05);
+    supplies.mutinyRisk = Math.min(100, supplies.mutinyRisk + dtSeconds * 0.1);
+  }
+
   // Escalate alert level if critical conditions occur
   let alertLevel = state.alertLevel;
   if (
-    activeFires.length > 0 ||
+    remainingFires.length > 0 ||
     hull.breaches.length > 0 ||
     boarding.intruders.some((i) => i.state !== 'neutralized') ||
     eventRes.nextEvents.some((e) => e.status === 'incoming' && e.severity === 'critical')
@@ -171,13 +211,16 @@ export function tickVesselState(
     hullIntegrityPercent: hull.integrityPercent,
     shieldIntegrityPercent: shields.integrityPercent,
     alertLevel,
+    supplies,
     reactor,
     lifeSupport,
     hull,
     shields,
     activeEvents: eventRes.nextEvents,
-    activeFires,
+    activeFires: remainingFires,
     boarding,
+    atmos,
+    roomAtmospheres,
   };
 }
 
@@ -202,5 +245,6 @@ export function stateToTelemetryBroadcast(state: VesselSimulationState): Telemet
     activeEvents: state.activeEvents,
     activeFires: state.activeFires,
     boarding: state.boarding,
+    roomAtmospheres: state.roomAtmospheres,
   };
 }

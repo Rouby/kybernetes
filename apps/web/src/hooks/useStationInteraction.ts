@@ -6,7 +6,7 @@ import type { ActiveInteraction } from '../types';
 export interface StationActionConfig {
   actionName: string;
   verb: string;
-  type: 'duty' | 'rest' | 'paste' | 'water' | 'coolant';
+  type: 'duty' | 'rest' | 'paste' | 'water' | 'coolant' | 'suit_o2';
   dutyId?: string;
   durationSeconds: number;
   color: string;
@@ -27,7 +27,7 @@ export function getStationActionConfig(
       color: '#ffb000',
     };
   }
-  if (station.id === 'paste_dispenser') {
+  if (station.id === 'paste_dispenser' || station.id === 'galley_paste_dispenser') {
     return {
       actionName: 'Dispense Nutrient Paste',
       verb: 'Dispensing Paste',
@@ -36,12 +36,21 @@ export function getStationActionConfig(
       color: '#ffb000',
     };
   }
-  if (station.id === 'water_dispenser') {
+  if (station.id === 'water_dispenser' || station.id === 'galley_water_dispenser') {
     return {
       actionName: 'Drink Recycled Water',
       verb: 'Drinking Water',
       type: 'water',
       durationSeconds: 1.2,
+      color: '#00e5ff',
+    };
+  }
+  if (station.stationType === 'airlock') {
+    return {
+      actionName: 'Replenish Suit O2 Tanks',
+      verb: 'Charging Oxygen Reservoir',
+      type: 'suit_o2',
+      durationSeconds: 2.0,
       color: '#00e5ff',
     };
   }
@@ -81,6 +90,7 @@ interface ActionHandlers {
   onDrinkWater: () => void;
   onRestInBunk: () => void;
   onVentCoolant: () => void;
+  onRefillSuit?: () => void;
   onNotice: (msg: string) => void;
 }
 
@@ -92,12 +102,18 @@ function dispatchActionCompletion(current: ActiveInteraction, handlers: ActionHa
   } else if (current.type === 'water') {
     handlers.onDrinkWater();
     handlers.onNotice('[+] HYDRATION RESTORED (+30% HYDRATION)');
+  } else if (current.type === 'suit_o2') {
+    handlers.onRefillSuit?.();
+    handlers.onNotice('[+] SUIT OXYGEN RESERVOIR REPLENISHED (100%)');
   } else if (current.type === 'rest') {
     handlers.onRestInBunk();
     handlers.onNotice('[+] REST CYCLE COMPLETED (-40% FATIGUE, +STAMINA)');
   } else if (current.type === 'coolant') {
     handlers.onVentCoolant();
     handlers.onNotice('[!] VENTED REACTOR COOLANT (-150 K)');
+    if (current.dutyId) {
+      handlers.onCompleteDuty(current.dutyId, current.stationId);
+    }
   } else if (current.dutyId) {
     handlers.onCompleteDuty(current.dutyId, current.stationId);
     handlers.onNotice(`[✓] SHIFT COMPLETED: ${current.actionName.toUpperCase()}`);
@@ -118,6 +134,7 @@ export function useStationInteraction({
   onDrinkWater,
   onRestInBunk,
   onVentCoolant,
+  onRefillSuit,
   onNotice,
 }: UseStationInteractionProps) {
   const [interaction, setInteraction] = useState<ActiveInteraction | null>(null);
@@ -128,6 +145,7 @@ export function useStationInteraction({
     onDrinkWater,
     onRestInBunk,
     onVentCoolant,
+    onRefillSuit,
     onNotice,
   });
   handlersRef.current = {
@@ -136,6 +154,7 @@ export function useStationInteraction({
     onDrinkWater,
     onRestInBunk,
     onVentCoolant,
+    onRefillSuit,
     onNotice,
   };
 
@@ -145,7 +164,7 @@ export function useStationInteraction({
   const startInteraction = useCallback(
     (station: StationFixture) => {
       const config = getStationActionConfig(station, role, activeDutyId);
-      setInteraction({
+      const nextInteraction: ActiveInteraction = {
         stationId: station.id,
         stationName: station.name,
         actionName: config.actionName,
@@ -157,12 +176,15 @@ export function useStationInteraction({
         worldX: station.x,
         worldY: station.y,
         color: config.color,
-      });
+      };
+      interactionRef.current = nextInteraction;
+      setInteraction(nextInteraction);
     },
     [role, activeDutyId]
   );
 
   const abortInteraction = useCallback(() => {
+    interactionRef.current = null;
     setInteraction(null);
   }, []);
 
@@ -176,9 +198,12 @@ export function useStationInteraction({
 
     if (nextProgress >= 1) {
       dispatchActionCompletion(current, handlersRef.current);
+      interactionRef.current = null;
       setInteraction(null);
     } else {
-      setInteraction({ ...current, progress: nextProgress });
+      const nextState = { ...current, progress: nextProgress };
+      interactionRef.current = nextState;
+      setInteraction(nextState);
     }
   }, []);
 

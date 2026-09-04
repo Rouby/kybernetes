@@ -66,12 +66,23 @@ export class VitalsMonitorSynth {
     gain.gain.linearRampToValueAtTime(0.35 * volume, t + dur * 0.3);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
+    this.playFilteredNoise(filter, gain, destination, t, dur);
+  }
+
+  private playFilteredNoise(
+    filter: BiquadFilterNode,
+    gain: GainNode,
+    destination: AudioNode,
+    startTime: number,
+    duration: number
+  ): void {
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this.noiseBuffer;
     noise.connect(filter);
     filter.connect(gain);
     gain.connect(destination);
-
-    noise.start(t);
-    noise.stop(t + dur);
+    noise.start(startTime);
+    noise.stop(startTime + duration);
   }
 
   public playTinnitusRing(destination: AudioNode, durationSeconds = 3.5, volume = 0.5): void {
@@ -90,5 +101,39 @@ export class VitalsMonitorSynth {
 
     osc.start(t);
     osc.stop(t + durationSeconds);
+  }
+
+  public playVisorSeal(destination: AudioNode, sealed: boolean, volume = 0.5): void {
+    const t = this.ctx.currentTime;
+    const dur = 0.22;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(sealed ? 900 : 500, t);
+    filter.frequency.exponentialRampToValueAtTime(sealed ? 300 : 1200, t + dur);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.4 * volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+    this.playFilteredNoise(filter, gain, destination, t, dur);
+  }
+
+  // fallow-ignore-next-line unused-class-member
+  public playSuitO2Warning(destination: AudioNode, volume = 0.4): void {
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(880, t);
+    osc.frequency.setValueAtTime(1174.66, t + 0.08);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.2 * volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+
+    osc.connect(gain);
+    gain.connect(destination);
+    osc.start(t);
+    osc.stop(t + 0.18);
   }
 }

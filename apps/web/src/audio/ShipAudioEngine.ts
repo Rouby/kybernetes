@@ -40,6 +40,7 @@ export class ShipAudioEngine {
   private lastBreathTime = 0;
   private isInhaling = true;
   private lastHullGroanTime = 0;
+  private lastDecompressionRoarTime = 0;
   private previousAlertLevel: 'nominal' | 'yellow' | 'red' = 'nominal';
 
   // Voice Concurrency Limiting
@@ -142,25 +143,63 @@ export class ShipAudioEngine {
       this.previousAlertLevel = telemetry.alertLevel;
     }
 
-    // 4. Vitals Crisis (Heartbeat, suffocation breath, mix ducking)
-    this.processVitalsTrauma(vitals, o2, now);
+    // 4. Decompression roar & venting foley
+    const roomAtmos =
+      currentRoomId && telemetry.roomAtmospheres
+        ? telemetry.roomAtmospheres[currentRoomId]
+        : undefined;
+    if (roomAtmos?.isVenting && now - this.lastDecompressionRoarTime > 3500) {
+      this.lastDecompressionRoarTime = now;
+      this.pneumaticSynth?.playVentingBurst(this.busManager.crisisGain, 2.5, 0.85);
+    }
+
+    // 5. Vitals Crisis (Heartbeat, suffocation breath, vacuum muffling)
+    this.processVitalsTrauma(vitals, o2, now, roomAtmos?.pressureKpa ?? 101.3);
   }
 
-  private processVitalsTrauma(vitals: PlayerVitals | undefined, o2: number, now: number): void {
+  private processVitalsTrauma(
+    vitals: PlayerVitals | undefined,
+    o2: number,
+    now: number,
+    roomPressure = 101.3
+  ): void {
     if (!vitals || !this.busManager || !this.vitalsSynth) return;
-    this.processSuffocation(vitals, o2, now);
+    this.processSuffocation(vitals, o2, now, roomPressure);
     this.processHeartbeat(vitals, now);
   }
 
   // fallow-ignore-next-line complexity
-  private processSuffocation(vitals: PlayerVitals, o2: number, now: number): void {
+  private processSuffocation(
+    vitals: PlayerVitals,
+    o2: number,
+    now: number,
+    roomPressure = 101.3
+  ): void {
     if (!this.busManager || !this.vitalsSynth) return;
-    if (o2 <= 25 || vitals.health <= 20) {
-      const severityRatio = Math.min(o2 / 25, vitals.health / 20);
-      const clampCutoff = Math.max(320, 20000 * Math.max(0.1, severityRatio));
+    const isVacuumUnsealed = !vitals.suit?.isSealed && roomPressure < 50;
+    const isSuffocating =
+      vitals.hypoxiaPercent > 30 ||
+      o2 <= 25 ||
+      vitals.health <= 20 ||
+      isVacuumUnsealed ||
+      (vitals.suit?.isSealed && vitals.suit.o2RemainingSeconds < 60);
+
+    if (isSuffocating) {
+      const pressureRatio = isVacuumUnsealed ? Math.max(0.01, roomPressure / 101.3) : 1.0;
+      const severityRatio = Math.min(
+        1.0,
+        Math.max(
+          vitals.hypoxiaPercent / 100,
+          (25 - o2) / 25,
+          (20 - vitals.health) / 20,
+          1 - pressureRatio
+        )
+      );
+      const clampCutoff = Math.max(220, 20000 * Math.max(0.01, 1 - severityRatio));
       this.busManager.setMasterCrisisCutoff(clampCutoff);
 
-      if (now - this.lastBreathTime > 1400) {
+      const breathInterval = vitals.hypoxiaPercent > 60 ? 900 : 1400;
+      if (now - this.lastBreathTime > breathInterval) {
         this.lastBreathTime = now;
         this.vitalsSynth.playSuffocationBreath(this.busManager.crisisGain, this.isInhaling);
         this.isInhaling = !this.isInhaling;
@@ -300,5 +339,10 @@ export class ShipAudioEngine {
   public playExplosionShockwave(): void {
     if (!this.busManager || !this.vitalsSynth) return;
     this.vitalsSynth.playTinnitusRing(this.busManager.crisisGain, 3.5, 0.7);
+  }
+
+  public playVisorToggle(sealed: boolean): void {
+    if (!this.busManager || !this.vitalsSynth) return;
+    this.vitalsSynth.playVisorSeal(this.busManager.foleyGain, sealed);
   }
 }

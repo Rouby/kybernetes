@@ -1,6 +1,8 @@
 import type {
   DoorState,
   PawnState,
+  PlayerVitals,
+  RoomAtmosphereSummary,
   StartingRole,
   StationFixture,
   WallSegment,
@@ -9,6 +11,7 @@ import {
   createInitialDoors,
   findNearestDoor,
   findNearestStation,
+  getAirflowDragVector,
   HESPERIA_SPAWNS,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
@@ -78,23 +81,36 @@ function calculateNextPawnState(
   keys: Set<string>,
   dt: number,
   doors?: DoorState[],
-  facingAngle?: number
+  facingAngle?: number,
+  vitals?: PlayerVitals,
+  dragVector?: { u: number; v: number }
 ): PawnState {
   if (current.isOperating || current.isResting) {
     return current;
   }
 
+  const speedMult = vitals?.incapacitated?.isIncapacitated ? 0.25 : 1.0;
+  const speed = PAWN_SPEED * speedMult;
   const dir = getMovementInput(keys);
-  if (!dir) {
+  const dragU = dragVector?.u ?? 0;
+  const dragV = dragVector?.v ?? 0;
+  const hasDrag = Math.hypot(dragU, dragV) > 1.0;
+
+  if (!dir && !hasDrag) {
     return current.vx !== 0 || current.vy !== 0 ? { ...current, vx: 0, vy: 0 } : current;
   }
+
+  const inputVx = dir ? dir.dx * speed : 0;
+  const inputVy = dir ? dir.dy * speed : 0;
+  const totalVx = inputVx + dragU;
+  const totalVy = inputVy + dragV;
 
   const allWalls = getEffectiveWalls(doors);
   const resolved = resolvePawnMovement(
     current.x,
     current.y,
-    current.x + dir.dx * PAWN_SPEED * dt,
-    current.y + dir.dy * PAWN_SPEED * dt,
+    current.x + totalVx * dt,
+    current.y + totalVy * dt,
     PAWN_RADIUS,
     allWalls
   );
@@ -103,9 +119,9 @@ function calculateNextPawnState(
     ...current,
     x: resolved.x,
     y: resolved.y,
-    vx: dir.dx * PAWN_SPEED,
-    vy: dir.dy * PAWN_SPEED,
-    facingAngle: facingAngle ?? Math.atan2(dir.dy, dir.dx),
+    vx: totalVx,
+    vy: totalVy,
+    facingAngle: facingAngle ?? (dir ? Math.atan2(dir.dy, dir.dx) : current.facingAngle),
   };
 }
 
@@ -113,7 +129,10 @@ export function usePawnMovement(
   initialRole: StartingRole,
   doors?: DoorState[],
   onInteractPrompt?: (station: StationFixture | null) => void,
-  facingAngleRef?: React.RefObject<number>
+  facingAngleRef?: React.RefObject<number>,
+  vitals?: PlayerVitals,
+  roomAtmospheres?: Record<string, RoomAtmosphereSummary>,
+  breaches?: string[]
 ) {
   const [pawn, setPawn] = useState<PawnState>(() => {
     const spawn = HESPERIA_SPAWNS[initialRole];
@@ -144,8 +163,14 @@ export function usePawnMovement(
   const currentNearDoorIsOpenRef = useRef<boolean | undefined>(undefined);
   const doorsRef = useRef(doors);
   doorsRef.current = doors;
+  const breachesRef = useRef(breaches);
+  breachesRef.current = breaches;
   const facingAngleRefHolder = useRef(facingAngleRef);
   facingAngleRefHolder.current = facingAngleRef;
+  const vitalsRef = useRef(vitals);
+  vitalsRef.current = vitals;
+  const roomAtmospheresRef = useRef(roomAtmospheres);
+  roomAtmospheresRef.current = roomAtmospheres;
   const footstepDistRef = useRef(0);
   const defaultDoorsRef = useRef(createInitialDoors());
 
@@ -194,12 +219,22 @@ export function usePawnMovement(
 
       const effectiveFacing = facingAngleRefHolder.current?.current;
 
+      const dragVector = getAirflowDragVector(
+        pawnRef.current.x,
+        pawnRef.current.y,
+        activeDoors,
+        breachesRef.current,
+        roomAtmospheresRef.current
+      );
+
       const nextPawn = calculateNextPawnState(
         pawnRef.current,
         keysPressed.current,
         dt,
         activeDoors,
-        effectiveFacing
+        effectiveFacing,
+        vitalsRef.current,
+        dragVector
       );
       if (nextPawn !== pawnRef.current) setPawn(nextPawn);
 

@@ -205,27 +205,15 @@ export function createInitialDoors(): DoorState[] {
   ];
 }
 
-const AIRLOCK_PAIRS: Record<string, string> = {
-  airlock_port_outer: 'airlock_port_inner',
-  airlock_port_inner: 'airlock_port_outer',
-  airlock_stbd_outer: 'airlock_stbd_inner',
-  airlock_stbd_inner: 'airlock_stbd_outer',
-};
-
 export function toggleDoor(doors: DoorState[], doorId: string, forceState?: boolean): DoorState[] {
   const target = doors.find((d) => d.id === doorId);
   if (!target) return doors;
 
   const nextState = forceState !== undefined ? forceState : !target.isOpen;
-  const pairedId = AIRLOCK_PAIRS[doorId];
 
   return doors.map((d) => {
     if (d.id === doorId) {
       return { ...d, isOpen: nextState };
-    }
-    // Safety Interlock: if opening an airlock hatch, force the opposite hatch closed
-    if (pairedId && d.id === pairedId && nextState) {
-      return { ...d, isOpen: false };
     }
     return d;
   });

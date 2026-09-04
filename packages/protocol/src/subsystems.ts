@@ -47,3 +47,17 @@ export interface NavalDamageEvent {
   status: NavalDamageEventStatus;
   targetRoomId?: string;
 }
+
+export interface RoomAtmosphereSummary {
+  roomId: string;
+  pressureKpa: number;
+  o2Percent: number;
+  co2Ppm: number;
+  tempCelsius: number;
+  toxicSmokePercent: number;
+  isVenting: boolean;
+  activeFires: number;
+  activeBreaches: number;
+}
+
+export type AtmosOverlayMode = 'off' | 'o2' | 'temp' | 'pressure';

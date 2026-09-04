@@ -8,6 +8,7 @@ import type {
   ServerBroadcast,
   StartingRole,
   TelemetryDeltaBroadcast,
+  VitalsDeltaBroadcast,
 } from '@kybernetes/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
@@ -17,6 +18,7 @@ export interface UseVesselSocketOptions {
   role?: StartingRole;
   color?: string;
   userId?: string;
+  onVitalsDelta?: (v: VitalsDeltaBroadcast) => void;
 }
 
 // fallow-ignore-next-line complexity
@@ -24,6 +26,7 @@ function handleSocketMessage(
   data: string,
   callbacks: {
     onTelemetry: (t: TelemetryDeltaBroadcast) => void;
+    onVitalsDelta?: (v: VitalsDeltaBroadcast) => void;
     setNotice: (msg: string | null) => void;
     setRemotePawns: (pawns: PawnState[]) => void;
     setCrewManifest: (crew: CrewManifestBroadcast['crew']) => void;
@@ -37,6 +40,8 @@ function handleSocketMessage(
     const msg: ServerBroadcast = JSON.parse(data);
     if (msg.type === 'TELEMETRY_DELTA') {
       callbacks.onTelemetry(msg);
+    } else if (msg.type === 'VITALS_DELTA') {
+      callbacks.onVitalsDelta?.(msg);
     } else if (msg.type === 'SPATIAL_SNAPSHOT') {
       const others = msg.pawns.filter((p) => p.callsign !== callbacks.localCallsign);
       callbacks.setRemotePawns(others);
@@ -93,6 +98,7 @@ export function useVesselSocket(
     role: options?.role || 'wiper',
     color: options?.color || '#00e5ff',
     userId: options?.userId || '',
+    onVitalsDelta: options?.onVitalsDelta,
   });
 
   // fallow-ignore-next-line complexity
@@ -102,7 +108,15 @@ export function useVesselSocket(
     if (options?.role) currentOptsRef.current.role = options.role;
     if (options?.color) currentOptsRef.current.color = options.color;
     if (options?.userId) currentOptsRef.current.userId = options.userId;
-  }, [activeVesselCode, options?.callsign, options?.role, options?.color, options?.userId]);
+    currentOptsRef.current.onVitalsDelta = options?.onVitalsDelta;
+  }, [
+    activeVesselCode,
+    options?.callsign,
+    options?.role,
+    options?.color,
+    options?.userId,
+    options?.onVitalsDelta,
+  ]);
 
   const sendAction = useCallback((action: ClientAction) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -157,6 +171,7 @@ export function useVesselSocket(
         if (isDisposed) return;
         handleSocketMessage(e.data, {
           onTelemetry,
+          onVitalsDelta: currentOptsRef.current.onVitalsDelta,
           setNotice: setTriageNotice,
           setRemotePawns,
           setCrewManifest,

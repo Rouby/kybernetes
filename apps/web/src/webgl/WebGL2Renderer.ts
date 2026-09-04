@@ -17,6 +17,7 @@ import {
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
 import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
+import { AtmosOverlayPass } from './passes/AtmosOverlayPass';
 import { DeckPass } from './passes/DeckPass';
 import { FogOfWarPass } from './passes/FogOfWarPass';
 import { LightingPass } from './passes/LightingPass';
@@ -79,6 +80,7 @@ export class WebGL2Renderer {
   private deckPass: DeckPass;
   private lightingPass: LightingPass;
   private fogOfWarPass: FogOfWarPass;
+  private atmosOverlayPass: AtmosOverlayPass;
   private hudRenderer: HudRenderer;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -132,6 +134,7 @@ export class WebGL2Renderer {
     this.particleSystem = new ParticleSystem();
     this.starfieldPass = new StarfieldPass(gl, this.quadBuffer);
     this.deckPass = new DeckPass(gl, this.dynamicBuffer);
+    this.atmosOverlayPass = new AtmosOverlayPass(gl);
     this.fogOfWarPass = new FogOfWarPass(gl, this.dynamicBuffer);
     this.lightingPass = new LightingPass(gl, this.quadBuffer, this.dynamicBuffer);
   }
@@ -553,19 +556,38 @@ export class WebGL2Renderer {
     gl.bindVertexArray(null);
   }
 
-  private renderRedAlertVignette(time: number): void {
+  private renderFullscreenVignette(r: number, g: number, b: number, a: number): void {
     const gl = this.gl;
     gl.useProgram(this.flatProg);
     gl.bindVertexArray(this.vignetteVAO);
 
     const idMat = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
     gl.uniformMatrix3fv(gl.getUniformLocation(this.flatProg, 'u_matrix'), false, idMat);
-
-    const pulse = 0.12 + 0.08 * Math.sin(time * 5.0);
-    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), 1.0, 0.05, 0.05, pulse);
-
+    gl.uniform4f(gl.getUniformLocation(this.flatProg, 'u_color'), r, g, b, a);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.bindVertexArray(null);
+  }
+
+  private renderRedAlertVignette(time: number): void {
+    const pulse = 0.12 + 0.08 * Math.sin(time * 5.0);
+    this.renderFullscreenVignette(1.0, 0.05, 0.05, pulse);
+  }
+
+  private renderHypoxiaVignette(
+    hypoxiaPercent: number,
+    isIncapacitated: boolean,
+    time: number
+  ): void {
+    const alpha = isIncapacitated
+      ? 0.88 + 0.07 * Math.sin(time * 2.5)
+      : Math.min(0.75, ((hypoxiaPercent - 20) / 80) * 0.75);
+    this.renderFullscreenVignette(0.01, 0.01, 0.02, alpha);
+  }
+
+  private renderFrostVignette(bodyTempCelsius: number, time: number): void {
+    const coldRatio = Math.min(1.0, Math.max(0.0, (34 - bodyTempCelsius) / 10));
+    const pulse = 0.12 * coldRatio + 0.05 * Math.sin(time * 2.0);
+    this.renderFullscreenVignette(0.6, 0.85, 1.0, pulse);
   }
 
   // fallow-ignore-next-line complexity
@@ -631,8 +653,16 @@ export class WebGL2Renderer {
       matrix,
       timeSec,
       this.lightingPass.currentLights,
-      this.lightingPass.currentLightColors,
-      state.boarding
+      this.lightingPass.currentLightColors
+    );
+    this.atmosOverlayPass.render(
+      matrix,
+      state.boarding?.doors,
+      state.telemetry?.hull?.breaches,
+      state.telemetry?.activeFires,
+      state.telemetry?.roomAtmospheres,
+      state.overlayMode ?? 'off',
+      timeSec
     );
     this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
     this.deckPass.renderBulkheads(this.flatProg, this.flatVAO, matrix);
@@ -703,6 +733,18 @@ export class WebGL2Renderer {
     if (state.alertLevel === 'red') {
       this.renderRedAlertVignette(timeSec);
     }
+    if (state.vitals) {
+      if (state.vitals.hypoxiaPercent > 20 || state.vitals.incapacitated?.isIncapacitated) {
+        this.renderHypoxiaVignette(
+          state.vitals.hypoxiaPercent,
+          Boolean(state.vitals.incapacitated?.isIncapacitated),
+          timeSec
+        );
+      }
+      if (state.vitals.bodyTempCelsius < 34) {
+        this.renderFrostVignette(state.vitals.bodyTempCelsius, timeSec);
+      }
+    }
 
     // PASS 5: Curved Visor & Tactical Diegetic HUD
     const hudW = state.screenWidth ?? width;
@@ -716,6 +758,7 @@ export class WebGL2Renderer {
     this.framebufferManager.dispose();
     this.starfieldPass.dispose();
     this.deckPass.dispose();
+    this.atmosOverlayPass.dispose();
     this.lightingPass.dispose();
     this.fogOfWarPass.dispose();
     gl.deleteProgram(this.flatProg);

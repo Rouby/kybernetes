@@ -11,23 +11,28 @@ import {
   createBotSession,
   createCollabShift,
   createDualProtocol,
+  createInitialPlayerVitals,
   createInitialVesselState,
   GameLoop,
   HESPERIA_SPAWNS,
   type PersistedCrewMember,
   ROLE_DEFINITIONS,
+  sampleAirflowVelocityAt,
+  sampleAtmosphereAt,
   stateToTelemetryBroadcast,
   tickBot,
   tickCollabShift,
   tickDualProtocol,
   tickVesselState,
   toggleDoor,
+  updatePlayerVitals,
 } from '@kybernetes/sim-core';
 import { type WebSocket, WebSocketServer } from 'ws';
 import {
   broadcastCrewManifest,
   broadcastSpatialSnapshot,
   broadcastToSession,
+  broadcastVitals,
 } from './broadcast/deltaBroadcaster';
 import { ActionRouter } from './handlers/actionRouter';
 import type { ClientSession, VesselSession } from './types';
@@ -181,6 +186,9 @@ export class VesselServer {
       callsign: pawn.callsign,
       role,
       pawn,
+      vitals: createInitialPlayerVitals(),
+      credits: 0,
+      clearanceLevel: 1,
       status: 'idle',
       vesselCode: '',
     };
@@ -265,10 +273,33 @@ export class VesselServer {
       }
     }
 
+    this.tickClientVitalsAndAtmosphere(session, dtSeconds);
     this.tickActiveWelders(session);
     this.tickSessionBots(session, dtSeconds);
     broadcastSpatialSnapshot(session);
     broadcastToSession(session, stateToTelemetryBroadcast(session.vesselState));
+  }
+
+  // fallow-ignore-next-line complexity
+  private tickClientVitalsAndAtmosphere(session: VesselSession, dtSeconds: number): void {
+    const atmos = session.vesselState.atmos;
+    for (const client of session.clients.values()) {
+      const cellAtmos = sampleAtmosphereAt(atmos, client.pawn.x, client.pawn.y);
+      const wind = sampleAirflowVelocityAt(atmos, client.pawn.x, client.pawn.y);
+      if (!client.pawn.isOperating && Math.hypot(wind.vx, wind.vy) > 20) {
+        client.pawn.x = Math.max(120, Math.min(1020, client.pawn.x + wind.vx * dtSeconds * 0.5));
+        client.pawn.y = Math.max(228, Math.min(572, client.pawn.y + wind.vy * dtSeconds * 0.5));
+      }
+
+      client.vitals = updatePlayerVitals(
+        client.vitals,
+        dtSeconds,
+        Boolean(client.pawn.isResting),
+        Boolean(client.pawn.isOperating),
+        cellAtmos
+      );
+      broadcastVitals(client);
+    }
   }
 
   private applyBotAssistance(

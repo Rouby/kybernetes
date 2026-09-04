@@ -6,6 +6,7 @@ import type {
   LifeSupportTelemetry,
   NavalDamageEvent,
   ReactorTelemetry,
+  RoomAtmosphereSummary,
   ShieldTelemetry,
 } from './subsystems';
 import type { MacroCrewSupplies, PlayerVitals } from './survival';
@@ -37,6 +38,8 @@ export interface TelemetryDeltaBroadcast {
   activeEvents: NavalDamageEvent[];
   activeFires: string[];
   boarding?: BoardingTacticsTelemetry;
+  roomAtmospheres?: Record<string, RoomAtmosphereSummary>;
+  atmosDirtyCells?: Array<{ x: number; y: number; flags: number }>;
 }
 
 export interface VitalsDeltaBroadcast {

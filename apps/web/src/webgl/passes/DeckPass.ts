@@ -1,4 +1,4 @@
-import type { BoardingTacticsTelemetry, DoorState } from '@kybernetes/protocol';
+import type { DoorState } from '@kybernetes/protocol';
 import { HESPERIA_LIGHTS, HESPERIA_ROOMS, HESPERIA_WALLS } from '@kybernetes/sim-core';
 import { renderDeckFurniture } from '../DeckFurniture';
 import { addThickSegment, bufferAndDraw, createProgram, drawQuad } from '../glUtils';
@@ -63,8 +63,7 @@ export class DeckPass {
     matrix: Float32Array,
     time: number,
     currentLights: Float32Array,
-    currentLightColors: Float32Array,
-    boarding?: BoardingTacticsTelemetry
+    currentLightColors: Float32Array
   ): void {
     const gl = this.gl;
     gl.useProgram(this.deckProg);
@@ -90,10 +89,7 @@ export class DeckPass {
     };
 
     for (const room of HESPERIA_ROOMS) {
-      const o2 = boarding?.roomO2?.[room.id] ?? 100;
-      const isVented = Boolean(boarding?.ventedRooms?.includes(room.id) || o2 < 25);
-
-      gl.uniform1f(gl.getUniformLocation(this.deckProg, 'u_isVacuum'), isVented ? 1.0 : 0.0);
+      gl.uniform1f(gl.getUniformLocation(this.deckProg, 'u_isVacuum'), 0.0);
       gl.uniform1i(gl.getUniformLocation(this.deckProg, 'u_roomType'), roomTypeMap[room.id] ?? 1);
       gl.uniform4f(
         gl.getUniformLocation(this.deckProg, 'u_roomBounds'),

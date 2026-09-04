@@ -34,6 +34,29 @@ void main() {
 }
 `;
 
+export const ATMOS_CELL_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+in vec4 a_color;
+uniform mat3 u_matrix;
+out vec4 v_color;
+
+void main() {
+  v_color = a_color;
+  gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
+}
+`;
+
+export const ATMOS_CELL_FS = `#version 300 es
+precision highp float;
+in vec4 v_color;
+out vec4 fragColor;
+
+void main() {
+  fragColor = v_color;
+}
+`;
+
 export const STARFIELD_VS = `#version 300 es
 precision highp float;
 in vec2 a_position;
@@ -117,11 +140,7 @@ out vec4 fragColor;
 void main() {
   vec3 baseColor;
 
-  if (u_isVacuum > 0.5) {
-    // Dynamic hazard decompression stripes
-    float stripe = step(0.5, fract((v_worldPos.x + v_worldPos.y - u_time * 28.0) / 24.0));
-    baseColor = mix(vec3(0.92, 0.28, 0.32), vec3(0.35, 0.08, 0.12), stripe);
-  } else if (u_roomType == 0) {
+  if (u_roomType == 0) {
     // COMMAND BRIDGE: High-tech dark slate decking with cyan edge telemetry and central command circle
     vec2 coord = v_worldPos / 28.0;
     vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);

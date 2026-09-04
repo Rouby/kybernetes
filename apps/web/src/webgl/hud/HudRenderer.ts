@@ -1,4 +1,5 @@
 import type {
+  AtmosOverlayMode,
   BoardingTacticsTelemetry,
   DualProtocolBroadcast,
   PawnState,
@@ -24,6 +25,12 @@ import {
 import { isPawnHovered, resolveCrewDossier } from './crewDossier';
 import { HudAtlas, type TextRenderOptions } from './HudAtlas';
 import { HudHitTester } from './HudHitTester';
+import { getSensorOverlayConfig } from './sensorOverlay';
+import {
+  formatAtmosphereStatus,
+  formatIncapacitatedNotice,
+  formatSuitStatus,
+} from './vitalsFormatters';
 
 export interface HudDrawState {
   pawn: PawnState;
@@ -94,6 +101,11 @@ export interface HudDrawState {
   onAbortInteraction?: () => void;
   onExecuteDualProtocol?: () => void;
   onJoinCollabShift?: () => void;
+  onToggleHelmet?: () => void;
+  onRefillSuit?: () => void;
+  currentRoomId?: string;
+  overlayMode?: AtmosOverlayMode;
+  onCycleOverlay?: () => void;
 }
 
 export class HudRenderer {
@@ -404,76 +416,121 @@ export class HudRenderer {
 
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(52, Math.round(height * 0.065));
-    const panelW = 390;
-    const panelH = 180;
+    const panelW = 410;
+    const panelH = 228;
     const x = marginX;
     const y = height - panelH - marginY;
 
     this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
 
+    const suitFmt = formatSuitStatus(vitals);
+    const roomAtmos = state.telemetry?.roomAtmospheres?.[state.currentRoomId ?? 'corridor'];
+    const atmosFmt = formatAtmosphereStatus(roomAtmos);
+    const incNotice = formatIncapacitatedNotice(vitals);
+
     this.addText('SUIT TELEMETRY // CREW VITALS', x + 15, y + 12, {
-      fontSize: 22,
+      fontSize: 20,
       fontWeight: 'bold',
       color: '#00e5ff',
     });
-    this.addText(`${state.pawn.callsign} [${state.pawn.role.toUpperCase()}]`, x + 15, y + 38, {
-      fontSize: 20,
+
+    this.addButton(
+      'btn_visor_toggle',
+      x + panelW - 165,
+      y + 8,
+      150,
+      24,
+      suitFmt.visorLabel,
+      { fontSize: 13, color: suitFmt.visorColor },
+      state.onToggleHelmet
+    );
+
+    this.addText(`${state.pawn.callsign} [${state.pawn.role.toUpperCase()}]`, x + 15, y + 36, {
+      fontSize: 18,
       color: state.pawn.color || '#ffb000',
+    });
+
+    // Ambient atmosphere reading
+    const ambCol = atmosFmt.isHazard ? '#ff3344' : '#8098b0';
+    this.addText(atmosFmt.ambientText, x + 15, y + 56, {
+      fontSize: 14,
+      color: ambCol,
     });
 
     // 1. Vitality / Health
     const hpCol: [number, number, number] =
       vitals.health < 25 ? [1.0, 0.13, 0.27] : [0.0, 0.9, 1.0];
-    this.addText(`HEALTH: ${Math.round(vitals.health)}%`, x + 15, y + 62, {
-      fontSize: 18,
+    this.addText(`HEALTH: ${Math.round(vitals.health)}%`, x + 15, y + 74, {
+      fontSize: 16,
       color: '#e0e6ed',
     });
-    this.addProgressBar(x + 15, y + 80, panelW - 30, 8, vitals.health, hpCol);
+    this.addProgressBar(x + 15, y + 90, panelW - 30, 6, vitals.health, hpCol);
 
-    // 2. Stamina
+    // 2. Suit O2 tank & integrity
+    this.addText(suitFmt.o2Text, x + 15, y + 100, {
+      fontSize: 14,
+      color: '#c0d0e0',
+    });
+    this.addText(suitFmt.integrityText, x + panelW - 145, y + 100, {
+      fontSize: 13,
+      color: suitFmt.isLeaking ? '#ff3344' : '#608098',
+    });
+    this.addProgressBar(x + 15, y + 116, panelW - 30, 6, suitFmt.o2Percent, suitFmt.o2BarColor);
+
+    // 3. Stamina
     this.addText(
       `STAMINA: ${Math.round(vitals.stamina)} / ${Math.round(vitals.maxStamina)}`,
       x + 15,
-      y + 92,
-      { fontSize: 18, color: '#e0e6ed' }
+      y + 126,
+      { fontSize: 14, color: '#c0d0e0' }
     );
     this.addProgressBar(
       x + 15,
-      y + 110,
+      y + 142,
       panelW - 30,
-      8,
+      6,
       (vitals.stamina / vitals.maxStamina) * 100,
       [0.0, 1.0, 0.4]
     );
 
-    // 3. Nutrition & Hydration & Fatigue row
+    // 4. Nutrition, Hydration, Fatigue
     const hungerCol: [number, number, number] =
       vitals.hunger < 20 ? [1.0, 0.13, 0.27] : [1.0, 0.69, 0.0];
-    this.addText(`NUT: ${Math.round(vitals.hunger)}%`, x + 15, y + 124, {
-      fontSize: 16,
+    this.addText(`NUT: ${Math.round(vitals.hunger)}%`, x + 15, y + 154, {
+      fontSize: 14,
       color: '#c0d0e0',
     });
-    this.addProgressBar(x + 15, y + 142, 110, 6, vitals.hunger, hungerCol);
+    this.addProgressBar(x + 15, y + 170, 110, 5, vitals.hunger, hungerCol);
 
     const thirstCol: [number, number, number] =
       vitals.thirst < 20 ? [1.0, 0.13, 0.27] : [0.0, 0.9, 1.0];
-    this.addText(`HYD: ${Math.round(vitals.thirst)}%`, x + 140, y + 124, {
-      fontSize: 16,
+    this.addText(`HYD: ${Math.round(vitals.thirst)}%`, x + 140, y + 154, {
+      fontSize: 14,
       color: '#c0d0e0',
     });
-    this.addProgressBar(x + 140, y + 142, 110, 6, vitals.thirst, thirstCol);
+    this.addProgressBar(x + 140, y + 170, 110, 5, vitals.thirst, thirstCol);
 
     const fatigueCol: [number, number, number] =
       vitals.fatigue > 80 ? [1.0, 0.13, 0.27] : [1.0, 0.69, 0.0];
-    this.addText(`FTG: ${Math.round(vitals.fatigue)}%`, x + 265, y + 124, {
-      fontSize: 16,
+    this.addText(`FTG: ${Math.round(vitals.fatigue)}%`, x + 265, y + 154, {
+      fontSize: 14,
       color: '#c0d0e0',
     });
-    this.addProgressBar(x + 265, y + 142, 110, 6, vitals.fatigue, fatigueCol);
-    this.addText('[W][A][S][D] Locomotion  •  [E] Station Action', x + 15, y + 156, {
-      fontSize: 16,
-      color: '#55708a',
-    });
+    this.addProgressBar(x + 265, y + 170, 110, 5, vitals.fatigue, fatigueCol);
+
+    // Prompt & Hotkeys hint
+    if (incNotice) {
+      this.addText(incNotice, x + 15, y + 195, {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#ff2244',
+      });
+    } else {
+      this.addText('[W][A][S][D] Move • [H] Visor • [E] Action • [V] Sensor', x + 15, y + 198, {
+        fontSize: 14,
+        color: '#55708a',
+      });
+    }
   }
 
   // fallow-ignore-next-line complexity
@@ -650,7 +707,7 @@ export class HudRenderer {
     const telemetry = state.telemetry;
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(38, Math.round(height * 0.055));
-    const panelW = 475;
+    const panelW = 595;
     const panelH = 54;
     const x = width - panelW - marginX;
     const y = marginY;
@@ -664,50 +721,79 @@ export class HudRenderer {
       color: '#7090b0',
     });
 
-    // Minimal navigation buttons: BCN, CREW, ROLE, AUDIO, and DISEMBARK
+    // Minimal navigation buttons: BCN, CREW, ROLE, AUDIO, SENSOR, and DISEMBARK
     this.addButton(
       'btn_beacon',
       x + 10,
       y + 21,
-      85,
+      75,
       27,
       `BCN: ${state.beaconCode ?? 'HESP01'}`,
-      { fontSize: 14 },
+      { fontSize: 13 },
       state.onBeaconClick
     );
     this.addButton(
       'btn_crew',
-      x + 100,
+      x + 90,
       y + 21,
-      75,
+      70,
       27,
       `CREW: ${state.crewCount ?? 1}`,
-      { fontSize: 14 },
+      { fontSize: 13 },
       state.onManifestClick
     );
     this.addButton(
       'btn_role',
-      x + 180,
+      x + 165,
       y + 21,
-      55,
+      50,
       27,
       'ROLE',
-      { fontSize: 14 },
+      { fontSize: 13 },
       state.onRoleClick
     );
     this.addButton(
       'btn_audio',
-      x + 240,
+      x + 220,
       y + 21,
-      85,
+      80,
       27,
       'AUDIO [O]',
-      { fontSize: 13, color: '#00e5ff' },
+      { fontSize: 12, color: '#00e5ff' },
       state.onAudioClick
+    );
+
+    const mode = state.overlayMode ?? 'off';
+    const modeLabel =
+      mode === 'o2'
+        ? 'SENSOR: O2'
+        : mode === 'temp'
+          ? 'SENSOR: TEMP'
+          : mode === 'pressure'
+            ? 'SENSOR: ATM'
+            : 'SENSOR [V]';
+    const modeColor =
+      mode === 'o2'
+        ? '#00e5ff'
+        : mode === 'temp'
+          ? '#ffaa00'
+          : mode === 'pressure'
+            ? '#00b4ff'
+            : '#7090b0';
+
+    this.addButton(
+      'btn_sensor',
+      x + 305,
+      y + 21,
+      140,
+      27,
+      modeLabel,
+      { fontSize: 13, color: modeColor },
+      state.onCycleOverlay
     );
     this.addButton(
       'btn_leave',
-      x + 330,
+      x + 450,
       y + 21,
       135,
       27,
@@ -1001,6 +1087,45 @@ export class HudRenderer {
     });
   }
 
+  private renderSensorOverlayLegend(state: HudDrawState, width: number, height: number): void {
+    const mode = state.overlayMode;
+    if (!mode || mode === 'off') return;
+
+    const cfg = getSensorOverlayConfig(mode);
+    if (!cfg) return;
+
+    const marginY = Math.max(38, Math.round(height * 0.055));
+    const panelW = 540;
+    const panelH = 48;
+    const x = Math.floor((width - panelW) / 2);
+    const y = marginY + 58;
+
+    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.08, 0.82);
+
+    this.addText(cfg.title, x + 12, y + 6, {
+      fontSize: 13,
+      fontWeight: 'bold',
+      color: cfg.badgeColor,
+    });
+    this.addText('[V] CYCLE SENSOR', x + panelW - 130, y + 6, {
+      fontSize: 11,
+      color: '#7090b0',
+    });
+
+    const entries = cfg.scaleEntries;
+    const stepW = Math.floor((panelW - 24) / entries.length);
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const ex = x + 12 + i * stepW;
+      const ey = y + 26;
+      this.addQuad(ex, ey + 2, 8, 8, entry.color[0], entry.color[1], entry.color[2], 0.95);
+      this.addText(entry.label, ex + 12, ey, {
+        fontSize: 11,
+        color: '#d0e0f0',
+      });
+    }
+  }
+
   // fallow-ignore-next-line complexity
   public render(
     state: HudDrawState,
@@ -1047,6 +1172,10 @@ export class HudRenderer {
     const zoom = state.zoom ?? 1.0;
     const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
     this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
+
+    if (state.overlayMode && state.overlayMode !== 'off') {
+      this.renderSensorOverlayLegend(state, width, height);
+    }
 
     const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
     if (hovered) {

@@ -4,6 +4,7 @@ export * from './gameLoop';
 export * from './quests/shiftChecklist';
 export * from './roles';
 export * from './spatial/acoustics';
+export * from './spatial/atmosGrid';
 export * from './spatial/collision';
 export * from './spatial/deck';
 export * from './spatial/doors';

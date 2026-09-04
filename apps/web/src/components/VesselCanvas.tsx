@@ -1,4 +1,5 @@
 import type {
+  AtmosOverlayMode,
   BoardingTacticsTelemetry,
   DoorState,
   DualProtocolBroadcast,
@@ -80,6 +81,11 @@ interface VesselCanvasProps {
   onAbortInteraction?: () => void;
   onExecuteDualProtocol?: () => void;
   onJoinCollabShift?: () => void;
+  onToggleHelmet?: () => void;
+  onRefillSuit?: () => void;
+  currentRoomId?: string;
+  overlayMode?: AtmosOverlayMode;
+  onCycleOverlay?: () => void;
 }
 
 function getActiveBoarding(
@@ -274,6 +280,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   onAbortInteraction,
   onExecuteDualProtocol,
   onJoinCollabShift,
+  onToggleHelmet,
+  onRefillSuit,
+  currentRoomId,
+  overlayMode = 'off',
+  onCycleOverlay,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<WebGL2Renderer | null>(null);
@@ -491,6 +502,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           onAbortInteraction,
           onExecuteDualProtocol,
           onJoinCollabShift,
+          onToggleHelmet,
+          onRefillSuit,
+          currentRoomId,
+          overlayMode,
+          onCycleOverlay,
           screenWidth: canvas.clientWidth,
           screenHeight: canvas.clientHeight,
         },
@@ -514,6 +530,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     collabShift,
     credits,
     crewCount,
+    currentRoomId,
     dualProtocol,
     equippedWeapon,
     inGameNotice,
@@ -524,12 +541,16 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     onAbortInteraction,
     onAudioClick,
     onBeaconClick,
+    onCycleOverlay,
     onDisembarkClick,
     onEquipWeapon,
     onExecuteDualProtocol,
     onJoinCollabShift,
     onManifestClick,
+    onRefillSuit,
     onRoleClick,
+    onToggleHelmet,
+    overlayMode,
     pawn,
     projectedGrade,
     promptActionName,

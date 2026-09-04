@@ -27,13 +27,17 @@ import {
   joinCollabShift,
   leaveCollabShift,
   type PersistedCrewMember,
+  patchSuitIntegrity,
   primeDualProtocol,
   ROLE_DEFINITIONS,
+  refillSuitO2,
   repairHullPlating,
+  reviveCrew,
   spawnBoardingEvent,
   stateToTelemetryBroadcast,
   toggleBulkheadLock,
   toggleDoor,
+  toggleHelmet,
   toggleRoomVenting,
   ventReactorCoolant,
 } from '@kybernetes/sim-core';
@@ -41,6 +45,7 @@ import {
   broadcastCrewManifest,
   broadcastSpatialSnapshot,
   broadcastToSession,
+  broadcastVitals,
   sendInitialPackets,
 } from '../broadcast/deltaBroadcaster';
 import type { ClientSession, VesselSession } from '../types';
@@ -123,6 +128,14 @@ export class ActionRouter {
       this.handleContributeCollabShift(session, client, action);
     } else if (action.type === 'START_DUTY' || action.type === 'CANCEL_DUTY') {
       this.handleDutyAction(session, client, action);
+    } else if (
+      action.type === 'TOGGLE_HELMET' ||
+      action.type === 'REFILL_SUIT' ||
+      action.type === 'PATCH_SUIT' ||
+      action.type === 'REVIVE_CREW' ||
+      action.type === 'CONSUME_ITEM'
+    ) {
+      this.handleSurvivalAction(session, client, action);
     } else {
       this.handleCombatAndTriageActions(session, action);
     }
@@ -308,6 +321,43 @@ export class ActionRouter {
       client.pawn.isOperating = false;
     }
     broadcastCrewManifest(session);
+  }
+
+  // fallow-ignore-next-line complexity
+  private handleSurvivalAction(
+    session: VesselSession,
+    client: ClientSession,
+    action: ClientAction
+  ): void {
+    if (action.type === 'TOGGLE_HELMET') {
+      client.vitals = toggleHelmet(client.vitals, action.sealed);
+      broadcastVitals(client);
+    } else if (action.type === 'REFILL_SUIT') {
+      client.vitals = refillSuitO2(client.vitals, 600);
+      broadcastVitals(client);
+    } else if (action.type === 'PATCH_SUIT') {
+      client.vitals = patchSuitIntegrity(client.vitals);
+      broadcastVitals(client);
+    } else if (action.type === 'REVIVE_CREW') {
+      for (const target of session.clients.values()) {
+        if (target.id === action.targetPlayerId) {
+          target.vitals = reviveCrew(target.vitals);
+          broadcastVitals(target);
+          break;
+        }
+      }
+    } else if (action.type === 'CONSUME_ITEM') {
+      const supplies = session.vesselState.supplies;
+      if (action.itemId === 'nutrient_paste' || action.itemId === 'ration_tin') {
+        supplies.rations = Math.max(0, supplies.rations - 1);
+        client.vitals = { ...client.vitals, hunger: Math.min(100, client.vitals.hunger + 25) };
+      } else if (action.itemId === 'recycled_water' || action.itemId === 'recaf') {
+        supplies.waterLitres = Math.max(0, supplies.waterLitres - 0.5);
+        client.vitals = { ...client.vitals, thirst: Math.min(100, client.vitals.thirst + 30) };
+      }
+      broadcastVitals(client);
+      broadcastToSession(session, stateToTelemetryBroadcast(session.vesselState));
+    }
   }
 
   // fallow-ignore-next-line complexity

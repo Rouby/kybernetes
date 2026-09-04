@@ -1,4 +1,5 @@
 import type {
+  AtmosOverlayMode,
   DoorState,
   PlayerVitals,
   ShiftChecklistState,
@@ -17,7 +18,9 @@ import {
   evaluateShiftPerformance,
   generateShiftChecklist,
   HESPERIA_ROOMS,
+  refillSuitO2,
   toggleDoor,
+  toggleHelmet,
   updatePlayerVitals,
 } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
@@ -243,6 +246,7 @@ export const App: React.FC = () => {
   const [clearanceLevel, setClearanceLevel] = useState(1);
   const [inGameNotice, setInGameNotice] = useState<string | null>(null);
   const [equippedWeapon, setEquippedWeapon] = useState<WeaponType>('kinetic_carbine');
+  const [overlayMode, setOverlayMode] = useState<AtmosOverlayMode>('off');
 
   const { triageNotice, remotePawns, crewManifest, dualProtocol, collabShift, sendAction } =
     useVesselSocket(setTelemetry, activeVesselCode, {
@@ -250,6 +254,7 @@ export const App: React.FC = () => {
       role,
       color: suitColor,
       userId,
+      onVitalsDelta: (v) => setVitals(v.vitals),
     });
 
   const facingAngleRef = useRef(0);
@@ -257,8 +262,52 @@ export const App: React.FC = () => {
     role,
     telemetry.boarding?.doors,
     undefined,
-    facingAngleRef
+    facingAngleRef,
+    vitals,
+    telemetry.roomAtmospheres,
+    telemetry.hull?.breaches
   );
+
+  const currentRoomId = useMemo(() => {
+    return HESPERIA_ROOMS.find(
+      (r) => pawn.x >= r.x && pawn.x <= r.x + r.width && pawn.y >= r.y && pawn.y <= r.y + r.height
+    )?.id;
+  }, [pawn.x, pawn.y]);
+
+  const handleToggleHelmet = useCallback(() => {
+    setVitals((prev) => {
+      const next = toggleHelmet(prev);
+      ShipAudioEngine.getInstance().playVisorToggle(next.suit.isSealed);
+      return next;
+    });
+    sendAction({ type: 'TOGGLE_HELMET' });
+  }, [sendAction]);
+
+  const handleRefillSuit = useCallback(() => {
+    setVitals((prev) => refillSuitO2(prev));
+    sendAction({ type: 'REFILL_SUIT', resource: 'o2', stationId: 'airlock_console' });
+    setInGameNotice('[SUIT] Oxygen tanks replenished to 100%');
+    setTimeout(() => setInGameNotice(null), 2500);
+  }, [sendAction]);
+
+  const handleCycleOverlay = useCallback(() => {
+    setOverlayMode((curr) => {
+      const next: AtmosOverlayMode =
+        curr === 'off' ? 'o2' : curr === 'o2' ? 'temp' : curr === 'temp' ? 'pressure' : 'off';
+      const label =
+        next === 'off'
+          ? 'NORMAL'
+          : next === 'o2'
+            ? 'OXYGEN [O2]'
+            : next === 'temp'
+              ? 'TEMPERATURE [TEMP]'
+              : 'PRESSURE [ATM]';
+      setInGameNotice(`[SENSOR] Deck View: ${label}`);
+      setTimeout(() => setInGameNotice(null), 2500);
+      ShipAudioEngine.getInstance().playUiClick();
+      return next;
+    });
+  }, []);
 
   // Synchronize pawn callsign and color with local state
   useEffect(() => {
@@ -496,6 +545,19 @@ export const App: React.FC = () => {
 
   const activeDutyId = shiftChecklist.tasks[shiftChecklist.currentTaskIndex]?.dutyId;
 
+  const shiftChecklistRef = useRef(shiftChecklist);
+  shiftChecklistRef.current = shiftChecklist;
+  const vitalsRef = useRef(vitals);
+  vitalsRef.current = vitals;
+  const telemetryAtmospheresRef = useRef(telemetry.roomAtmospheres);
+  telemetryAtmospheresRef.current = telemetry.roomAtmospheres;
+  const currentRoomIdRef = useRef(currentRoomId);
+  currentRoomIdRef.current = currentRoomId;
+  const isRestingRef = useRef(pawn.isResting);
+  isRestingRef.current = pawn.isResting;
+  const isOperatingRef = useRef(pawn.isOperating);
+  isOperatingRef.current = pawn.isOperating;
+
   const { interaction, startInteraction, abortInteraction, tickInteraction } =
     useStationInteraction({
       role,
@@ -504,8 +566,8 @@ export const App: React.FC = () => {
         processShiftDutyCompletion({
           dutyId,
           role,
-          shiftChecklist,
-          vitals,
+          shiftChecklist: shiftChecklistRef.current,
+          vitals: vitalsRef.current,
           onReward: (creditsDelta, xpDelta) => {
             setCredits((c) => c + creditsDelta);
             setClearanceXp((prev) => {
@@ -514,7 +576,13 @@ export const App: React.FC = () => {
               return nextXp;
             });
           },
-          setShiftChecklist,
+          setShiftChecklist: (nextVal) => {
+            setShiftChecklist((prev) => {
+              const resolved = typeof nextVal === 'function' ? nextVal(prev) : nextVal;
+              shiftChecklistRef.current = resolved;
+              return resolved;
+            });
+          },
           onFinishShift: (evalResult) => {
             setShiftEvaluation(evalResult);
             setCredits((c) => c + evalResult.bonusCredits);
@@ -525,7 +593,7 @@ export const App: React.FC = () => {
             });
             setShowDebriefModal(true);
             setInGameNotice(
-              `[SHIFT #${shiftChecklist.shiftNumber} COMPLETE] Rating: Grade ${evalResult.grade}!`
+              `[SHIFT #${shiftChecklistRef.current.shiftNumber} COMPLETE] Rating: Grade ${evalResult.grade}!`
             );
             setTimeout(() => setInGameNotice(null), 3000);
           },
@@ -535,8 +603,14 @@ export const App: React.FC = () => {
           },
         });
       },
-      onConsumePaste: () => setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) })),
-      onDrinkWater: () => setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) })),
+      onConsumePaste: () => {
+        setVitals((v) => ({ ...v, hunger: Math.min(100, v.hunger + 25) }));
+        sendAction({ type: 'CONSUME_ITEM', itemId: 'nutrient_paste' });
+      },
+      onDrinkWater: () => {
+        setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) }));
+        sendAction({ type: 'CONSUME_ITEM', itemId: 'recycled_water' });
+      },
       onRestInBunk: () =>
         setVitals((v) => ({
           ...v,
@@ -544,6 +618,7 @@ export const App: React.FC = () => {
           stamina: Math.min(100, v.stamina + 30),
         })),
       onVentCoolant: () => sendAction({ type: 'VENT_REACTOR_COOLANT' }),
+      onRefillSuit: handleRefillSuit,
       onNotice: (msg) => {
         setInGameNotice(msg);
         setTimeout(() => setInGameNotice(null), 3000);
@@ -601,6 +676,8 @@ export const App: React.FC = () => {
         } else if (nearestStation) {
           startInteraction(nearestStation);
         }
+      } else if (e.code === 'KeyH') {
+        handleToggleHelmet();
       } else if (e.code === 'KeyP' || (e.code === 'KeyR' && e.shiftKey)) {
         setShowRoleSelect((v) => !v);
       } else if (e.code === 'KeyM') {
@@ -628,6 +705,8 @@ export const App: React.FC = () => {
           sendAction({ type: 'ENGAGE_INTRUDER', intruderId: active.id });
           setInGameNotice(`[!] FIRED WEAPON AT ${active.name.toUpperCase()}`);
         }
+      } else if (e.code === 'KeyV') {
+        handleCycleOverlay();
       } else if (e.code === 'Escape') {
         if (interaction) abortInteraction();
         if (showRoleSelect) setShowRoleSelect(false);
@@ -652,6 +731,8 @@ export const App: React.FC = () => {
     sendAction,
     nearestDoor,
     handleToggleDoor,
+    handleToggleHelmet,
+    handleCycleOverlay,
   ]);
 
   const handleCommenceNextShift = useCallback(() => {
@@ -669,22 +750,36 @@ export const App: React.FC = () => {
     const timer = setInterval(() => {
       const dt = 0.1;
       tickInteraction(dt);
+      const summary = telemetryAtmospheresRef.current?.[currentRoomIdRef.current ?? 'corridor'];
+      const cellAtmos = summary
+        ? {
+            pressureKpa: summary.pressureKpa,
+            o2Percent: summary.o2Percent,
+            co2Ppm: summary.co2Ppm,
+            tempCelsius: summary.tempCelsius,
+            toxicSmokePercent: summary.toxicSmokePercent,
+            velX: 0,
+            velY: 0,
+            roomId: summary.roomId,
+          }
+        : undefined;
       setVitals((v) =>
-        updatePlayerVitals(v, dt, Boolean(pawn.isResting), Boolean(pawn.isOperating))
+        updatePlayerVitals(
+          v,
+          dt,
+          Boolean(isRestingRef.current),
+          Boolean(isOperatingRef.current),
+          cellAtmos
+        )
       );
-      if (!shiftChecklist.isCompleted) {
-        setShiftElapsedSec(Math.max(0, Math.floor((Date.now() - shiftChecklist.startedAt) / 1000)));
+      const curShift = shiftChecklistRef.current;
+      if (!curShift.isCompleted) {
+        setShiftElapsedSec(Math.max(0, Math.floor((Date.now() - curShift.startedAt) / 1000)));
       }
     }, 100);
 
     return () => clearInterval(timer);
-  }, [
-    tickInteraction,
-    pawn.isResting,
-    pawn.isOperating,
-    shiftChecklist.isCompleted,
-    shiftChecklist.startedAt,
-  ]);
+  }, [tickInteraction]);
 
   // Initialize headless ShipAudioEngine and register user gesture unlock immediately
   useEffect(() => {
@@ -693,11 +788,8 @@ export const App: React.FC = () => {
 
   // Sync live telemetry and vitals to headless ShipAudioEngine
   useEffect(() => {
-    const currentRoom = HESPERIA_ROOMS.find(
-      (r) => pawn.x >= r.x && pawn.x <= r.x + r.width && pawn.y >= r.y && pawn.y <= r.y + r.height
-    )?.id;
-    ShipAudioEngine.getInstance().updateTelemetry(telemetry, vitals, currentRoom);
-  }, [telemetry, vitals, pawn.x, pawn.y]);
+    ShipAudioEngine.getInstance().updateTelemetry(telemetry, vitals, currentRoomId);
+  }, [telemetry, vitals, currentRoomId]);
 
   // Determine current prompt text for nearest station or hatch
   const promptActionName = useMemo(
@@ -759,6 +851,11 @@ export const App: React.FC = () => {
           inGameNotice={inGameNotice}
           dualProtocol={dualProtocol}
           collabShift={collabShift}
+          currentRoomId={currentRoomId}
+          overlayMode={overlayMode}
+          onCycleOverlay={handleCycleOverlay}
+          onToggleHelmet={handleToggleHelmet}
+          onRefillSuit={handleRefillSuit}
           onStationClick={(st) => {
             if (interaction) {
               ShipAudioEngine.getInstance().playUiClick();

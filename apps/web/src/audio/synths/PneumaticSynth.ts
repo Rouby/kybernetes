@@ -65,7 +65,6 @@ export class PneumaticSynth {
     solenoidOsc.stop(t + 0.15);
   }
 
-  // fallow-ignore-next-line unused-class-member
   public playVentingBurst(destination: AudioNode, durationSeconds = 1.0, volume = 0.7): void {
     const t = this.ctx.currentTime;
 
