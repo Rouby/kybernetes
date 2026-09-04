@@ -27,6 +27,10 @@ authoritative for simulation results.
 5. **Accessibility and resilience**: interactive HUD controls need usable
   labels/focus behavior, and rendering/network failures should not crash the
   entire app.
+6. **Visor safe areas & text bounds**: Anchor dynamic HUD cards relative to
+  `marginY`/`marginX` and top header heights rather than hardcoded pixel offsets.
+  Calculate monospace text widths ($\approx 7.2\text{px}$/char at 12px) to
+  prevent HUD text overflow.
 
 ## Change Workflow
 
@@ -43,3 +47,6 @@ authoritative for simulation results.
 - Keep canvas loops and animation callbacks cancellable; do not leak RAF or
   event listeners.
 - Remove unused icon imports and hooks so Biome and Fallow remain clean.
+- When writing Playwright E2E tests involving mouse moves or canvas hover states,
+  re-navigate (`page.goto`) after `page.setViewportSize()` to guarantee canvas
+  buffer and CSS dimensions synchronize before dispatching pointer events.

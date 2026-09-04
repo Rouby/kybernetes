@@ -108,3 +108,8 @@ yarn changeset
 ### Biome Conventions
 - Use `node:path`, `node:fs`, `node:crypto` prefix for all Node built-in imports.
 - Run `yarn lint:fix` to auto-sort imports and format before running checks.
+
+### HUD & Visor Layout Invariants
+- **Dynamic Visor Margins**: Never place HUD cards or modal overlays at fixed vertical coordinates (e.g. `y = 80`). Always offset from calculated screen margins (`marginY = Math.max(38, Math.round(height * 0.055))`) and account for top visor height (`marginY + 68` for a 14px gap below the 54px header).
+- **Monospace Text Budgeting**: For 2D canvas/WebGL monospace text, budget $\approx 7.2\text{px}$ per character at 12px font size. Always ensure `string.length * charWidth <= panelWidth - 2 * padding` or truncate/wrap dynamically to prevent text overflowing card boundaries.
+- **HUD Renderer Modularization**: To comply with Fallow cognitive complexity limits, never inline complex role/status formatting or geometric hit-testing inside `HudRenderer` methods; isolate them in pure helper modules.

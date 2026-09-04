@@ -21,6 +21,7 @@ import {
   VISOR_GLASS_FS,
   VISOR_GLASS_VS,
 } from '../shaders';
+import { isPawnHovered, resolveCrewDossier } from './crewDossier';
 import { HudAtlas, type TextRenderOptions } from './HudAtlas';
 import { HudHitTester } from './HudHitTester';
 
@@ -829,7 +830,7 @@ export class HudRenderer {
   }
 
   // fallow-ignore-next-line complexity
-  private renderWorldNametags(
+  private renderWorldSpeechBubbles(
     pawns: PawnState[],
     camera: { x: number; y: number },
     width: number,
@@ -841,43 +842,138 @@ export class HudRenderer {
 
     for (const p of pawns) {
       if (losPoly.length >= 3 && !isPointInPolygon({ x: p.x, y: p.y }, losPoly)) continue;
+      if (!p.speechBubble || p.speechBubble.expiresAt <= Date.now()) continue;
+
       const sx = halfW + (p.x - camera.x);
-      const sy = halfH + (p.y - camera.y) - 36;
+      const sy = Math.round(halfH + (p.y - camera.y) - 30);
+      const bubbleText = `"${p.speechBubble.text}"`;
+      const bWidth = Math.min(420, bubbleText.length * 9.5 + 24);
+      const bHeight = 28;
+      const bX = sx - bWidth / 2;
+      const bY = sy - 30;
 
-      const tagText = `${p.callsign} [${p.role.toUpperCase()}]`;
-      const col = p.color || '#00e5ff';
-      const approxW = tagText.length * 11 + 20;
-      const startX = sx - approxW / 2;
+      let br = 0.0;
+      let bg = 0.9;
+      let bb = 1.0;
+      if (p.color?.startsWith('#') && p.color.length >= 7) {
+        br = parseInt(p.color.slice(1, 3), 16) / 255;
+        bg = parseInt(p.color.slice(3, 5), 16) / 255;
+        bb = parseInt(p.color.slice(5, 7), 16) / 255;
+      }
 
-      this.addQuad(startX, sy, approxW, 24, 0.02, 0.04, 0.08, 0.88);
-      this.addBorder(startX, sy, approxW, 24, 1, 0.0, 0.9, 1.0, 0.6);
-      this.addText(tagText, startX + 8, sy + 3, { fontSize: 18, fontWeight: 'bold', color: col });
+      this.addQuad(bX, bY, bWidth, bHeight, 0.02, 0.05, 0.09, 0.94);
+      this.addBorder(bX, bY, bWidth, bHeight, 1, br, bg, bb, 0.85);
+      this.addText(bubbleText, bX + 10, bY + 4, {
+        fontSize: 16,
+        color: '#ffffff',
+      });
+    }
+  }
 
-      // Render floating speech bubble if active
-      if (p.speechBubble && p.speechBubble.expiresAt > Date.now()) {
-        const bubbleText = `"${p.speechBubble.text}"`;
-        const bWidth = Math.min(420, bubbleText.length * 9.5 + 24);
-        const bHeight = 28;
-        const bX = sx - bWidth / 2;
-        const bY = sy - 34;
+  // fallow-ignore-next-line complexity
+  private findHoveredCrewMember(
+    state: HudDrawState,
+    width: number,
+    height: number,
+    losPoly: Point2D[]
+  ): PawnState | null {
+    const halfW = width / 2;
+    const halfH = height / 2;
 
-        let br = 0.0;
-        let bg = 0.9;
-        let bb = 1.0;
-        if (p.color?.startsWith('#') && p.color.length >= 7) {
-          br = parseInt(p.color.slice(1, 3), 16) / 255;
-          bg = parseInt(p.color.slice(3, 5), 16) / 255;
-          bb = parseInt(p.color.slice(5, 7), 16) / 255;
+    if (state.remotePawns) {
+      for (const rp of state.remotePawns) {
+        if (losPoly.length >= 3 && !isPointInPolygon({ x: rp.x, y: rp.y }, losPoly)) continue;
+        if (isPawnHovered(rp, state.camera, halfW, halfH, state.mouseWorld, state.mouseScreen)) {
+          return rp;
         }
-
-        this.addQuad(bX, bY, bWidth, bHeight, 0.02, 0.05, 0.09, 0.94);
-        this.addBorder(bX, bY, bWidth, bHeight, 1, br, bg, bb, 0.85);
-        this.addText(bubbleText, bX + 10, bY + 4, {
-          fontSize: 16,
-          color: '#ffffff',
-        });
       }
     }
+
+    if (
+      state.pawn &&
+      isPawnHovered(state.pawn, state.camera, halfW, halfH, state.mouseWorld, state.mouseScreen)
+    ) {
+      return state.pawn;
+    }
+
+    return null;
+  }
+
+  private renderHoverReticle(
+    p: PawnState,
+    camera: { x: number; y: number },
+    width: number,
+    height: number
+  ): void {
+    const halfW = width / 2;
+    const halfH = height / 2;
+    const sx = Math.round(halfW + (p.x - camera.x));
+    const sy = Math.round(halfH + (p.y - camera.y));
+    const r = 20;
+    const arm = 6;
+
+    this.addQuad(sx - r, sy - r, arm, 1.5, 0.0, 0.9, 1.0, 0.85);
+    this.addQuad(sx - r, sy - r, 1.5, arm, 0.0, 0.9, 1.0, 0.85);
+    this.addQuad(sx + r - arm, sy - r, arm, 1.5, 0.0, 0.9, 1.0, 0.85);
+    this.addQuad(sx + r - 1.5, sy - r, 1.5, arm, 0.0, 0.9, 1.0, 0.85);
+    this.addQuad(sx - r, sy + r - 1.5, arm, 1.5, 0.0, 0.9, 1.0, 0.85);
+    this.addQuad(sx - r, sy + r - arm, 1.5, arm, 0.0, 0.9, 1.0, 0.85);
+    this.addQuad(sx + r - arm, sy + r - 1.5, arm, 1.5, 0.0, 0.9, 1.0, 0.85);
+    this.addQuad(sx + r - 1.5, sy + r - arm, 1.5, arm, 0.0, 0.9, 1.0, 0.85);
+  }
+
+  // fallow-ignore-next-line complexity
+  private renderCrewDossierWidget(p: PawnState, width: number, height: number): void {
+    const dossier = resolveCrewDossier(p);
+    const marginX = Math.max(72, Math.round(width * 0.055));
+    const marginY = Math.max(38, Math.round(height * 0.055));
+    const panelW = 420;
+    const panelH = 175;
+    const x = width - panelW - marginX;
+    const y = marginY + 68;
+
+    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.09, 0.9);
+
+    this.addText('CREW DOSSIER // VISOR SCAN', x + 15, y + 10, {
+      fontSize: 14,
+      fontWeight: 'bold',
+      color: '#00e5ff',
+    });
+
+    this.addText(dossier.callsign, x + 15, y + 32, {
+      fontSize: 18,
+      fontWeight: 'bold',
+      color: dossier.color,
+    });
+    this.addText(dossier.rank, x + 15, y + 54, {
+      fontSize: 13,
+      color: '#a0c0e0',
+    });
+    this.addText(dossier.department, x + 15, y + 72, {
+      fontSize: 12,
+      color: '#7090b0',
+    });
+
+    this.addText(`DUTY: ${dossier.status}`, x + 15, y + 92, {
+      fontSize: 12,
+      fontWeight: 'bold',
+      color: '#00ff88',
+    });
+
+    this.addQuad(x + 15, y + 112, panelW - 30, 1, 0.0, 0.9, 1.0, 0.25);
+
+    this.addText('SERVICE RECORD // NOTES:', x + 15, y + 118, {
+      fontSize: 11,
+      color: '#55708a',
+    });
+    this.addText(dossier.bioLine1, x + 15, y + 134, {
+      fontSize: 12,
+      color: '#e0e8f0',
+    });
+    this.addText(dossier.bioLine2, x + 15, y + 150, {
+      fontSize: 12,
+      color: '#8fa5b8',
+    });
   }
 
   // fallow-ignore-next-line complexity
@@ -924,7 +1020,13 @@ export class HudRenderer {
     this.renderCenterAlerts(state, width);
 
     const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
-    this.renderWorldNametags(pawnsToTag, state.camera, width, height, losPoly);
+    this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly);
+
+    const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
+    if (hovered) {
+      this.renderHoverReticle(hovered, state.camera, width, height);
+      this.renderCrewDossierWidget(hovered, width, height);
+    }
 
     const screenMat = createScreenMatrix(width, height);
 

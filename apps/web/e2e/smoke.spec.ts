@@ -44,7 +44,22 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     });
 
     await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
+    await page.waitForTimeout(600);
+
+    await page.mouse.move(400, 200);
     await page.waitForTimeout(400);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/9ba7b719-c9d3-4458-b337-560f7c7a90d8/nameplate_removed_hud.png',
+    });
+
+    // Hover mouse directly over the crew member at screen center (640, 360)
+    await page.mouse.move(640, 360);
+    await page.waitForTimeout(400);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/9ba7b719-c9d3-4458-b337-560f7c7a90d8/crew_dossier_hud.png',
+    });
     await page.screenshot({
       path: 'C:/Users/jonat/.gemini/antigravity/brain/e40c455b-b06c-4b84-922b-edbfbc5751e2/curved_helmet_hud.png',
     });
