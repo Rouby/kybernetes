@@ -48,7 +48,7 @@ test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
       path: 'C:/Users/jonat/.gemini/antigravity/brain/ca834404-2e36-4392-85f2-f64b63704217/shift_checklist_hud.png',
     });
 
-    // Wiper spawns in Engineering right by reactor_console (x: 924, y: 570)
+    // Wiper spawns in Engineering right by reactor_primary_console (x: 850, y: 560)
     // Task 1: Scrub Plasma Grids (10s)
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(12500);

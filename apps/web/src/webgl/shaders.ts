@@ -118,21 +118,41 @@ void main() {
   vec3 baseColor;
 
   if (u_isVacuum > 0.5) {
-    // Dynamic FTL hazard decompression stripes
+    // Dynamic hazard decompression stripes
     float stripe = step(0.5, fract((v_worldPos.x + v_worldPos.y - u_time * 28.0) / 24.0));
     baseColor = mix(vec3(0.92, 0.28, 0.32), vec3(0.35, 0.08, 0.12), stripe);
   } else if (u_roomType == 0) {
     // COMMAND BRIDGE: High-tech dark slate decking with cyan edge telemetry and central command circle
-    vec2 coord = v_worldPos / 32.0;
+    vec2 coord = v_worldPos / 28.0;
     vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
     float line = 1.0 - min(min(grid.x, grid.y), 1.0);
     vec3 bridgePlate = mix(vec3(0.11, 0.14, 0.20), vec3(0.18, 0.23, 0.32), clamp(line * 0.8, 0.0, 1.0));
 
-    // Command helm dais concentric tactical ring (at helm vicinity x=220, y=160)
-    float dCenter = length(v_worldPos - vec2(220.0, 160.0));
-    float ring = smoothstep(1.5, 0.0, abs(dCenter - 64.0)) * 0.45;
-    float innerRing = smoothstep(1.2, 0.0, abs(dCenter - 36.0)) * 0.35;
+    // Command helm dais concentric tactical ring (at helm vicinity x=220, y=290)
+    float dCenter = length(v_worldPos - vec2(220.0, 290.0));
+    float ring = smoothstep(1.5, 0.0, abs(dCenter - 48.0)) * 0.45;
+    float innerRing = smoothstep(1.2, 0.0, abs(dCenter - 28.0)) * 0.35;
     baseColor = bridgePlate + vec3(0.0, 0.85, 1.0) * (ring + innerRing);
+
+  } else if (u_roomType == 7) {
+    // AVIONICS MATRIX: Server rack cooling channels with electric cyan data bus tracers
+    vec2 avCoord = v_worldPos / 20.0;
+    float busline = step(0.85, fract(avCoord.x)) + step(0.85, fract(avCoord.y * 0.5));
+    vec3 avMetal = mix(vec3(0.10, 0.13, 0.18), vec3(0.16, 0.20, 0.28), clamp(busline * 0.6, 0.0, 1.0));
+    float pulse = 0.5 + 0.5 * sin(v_worldPos.x * 0.1 + u_time * 4.0);
+    baseColor = avMetal + vec3(0.0, 0.6, 0.9) * (step(0.92, fract(avCoord.x)) * pulse * 0.4);
+
+  } else if (u_roomType == 8) {
+    // LIFE SUPPORT & RECYCLER: Bio-dome drainage tiles with emerald green bioluminescent tracer lines
+    vec2 bioCoord = v_worldPos / 24.0;
+    vec2 bioGrid = abs(fract(bioCoord - 0.5) - 0.5) / fwidth(bioCoord);
+    float bioLine = 1.0 - min(min(bioGrid.x, bioGrid.y), 1.0);
+    vec3 bioBase = mix(vec3(0.11, 0.16, 0.13), vec3(0.16, 0.24, 0.19), clamp(bioLine * 0.7, 0.0, 1.0));
+
+    // Bio-scrubber circular intake ring (around scrubber x=520, y=290)
+    float dScrub = length(v_worldPos - vec2(520.0, 290.0));
+    float scrubRing = smoothstep(1.5, 0.0, abs(dScrub - 38.0)) * 0.5;
+    baseColor = bioBase + vec3(0.1, 0.9, 0.4) * scrubRing;
 
   } else if (u_roomType == 6) {
     // REACTOR ENGINEERING: Industrial steel diamond tread plate with high-voltage hazard zone
@@ -141,9 +161,9 @@ void main() {
     float plate = step(0.68, diamond) * 0.15;
     vec3 engMetal = mix(vec3(0.14, 0.16, 0.20), vec3(0.24, 0.27, 0.33), plate);
 
-    // Hazard warning zone around reactor core monitor (x=970, y=570)
-    float dCore = length(v_worldPos - vec2(970.0, 570.0));
-    if (dCore > 46.0 && dCore < 56.0) {
+    // Hazard warning zone around reactor core monitor (x=890, y=510)
+    float dCore = length(v_worldPos - vec2(890.0, 510.0));
+    if (dCore > 40.0 && dCore < 50.0) {
       float hStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 14.0));
       baseColor = mix(vec3(0.95, 0.78, 0.05), vec3(0.1, 0.1, 0.12), hStripes);
     } else {
@@ -152,14 +172,14 @@ void main() {
 
   } else if (u_roomType == 5) {
     // CARGO BAY & ORE HOLD: Scuffed heavy freight plating with yellow/black loading zone markings
-    vec2 cCoord = (v_worldPos - u_roomBounds.xy) / 55.0;
+    vec2 cCoord = (v_worldPos - u_roomBounds.xy) / 45.0;
     vec2 cGrid = abs(fract(cCoord - 0.5) - 0.5) / fwidth(cCoord);
     float cLine = 1.0 - min(min(cGrid.x, cGrid.y), 1.0);
     vec3 cargoMetal = mix(vec3(0.19, 0.20, 0.23), vec3(0.26, 0.28, 0.31), clamp(cLine * 0.75, 0.0, 1.0));
 
-    // Staging mag-pad hazard box perimeter (around winch x=590, y=570)
-    vec2 cargoRel = abs(v_worldPos - vec2(590.0, 570.0));
-    if (max(cargoRel.x, cargoRel.y) > 42.0 && max(cargoRel.x, cargoRel.y) < 50.0) {
+    // Staging mag-pad hazard box perimeter (around winch x=600, y=510)
+    vec2 cargoRel = abs(v_worldPos - vec2(600.0, 510.0));
+    if (max(cargoRel.x, cargoRel.y) > 36.0 && max(cargoRel.x, cargoRel.y) < 44.0) {
       float hStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 12.0));
       baseColor = mix(vec3(0.92, 0.74, 0.08), vec3(0.12, 0.12, 0.14), hStripes);
     } else {
@@ -168,33 +188,44 @@ void main() {
 
   } else if (u_roomType == 4) {
     // ARMORY & SECURITY: Reinforced ballistic dark gunmetal deck with crimson security perimeter
-    vec2 aCoord = v_worldPos / 30.0;
+    vec2 aCoord = v_worldPos / 28.0;
     vec2 aGrid = abs(fract(aCoord - 0.5) - 0.5) / fwidth(aCoord);
     float aLine = 1.0 - min(min(aGrid.x, aGrid.y), 1.0);
     vec3 armoryBase = mix(vec3(0.13, 0.15, 0.19), vec3(0.22, 0.25, 0.30), clamp(aLine * 0.7, 0.0, 1.0));
 
-    // Perimeter security red warning line inset 8px from walls
+    // Perimeter security red warning line inset 7px from walls
     vec2 dWall = min(v_worldPos - u_roomBounds.xy, u_roomBounds.xy + u_roomBounds.zw - v_worldPos);
-    if ((dWall.x > 7.0 && dWall.x < 11.0) || (dWall.y > 7.0 && dWall.y < 11.0)) {
+    if ((dWall.x > 6.0 && dWall.x < 10.0) || (dWall.y > 6.0 && dWall.y < 10.0)) {
       baseColor = mix(armoryBase, vec3(0.9, 0.15, 0.2), 0.75);
     } else {
       baseColor = armoryBase;
     }
 
-  } else if (u_roomType == 3) {
-    // CENTRAL TRANSIT CONDUIT: Industrial non-slip transit runner walkway with navigation track
-    float distFromCenter = abs(v_worldPos.y - 340.0);
-    float runner = step(distFromCenter, 24.0);
-    float rib = step(0.45, fract(v_worldPos.x / 18.0)) * 0.14;
-    vec3 conduitBase = mix(vec3(0.12, 0.14, 0.18), vec3(0.18, 0.22, 0.27), rib);
+  } else if (u_roomType == 9 || u_roomType == 10) {
+    // AIRLOCK VESTIBULES (Port & Starboard): High-contrast decompression hazard floor
+    float aStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 16.0));
+    vec3 hazardDeck = mix(vec3(0.85, 0.65, 0.08), vec3(0.12, 0.14, 0.18), aStripes);
+    vec2 dBorder = min(v_worldPos - u_roomBounds.xy, u_roomBounds.xy + u_roomBounds.zw - v_worldPos);
+    float borderMask = step(min(dBorder.x, dBorder.y), 5.0);
+    baseColor = mix(hazardDeck, vec3(0.8, 0.15, 0.15), borderMask);
 
-    // Glowing cyan transit guide line at runner borders
-    float runnerEdge = smoothstep(1.2, 0.0, abs(distFromCenter - 24.0));
-    baseColor = mix(conduitBase, vec3(0.0, 0.8, 0.95), runnerEdge * 0.7);
+  } else if (u_roomType == 3) {
+    // CENTRAL CATWALK SPINE: Perforated steel subfloor grating with visible conduit channels beneath
+    float distFromCenter = abs(v_worldPos.y - 400.0);
+    float runner = step(distFromCenter, 20.0);
+    float rib = step(0.45, fract(v_worldPos.x / 16.0)) * 0.18;
+    // Subfloor conduit depth effect
+    float grateHoles = step(0.65, fract(v_worldPos.x / 8.0)) * step(0.65, fract(v_worldPos.y / 8.0));
+    vec3 catwalkMetal = mix(vec3(0.11, 0.13, 0.16), vec3(0.20, 0.24, 0.30), rib);
+    catwalkMetal = mix(catwalkMetal, vec3(0.04, 0.05, 0.07), grateHoles * 0.45);
+
+    // Glowing cyan transit guide line at catwalk borders (Y = 400 +/- 20)
+    float runnerEdge = smoothstep(1.2, 0.0, abs(distFromCenter - 20.0));
+    baseColor = mix(catwalkMetal, vec3(0.0, 0.85, 1.0), runnerEdge * 0.75);
 
   } else {
     // CREW BUNKS (1) & MESS HALL (2): Modular clean living panels
-    vec2 qCoord = v_worldPos / 38.0;
+    vec2 qCoord = v_worldPos / 32.0;
     vec2 qGrid = abs(fract(qCoord - 0.5) - 0.5) / fwidth(qCoord);
     float qLine = 1.0 - min(min(qGrid.x, qGrid.y), 1.0);
     baseColor = mix(u_floorColor, vec3(0.68, 0.74, 0.82), clamp(qLine * 0.85, 0.0, 1.0));
@@ -202,7 +233,7 @@ void main() {
 
   // Soft Ambient Occlusion / Wall Drop Shadow along room perimeter
   vec2 dPerimeter = min(v_worldPos - u_roomBounds.xy, u_roomBounds.xy + u_roomBounds.zw - v_worldPos);
-  float wallShadow = smoothstep(0.0, 14.0, min(dPerimeter.x, dPerimeter.y));
+  float wallShadow = smoothstep(0.0, 12.0, min(dPerimeter.x, dPerimeter.y));
   baseColor *= mix(0.55, 1.0, wallShadow);
 
   // Dynamic light accumulation from nearby projectile energy

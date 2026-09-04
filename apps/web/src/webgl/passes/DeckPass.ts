@@ -1,31 +1,28 @@
 import type { BoardingTacticsTelemetry, DoorState } from '@kybernetes/protocol';
 import { HESPERIA_LIGHTS, HESPERIA_ROOMS, HESPERIA_WALLS } from '@kybernetes/sim-core';
-import { addThickSegment, createProgram } from '../glUtils';
+import { renderDeckFurniture } from '../DeckFurniture';
+import { addThickSegment, bufferAndDraw, createProgram, drawQuad } from '../glUtils';
 import { DECK_FLOOR_FS, DECK_FLOOR_VS } from '../shaders';
 
-function bufferAndDraw(
+function drawDoorBrackets(
   gl: WebGL2RenderingContext,
   dynamicBuffer: WebGLBuffer,
-  verts: Float32Array,
-  mode?: number
-): void {
-  gl.bindBuffer(gl.ARRAY_BUFFER, dynamicBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
-  gl.drawArrays(mode ?? gl.TRIANGLES, 0, verts.length / 2);
-}
-
-function drawQuad(
-  gl: WebGL2RenderingContext,
-  dynamicBuffer: WebGLBuffer,
+  flatProg: WebGLProgram,
   x: number,
   y: number,
   w: number,
   h: number
 ): void {
-  const x2 = x + w;
-  const y2 = y + h;
-  const verts = new Float32Array([x, y, x2, y, x, y2, x, y2, x2, y, x2, y2]);
-  bufferAndDraw(gl, dynamicBuffer, verts);
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.95, 1.0, 0.95);
+  const b = 6;
+  drawQuad(gl, dynamicBuffer, x - 3, y - 3, b, 1.5);
+  drawQuad(gl, dynamicBuffer, x - 3, y - 3, 1.5, b);
+  drawQuad(gl, dynamicBuffer, x + w + 3 - b, y - 3, b, 1.5);
+  drawQuad(gl, dynamicBuffer, x + w + 1.5, y - 3, 1.5, b);
+  drawQuad(gl, dynamicBuffer, x - 3, y + h + 1.5, b, 1.5);
+  drawQuad(gl, dynamicBuffer, x - 3, y + h + 3 - b, 1.5, b);
+  drawQuad(gl, dynamicBuffer, x + w + 3 - b, y + h + 1.5, b, 1.5);
+  drawQuad(gl, dynamicBuffer, x + w + 1.5, y + h + 3 - b, 1.5, b);
 }
 
 export class DeckPass {
@@ -47,6 +44,18 @@ export class DeckPass {
     gl.enableVertexAttribArray(deckPos);
     gl.vertexAttribPointer(deckPos, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
+  }
+
+  private bindFlat(
+    flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
+    matrix: Float32Array
+  ): WebGL2RenderingContext {
+    const gl = this.gl;
+    gl.useProgram(flatProg);
+    gl.bindVertexArray(flatVAO);
+    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
+    return gl;
   }
 
   // fallow-ignore-next-line complexity
@@ -74,6 +83,10 @@ export class DeckPass {
       armory: 4,
       cargo: 5,
       engineering: 6,
+      avionics: 7,
+      life_support: 8,
+      airlock_port: 9,
+      airlock_stbd: 10,
     };
 
     for (const room of HESPERIA_ROOMS) {
@@ -171,41 +184,54 @@ export class DeckPass {
     matrix: Float32Array,
     time: number
   ): void {
-    const gl = this.gl;
-    gl.useProgram(flatProg);
-    gl.bindVertexArray(flatVAO);
-    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
+    const gl = this.bindFlat(flatProg, flatVAO, matrix);
 
-    // Dark armor hull base enclosing the ship
+    // Dark armor hull base enclosing the compact submarine ship
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
-    drawQuad(gl, this.dynamicBuffer, 380, 170, 730, 600);
-    drawQuad(gl, this.dynamicBuffer, 200, 270, 200, 400);
+    drawQuad(gl, this.dynamicBuffer, 100, 210, 940, 380);
+    drawQuad(gl, this.dynamicBuffer, 70, 320, 30, 160);
 
-    // Armor perimeter outline
+    // Armor perimeter outline (submarine hull profile)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.2, 0.25, 0.35, 1.0);
     const hullLines: number[] = [];
-    addThickSegment(hullLines, 200, 270, 380, 170, 4);
-    addThickSegment(hullLines, 380, 170, 1110, 170, 4);
-    addThickSegment(hullLines, 1110, 170, 1110, 770, 4);
-    addThickSegment(hullLines, 1110, 770, 380, 770, 4);
-    addThickSegment(hullLines, 380, 770, 200, 670, 4);
-    addThickSegment(hullLines, 200, 670, 200, 270, 4);
+    addThickSegment(hullLines, 70, 400, 100, 210, 4);
+    addThickSegment(hullLines, 100, 210, 1040, 210, 4);
+    addThickSegment(hullLines, 1040, 210, 1040, 590, 4);
+    addThickSegment(hullLines, 1040, 590, 100, 590, 4);
+    addThickSegment(hullLines, 100, 590, 70, 400, 4);
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(hullLines));
 
-    // Animated rear thruster plasma plumes (3 engines)
+    // Thruster bell housings at aft (aligned to central axis Y=400)
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.14, 0.17, 0.24, 1.0);
+    drawQuad(gl, this.dynamicBuffer, 1036, 300, 16, 20);
+    drawQuad(gl, this.dynamicBuffer, 1036, 384, 22, 32);
+    drawQuad(gl, this.dynamicBuffer, 1036, 480, 16, 20);
+
+    // Animated rear thruster plasma plumes (3 engines firing aft +X)
     const flicker = 0.8 + 0.2 * Math.sin(time * 15.0);
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.85, 1.0, flicker);
-    drawQuad(gl, this.dynamicBuffer, 160, 330, 40, 18);
-    drawQuad(gl, this.dynamicBuffer, 160, 410, 40, 18);
-    drawQuad(gl, this.dynamicBuffer, 160, 490, 40, 18);
+    drawQuad(gl, this.dynamicBuffer, 1050, 302, 42, 16);
+    drawQuad(gl, this.dynamicBuffer, 1056, 386, 58, 28);
+    drawQuad(gl, this.dynamicBuffer, 1050, 482, 42, 16);
 
     // Hot white inner thruster core
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.9, 0.98, 1.0, 0.95);
-    drawQuad(gl, this.dynamicBuffer, 175, 334, 25, 10);
-    drawQuad(gl, this.dynamicBuffer, 175, 414, 25, 10);
-    drawQuad(gl, this.dynamicBuffer, 175, 494, 25, 10);
+    drawQuad(gl, this.dynamicBuffer, 1044, 305, 20, 10);
+    drawQuad(gl, this.dynamicBuffer, 1048, 392, 28, 16);
+    drawQuad(gl, this.dynamicBuffer, 1044, 485, 20, 10);
 
     gl.bindVertexArray(null);
+  }
+
+  public renderFurniture(
+    flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
+    matrix: Float32Array,
+    time: number
+  ): void {
+    this.bindFlat(flatProg, flatVAO, matrix);
+    renderDeckFurniture(this.gl, this.dynamicBuffer, flatProg, time);
+    this.gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity
@@ -214,12 +240,10 @@ export class DeckPass {
     flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
     doors: DoorState[],
-    dt: number
+    dt: number,
+    nearestDoorId?: string
   ): void {
-    const gl = this.gl;
-    gl.useProgram(flatProg);
-    gl.bindVertexArray(flatVAO);
-    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
+    const gl = this.bindFlat(flatProg, flatVAO, matrix);
 
     for (const door of doors) {
       const isHoriz = Math.abs(door.y2 - door.y1) < Math.abs(door.x2 - door.x1);
@@ -229,6 +253,10 @@ export class DeckPass {
       const h = isHoriz ? 14 : Math.abs(door.y2 - door.y1);
       const x = isHoriz ? minX : door.x1 - 7;
       const y = isHoriz ? door.y1 - 7 : minY;
+
+      if (nearestDoorId === door.id) {
+        drawDoorBrackets(gl, this.dynamicBuffer, flatProg, x, y, w, h);
+      }
 
       const targetRatio = door.isOpen ? 1.0 : 0.0;
       const prevRatio = this.doorOpenRatios.get(door.id) ?? targetRatio;
@@ -311,10 +339,7 @@ export class DeckPass {
     matrix: Float32Array,
     time: number
   ): void {
-    const gl = this.gl;
-    gl.useProgram(flatProg);
-    gl.bindVertexArray(flatVAO);
-    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
+    const gl = this.bindFlat(flatProg, flatVAO, matrix);
 
     const corridorLights = HESPERIA_LIGHTS.filter((l) => l.room === 'corridor');
     for (const cl of corridorLights) {

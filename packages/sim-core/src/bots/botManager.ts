@@ -24,7 +24,7 @@ export const BOT_PERSONAS: Record<StartingRole, BotPersona> = {
     name: 'Vane',
     badge: 'ENG-3',
     color: '#ffb000',
-    stationIds: ['reactor_console'],
+    stationIds: ['reactor_primary_console'],
     targetRooms: ['engineering', 'corridor', 'quarters'],
     voicelines: {
       working: [
@@ -48,7 +48,7 @@ export const BOT_PERSONAS: Record<StartingRole, BotPersona> = {
     name: 'Higgins',
     badge: 'LOG-3',
     color: '#00e5ff',
-    stationIds: ['mess_prep', 'paste_dispenser', 'water_dispenser'],
+    stationIds: ['galley_prep_station', 'galley_paste_dispenser', 'galley_water_dispenser'],
     targetRooms: ['mess', 'corridor', 'quarters'],
     voicelines: {
       working: [
@@ -72,7 +72,7 @@ export const BOT_PERSONAS: Record<StartingRole, BotPersona> = {
     name: 'Ortiz',
     badge: 'SEC-3',
     color: '#ff2244',
-    stationIds: ['armory_sentry'],
+    stationIds: ['armory_tactical_locker'],
     targetRooms: ['armory', 'corridor', 'bridge'],
     voicelines: {
       working: [
@@ -96,8 +96,8 @@ export const BOT_PERSONAS: Record<StartingRole, BotPersona> = {
     name: 'Chen',
     badge: 'BIO-3',
     color: '#00ff66',
-    stationIds: ['hydro_scrubber'],
-    targetRooms: ['corridor', 'quarters', 'bridge'],
+    stationIds: ['life_support_scrubber'],
+    targetRooms: ['life_support', 'corridor', 'quarters'],
     voicelines: {
       working: [
         'Zeolite scrubbers replaced. Atmospheric CO2 dropping.',
@@ -120,7 +120,7 @@ export const BOT_PERSONAS: Record<StartingRole, BotPersona> = {
     name: 'Kowalski',
     badge: 'HLD-3',
     color: '#ffaa33',
-    stationIds: ['cargo_winch'],
+    stationIds: ['cargo_mag_winch'],
     targetRooms: ['cargo', 'corridor', 'mess'],
     voicelines: {
       working: [

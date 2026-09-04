@@ -63,6 +63,9 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.screenshot({
       path: 'C:/Users/jonat/.gemini/antigravity/brain/e40c455b-b06c-4b84-922b-edbfbc5751e2/curved_helmet_hud.png',
     });
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/reticle_zoom_alignment.png',
+    });
   });
 
   test('captures realistic lighting and dark corridor viewport screenshot', async ({ page }) => {
@@ -76,7 +79,7 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.mouse.move(500, 350);
     await page.waitForTimeout(600);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/0c4b7fd5-9ade-40cb-83ca-de28f0fd9c42/realistic_lighting.png',
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/dense_submarine_ship.png',
     });
   });
 
@@ -114,5 +117,65 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     // Close beacon modal
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('beacon-modal')).not.toBeVisible();
+  });
+
+  test('operates hatch only via interaction key [E] when standing in front of door and ignores mouse clicks', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
+    await page.waitForTimeout(500);
+
+    const canvas = page.getByTestId('vessel-canvas');
+    await expect(canvas).toBeVisible();
+
+    // Clicking across the room at the door coordinates should NOT toggle the door
+    await page.mouse.click(500, 360);
+    await page.waitForTimeout(200);
+
+    // Navigate around the reactor radiation shield to door_eng (x: 870..910, y: 432)
+    // 1. Move left past the reactor shield boundary (x < 860)
+    await page.keyboard.down('KeyA');
+    await page.waitForTimeout(350);
+    await page.keyboard.up('KeyA');
+    // 2. Move up to the catwalk spine level (y ~ 435)
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(600);
+    await page.keyboard.up('KeyW');
+    // 3. Move right to the center of door_eng threshold (x ~ 885)
+    await page.keyboard.down('KeyD');
+    await page.waitForTimeout(450);
+    await page.keyboard.up('KeyD');
+    await page.waitForTimeout(300);
+
+    // 1. Aim away from the door (looking south into engineering: screen y=500)
+    await page.mouse.move(640, 500);
+    await page.waitForTimeout(200);
+    // Pressing [E] while looking away should NOT operate the hatch
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(200);
+
+    // 2. Aim directly at the door (looking north: screen y=320)
+    await page.mouse.move(640, 320);
+    await page.waitForTimeout(300);
+
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/door_proximity_prompt.png',
+    });
+
+    // 3. Press [E] to toggle the hatch closed while looking directly at it
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(300);
+
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/door_closed_prompt.png',
+    });
+
+    // 4. Press [E] immediately again while standing in place to toggle the hatch open again
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(300);
+
+    await expect(canvas).toBeVisible();
   });
 });

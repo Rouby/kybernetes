@@ -29,6 +29,8 @@ interface VesselCanvasProps {
   vitals?: PlayerVitals;
   telemetry?: TelemetryDeltaBroadcast;
   nearestStation: StationFixture | null;
+  nearestDoor?: DoorState | null;
+  facingAngleRef?: React.RefObject<number>;
   activeInteraction?: ActiveInteraction | null;
   promptActionName?: string;
   alertLevel?: 'nominal' | 'yellow' | 'red';
@@ -68,7 +70,6 @@ interface VesselCanvasProps {
     damage: number,
     range?: number
   ) => void;
-  onToggleDoor?: (doorId: string, open: boolean) => void;
   onWeldingStateChange?: (isWelding: boolean) => void;
   onBeaconClick?: () => void;
   onManifestClick?: () => void;
@@ -129,11 +130,9 @@ function handleCanvasMouseDown(
   canvas: HTMLCanvasElement | null,
   renderer: WebGL2Renderer | null,
   camera: { x: number; y: number },
-  doors: DoorState[] | undefined,
   nearestStation: StationFixture | null,
-  zoom = 1.0,
+  zoom = 1.35,
   onStationClick?: (station: StationFixture) => void,
-  onToggleDoor?: (doorId: string, open: boolean) => void,
   startFiring?: () => void
 ) {
   if (e.button !== 0 || !canvas) return;
@@ -154,23 +153,6 @@ function handleCanvasMouseDown(
   const worldX = (canvasPixelX - canvas.width / 2) / zoom + camera.x;
   const worldY = (canvasPixelY - canvas.height / 2) / zoom + camera.y;
 
-  if (doors && onToggleDoor) {
-    const clickedDoor = doors.find((d) => {
-      const mx = (d.x1 + d.x2) / 2;
-      const my = (d.y1 + d.y2) / 2;
-      return Math.hypot(mx - worldX, my - worldY) < 32;
-    });
-    if (clickedDoor) {
-      onToggleDoor(clickedDoor.id, !clickedDoor.isOpen);
-      ShipAudioEngine.getInstance().playDoorToggle(
-        (clickedDoor.x1 + clickedDoor.x2) / 2,
-        (clickedDoor.y1 + clickedDoor.y2) / 2,
-        !clickedDoor.isOpen
-      );
-      return;
-    }
-  }
-
   if (nearestStation && onStationClick) {
     const dist = Math.hypot(nearestStation.x - worldX, nearestStation.y - worldY);
     if (dist < nearestStation.radius + 10) {
@@ -183,12 +165,50 @@ function handleCanvasMouseDown(
 }
 
 // fallow-ignore-next-line complexity
+function handleCanvasMouseMove(
+  e: React.MouseEvent<HTMLCanvasElement>,
+  canvas: HTMLCanvasElement | null,
+  renderer: WebGL2Renderer | null,
+  camera: { x: number; y: number },
+  zoom: number,
+  pawn: { x: number; y: number },
+  mouseScreenRef: React.MutableRefObject<{ x: number; y: number }>,
+  mouseWorldRef: React.MutableRefObject<{ x: number; y: number }>,
+  facingAngleRef?: React.RefObject<number>
+): void {
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const canvasPixelX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const canvasPixelY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  mouseScreenRef.current = { x: canvasPixelX, y: canvasPixelY };
+
+  const hitTester = renderer?.getHitTester();
+  if (hitTester) {
+    const isHit = hitTester.hitTest(canvasPixelX, canvasPixelY, canvas.width, canvas.height);
+    canvas.style.cursor = isHit ? 'pointer' : 'crosshair';
+  }
+
+  mouseWorldRef.current = {
+    x: (canvasPixelX - canvas.width / 2) / zoom + camera.x,
+    y: (canvasPixelY - canvas.height / 2) / zoom + camera.y,
+  };
+  if (facingAngleRef) {
+    facingAngleRef.current = Math.atan2(
+      mouseWorldRef.current.y - pawn.y,
+      mouseWorldRef.current.x - pawn.x
+    );
+  }
+}
+
+// fallow-ignore-next-line complexity
 export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   pawn,
   remotePawns = [],
   vitals,
   telemetry,
   nearestStation,
+  nearestDoor,
+  facingAngleRef,
   activeInteraction,
   promptActionName,
   alertLevel = 'nominal',
@@ -209,7 +229,6 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   onStationClick,
   onFireWeapon,
   onWelderAoe,
-  onToggleDoor,
   onWeldingStateChange,
   onBeaconClick,
   onManifestClick,
@@ -347,6 +366,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       );
 
       const activePawn = { ...pawn, facingAngle: aimAngle };
+      if (facingAngleRef) {
+        facingAngleRef.current = aimAngle;
+      }
       const interpolatedRemotes = interpolateRemotePawns(
         remotePawns,
         remoteInterpolatedRef.current
@@ -364,6 +386,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           vitals,
           telemetry,
           nearestStation,
+          nearestDoorId: nearestDoor?.id,
           activeInteraction,
           promptActionName,
           alertLevel,
@@ -468,9 +491,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     welderHeatRef,
     welderOverheatedRef,
     zoomRef,
+    nearestDoor?.id,
+    facingAngleRef,
   ]);
-
-  const activeDoors = boarding?.doors || defaultDoorsRef.current;
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
@@ -486,42 +509,28 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           display: 'block',
           cursor: 'crosshair',
         }}
-        onMouseMove={(e) => {
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          const rect = canvas.getBoundingClientRect();
-          const canvasPixelX = (e.clientX - rect.left) * (canvas.width / rect.width);
-          const canvasPixelY = (e.clientY - rect.top) * (canvas.height / rect.height);
-          mouseScreenRef.current = { x: canvasPixelX, y: canvasPixelY };
-
-          const hitTester = rendererRef.current?.getHitTester();
-
-          if (hitTester) {
-            const isHit = hitTester.hitTest(
-              canvasPixelX,
-              canvasPixelY,
-              canvas.width,
-              canvas.height
-            );
-            canvas.style.cursor = isHit ? 'pointer' : 'crosshair';
-          }
-
-          mouseWorldRef.current = {
-            x: (canvasPixelX - canvas.width / 2) / zoomRef.current + cameraRef.current.x,
-            y: (canvasPixelY - canvas.height / 2) / zoomRef.current + cameraRef.current.y,
-          };
-        }}
+        onMouseMove={(e) =>
+          handleCanvasMouseMove(
+            e,
+            canvasRef.current,
+            rendererRef.current,
+            cameraRef.current,
+            zoomRef.current,
+            pawn,
+            mouseScreenRef,
+            mouseWorldRef,
+            facingAngleRef
+          )
+        }
         onMouseDown={(e) =>
           handleCanvasMouseDown(
             e,
             canvasRef.current,
             rendererRef.current,
             cameraRef.current,
-            activeDoors,
             nearestStation,
             zoomRef.current,
             onStationClick,
-            onToggleDoor,
             startFiring
           )
         }

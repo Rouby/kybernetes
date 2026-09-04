@@ -1,15 +1,16 @@
 import type { DoorState } from '@kybernetes/protocol';
+import { closestPointOnSegment } from './collision';
 
 export function createInitialDoors(): DoorState[] {
   return [
-    // Interior Blast Doors (Connect rooms to central corridor)
+    // Upper Compartment Blast Doors (Connect rooms to central catwalk spine at y=368)
     {
       id: 'door_bridge',
       name: 'Bridge Blast Gate',
-      x1: 180,
-      y1: 280,
-      x2: 260,
-      y2: 280,
+      x1: 200,
+      y1: 368,
+      x2: 240,
+      y2: 368,
       isOpen: true,
       isAirlock: false,
       roomA: 'bridge',
@@ -17,12 +18,38 @@ export function createInitialDoors(): DoorState[] {
       health: 100,
     },
     {
+      id: 'door_avionics',
+      name: 'Avionics Access Hatch',
+      x1: 360,
+      y1: 368,
+      x2: 400,
+      y2: 368,
+      isOpen: true,
+      isAirlock: false,
+      roomA: 'avionics',
+      roomB: 'corridor',
+      health: 100,
+    },
+    {
+      id: 'door_life_support',
+      name: 'Life Support Pressure Hatch',
+      x1: 500,
+      y1: 368,
+      x2: 540,
+      y2: 368,
+      isOpen: true,
+      isAirlock: false,
+      roomA: 'life_support',
+      roomB: 'corridor',
+      health: 100,
+    },
+    {
       id: 'door_quarters',
-      name: 'Quarters Blast Gate',
-      x1: 550,
-      y1: 280,
-      x2: 630,
-      y2: 280,
+      name: 'Berthing Pods Blast Gate',
+      x1: 660,
+      y1: 368,
+      x2: 700,
+      y2: 368,
       isOpen: true,
       isAirlock: false,
       roomA: 'quarters',
@@ -31,11 +58,11 @@ export function createInitialDoors(): DoorState[] {
     },
     {
       id: 'door_mess',
-      name: 'Mess Hall Blast Gate',
-      x1: 930,
-      y1: 280,
-      x2: 1010,
-      y2: 280,
+      name: 'Mess Hall Pressure Door',
+      x1: 820,
+      y1: 368,
+      x2: 860,
+      y2: 368,
       isOpen: true,
       isAirlock: false,
       roomA: 'mess',
@@ -43,12 +70,27 @@ export function createInitialDoors(): DoorState[] {
       health: 100,
     },
     {
+      id: 'airlock_stbd_inner',
+      name: 'Starboard Airlock Inner Hatch',
+      x1: 950,
+      y1: 368,
+      x2: 990,
+      y2: 368,
+      isOpen: true,
+      isAirlock: false,
+      roomA: 'airlock_stbd',
+      roomB: 'corridor',
+      health: 100,
+    },
+
+    // Lower Compartment Blast Doors (Connect rooms to central catwalk spine at y=432)
+    {
       id: 'door_armory',
-      name: 'Armory Blast Gate',
-      x1: 180,
-      y1: 400,
-      x2: 260,
-      y2: 400,
+      name: 'Armory Security Blast Gate',
+      x1: 200,
+      y1: 432,
+      x2: 240,
+      y2: 432,
       isOpen: true,
       isAirlock: false,
       roomA: 'armory',
@@ -56,12 +98,25 @@ export function createInitialDoors(): DoorState[] {
       health: 100,
     },
     {
+      id: 'airlock_port_inner',
+      name: 'Port Airlock Inner Hatch',
+      x1: 360,
+      y1: 432,
+      x2: 400,
+      y2: 432,
+      isOpen: true,
+      isAirlock: false,
+      roomA: 'airlock_port',
+      roomB: 'corridor',
+      health: 100,
+    },
+    {
       id: 'door_cargo',
-      name: 'Cargo Bay Blast Gate',
-      x1: 550,
-      y1: 400,
-      x2: 630,
-      y2: 400,
+      name: 'Cargo Bay Heavy Roller Gate',
+      x1: 580,
+      y1: 432,
+      x2: 620,
+      y2: 432,
       isOpen: true,
       isAirlock: false,
       roomA: 'cargo',
@@ -70,11 +125,11 @@ export function createInitialDoors(): DoorState[] {
     },
     {
       id: 'door_eng',
-      name: 'Engineering Blast Gate',
-      x1: 930,
-      y1: 400,
-      x2: 1010,
-      y2: 400,
+      name: 'Engineering Radiation Gate',
+      x1: 870,
+      y1: 432,
+      x2: 910,
+      y2: 432,
       isOpen: true,
       isAirlock: false,
       roomA: 'engineering',
@@ -82,38 +137,66 @@ export function createInitialDoors(): DoorState[] {
       health: 100,
     },
 
-    // Exterior Hull Airlocks (Open directly into space vacuum)
+    // Catwalk Spine Pressure Bulkhead Gates (Vertical dividers along catwalk)
     {
-      id: 'airlock_west',
-      name: 'Port Hull Airlock',
-      x1: 60,
-      y1: 310,
-      x2: 60,
-      y2: 370,
+      id: 'door_spine_fwd',
+      name: 'Forward Spine Bulkhead Gate',
+      x1: 440,
+      y1: 368,
+      x2: 440,
+      y2: 432,
+      isOpen: true,
+      isAirlock: false,
+      roomA: 'corridor',
+      roomB: 'corridor',
+      health: 100,
+    },
+    {
+      id: 'door_spine_aft',
+      name: 'Aft Spine Bulkhead Gate',
+      x1: 760,
+      y1: 368,
+      x2: 760,
+      y2: 432,
+      isOpen: true,
+      isAirlock: false,
+      roomA: 'corridor',
+      roomB: 'corridor',
+      health: 100,
+    },
+
+    // Exterior Outer Hull Hatches (Open directly to vacuum)
+    {
+      id: 'airlock_stbd_outer',
+      name: 'Starboard Outer Hull EVA Hatch',
+      x1: 950,
+      y1: 228,
+      x2: 990,
+      y2: 228,
       isOpen: false,
       isAirlock: true,
-      roomA: 'corridor',
+      roomA: 'airlock_stbd',
       roomB: 'vacuum',
     },
     {
-      id: 'airlock_cargo',
-      name: 'Cargo Vent Hatch',
-      x1: 550,
-      y1: 740,
-      x2: 630,
-      y2: 740,
+      id: 'airlock_port_outer',
+      name: 'Port Outer Hull EVA Hatch',
+      x1: 360,
+      y1: 572,
+      x2: 400,
+      y2: 572,
       isOpen: false,
       isAirlock: true,
-      roomA: 'cargo',
+      roomA: 'airlock_port',
       roomB: 'vacuum',
     },
     {
       id: 'airlock_eng',
-      name: 'Starboard Vent Hatch',
-      x1: 1140,
-      y1: 540,
-      x2: 1140,
-      y2: 600,
+      name: 'Aft Engineering Emergency Purge Vent',
+      x1: 1020,
+      y1: 480,
+      x2: 1020,
+      y2: 520,
       isOpen: false,
       isAirlock: true,
       roomA: 'engineering',
@@ -122,12 +205,60 @@ export function createInitialDoors(): DoorState[] {
   ];
 }
 
+const AIRLOCK_PAIRS: Record<string, string> = {
+  airlock_port_outer: 'airlock_port_inner',
+  airlock_port_inner: 'airlock_port_outer',
+  airlock_stbd_outer: 'airlock_stbd_inner',
+  airlock_stbd_inner: 'airlock_stbd_outer',
+};
+
 export function toggleDoor(doors: DoorState[], doorId: string, forceState?: boolean): DoorState[] {
+  const target = doors.find((d) => d.id === doorId);
+  if (!target) return doors;
+
+  const nextState = forceState !== undefined ? forceState : !target.isOpen;
+  const pairedId = AIRLOCK_PAIRS[doorId];
+
   return doors.map((d) => {
-    if (d.id !== doorId) return d;
-    return {
-      ...d,
-      isOpen: forceState !== undefined ? forceState : !d.isOpen,
-    };
+    if (d.id === doorId) {
+      return { ...d, isOpen: nextState };
+    }
+    // Safety Interlock: if opening an airlock hatch, force the opposite hatch closed
+    if (pairedId && d.id === pairedId && nextState) {
+      return { ...d, isOpen: false };
+    }
+    return d;
   });
+}
+
+export function findNearestDoor(
+  pawnX: number,
+  pawnY: number,
+  doors: DoorState[],
+  maxDistance = 42,
+  facingAngle?: number
+): { door: DoorState; distance: number } | null {
+  let nearest: { door: DoorState; distance: number } | null = null;
+  let minDist = maxDistance;
+  const p = { x: pawnX, y: pawnY };
+
+  for (const door of doors) {
+    const a = { x: door.x1, y: door.y1 };
+    const b = { x: door.x2, y: door.y2 };
+    const closest = closestPointOnSegment(p, a, b);
+    const dx = closest.x - pawnX;
+    const dy = closest.y - pawnY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist <= maxDistance && dist < minDist) {
+      if (facingAngle !== undefined && dist > 6) {
+        const dot = (Math.cos(facingAngle) * dx + Math.sin(facingAngle) * dy) / dist;
+        if (dot < 0.35) continue;
+      }
+      minDist = dist;
+      nearest = { door, distance: Number(dist.toFixed(2)) };
+    }
+  }
+
+  return nearest;
 }

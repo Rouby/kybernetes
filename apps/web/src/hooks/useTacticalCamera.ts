@@ -29,8 +29,8 @@ export function useTacticalCamera({
 }: UseTacticalCameraOptions): UseTacticalCameraReturn {
   const cameraRef = useRef({ x: initialX, y: initialY });
   const shakeIntensityRef = useRef(0);
-  const zoomRef = useRef(1.0);
-  const targetZoomRef = useRef(1.0);
+  const zoomRef = useRef(1.35);
+  const targetZoomRef = useRef(1.35);
 
   const addScreenShake = useCallback((impulse: number) => {
     shakeIntensityRef.current = Math.min(8, shakeIntensityRef.current + impulse);
@@ -39,7 +39,7 @@ export function useTacticalCamera({
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const delta = -e.deltaY * 0.0012;
-    targetZoomRef.current = Math.max(0.75, Math.min(1.25, targetZoomRef.current + delta));
+    targetZoomRef.current = Math.max(0.95, Math.min(1.85, targetZoomRef.current + delta));
   }, []);
 
   useEffect(() => {

@@ -1,8 +1,10 @@
 import type {
+  DoorState,
   PlayerVitals,
   ShiftChecklistState,
   ShiftEvaluation,
   StartingRole,
+  StationFixture,
   TelemetryDeltaBroadcast,
   WeaponType,
 } from '@kybernetes/protocol';
@@ -15,12 +17,13 @@ import {
   evaluateShiftPerformance,
   generateShiftChecklist,
   HESPERIA_ROOMS,
+  toggleDoor,
   updatePlayerVitals,
 } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
 import type React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ShipAudioEngine } from './audio/ShipAudioEngine';
 import { AudioSettingsModal } from './components/AudioSettingsModal';
 import { BeaconLobbyModal } from './components/BeaconLobbyModal';
@@ -168,6 +171,20 @@ function processShiftDutyCompletion(ctx: ShiftProgressionContext): void {
 }
 
 // fallow-ignore-next-line complexity
+function resolvePromptActionName(
+  door: DoorState | null | undefined,
+  station: StationFixture | null,
+  role: StartingRole,
+  activeDutyId?: string
+): string | undefined {
+  if (door) {
+    return door.isOpen ? 'Close Hatch' : 'Open Hatch';
+  }
+  if (!station) return undefined;
+  return getStationActionConfig(station, role, activeDutyId)?.actionName;
+}
+
+// fallow-ignore-next-line complexity
 export const App: React.FC = () => {
   const [telemetry, setTelemetry] = useState<TelemetryDeltaBroadcast>(() => ({
     type: 'TELEMETRY_DELTA',
@@ -235,9 +252,12 @@ export const App: React.FC = () => {
       userId,
     });
 
-  const { pawn, setPawn, nearestStation, resetToSpawn } = usePawnMovement(
+  const facingAngleRef = useRef(0);
+  const { pawn, setPawn, nearestStation, nearestDoor, resetToSpawn } = usePawnMovement(
     role,
-    telemetry.boarding?.doors
+    telemetry.boarding?.doors,
+    undefined,
+    facingAngleRef
   );
 
   // Synchronize pawn callsign and color with local state
@@ -444,13 +464,35 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleToggleDoor = (doorId: string, open: boolean) => {
-    sendAction({
-      type: 'TOGGLE_DOOR',
-      doorId,
-      open,
-    });
-  };
+  const handleToggleDoor = useCallback(
+    (doorId: string, open: boolean) => {
+      sendAction({
+        type: 'TOGGLE_DOOR',
+        doorId,
+        open,
+      });
+      setTelemetry((prev) => {
+        if (!prev.boarding?.doors) return prev;
+        const nextDoors = toggleDoor(prev.boarding.doors, doorId, open);
+        const target = nextDoors.find((d) => d.id === doorId);
+        if (target) {
+          ShipAudioEngine.getInstance().playDoorToggle(
+            (target.x1 + target.x2) / 2,
+            (target.y1 + target.y2) / 2,
+            open
+          );
+        }
+        return {
+          ...prev,
+          boarding: {
+            ...prev.boarding,
+            doors: nextDoors,
+          },
+        };
+      });
+    },
+    [sendAction]
+  );
 
   const activeDutyId = shiftChecklist.tasks[shiftChecklist.currentTaskIndex]?.dutyId;
 
@@ -524,14 +566,24 @@ export const App: React.FC = () => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'KeyE') {
-        if (nearestStation?.id === 'bridge_helm' && dualProtocol?.stage === 'primed') {
+        if (nearestDoor) {
+          handleToggleDoor(nearestDoor.id, !nearestDoor.isOpen);
+          return;
+        }
+        if (
+          (nearestStation?.id === 'bridge_helm' || nearestStation?.id === 'bridge_helm_console') &&
+          dualProtocol?.stage === 'primed'
+        ) {
           sendAction({
             type: 'EXECUTE_DUAL_PROTOCOL',
             protocolId: dualProtocol.protocolId as 'ftl_jump_alignment',
           });
           return;
         }
-        if (nearestStation?.id === 'armory_sentry') {
+        if (
+          nearestStation?.id === 'armory_sentry' ||
+          nearestStation?.id === 'armory_tactical_locker'
+        ) {
           setEquippedWeapon((w) => {
             const next =
               w === 'kinetic_carbine'
@@ -598,6 +650,8 @@ export const App: React.FC = () => {
     abortInteraction,
     telemetry.boarding,
     sendAction,
+    nearestDoor,
+    handleToggleDoor,
   ]);
 
   const handleCommenceNextShift = useCallback(() => {
@@ -645,10 +699,11 @@ export const App: React.FC = () => {
     ShipAudioEngine.getInstance().updateTelemetry(telemetry, vitals, currentRoom);
   }, [telemetry, vitals, pawn.x, pawn.y]);
 
-  // Determine current prompt text for nearest station
-  const nearestActionConfig = useMemo(() => {
-    return nearestStation ? getStationActionConfig(nearestStation, role, activeDutyId) : null;
-  }, [nearestStation, role, activeDutyId]);
+  // Determine current prompt text for nearest station or hatch
+  const promptActionName = useMemo(
+    () => resolvePromptActionName(nearestDoor, nearestStation, role, activeDutyId),
+    [nearestDoor, nearestStation, role, activeDutyId]
+  );
 
   if (!activeVesselCode) {
     return (
@@ -685,8 +740,10 @@ export const App: React.FC = () => {
           vitals={vitals}
           telemetry={telemetry}
           nearestStation={nearestStation}
+          nearestDoor={nearestDoor}
+          facingAngleRef={facingAngleRef}
           activeInteraction={interaction}
-          promptActionName={nearestActionConfig?.actionName}
+          promptActionName={promptActionName}
           alertLevel={telemetry.alertLevel}
           boarding={telemetry.boarding}
           beaconCode={beaconCode}
@@ -713,7 +770,6 @@ export const App: React.FC = () => {
           }}
           onFireWeapon={handleFireWeapon}
           onWelderAoe={handleWelderAoe}
-          onToggleDoor={handleToggleDoor}
           onWeldingStateChange={handleWeldingChange}
           onBeaconClick={() => setShowBeaconModal(true)}
           onManifestClick={() => setShowManifestModal(true)}

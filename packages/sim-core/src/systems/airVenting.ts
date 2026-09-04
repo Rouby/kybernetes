@@ -3,10 +3,14 @@ import type { DoorState } from '@kybernetes/protocol';
 export function createInitialRoomO2(): Record<string, number> {
   return {
     bridge: 100,
+    avionics: 100,
+    life_support: 100,
     quarters: 100,
     mess: 100,
+    airlock_stbd: 100,
     corridor: 100,
     armory: 100,
+    airlock_port: 100,
     cargo: 100,
     engineering: 100,
   };

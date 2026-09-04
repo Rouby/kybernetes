@@ -80,3 +80,28 @@ export function addThickSegment(
   verts.push(x2 + nx, y2 + ny);
   verts.push(x2 - nx, y2 - ny);
 }
+
+export function bufferAndDraw(
+  gl: WebGL2RenderingContext,
+  dynamicBuffer: WebGLBuffer,
+  verts: Float32Array,
+  mode?: number
+): void {
+  gl.bindBuffer(gl.ARRAY_BUFFER, dynamicBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
+  gl.drawArrays(mode ?? gl.TRIANGLES, 0, verts.length / 2);
+}
+
+export function drawQuad(
+  gl: WebGL2RenderingContext,
+  dynamicBuffer: WebGLBuffer,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): void {
+  const x2 = x + w;
+  const y2 = y + h;
+  const verts = new Float32Array([x, y, x2, y, x, y2, x, y2, x2, y, x2, y2]);
+  bufferAndDraw(gl, dynamicBuffer, verts);
+}

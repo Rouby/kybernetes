@@ -8,81 +8,167 @@ export interface WaypointNode {
 }
 
 export const SHIP_WAYPOINTS: Record<string, WaypointNode> = {
-  // Deck A / B Upper Rooms
-  bridge_center: { id: 'bridge_center', x: 220, y: 170, roomId: 'bridge' },
+  // Upper Rooms Centers
+  bridge_center: { id: 'bridge_center', x: 220, y: 290, roomId: 'bridge' },
+  avionics_center: { id: 'avionics_center', x: 380, y: 290, roomId: 'avionics' },
+  life_support_center: { id: 'life_support_center', x: 520, y: 290, roomId: 'life_support' },
+  quarters_center: { id: 'quarters_center', x: 680, y: 290, roomId: 'quarters' },
+  mess_center: { id: 'mess_center', x: 840, y: 290, roomId: 'mess' },
+  airlock_stbd_center: { id: 'airlock_stbd_center', x: 970, y: 290, roomId: 'airlock_stbd' },
+
+  // Lower Rooms Centers
+  armory_center: { id: 'armory_center', x: 220, y: 510, roomId: 'armory' },
+  airlock_port_center: { id: 'airlock_port_center', x: 380, y: 510, roomId: 'airlock_port' },
+  cargo_center: { id: 'cargo_center', x: 600, y: 510, roomId: 'cargo' },
+  eng_center: { id: 'eng_center', x: 890, y: 510, roomId: 'engineering' },
+
+  // Upper Compartment Doors
   door_bridge: {
     id: 'door_bridge',
     x: 220,
-    y: 280,
+    y: 368,
     roomId: 'bridge',
     isDoor: true,
     doorId: 'door_bridge',
   },
-  quarters_center: { id: 'quarters_center', x: 590, y: 170, roomId: 'quarters' },
+  door_avionics: {
+    id: 'door_avionics',
+    x: 380,
+    y: 368,
+    roomId: 'avionics',
+    isDoor: true,
+    doorId: 'door_avionics',
+  },
+  door_life_support: {
+    id: 'door_life_support',
+    x: 520,
+    y: 368,
+    roomId: 'life_support',
+    isDoor: true,
+    doorId: 'door_life_support',
+  },
   door_quarters: {
     id: 'door_quarters',
-    x: 590,
-    y: 280,
+    x: 680,
+    y: 368,
     roomId: 'quarters',
     isDoor: true,
     doorId: 'door_quarters',
   },
-  mess_center: { id: 'mess_center', x: 970, y: 170, roomId: 'mess' },
-  door_mess: { id: 'door_mess', x: 970, y: 280, roomId: 'mess', isDoor: true, doorId: 'door_mess' },
+  door_mess: {
+    id: 'door_mess',
+    x: 840,
+    y: 368,
+    roomId: 'mess',
+    isDoor: true,
+    doorId: 'door_mess',
+  },
+  airlock_stbd_inner: {
+    id: 'airlock_stbd_inner',
+    x: 970,
+    y: 368,
+    roomId: 'airlock_stbd',
+    isDoor: true,
+    doorId: 'airlock_stbd_inner',
+  },
 
-  // Central Corridor Transit Conduits
-  corridor_west: { id: 'corridor_west', x: 220, y: 340, roomId: 'corridor' },
-  corridor_mid: { id: 'corridor_mid', x: 590, y: 340, roomId: 'corridor' },
-  corridor_east: { id: 'corridor_east', x: 970, y: 340, roomId: 'corridor' },
-
-  // Deck C / D Lower Rooms
+  // Lower Compartment Doors
   door_armory: {
     id: 'door_armory',
     x: 220,
-    y: 400,
+    y: 432,
     roomId: 'armory',
     isDoor: true,
     doorId: 'door_armory',
   },
-  armory_center: { id: 'armory_center', x: 220, y: 570, roomId: 'armory' },
+  airlock_port_inner: {
+    id: 'airlock_port_inner',
+    x: 380,
+    y: 432,
+    roomId: 'airlock_port',
+    isDoor: true,
+    doorId: 'airlock_port_inner',
+  },
   door_cargo: {
     id: 'door_cargo',
-    x: 590,
-    y: 400,
+    x: 600,
+    y: 432,
     roomId: 'cargo',
     isDoor: true,
     doorId: 'door_cargo',
   },
-  cargo_center: { id: 'cargo_center', x: 590, y: 570, roomId: 'cargo' },
   door_eng: {
     id: 'door_eng',
-    x: 970,
-    y: 400,
+    x: 890,
+    y: 432,
     roomId: 'engineering',
     isDoor: true,
     doorId: 'door_eng',
   },
-  eng_center: { id: 'eng_center', x: 970, y: 570, roomId: 'engineering' },
+
+  // Catwalk Spine Conduit Waypoints (spaced along Y = 400)
+  corridor_fwd: { id: 'corridor_fwd', x: 220, y: 400, roomId: 'corridor' },
+  corridor_avionics: { id: 'corridor_avionics', x: 380, y: 400, roomId: 'corridor' },
+  door_spine_fwd: {
+    id: 'door_spine_fwd',
+    x: 440,
+    y: 400,
+    roomId: 'corridor',
+    isDoor: true,
+    doorId: 'door_spine_fwd',
+  },
+  corridor_life: { id: 'corridor_life', x: 520, y: 400, roomId: 'corridor' },
+  corridor_cargo: { id: 'corridor_cargo', x: 600, y: 400, roomId: 'corridor' },
+  corridor_quarters: { id: 'corridor_quarters', x: 680, y: 400, roomId: 'corridor' },
+  door_spine_aft: {
+    id: 'door_spine_aft',
+    x: 760,
+    y: 400,
+    roomId: 'corridor',
+    isDoor: true,
+    doorId: 'door_spine_aft',
+  },
+  corridor_mess: { id: 'corridor_mess', x: 840, y: 400, roomId: 'corridor' },
+  corridor_eng: { id: 'corridor_eng', x: 890, y: 400, roomId: 'corridor' },
+  corridor_aft: { id: 'corridor_aft', x: 970, y: 400, roomId: 'corridor' },
 };
 
 const ADJACENCY: Record<string, string[]> = {
+  // Upper rooms
   bridge_center: ['door_bridge'],
-  door_bridge: ['bridge_center', 'corridor_west'],
+  door_bridge: ['bridge_center', 'corridor_fwd'],
+  avionics_center: ['door_avionics'],
+  door_avionics: ['avionics_center', 'corridor_avionics'],
+  life_support_center: ['door_life_support'],
+  door_life_support: ['life_support_center', 'corridor_life'],
   quarters_center: ['door_quarters'],
-  door_quarters: ['quarters_center', 'corridor_mid'],
+  door_quarters: ['quarters_center', 'corridor_quarters'],
   mess_center: ['door_mess'],
-  door_mess: ['mess_center', 'corridor_east'],
+  door_mess: ['mess_center', 'corridor_mess'],
+  airlock_stbd_center: ['airlock_stbd_inner'],
+  airlock_stbd_inner: ['airlock_stbd_center', 'corridor_aft'],
 
-  corridor_west: ['door_bridge', 'door_armory', 'corridor_mid'],
-  corridor_mid: ['door_quarters', 'door_cargo', 'corridor_west', 'corridor_east'],
-  corridor_east: ['door_mess', 'door_eng', 'corridor_mid'],
-
-  door_armory: ['corridor_west', 'armory_center'],
+  // Lower rooms
   armory_center: ['door_armory'],
-  door_cargo: ['corridor_mid', 'cargo_center'],
+  door_armory: ['armory_center', 'corridor_fwd'],
+  airlock_port_center: ['airlock_port_inner'],
+  airlock_port_inner: ['airlock_port_center', 'corridor_avionics'],
   cargo_center: ['door_cargo'],
-  door_eng: ['corridor_east', 'eng_center'],
+  door_cargo: ['cargo_center', 'corridor_cargo'],
   eng_center: ['door_eng'],
+  door_eng: ['eng_center', 'corridor_eng'],
+
+  // Catwalk spine spine chain
+  corridor_fwd: ['door_bridge', 'door_armory', 'corridor_avionics'],
+  corridor_avionics: ['corridor_fwd', 'door_avionics', 'airlock_port_inner', 'door_spine_fwd'],
+  door_spine_fwd: ['corridor_avionics', 'corridor_life'],
+  corridor_life: ['door_spine_fwd', 'door_life_support', 'corridor_cargo'],
+  corridor_cargo: ['corridor_life', 'door_cargo', 'corridor_quarters'],
+  corridor_quarters: ['corridor_cargo', 'door_quarters', 'door_spine_aft'],
+  door_spine_aft: ['corridor_quarters', 'corridor_mess'],
+  corridor_mess: ['door_spine_aft', 'door_mess', 'corridor_eng'],
+  corridor_eng: ['corridor_mess', 'door_eng', 'corridor_aft'],
+  corridor_aft: ['corridor_eng', 'airlock_stbd_inner'],
 };
 
 export interface NavigationWaypoint {
@@ -101,24 +187,56 @@ export interface RoomPortal {
 }
 
 export const ROOM_PORTALS: Record<string, RoomPortal> = {
-  bridge: { doorId: 'door_bridge', doorX: 220, doorY: 280, corridorX: 220, corridorY: 340 },
-  quarters: { doorId: 'door_quarters', doorX: 590, doorY: 280, corridorX: 590, corridorY: 340 },
-  mess: { doorId: 'door_mess', doorX: 970, doorY: 280, corridorX: 970, corridorY: 340 },
-  armory: { doorId: 'door_armory', doorX: 220, doorY: 400, corridorX: 220, corridorY: 340 },
-  cargo: { doorId: 'door_cargo', doorX: 590, doorY: 400, corridorX: 590, corridorY: 340 },
-  engineering: { doorId: 'door_eng', doorX: 970, doorY: 400, corridorX: 970, corridorY: 340 },
+  bridge: { doorId: 'door_bridge', doorX: 220, doorY: 368, corridorX: 220, corridorY: 400 },
+  avionics: { doorId: 'door_avionics', doorX: 380, doorY: 368, corridorX: 380, corridorY: 400 },
+  life_support: {
+    doorId: 'door_life_support',
+    doorX: 520,
+    doorY: 368,
+    corridorX: 520,
+    corridorY: 400,
+  },
+  quarters: { doorId: 'door_quarters', doorX: 680, doorY: 368, corridorX: 680, corridorY: 400 },
+  mess: { doorId: 'door_mess', doorX: 840, doorY: 368, corridorX: 840, corridorY: 400 },
+  airlock_stbd: {
+    doorId: 'airlock_stbd_inner',
+    doorX: 970,
+    doorY: 368,
+    corridorX: 970,
+    corridorY: 400,
+  },
+  armory: { doorId: 'door_armory', doorX: 220, doorY: 432, corridorX: 220, corridorY: 400 },
+  airlock_port: {
+    doorId: 'airlock_port_inner',
+    doorX: 380,
+    doorY: 432,
+    corridorX: 380,
+    corridorY: 400,
+  },
+  cargo: { doorId: 'door_cargo', doorX: 600, doorY: 432, corridorX: 600, corridorY: 400 },
+  engineering: { doorId: 'door_eng', doorX: 890, doorY: 432, corridorX: 890, corridorY: 400 },
 };
 
-export function getRoomAt(x: number, y: number): string {
-  if (y >= 270 && y <= 410) return 'corridor';
-  if (y < 270) {
-    if (x <= 390) return 'bridge';
-    if (x <= 790) return 'quarters';
-    return 'mess';
-  }
-  if (x <= 390) return 'armory';
-  if (x <= 790) return 'cargo';
+function getUpperRoom(x: number): string {
+  if (x <= 320) return 'bridge';
+  if (x <= 440) return 'avionics';
+  if (x <= 600) return 'life_support';
+  if (x <= 760) return 'quarters';
+  if (x <= 920) return 'mess';
+  return 'airlock_stbd';
+}
+
+function getLowerRoom(x: number): string {
+  if (x <= 320) return 'armory';
+  if (x <= 440) return 'airlock_port';
+  if (x <= 760) return 'cargo';
   return 'engineering';
+}
+
+export function getRoomAt(x: number, y: number): string {
+  if (y >= 368 && y <= 432) return 'corridor';
+  if (y < 368) return getUpperRoom(x);
+  return getLowerRoom(x);
 }
 
 function appendCorridorTransit(
@@ -173,7 +291,6 @@ export function findNavigationPath(
 
   path.push({ x: targetX, y: targetY });
 
-  // Filter out any initial waypoint the bot is already standing on
   while (path.length > 1 && Math.hypot(startX - path[0].x, startY - path[0].y) < 14) {
     path.shift();
   }
@@ -182,7 +299,7 @@ export function findNavigationPath(
 }
 
 export function getNearestWaypointId(x: number, y: number): string {
-  let bestId = 'corridor_mid';
+  let bestId = 'corridor_cargo';
   let bestDist = Number.POSITIVE_INFINITY;
 
   for (const [id, wp] of Object.entries(SHIP_WAYPOINTS)) {
@@ -199,10 +316,14 @@ export function getNearestWaypointId(x: number, y: number): string {
 export function getRoomCenterWaypointId(roomId: string): string {
   const map: Record<string, string> = {
     bridge: 'bridge_center',
+    avionics: 'avionics_center',
+    life_support: 'life_support_center',
     quarters: 'quarters_center',
     mess: 'mess_center',
-    corridor: 'corridor_mid',
+    airlock_stbd: 'airlock_stbd_center',
+    corridor: 'corridor_cargo',
     armory: 'armory_center',
+    airlock_port: 'airlock_port_center',
     cargo: 'cargo_center',
     engineering: 'eng_center',
   };
@@ -223,7 +344,6 @@ export function findWaypointPath(
     return [{ x: end.x, y: end.y, id: end.id }];
   }
 
-  // BFS search
   const queue: string[][] = [[startWpId]];
   const visited = new Set<string>([startWpId]);
   let foundPath: string[] | null = null;

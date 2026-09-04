@@ -6,6 +6,8 @@ import type {
   WallSegment,
 } from '@kybernetes/protocol';
 import {
+  createInitialDoors,
+  findNearestDoor,
   findNearestStation,
   HESPERIA_SPAWNS,
   HESPERIA_STATIONS,
@@ -21,8 +23,9 @@ const PAWN_RADIUS = 14;
 
 // fallow-ignore-next-line complexity
 function getDeckSurface(x: number, y: number): DeckSurfaceType {
-  if (x > 800 && y > 400) return 'grate'; // Deck D engineering
-  if (x < 380 && y < 280) return 'linoleum'; // Deck A bridge
+  if (y >= 368 && y <= 432) return 'grate'; // Central catwalk subfloor grating
+  if (x >= 760 && y > 432) return 'grate'; // Deck D engineering diamond plate
+  if (x <= 320 && y < 368) return 'linoleum'; // Deck A bridge linoleum
   return 'steel';
 }
 
@@ -109,7 +112,8 @@ function calculateNextPawnState(
 export function usePawnMovement(
   initialRole: StartingRole,
   doors?: DoorState[],
-  onInteractPrompt?: (station: StationFixture | null) => void
+  onInteractPrompt?: (station: StationFixture | null) => void,
+  facingAngleRef?: React.RefObject<number>
 ) {
   const [pawn, setPawn] = useState<PawnState>(() => {
     const spawn = HESPERIA_SPAWNS[initialRole];
@@ -134,10 +138,16 @@ export function usePawnMovement(
   pawnRef.current = pawn;
 
   const [nearestStation, setNearestStation] = useState<StationFixture | null>(null);
+  const [nearestDoor, setNearestDoor] = useState<DoorState | null>(null);
   const currentNearRef = useRef<string | null>(null);
+  const currentNearDoorRef = useRef<string | null>(null);
+  const currentNearDoorIsOpenRef = useRef<boolean | undefined>(undefined);
   const doorsRef = useRef(doors);
   doorsRef.current = doors;
+  const facingAngleRefHolder = useRef(facingAngleRef);
+  facingAngleRefHolder.current = facingAngleRef;
   const footstepDistRef = useRef(0);
+  const defaultDoorsRef = useRef(createInitialDoors());
 
   const resetToSpawn = useCallback((role: StartingRole) => {
     const spawn = HESPERIA_SPAWNS[role];
@@ -177,15 +187,28 @@ export function usePawnMovement(
       const dt = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
+      const activeDoors =
+        doorsRef.current && doorsRef.current.length > 0
+          ? doorsRef.current
+          : defaultDoorsRef.current;
+
       const nextPawn = calculateNextPawnState(
         pawnRef.current,
         keysPressed.current,
         dt,
-        doorsRef.current
+        activeDoors
       );
       if (nextPawn !== pawnRef.current) setPawn(nextPawn);
 
-      const nearby = findNearestStation(nextPawn.x, nextPawn.y, HESPERIA_STATIONS, 54);
+      const effectiveFacing = facingAngleRefHolder.current?.current ?? nextPawn.facingAngle;
+
+      const nearby = findNearestStation(
+        nextPawn.x,
+        nextPawn.y,
+        HESPERIA_STATIONS,
+        54,
+        effectiveFacing
+      );
       const nextStation = nearby ? nearby.station : null;
       const nextId = nextStation ? nextStation.id : null;
 
@@ -194,6 +217,24 @@ export function usePawnMovement(
         setNearestStation(nextStation);
         onInteractPrompt?.(nextStation);
         if (nextStation) {
+          ShipAudioEngine.getInstance().playStationInteract();
+        }
+      }
+
+      const nearbyDoor = findNearestDoor(nextPawn.x, nextPawn.y, activeDoors, 42, effectiveFacing);
+      const nextDoor = nearbyDoor ? nearbyDoor.door : null;
+      const nextDoorId = nextDoor ? nextDoor.id : null;
+      const nextDoorIsOpen = nextDoor ? nextDoor.isOpen : undefined;
+
+      if (
+        currentNearDoorRef.current !== nextDoorId ||
+        currentNearDoorIsOpenRef.current !== nextDoorIsOpen
+      ) {
+        const isNewDoor = currentNearDoorRef.current !== nextDoorId && nextDoorId !== null;
+        currentNearDoorRef.current = nextDoorId;
+        currentNearDoorIsOpenRef.current = nextDoorIsOpen;
+        setNearestDoor(nextDoor);
+        if (isNewDoor) {
           ShipAudioEngine.getInstance().playStationInteract();
         }
       }
@@ -214,5 +255,5 @@ export function usePawnMovement(
     return () => cancelAnimationFrame(animId);
   }, [onInteractPrompt]);
 
-  return { pawn, setPawn, nearestStation, resetToSpawn };
+  return { pawn, setPawn, nearestStation, nearestDoor, resetToSpawn };
 }

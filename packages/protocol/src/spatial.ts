@@ -47,7 +47,16 @@ export interface StationFixture {
   id: string;
   deckId: string;
   name: string;
-  stationType: 'reactor' | 'mess' | 'armory' | 'hydroponics' | 'cargo' | 'bunk' | 'bridge';
+  stationType:
+    | 'reactor'
+    | 'mess'
+    | 'armory'
+    | 'hydroponics'
+    | 'cargo'
+    | 'bunk'
+    | 'bridge'
+    | 'avionics'
+    | 'airlock';
   x: number;
   y: number;
   radius: number;

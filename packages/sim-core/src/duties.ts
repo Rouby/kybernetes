@@ -20,6 +20,26 @@ const GENERAL_DUTIES: DutyDefinition[] = [
     creditReward: 30,
     clearanceXp: 20,
   },
+  {
+    id: 'avionics_diagnostics',
+    stationType: 'avionics',
+    name: 'Run Avionics Diagnostics',
+    description: 'Cycle logic gates and verify optical bus routing across the primary nav-matrix.',
+    durationSeconds: 10,
+    staminaCostPerSecond: 1.5,
+    creditReward: 25,
+    clearanceXp: 15,
+  },
+  {
+    id: 'airlock_cycle_drill',
+    stationType: 'airlock',
+    name: 'Test Pressure Seals',
+    description: 'Pressurize and vacuum-seal the chamber seals to certify outer hatch tolerance.',
+    durationSeconds: 8,
+    staminaCostPerSecond: 1.5,
+    creditReward: 20,
+    clearanceXp: 12,
+  },
 ];
 
 export function getAllDuties(): DutyDefinition[] {

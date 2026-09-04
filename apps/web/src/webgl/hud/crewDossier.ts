@@ -83,15 +83,16 @@ export function isPawnHovered(
   halfW: number,
   halfH: number,
   mouseWorld?: { x: number; y: number },
-  mouseScreen?: { x: number; y: number }
+  mouseScreen?: { x: number; y: number },
+  zoom = 1.0
 ): boolean {
   if (mouseWorld && Math.hypot(p.x - mouseWorld.x, p.y - mouseWorld.y) <= 32) {
     return true;
   }
   if (mouseScreen) {
-    const sx = halfW + (p.x - cam.x);
-    const sy = halfH + (p.y - cam.y);
-    return Math.hypot(sx - mouseScreen.x, sy - mouseScreen.y) <= 32;
+    const sx = halfW + (p.x - cam.x) * zoom;
+    const sy = halfH + (p.y - cam.y) * zoom;
+    return Math.hypot(sx - mouseScreen.x, sy - mouseScreen.y) <= 32 * zoom;
   }
   return false;
 }

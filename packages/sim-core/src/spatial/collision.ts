@@ -125,7 +125,8 @@ export function findNearestStation(
   pawnX: number,
   pawnY: number,
   stations: StationFixture[],
-  interactRadius: number = 48
+  interactRadius: number = 48,
+  facingAngle?: number
 ): { station: StationFixture; distance: number } | null {
   let nearest: { station: StationFixture; distance: number } | null = null;
   let minDistance = interactRadius;
@@ -137,6 +138,10 @@ export function findNearestStation(
     const effectiveInteractDist = Math.max(interactRadius, station.radius + 20);
 
     if (dist <= effectiveInteractDist && dist < minDistance) {
+      if (facingAngle !== undefined && dist > 6) {
+        const dot = (Math.cos(facingAngle) * dx + Math.sin(facingAngle) * dy) / dist;
+        if (dot < 0.35) continue;
+      }
       minDistance = dist;
       nearest = { station, distance: Number(dist.toFixed(2)) };
     }

@@ -23,7 +23,9 @@ import { LightingPass } from './passes/LightingPass';
 import { StarfieldPass } from './passes/StarfieldPass';
 import {
   type RenderContext,
+  renderAirlockConsole,
   renderArmoryLocker,
+  renderAvionicsTerminal,
   renderBridgeHelm,
   renderCargoWinch,
   renderCrewBunk,
@@ -41,6 +43,7 @@ export interface WebGLRenderState extends HudDrawState {
   impacts?: Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>;
   muzzleFlashes?: Array<{ x: number; y: number; weaponType: WeaponType }>;
   zoom?: number;
+  nearestDoorId?: string;
 }
 
 // fallow-ignore-next-line complexity
@@ -229,11 +232,15 @@ export class WebGL2Renderer {
       } else if (st.stationType === 'bunk') {
         renderCrewBunk(ctx, st, isNear, timeSec);
       } else if (st.stationType === 'mess') {
-        if (st.id === 'mess_prep') {
+        if (st.id.includes('prep')) {
           renderGalleyPrep(ctx, st, isNear, timeSec);
         } else {
           renderDispenser(ctx, st, isNear, st.id.includes('water'), timeSec);
         }
+      } else if (st.stationType === 'avionics') {
+        renderAvionicsTerminal(ctx, st, isNear, timeSec);
+      } else if (st.stationType === 'airlock') {
+        renderAirlockConsole(ctx, st, isNear, timeSec);
       }
     }
     this.gl.bindVertexArray(null);
@@ -627,8 +634,9 @@ export class WebGL2Renderer {
       this.lightingPass.currentLightColors,
       state.boarding
     );
+    this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
     this.deckPass.renderBulkheads(this.flatProg, this.flatVAO, matrix);
-    this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt);
+    this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);
     this.renderStations(matrix, state.nearestStation?.id, timeSec);
 

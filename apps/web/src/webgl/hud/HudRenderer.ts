@@ -41,6 +41,7 @@ export interface HudDrawState {
   clearanceXp?: number;
   credits?: number;
   equippedWeapon?: WeaponType;
+  zoom?: number;
   kineticAmmo?: {
     current: number;
     max: number;
@@ -622,6 +623,17 @@ export class HudRenderer {
         fontSize: 16,
         color: '#506680',
       });
+    } else if (state.promptActionName) {
+      this.addText(
+        `[E] ${state.promptActionName.toUpperCase()}`,
+        x + 15,
+        isKinetic ? y + 128 : y + 98,
+        {
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#00e5ff',
+        }
+      );
     } else {
       const hint = isKinetic
         ? '[L-CLICK / SPACE] Fire  •  [R] Reload'
@@ -835,7 +847,8 @@ export class HudRenderer {
     camera: { x: number; y: number },
     width: number,
     height: number,
-    losPoly: Point2D[]
+    losPoly: Point2D[],
+    zoom = 1.0
   ): void {
     const halfW = width / 2;
     const halfH = height / 2;
@@ -844,8 +857,8 @@ export class HudRenderer {
       if (losPoly.length >= 3 && !isPointInPolygon({ x: p.x, y: p.y }, losPoly)) continue;
       if (!p.speechBubble || p.speechBubble.expiresAt <= Date.now()) continue;
 
-      const sx = halfW + (p.x - camera.x);
-      const sy = Math.round(halfH + (p.y - camera.y) - 30);
+      const sx = Math.round(halfW + (p.x - camera.x) * zoom);
+      const sy = Math.round(halfH + (p.y - camera.y) * zoom - 30 * zoom);
       const bubbleText = `"${p.speechBubble.text}"`;
       const bWidth = Math.min(420, bubbleText.length * 9.5 + 24);
       const bHeight = 28;
@@ -879,11 +892,14 @@ export class HudRenderer {
   ): PawnState | null {
     const halfW = width / 2;
     const halfH = height / 2;
+    const zoom = state.zoom ?? 1.0;
 
     if (state.remotePawns) {
       for (const rp of state.remotePawns) {
         if (losPoly.length >= 3 && !isPointInPolygon({ x: rp.x, y: rp.y }, losPoly)) continue;
-        if (isPawnHovered(rp, state.camera, halfW, halfH, state.mouseWorld, state.mouseScreen)) {
+        if (
+          isPawnHovered(rp, state.camera, halfW, halfH, state.mouseWorld, state.mouseScreen, zoom)
+        ) {
           return rp;
         }
       }
@@ -891,7 +907,15 @@ export class HudRenderer {
 
     if (
       state.pawn &&
-      isPawnHovered(state.pawn, state.camera, halfW, halfH, state.mouseWorld, state.mouseScreen)
+      isPawnHovered(
+        state.pawn,
+        state.camera,
+        halfW,
+        halfH,
+        state.mouseWorld,
+        state.mouseScreen,
+        zoom
+      )
     ) {
       return state.pawn;
     }
@@ -903,14 +927,15 @@ export class HudRenderer {
     p: PawnState,
     camera: { x: number; y: number },
     width: number,
-    height: number
+    height: number,
+    zoom = 1.0
   ): void {
     const halfW = width / 2;
     const halfH = height / 2;
-    const sx = Math.round(halfW + (p.x - camera.x));
-    const sy = Math.round(halfH + (p.y - camera.y));
-    const r = 20;
-    const arm = 6;
+    const sx = Math.round(halfW + (p.x - camera.x) * zoom);
+    const sy = Math.round(halfH + (p.y - camera.y) * zoom);
+    const r = Math.round(20 * zoom);
+    const arm = Math.max(4, Math.round(6 * zoom));
 
     this.addQuad(sx - r, sy - r, arm, 1.5, 0.0, 0.9, 1.0, 0.85);
     this.addQuad(sx - r, sy - r, 1.5, arm, 0.0, 0.9, 1.0, 0.85);
@@ -1019,12 +1044,13 @@ export class HudRenderer {
     this.renderTopLeftShiftChecklist(state, width, height);
     this.renderCenterAlerts(state, width);
 
+    const zoom = state.zoom ?? 1.0;
     const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
-    this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly);
+    this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
 
     const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
     if (hovered) {
-      this.renderHoverReticle(hovered, state.camera, width, height);
+      this.renderHoverReticle(hovered, state.camera, width, height, zoom);
       this.renderCrewDossierWidget(hovered, width, height);
     }
 

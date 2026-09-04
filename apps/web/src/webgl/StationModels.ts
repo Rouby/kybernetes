@@ -318,3 +318,48 @@ export function renderDispenser(
     ctx.drawQuad(st.x - 4, st.y - 1, 8, 6);
   }
 }
+
+export function renderAvionicsTerminal(
+  ctx: RenderContext,
+  st: StationFixture,
+  isNear: boolean,
+  time: number
+): void {
+  // Server rack cabinet base
+  setColor(ctx, 0.12, 0.15, 0.22);
+  ctx.drawQuad(st.x - 18, st.y - 14, 36, 28);
+
+  // Optical bus server blades
+  const pulse = 0.6 + 0.4 * Math.sin(time * 6.0);
+  setColor(ctx, 0.05, 0.08, 0.12);
+  ctx.drawQuad(st.x - 14, st.y - 10, 28, 20);
+
+  // Status indicator LEDs
+  setColor(ctx, 0.0, 0.85, 1.0, isNear ? 0.95 : 0.7 * pulse);
+  ctx.drawQuad(st.x - 10, st.y - 6, 8, 4);
+  setColor(ctx, 0.2, 0.95, 0.4, isNear ? 0.95 : 0.6);
+  ctx.drawQuad(st.x + 2, st.y - 6, 8, 4);
+  setColor(ctx, 1.0, 0.7, 0.1, 0.8 * pulse);
+  ctx.drawQuad(st.x - 10, st.y + 2, 20, 3);
+}
+
+export function renderAirlockConsole(
+  ctx: RenderContext,
+  st: StationFixture,
+  isNear: boolean,
+  time: number
+): void {
+  // Heavy yellow/black hazard console mount
+  setColor(ctx, 0.18, 0.16, 0.14);
+  ctx.drawQuad(st.x - 16, st.y - 12, 32, 24);
+
+  // Hazard border
+  setColor(ctx, 0.92, 0.75, 0.05);
+  ctx.drawQuad(st.x - 16, st.y - 12, 32, 3);
+  ctx.drawQuad(st.x - 16, st.y + 9, 32, 3);
+
+  // Cycling status display
+  const blink = Math.sin(time * 4.0) > 0;
+  setColor(ctx, blink ? 0.0 : 0.9, blink ? 0.9 : 0.2, 0.2, isNear ? 1.0 : 0.7);
+  ctx.drawQuad(st.x - 8, st.y - 5, 16, 10);
+}

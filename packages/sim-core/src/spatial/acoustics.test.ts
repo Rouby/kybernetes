@@ -37,12 +37,12 @@ describe('spatial acoustics math', () => {
   });
 
   it('detects wall intersections between bridge and quarters', () => {
-    const count = countBulkheadIntersections(220, 170, 590, 170);
+    const count = countBulkheadIntersections(220, 290, 680, 290);
     expect(count).toBeGreaterThanOrEqual(1);
   });
 
   it('calculates spatial acoustics with direct line of sight', () => {
-    const result = calculateSpatialAcoustics(150, 150, 200, 150);
+    const result = calculateSpatialAcoustics(150, 290, 200, 290);
     expect(result.wallIntersections).toBe(0);
     expect(result.filterCutoffHz).toBe(20000);
     expect(result.gain).toBe(1.0);
