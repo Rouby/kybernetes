@@ -128,7 +128,6 @@ export const DECK_FLOOR_FS = `#version 300 es
 precision highp float;
 in vec2 v_worldPos;
 uniform vec3 u_floorColor;
-uniform float u_isVacuum;
 uniform float u_time;
 uniform int u_roomType;
 uniform vec4 u_roomBounds; // xy = origin, zw = dimensions
@@ -140,11 +139,7 @@ out vec4 fragColor;
 void main() {
   vec3 baseColor;
 
-  if (u_isVacuum > 0.5) {
-    // Dynamic FTL hazard decompression warning stripes
-    float stripe = step(0.5, fract((v_worldPos.x + v_worldPos.y - u_time * 28.0) / 24.0));
-    baseColor = mix(vec3(0.92, 0.28, 0.32), vec3(0.35, 0.08, 0.12), stripe);
-  } else if (u_roomType == 0) {
+  if (u_roomType == 0) {
     // COMMAND BRIDGE: High-tech dark slate decking with cyan edge telemetry and central command circle
     vec2 coord = v_worldPos / 28.0;
     vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
@@ -184,27 +179,25 @@ void main() {
     float plate = step(0.68, diamond) * 0.15;
     vec3 engMetal = mix(vec3(0.14, 0.16, 0.20), vec3(0.24, 0.27, 0.33), plate);
 
-    // Hazard warning zone around reactor core monitor (x=890, y=510)
+    // High-voltage warning ring around reactor core monitor (x=890, y=510)
     float dCore = length(v_worldPos - vec2(890.0, 510.0));
     if (dCore > 40.0 && dCore < 50.0) {
-      float hStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 14.0));
-      baseColor = mix(vec3(0.95, 0.78, 0.05), vec3(0.1, 0.1, 0.12), hStripes);
+      baseColor = mix(engMetal, vec3(0.95, 0.78, 0.05), 0.75);
     } else {
       baseColor = engMetal;
     }
 
   } else if (u_roomType == 5) {
-    // CARGO BAY & ORE HOLD: Scuffed heavy freight plating with yellow/black loading zone markings
+    // CARGO BAY & ORE HOLD: Scuffed heavy freight plating with loading zone markings
     vec2 cCoord = (v_worldPos - u_roomBounds.xy) / 45.0;
     vec2 cGrid = abs(fract(cCoord - 0.5) - 0.5) / fwidth(cCoord);
     float cLine = 1.0 - min(min(cGrid.x, cGrid.y), 1.0);
     vec3 cargoMetal = mix(vec3(0.19, 0.20, 0.23), vec3(0.26, 0.28, 0.31), clamp(cLine * 0.75, 0.0, 1.0));
 
-    // Staging mag-pad hazard box perimeter (around winch x=600, y=510)
+    // Staging mag-pad perimeter (around winch x=600, y=510)
     vec2 cargoRel = abs(v_worldPos - vec2(600.0, 510.0));
     if (max(cargoRel.x, cargoRel.y) > 36.0 && max(cargoRel.x, cargoRel.y) < 44.0) {
-      float hStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 12.0));
-      baseColor = mix(vec3(0.92, 0.74, 0.08), vec3(0.12, 0.12, 0.14), hStripes);
+      baseColor = mix(cargoMetal, vec3(0.92, 0.74, 0.08), 0.75);
     } else {
       baseColor = cargoMetal;
     }
@@ -225,12 +218,14 @@ void main() {
     }
 
   } else if (u_roomType == 9 || u_roomType == 10) {
-    // AIRLOCK VESTIBULES (Port & Starboard): High-contrast decompression hazard floor
-    float aStripes = step(0.5, fract((v_worldPos.x + v_worldPos.y) / 16.0));
-    vec3 hazardDeck = mix(vec3(0.85, 0.65, 0.08), vec3(0.12, 0.14, 0.18), aStripes);
+    // AIRLOCK VESTIBULES (Port & Starboard): Brushed dark gunmetal airlock chamber plating with cyan border rim
+    vec2 airCoord = v_worldPos / 24.0;
+    vec2 airGrid = abs(fract(airCoord - 0.5) - 0.5) / fwidth(airCoord);
+    float airLine = 1.0 - min(min(airGrid.x, airGrid.y), 1.0);
+    vec3 airMetal = mix(vec3(0.12, 0.15, 0.20), vec3(0.18, 0.23, 0.30), clamp(airLine * 0.7, 0.0, 1.0));
     vec2 dBorder = min(v_worldPos - u_roomBounds.xy, u_roomBounds.xy + u_roomBounds.zw - v_worldPos);
-    float borderMask = step(min(dBorder.x, dBorder.y), 5.0);
-    baseColor = mix(hazardDeck, vec3(0.8, 0.15, 0.15), borderMask);
+    float borderMask = step(min(dBorder.x, dBorder.y), 4.0);
+    baseColor = mix(airMetal, vec3(0.0, 0.75, 0.95), borderMask * 0.6);
 
   } else if (u_roomType == 3) {
     // CENTRAL CATWALK SPINE: Perforated steel subfloor grating with visible conduit channels beneath

@@ -59,10 +59,6 @@ export class AtmosOverlayPass {
     gl.bindVertexArray(null);
   }
 
-  public getGrid(): CellularAtmosGrid {
-    return this.grid;
-  }
-
   // fallow-ignore-next-line complexity
   private syncRoomAverages(
     roomAtmospheres: Record<string, RoomAtmosphereSummary>,

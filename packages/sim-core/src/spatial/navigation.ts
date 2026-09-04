@@ -243,8 +243,23 @@ function appendCorridorTransit(
   path: NavigationWaypoint[],
   fromX: number,
   toX: number,
-  corridorY: number
+  corridorY: number = 400
 ): void {
+  if (fromX < toX) {
+    if (fromX < 440 && toX > 440) {
+      path.push({ x: 440, y: corridorY, doorId: 'door_spine_fwd' });
+    }
+    if (fromX < 760 && toX > 760) {
+      path.push({ x: 760, y: corridorY, doorId: 'door_spine_aft' });
+    }
+  } else if (fromX > toX) {
+    if (fromX > 760 && toX < 760) {
+      path.push({ x: 760, y: corridorY, doorId: 'door_spine_aft' });
+    }
+    if (fromX > 440 && toX < 440) {
+      path.push({ x: 440, y: corridorY, doorId: 'door_spine_fwd' });
+    }
+  }
   if (Math.abs(fromX - toX) > 10) {
     path.push({ x: toX, y: corridorY });
   }
@@ -261,6 +276,15 @@ export function findNavigationPath(
   const targetRoom = getRoomAt(targetX, targetY);
 
   if (startRoom === targetRoom) {
+    if (startRoom === 'corridor') {
+      const path: NavigationWaypoint[] = [];
+      appendCorridorTransit(path, startX, targetX, 400);
+      path.push({ x: targetX, y: targetY });
+      while (path.length > 1 && Math.hypot(startX - path[0].x, startY - path[0].y) < 14) {
+        path.shift();
+      }
+      return path;
+    }
     return [{ x: targetX, y: targetY }];
   }
 
@@ -277,6 +301,7 @@ export function findNavigationPath(
     if (sp) {
       path.push({ x: sp.doorX, y: sp.doorY, doorId: sp.doorId });
       path.push({ x: sp.corridorX, y: sp.corridorY });
+      appendCorridorTransit(path, sp.corridorX, targetX, sp.corridorY);
     }
   } else {
     const sp = ROOM_PORTALS[startRoom];

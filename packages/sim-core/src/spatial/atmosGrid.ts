@@ -467,8 +467,8 @@ function propagateDecompressionWave(
           visited[nIdx] = 1;
           queueCol[tail] = nb.col;
           queueRow[tail] = nb.row;
-          queueVentCol[tail] = vCol;
-          queueVentRow[tail] = vRow;
+          queueVentCol[tail] = c;
+          queueVentRow[tail] = r;
           queueRate[tail] = kRate;
           tail++;
         }
@@ -849,14 +849,23 @@ interface VentPortal {
   kRate: number;
 }
 
+function getSubRoomId(roomId: string, x: number): string {
+  if (roomId !== 'corridor') return roomId;
+  if (x <= 440) return 'corridor_fwd';
+  if (x < 760) return 'corridor_mid';
+  return 'corridor_aft';
+}
+
 function collectActiveVentPortals(doors?: DoorState[], breaches?: string[]): VentPortal[] {
   const portals: VentPortal[] = [];
   if (doors) {
     for (const d of doors) {
       if ((d.isAirlock || d.roomA === 'vacuum' || d.roomB === 'vacuum') && d.isOpen) {
+        const rId = d.roomA !== 'vacuum' ? d.roomA : d.roomB;
+        const midX = (d.x1 + d.x2) / 2;
         portals.push({
-          roomId: d.roomA !== 'vacuum' ? d.roomA : d.roomB,
-          x: (d.x1 + d.x2) / 2,
+          roomId: getSubRoomId(rId, midX),
+          x: midX,
           y: (d.y1 + d.y2) / 2,
           kRate: 25.0,
         });
@@ -869,9 +878,10 @@ function collectActiveVentPortals(doors?: DoorState[], breaches?: string[]): Ven
       const rId = isPuncture ? breach.replace('puncture_', '') : breach;
       const room = HESPERIA_ROOMS.find((r) => r.id === rId);
       if (room) {
+        const midX = room.x + room.width / 2;
         portals.push({
-          roomId: rId,
-          x: room.x + room.width / 2,
+          roomId: getSubRoomId(rId, midX),
+          x: midX,
           y: room.y + 10,
           kRate: isPuncture ? 0.04 : 25.0,
         });
@@ -889,15 +899,28 @@ interface DoorConnection {
 
 function getOpenRoomConnections(doors?: DoorState[]): Map<string, DoorConnection[]> {
   const map = new Map<string, DoorConnection[]>();
+  const addConn = (rA: string, rB: string, x: number, y: number) => {
+    if (!map.has(rA)) map.set(rA, []);
+    if (!map.has(rB)) map.set(rB, []);
+    map.get(rA)?.push({ targetRoom: rB, doorX: x, doorY: y });
+    map.get(rB)?.push({ targetRoom: rA, doorX: x, doorY: y });
+  };
+
   if (!doors) return map;
   for (const d of doors) {
     if (!d.isOpen || d.isAirlock) continue;
     const cx = (d.x1 + d.x2) / 2;
     const cy = (d.y1 + d.y2) / 2;
-    if (!map.has(d.roomA)) map.set(d.roomA, []);
-    if (!map.has(d.roomB)) map.set(d.roomB, []);
-    map.get(d.roomA)?.push({ targetRoom: d.roomB, doorX: cx, doorY: cy });
-    map.get(d.roomB)?.push({ targetRoom: d.roomA, doorX: cx, doorY: cy });
+
+    if (d.id === 'door_spine_fwd') {
+      addConn('corridor_fwd', 'corridor_mid', cx, cy);
+    } else if (d.id === 'door_spine_aft') {
+      addConn('corridor_mid', 'corridor_aft', cx, cy);
+    } else {
+      const subA = getSubRoomId(d.roomA, cx);
+      const subB = getSubRoomId(d.roomB, cx);
+      addConn(subA, subB, cx, cy);
+    }
   }
   return map;
 }
@@ -967,8 +990,9 @@ export function getAirflowDragVector(
   const currentP = summary ? summary.pressureKpa : 101.3;
   if (currentP <= 0.2) return { u: 0, v: 0 };
 
+  const currentSubRoom = getSubRoomId(room.id, x);
   const connections = getOpenRoomConnections(doors);
-  const waypoint = findVentWaypoint(room.id, x, y, portals, connections);
+  const waypoint = findVentWaypoint(currentSubRoom, x, y, portals, connections);
   if (!waypoint) return { u: 0, v: 0 };
 
   const dx = waypoint.targetX - x;
@@ -993,20 +1017,25 @@ export function isRoomVentingToVacuum(
 ): boolean {
   const portals = collectActiveVentPortals(doors, breaches);
   if (portals.length === 0) return false;
-  if (portals.some((p) => p.roomId === roomId)) return true;
+
+  const startRooms =
+    roomId === 'corridor' ? ['corridor_fwd', 'corridor_mid', 'corridor_aft'] : [roomId];
 
   const connections = getOpenRoomConnections(doors);
-  const visited = new Set<string>([roomId]);
-  const queue: string[] = [roomId];
+  for (const start of startRooms) {
+    if (portals.some((p) => p.roomId === start)) return true;
+    const visited = new Set<string>([start]);
+    const queue: string[] = [start];
 
-  while (queue.length > 0) {
-    const curr = queue.shift();
-    if (!curr) break;
-    if (portals.some((p) => p.roomId === curr)) return true;
-    for (const conn of connections.get(curr) ?? []) {
-      if (!visited.has(conn.targetRoom)) {
-        visited.add(conn.targetRoom);
-        queue.push(conn.targetRoom);
+    while (queue.length > 0) {
+      const curr = queue.shift();
+      if (!curr) break;
+      if (portals.some((p) => p.roomId === curr)) return true;
+      for (const conn of connections.get(curr) ?? []) {
+        if (!visited.has(conn.targetRoom)) {
+          visited.add(conn.targetRoom);
+          queue.push(conn.targetRoom);
+        }
       }
     }
   }

@@ -423,6 +423,21 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     if (engVent) engVent.isOpen = false;
     const closedDrag = getAirflowDragVector(900, 500, doors, []);
     expect(closedDrag).toEqual({ u: 0, v: 0 });
+
+    // 6. Hallway doors isolate airflow drag across corridor bulkheads
+    const stbdOuterHatch = doors.find((d) => d.id === 'airlock_stbd_outer');
+    const spineAft = doors.find((d) => d.id === 'door_spine_aft');
+    if (stbdOuterHatch) stbdOuterHatch.isOpen = true;
+    if (spineAft) spineAft.isOpen = false;
+
+    // Pawn in mid-corridor (x=600, y=400) should have ZERO drag because spine_aft is closed!
+    const midCorridorDragClosed = getAirflowDragVector(600, 400, doors, []);
+    expect(midCorridorDragClosed).toEqual({ u: 0, v: 0 });
+
+    // When spine_aft opens, pawn is pulled East towards door_spine_aft (x=760)
+    if (spineAft) spineAft.isOpen = true;
+    const midCorridorDragOpen = getAirflowDragVector(600, 400, doors, []);
+    expect(midCorridorDragOpen.u).toBeGreaterThan(0);
   });
 
   it('stops venting and pull when room is fully evacuated to vacuum or doors closed', () => {

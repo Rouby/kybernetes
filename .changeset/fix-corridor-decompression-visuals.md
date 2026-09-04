@@ -1,11 +1,13 @@
 ---
 "@kybernetes/sim-core": patch
+"@kybernetes/server": patch
 "@kybernetes/web": patch
 ---
 
-Fix corridor decompression rendering and local atmospheric awareness:
-- Restored dynamic scrolling FTL red/pink decompression hazard warning stripes in `DECK_FLOOR_FS` when `u_isVacuum > 0.5`.
-- Split catwalk spine corridor floor rendering into 3 physical segments (`corridor_fwd`, `corridor_mid`, `corridor_aft`) in `DeckPass`, evaluating vacuum state per segment so isolated sections remain protected while breached/vented sections immediately display decompression hazard stripes.
-- Connected `AtmosOverlayPass.getGrid()` into `DeckPass.renderDeckFloors` to sample exact local cell pressures rather than masking vacuum behind macro-averages.
-- Prevented `AtmosOverlayPass.syncRoomAverages` from overwriting locally evacuated cells with macro room pressure averages.
-- Updated `vitalsFormatters` to trigger `VACUUM HAZARD` warning whenever `atmos.isVenting` is true or pressure falls below 30 kPa.
+Remove hazard floor shader and fix hallway door interactions and airflow:
+- Completely removed hazard floor stripes and vacuum floor shader from `DECK_FLOOR_FS` and `DeckPass`, replacing airlock vestibule floors with clean brushed gunmetal chamber plating.
+- Fixed bot navigation across hallway doors in `findNavigationPath`: automatically insert `door_spine_fwd` ($x = 440$) and `door_spine_aft` ($x = 760$) waypoints during corridor transits.
+- Enhanced bot door detection in `botManager`: bots recognize and request toggling for any closed door within 42px along their path, allowing bots to open hallway spine doors cleanly and proceed.
+- Fixed hallway door airflow drag routing in `atmosGrid`: sub-partitioned the catwalk corridor into zones (`corridor_fwd`, `corridor_mid`, `corridor_aft`) that connect only through open spine doors, guiding drag vectors through door openings and preventing closed hallway doors from leaking suction.
+- Aligned cellular decompression wave vectors with neighbor flow paths in `propagateDecompressionWave` instead of pulling diagonally through solid bulkheads.
+- Added server-side wall and closed door collision resolution in `server.ts` during wind push.

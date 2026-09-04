@@ -15,8 +15,10 @@ import {
   createInitialVesselState,
   GameLoop,
   HESPERIA_SPAWNS,
+  HESPERIA_WALLS,
   type PersistedCrewMember,
   ROLE_DEFINITIONS,
+  resolvePawnMovement,
   sampleAirflowVelocityAt,
   sampleAtmosphereAt,
   stateToTelemetryBroadcast,
@@ -283,12 +285,35 @@ export class VesselServer {
   // fallow-ignore-next-line complexity
   private tickClientVitalsAndAtmosphere(session: VesselSession, dtSeconds: number): void {
     const atmos = session.vesselState.atmos;
+    const closedDoors = (session.vesselState.boarding?.doors || [])
+      .filter((d) => !d.isOpen)
+      .map((d) => ({
+        id: `door_wall_${d.id}`,
+        x1: d.x1,
+        y1: d.y1,
+        x2: d.x2,
+        y2: d.y2,
+        isOpaque: true,
+        isTraversable: false,
+      }));
+    const allWalls = closedDoors.length > 0 ? [...HESPERIA_WALLS, ...closedDoors] : HESPERIA_WALLS;
+
     for (const client of session.clients.values()) {
       const cellAtmos = sampleAtmosphereAt(atmos, client.pawn.x, client.pawn.y);
       const wind = sampleAirflowVelocityAt(atmos, client.pawn.x, client.pawn.y);
       if (!client.pawn.isOperating && Math.hypot(wind.vx, wind.vy) > 20) {
-        client.pawn.x = Math.max(120, Math.min(1020, client.pawn.x + wind.vx * dtSeconds * 0.5));
-        client.pawn.y = Math.max(228, Math.min(572, client.pawn.y + wind.vy * dtSeconds * 0.5));
+        const targetX = client.pawn.x + wind.vx * dtSeconds * 0.5;
+        const targetY = client.pawn.y + wind.vy * dtSeconds * 0.5;
+        const res = resolvePawnMovement(
+          client.pawn.x,
+          client.pawn.y,
+          targetX,
+          targetY,
+          14,
+          allWalls
+        );
+        client.pawn.x = res.x;
+        client.pawn.y = res.y;
       }
 
       client.vitals = updatePlayerVitals(

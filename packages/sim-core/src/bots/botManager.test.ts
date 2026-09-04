@@ -117,6 +117,34 @@ describe('Bot Crewmate Manager', () => {
     expect(doorOpened).toBe(true);
   });
 
+  it('requests toggle for closed hallway spine doors when walking across corridor', () => {
+    const doors = createInitialDoors();
+    // Close hallway forward spine door
+    const spineFwd = doors.find((d) => d.id === 'door_spine_fwd');
+    if (spineFwd) spineFwd.isOpen = false;
+
+    // Wiper at bridge center (220, 290) walks to mess (840, 290), which must cross door_spine_fwd
+    const bot = createBotSession('wiper');
+    bot.pawn.x = 220;
+    bot.pawn.y = 400; // in forward corridor
+    bot.state = 'walking_to_rest';
+    bot.targetRoomId = 'mess';
+
+    let current = bot;
+    let spineOpened = false;
+
+    for (let i = 0; i < 60; i++) {
+      const res = tickBot(current, 0.1, doors);
+      current = res.nextBot;
+      if (res.doorToToggle === 'door_spine_fwd') {
+        spineOpened = true;
+        if (spineFwd) spineFwd.isOpen = true;
+      }
+    }
+
+    expect(spineOpened).toBe(true);
+  });
+
   it('completes path to rest and switches to resting state', () => {
     const doors = createInitialDoors();
     const bot = createBotSession('galley_hand');

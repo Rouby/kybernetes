@@ -221,10 +221,26 @@ function moveBotToward(
   };
 }
 
-function checkClosedDoor(doorId: string | undefined, doors?: DoorState[]): string | undefined {
-  if (!doorId || !doors) return undefined;
-  const d = doors.find((door) => door.id === doorId);
-  return d && !d.isOpen ? d.id : undefined;
+// fallow-ignore-next-line complexity
+function checkClosedDoor(
+  pawn: PawnState,
+  currentWp: NavigationWaypoint | undefined,
+  doors?: DoorState[]
+): string | undefined {
+  if (!doors) return undefined;
+  if (currentWp?.doorId) {
+    const d = doors.find((door) => door.id === currentWp.doorId);
+    if (d && !d.isOpen) return d.id;
+  }
+  for (const door of doors) {
+    if (door.isOpen) continue;
+    const midX = (door.x1 + door.x2) / 2;
+    const midY = (door.y1 + door.y2) / 2;
+    if (Math.hypot(midX - pawn.x, midY - pawn.y) < 42) {
+      return door.id;
+    }
+  }
+  return undefined;
 }
 
 // fallow-ignore-next-line complexity
@@ -262,7 +278,7 @@ function advanceBotMovement(
     };
   }
 
-  const doorToToggle = checkClosedDoor(currentWp.doorId, doors);
+  const doorToToggle = checkClosedDoor(bot.pawn, currentWp, doors);
   const move = moveBotToward(bot.pawn, currentWp.x, currentWp.y, dtSeconds);
 
   if (move.reached) {

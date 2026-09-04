@@ -653,10 +653,7 @@ export class WebGL2Renderer {
       matrix,
       timeSec,
       this.lightingPass.currentLights,
-      this.lightingPass.currentLightColors,
-      this.atmosOverlayPass.getGrid(),
-      state.telemetry?.roomAtmospheres,
-      state.boarding
+      this.lightingPass.currentLightColors
     );
     this.atmosOverlayPass.render(
       matrix,
