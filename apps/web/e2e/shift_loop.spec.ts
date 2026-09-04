@@ -1,7 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
 async function embarkAsWiper(page: Page, callsign = 'Cadet-Solo') {
-  await page.goto('/?beacon=SOLO01');
+  await page.goto('/?beacon=SOLO01&e2e=true');
   await page.getByTestId('join-ship-btn').click();
   await expect(page.getByTestId('character-creation-modal')).toBeVisible();
   await page.getByTestId('dossier-callsign-input').fill(callsign);

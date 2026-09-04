@@ -1,4 +1,9 @@
-import type { PawnState, PlayerVitals, StartingRole } from '@kybernetes/protocol';
+import type {
+  PawnState,
+  PlayerVitals,
+  ShiftChecklistState,
+  StartingRole,
+} from '@kybernetes/protocol';
 import type {
   BotState,
   CollabShiftState,
@@ -19,7 +24,10 @@ export interface ClientSession {
   vitals: PlayerVitals;
   credits: number;
   clearanceLevel: number;
+  clearanceXp: number;
   status: 'on_duty' | 'idle' | 'resting' | 'in_combat';
+  watchSection: 'alpha' | 'bravo';
+  shiftChecklist?: ShiftChecklistState;
   dutyName?: string;
   vesselCode: string;
 }
@@ -33,4 +41,8 @@ export interface VesselSession {
   dualProtocol: DualProtocolState;
   collabShift: CollabShiftState;
   loop: GameLoop;
+  watchNumber: number;
+  activeSection: 'alpha' | 'bravo';
+  watchPhase: 'active_watch' | 'off_duty';
+  timeRemainingSeconds: number;
 }

@@ -107,6 +107,10 @@ export interface ShiftEvaluation {
   baseXp: number;
   bonusXp: number;
   evaluationText: string;
+  promoted?: boolean;
+  newClearanceLevel?: number;
+  rankTitle?: string;
+  rankBadge?: string;
 }
 
 export interface ShiftChecklistState {
@@ -116,5 +120,9 @@ export interface ShiftChecklistState {
   currentTaskIndex: number;
   startedAt: number;
   isCompleted: boolean;
+  phase?: 'active_watch' | 'off_duty';
+  watchSection?: 'alpha' | 'bravo';
+  rankTitle?: string;
+  rankBadge?: string;
   evaluation?: ShiftEvaluation;
 }

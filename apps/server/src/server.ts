@@ -14,6 +14,7 @@ import {
   createInitialPlayerVitals,
   createInitialVesselState,
   GameLoop,
+  generateShiftChecklist,
   HESPERIA_SPAWNS,
   HESPERIA_WALLS,
   type PersistedCrewMember,
@@ -133,6 +134,10 @@ export class VesselServer {
       dualProtocol: createDualProtocol('ftl_jump_alignment'),
       collabShift: createCollabShift(),
       loop: new GameLoop(50, (dtSeconds) => this.onSimulationTick(session, dtSeconds)),
+      watchNumber: 1,
+      activeSection: 'alpha',
+      watchPhase: 'active_watch',
+      timeRemainingSeconds: 180,
     };
     this.reconcileBotsForSession(session);
     session.loop.start();
@@ -189,9 +194,12 @@ export class VesselServer {
       role,
       pawn,
       vitals: createInitialPlayerVitals(),
-      credits: 0,
+      credits: 120,
       clearanceLevel: 1,
+      clearanceXp: 0,
       status: 'idle',
+      watchSection: 'alpha',
+      shiftChecklist: generateShiftChecklist(role, 1, Date.now(), 'alpha', 1),
       vesselCode: '',
     };
 

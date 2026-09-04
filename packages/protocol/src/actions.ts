@@ -39,6 +39,17 @@ export interface StartDutyAction {
   stationId: string;
 }
 
+export interface CompleteDutyAction {
+  type: 'COMPLETE_DUTY';
+  dutyId: string;
+  stationId: string;
+}
+
+export interface WatchHandoverAction {
+  type: 'WATCH_HANDOVER';
+  bunkId: string;
+}
+
 export interface CancelDutyAction {
   type: 'CANCEL_DUTY';
   dutyId: string;
@@ -185,6 +196,8 @@ export type ClientAction =
   | PlayerMoveIntent
   | InteractStationIntent
   | StartDutyAction
+  | CompleteDutyAction
+  | WatchHandoverAction
   | CancelDutyAction
   | ConsumeItemAction
   | BunkSleepAction

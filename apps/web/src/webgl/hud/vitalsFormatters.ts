@@ -10,9 +10,15 @@ export interface FormattedSuitStatus {
   isLeaking: boolean;
 }
 
+function getO2BarColor(isLowO2: boolean, o2Percent: number): [number, number, number] {
+  if (isLowO2) return [1.0, 0.13, 0.27];
+  if (o2Percent < 35) return [1.0, 0.69, 0.0];
+  return [0.0, 0.9, 1.0];
+}
+
 export function formatSuitStatus(vitals: PlayerVitals): FormattedSuitStatus {
   const suit = vitals.suit;
-  const isSealed = suit?.isSealed ?? false;
+  const isSealed = Boolean(suit?.isSealed);
   const o2Sec = suit?.o2RemainingSeconds ?? 600;
   const maxO2 = suit?.maxO2Seconds || 600;
   const o2Percent = Math.max(0, Math.min(100, (o2Sec / maxO2) * 100));
@@ -20,13 +26,8 @@ export function formatSuitStatus(vitals: PlayerVitals): FormattedSuitStatus {
 
   const visorLabel = isSealed ? '[H] VISOR: SEALED' : '[H] VISOR: OPEN';
   const visorColor = isSealed ? '#00e5ff' : '#ffb000';
-
   const o2Text = `SUIT O2: ${Math.round(o2Sec)}s / ${maxO2}s`;
-  const o2BarColor: [number, number, number] = isLowO2
-    ? [1.0, 0.13, 0.27]
-    : o2Percent < 35
-      ? [1.0, 0.69, 0.0]
-      : [0.0, 0.9, 1.0];
+  const o2BarColor = getO2BarColor(isLowO2, o2Percent);
 
   const integrity = suit?.integrityPercent ?? 100;
   const isLeaking = integrity < 100;

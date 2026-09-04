@@ -4,6 +4,7 @@ import type {
   ContributeCollabShiftAction,
   DamageTriageBroadcast,
   DualProtocolBroadcast,
+  DutyCompletedBroadcast,
   JoinVesselAction,
   NavalDamageEventBroadcast,
   NavalDamageEventType,
@@ -13,7 +14,10 @@ import type {
   StartingRole,
 } from '@kybernetes/protocol';
 import {
+  advanceShiftTask,
+  applyDutySubsystemImpact,
   applyWelderAoeDamage,
+  calculateDutyRewards,
   createDualProtocol,
   createNavalDamageEvent,
   createPersistedCrewMember,
@@ -23,6 +27,7 @@ import {
   engageIntruder,
   executeDualProtocol,
   HESPERIA_SPAWNS,
+  handoverWatchRotation,
   interceptNavalEvent,
   joinCollabShift,
   leaveCollabShift,
@@ -126,14 +131,20 @@ export class ActionRouter {
       this.handleExecuteDualProtocol(session, client, action.protocolId);
     } else if (action.type === 'CONTRIBUTE_COLLAB_SHIFT') {
       this.handleContributeCollabShift(session, client, action);
-    } else if (action.type === 'START_DUTY' || action.type === 'CANCEL_DUTY') {
+    } else if (
+      action.type === 'START_DUTY' ||
+      action.type === 'CANCEL_DUTY' ||
+      action.type === 'COMPLETE_DUTY'
+    ) {
       this.handleDutyAction(session, client, action);
     } else if (
       action.type === 'TOGGLE_HELMET' ||
       action.type === 'REFILL_SUIT' ||
       action.type === 'PATCH_SUIT' ||
       action.type === 'REVIVE_CREW' ||
-      action.type === 'CONSUME_ITEM'
+      action.type === 'CONSUME_ITEM' ||
+      action.type === 'BUNK_SLEEP' ||
+      action.type === 'WATCH_HANDOVER'
     ) {
       this.handleSurvivalAction(session, client, action);
     } else {
@@ -306,6 +317,77 @@ export class ActionRouter {
     broadcastCrewManifest(session);
   }
 
+  // fallow-ignore-next-line complexity
+  private processDutyCompletion(
+    session: VesselSession,
+    client: ClientSession,
+    dutyId: string,
+    stationId: string
+  ): void {
+    client.status = 'idle';
+    client.dutyName = undefined;
+    client.pawn.isOperating = false;
+
+    const impact = applyDutySubsystemImpact(session.vesselState, dutyId);
+    session.vesselState = impact.nextState;
+
+    const rewards = calculateDutyRewards(dutyId, client.role, client.clearanceLevel);
+    client.credits += rewards.credits;
+    client.clearanceXp = (client.clearanceXp || 0) + rewards.xp;
+
+    if (client.shiftChecklist && !client.shiftChecklist.isCompleted) {
+      const step = advanceShiftTask(client.shiftChecklist, dutyId);
+      client.shiftChecklist = step.nextShift;
+    }
+
+    const completion: DutyCompletedBroadcast = {
+      type: 'DUTY_COMPLETED',
+      dutyId,
+      stationId,
+      creditsEarned: rewards.credits,
+      xpEarned: rewards.xp,
+      timestamp: Date.now(),
+    };
+    broadcastToSession(session, completion);
+    broadcastVitals(client);
+    broadcastCrewManifest(session);
+    broadcastToSession(session, stateToTelemetryBroadcast(session.vesselState));
+  }
+
+  // fallow-ignore-next-line complexity
+  private processWatchHandover(session: VesselSession, client: ClientSession): void {
+    if (!client.shiftChecklist) return;
+    const res = handoverWatchRotation(
+      client.shiftChecklist,
+      client.vitals,
+      client.clearanceLevel,
+      client.clearanceXp || 0
+    );
+    client.shiftChecklist = res.nextShift;
+    client.clearanceLevel = res.newClearanceLevel;
+    client.clearanceXp = res.newClearanceXp;
+    client.credits += res.evaluation.baseCredits + res.evaluation.bonusCredits;
+    client.vitals = {
+      ...client.vitals,
+      fatigue: 0,
+      stamina: client.vitals.maxStamina || 100,
+    };
+    broadcastVitals(client);
+    broadcastCrewManifest(session);
+
+    if (res.promoted) {
+      const alert: ShipAlertBroadcast = {
+        type: 'SHIP_ALERT',
+        id: `promo_${Date.now()}`,
+        severity: 'info',
+        title: 'CLEARANCE PROMOTION',
+        message: `${client.callsign} promoted to ${res.evaluation.rankTitle} [${res.evaluation.rankBadge}]! Salary bonus unlocked.`,
+        timestamp: Date.now(),
+      };
+      broadcastToSession(session, alert);
+    }
+  }
+
   private handleDutyAction(
     session: VesselSession,
     client: ClientSession,
@@ -315,12 +397,15 @@ export class ActionRouter {
       client.status = 'on_duty';
       client.dutyName = action.dutyId;
       client.pawn.isOperating = true;
+      broadcastCrewManifest(session);
     } else if (action.type === 'CANCEL_DUTY') {
       client.status = 'idle';
       client.dutyName = undefined;
       client.pawn.isOperating = false;
+      broadcastCrewManifest(session);
+    } else if (action.type === 'COMPLETE_DUTY') {
+      this.processDutyCompletion(session, client, action.dutyId, action.stationId);
     }
-    broadcastCrewManifest(session);
   }
 
   // fallow-ignore-next-line complexity
@@ -357,6 +442,13 @@ export class ActionRouter {
       }
       broadcastVitals(client);
       broadcastToSession(session, stateToTelemetryBroadcast(session.vesselState));
+    } else if (action.type === 'BUNK_SLEEP') {
+      client.pawn.isResting = action.active;
+      client.status = action.active ? 'resting' : 'idle';
+      broadcastCrewManifest(session);
+      broadcastSpatialSnapshot(session);
+    } else if (action.type === 'WATCH_HANDOVER') {
+      this.processWatchHandover(session, client);
     }
   }
 

@@ -18,6 +18,7 @@ import {
   evaluateShiftPerformance,
   generateShiftChecklist,
   HESPERIA_ROOMS,
+  handoverWatchRotation,
   refillSuitO2,
   toggleDoor,
   toggleHelmet,
@@ -228,6 +229,7 @@ export const App: React.FC = () => {
   );
   const [showDebriefModal, setShowDebriefModal] = useState(false);
   const [shiftEvaluation, setShiftEvaluation] = useState<ShiftEvaluation | null>(null);
+  const [pendingNextShift, setPendingNextShift] = useState<ShiftChecklistState | null>(null);
   const [vitals, setVitals] = useState(createInitialPlayerVitals);
   const [shiftElapsedSec, setShiftElapsedSec] = useState(0);
 
@@ -562,7 +564,8 @@ export const App: React.FC = () => {
     useStationInteraction({
       role,
       activeDutyId,
-      onCompleteDuty: (dutyId) => {
+      onCompleteDuty: (dutyId, stationId) => {
+        sendAction({ type: 'COMPLETE_DUTY', dutyId, stationId });
         processShiftDutyCompletion({
           dutyId,
           role,
@@ -585,17 +588,20 @@ export const App: React.FC = () => {
           },
           onFinishShift: (evalResult) => {
             setShiftEvaluation(evalResult);
-            setCredits((c) => c + evalResult.bonusCredits);
-            setClearanceXp((prev) => {
-              const nextXp = prev + evalResult.bonusXp;
-              if (nextXp >= 100 * clearanceLevel) setClearanceLevel((lvl) => lvl + 1);
-              return nextXp;
-            });
-            setShowDebriefModal(true);
-            setInGameNotice(
-              `[SHIFT #${shiftChecklistRef.current.shiftNumber} COMPLETE] Rating: Grade ${evalResult.grade}!`
-            );
-            setTimeout(() => setInGameNotice(null), 3000);
+            if (urlParams.isE2E) {
+              setCredits((c) => c + evalResult.bonusCredits);
+              setClearanceXp((prev) => {
+                const nextXp = prev + evalResult.bonusXp;
+                if (nextXp >= 100 * clearanceLevel) setClearanceLevel((lvl) => lvl + 1);
+                return nextXp;
+              });
+              setShowDebriefModal(true);
+            } else {
+              setInGameNotice(
+                '[WATCH DUTIES COMPLETE] Off-duty liberty authorized. Report to crew quarters bunk to hand over watch.'
+              );
+              setTimeout(() => setInGameNotice(null), 4000);
+            }
           },
           onNotice: (msg) => {
             setInGameNotice(msg);
@@ -611,12 +617,33 @@ export const App: React.FC = () => {
         setVitals((v) => ({ ...v, thirst: Math.min(100, v.thirst + 30) }));
         sendAction({ type: 'CONSUME_ITEM', itemId: 'recycled_water' });
       },
-      onRestInBunk: () =>
+      onRestInBunk: () => {
         setVitals((v) => ({
           ...v,
-          fatigue: Math.max(0, v.fatigue - 40),
-          stamina: Math.min(100, v.stamina + 30),
-        })),
+          fatigue: 0,
+          stamina: v.maxStamina || 100,
+        }));
+        sendAction({ type: 'BUNK_SLEEP', bunkId: 'berth_pod_alpha', active: true });
+
+        const currentShift = shiftChecklistRef.current;
+        if (currentShift.phase === 'off_duty' || currentShift.isCompleted) {
+          const res = handoverWatchRotation(
+            currentShift,
+            vitalsRef.current,
+            clearanceLevel,
+            clearanceXp
+          );
+          setShiftEvaluation(res.evaluation);
+          setCredits((c) => c + res.evaluation.bonusCredits);
+          setClearanceXp(res.newClearanceXp);
+          if (res.promoted) {
+            setClearanceLevel(res.newClearanceLevel);
+          }
+          setPendingNextShift(res.nextShift);
+          setShowDebriefModal(true);
+          sendAction({ type: 'WATCH_HANDOVER', bunkId: 'berth_pod_alpha' });
+        }
+      },
       onVentCoolant: () => sendAction({ type: 'VENT_REACTOR_COOLANT' }),
       onRefillSuit: handleRefillSuit,
       onNotice: (msg) => {
@@ -737,13 +764,30 @@ export const App: React.FC = () => {
 
   const handleCommenceNextShift = useCallback(() => {
     setShowDebriefModal(false);
+    sendAction({ type: 'BUNK_SLEEP', bunkId: 'berth_pod_alpha', active: false });
+    sendAction({ type: 'WATCH_HANDOVER', bunkId: 'berth_pod_alpha' });
+
     setShiftChecklist((prev) => {
-      const nextShift = generateShiftChecklist(role, prev.shiftNumber + 1);
-      return nextShift;
+      const next =
+        pendingNextShift ||
+        generateShiftChecklist(
+          role,
+          prev.shiftNumber + 1,
+          Date.now(),
+          prev.watchSection || 'alpha',
+          clearanceLevel
+        );
+      shiftChecklistRef.current = next;
+      return next;
     });
-    setInGameNotice(`[WATCH ROTATION] Commencing Shift #${shiftChecklist.shiftNumber + 1}`);
+    setPendingNextShift(null);
+    setVitals((v) => ({ ...v, fatigue: 0, stamina: v.maxStamina || 100 }));
+    ShipAudioEngine.getInstance().playUiClick();
+    setInGameNotice(
+      `[WATCH ROTATION] Commencing Watch #${shiftChecklistRef.current?.shiftNumber || 1}`
+    );
     setTimeout(() => setInGameNotice(null), 3000);
-  }, [role, shiftChecklist.shiftNumber]);
+  }, [role, clearanceLevel, pendingNextShift, sendAction]);
 
   // Main simulation tick loop
   useEffect(() => {

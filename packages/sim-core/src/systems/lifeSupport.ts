@@ -21,20 +21,20 @@ export function tickLifeSupport(
   breachCount: number = 0,
   fireCount: number = 0
 ): LifeSupportTelemetry {
-  const baseConsumption = 0.01 * dtSeconds;
+  const baseConsumption = 0.022 * dtSeconds;
   const breachDrain = breachCount * 0.15 * dtSeconds;
   const fireConsumption = fireCount * 0.04 * dtSeconds;
   const totalDrain = baseConsumption + breachDrain + fireConsumption;
 
   // Replenishment from operational scrubbers
   const efficiency = current.scrubberEfficiencyPercent / 100;
-  const replenishment = 0.008 * efficiency * dtSeconds;
+  const replenishment = 0.018 * efficiency * dtSeconds;
 
   const nextO2 = Math.min(100, Math.max(0, current.o2LevelPercent - totalDrain + replenishment));
   const roundedO2 = Number(nextO2.toFixed(2));
 
-  // Slow scrubber wear (or steady state)
-  const nextEfficiency = Math.max(10, current.scrubberEfficiencyPercent - 0.001 * dtSeconds);
+  // Moderate scrubber filter degradation (~0.04%/s, or ~2.4%/min)
+  const nextEfficiency = Math.max(10, current.scrubberEfficiencyPercent - 0.04 * dtSeconds);
 
   return {
     ...current,

@@ -1,5 +1,8 @@
 import type { DutyDefinition, PlayerVitals, StartingRole } from '@kybernetes/protocol';
 import { ROLE_DEFINITIONS } from './roles';
+import type { VesselSimulationState } from './state';
+import { calibrateScrubbers } from './systems/lifeSupport';
+import { purgeReactorCoolant, scrubPlasmaGrid } from './systems/reactor';
 
 export interface ActiveDutyState {
   dutyId: string;
@@ -105,18 +108,150 @@ export function tickActiveDuty(
   };
 }
 
+export function calculateClearanceRank(
+  role: StartingRole,
+  clearanceLevel: number
+): { rankTitle: string; rankBadge: string; salaryMultiplier: number } {
+  const level = Math.max(1, Math.min(5, Math.floor(clearanceLevel)));
+  const rolePrefixes: Record<StartingRole, string> = {
+    wiper: 'ENG',
+    galley_hand: 'LOG',
+    security_private: 'SEC',
+    hydro_tender: 'BIO',
+    stevedore: 'HLD',
+  };
+  const prefix = rolePrefixes[role] || 'CREW';
+
+  if (level === 2) {
+    return {
+      rankTitle: 'Junior Specialist Grade 2',
+      rankBadge: `${prefix}-2`,
+      salaryMultiplier: 1.25,
+    };
+  }
+  if (level === 3) {
+    return {
+      rankTitle: 'Senior Technician Grade 1',
+      rankBadge: `${prefix}-1`,
+      salaryMultiplier: 1.5,
+    };
+  }
+  if (level === 4) {
+    return {
+      rankTitle: 'Department Watch Lead',
+      rankBadge: `${prefix}-LEAD`,
+      salaryMultiplier: 1.8,
+    };
+  }
+  if (level >= 5) {
+    return { rankTitle: 'Chief Specialist', rankBadge: `CHIEF-${prefix}`, salaryMultiplier: 2.2 };
+  }
+  return { rankTitle: 'Recruit Grade 3', rankBadge: `${prefix}-3`, salaryMultiplier: 1.0 };
+}
+
 export function calculateDutyRewards(
   dutyId: string,
-  role: StartingRole
+  role: StartingRole,
+  clearanceLevel = 1
 ): { credits: number; xp: number } {
   const def = getDutyById(dutyId);
   if (!def) return { credits: 0, xp: 0 };
 
   const isRoleBonus = def.roleBonus === role;
   const bonusMultiplier = isRoleBonus ? 1.25 : 1.0;
+  const rank = calculateClearanceRank(role, clearanceLevel);
 
   return {
-    credits: Math.round(def.creditReward * bonusMultiplier),
+    credits: Math.round(def.creditReward * bonusMultiplier * rank.salaryMultiplier),
     xp: Math.round(def.clearanceXp * bonusMultiplier),
   };
+}
+
+function applyReactorDutyImpact(
+  state: VesselSimulationState,
+  dutyId: string
+): { nextState: VesselSimulationState; message: string } {
+  if (dutyId === 'purge_coolant') {
+    const nextReactor = purgeReactorCoolant(state.reactor);
+    return {
+      nextState: { ...state, reactor: nextReactor, reactorTemp: nextReactor.tempKelvin },
+      message: 'Cryogenic coolant lines purged: core temp dropped.',
+    };
+  }
+  const nextReactor = scrubPlasmaGrid(state.reactor);
+  return {
+    nextState: { ...state, reactor: nextReactor, reactorTemp: nextReactor.tempKelvin },
+    message: 'Reactor plasma grid scrubbed: heat dissipation nominal.',
+  };
+}
+
+function applySuppliesDutyImpact(
+  state: VesselSimulationState,
+  dutyId: string
+): { nextState: VesselSimulationState; message: string } {
+  if (dutyId === 'mix_protein') {
+    const supplies = { ...state.supplies, rations: Math.min(200, state.supplies.rations + 15) };
+    return {
+      nextState: { ...state, supplies },
+      message: 'Protein batch synthesized: +15 rations stocked.',
+    };
+  }
+  const supplies = {
+    ...state.supplies,
+    waterLitres: Math.min(500, state.supplies.waterLitres + 25),
+  };
+  return {
+    nextState: { ...state, supplies },
+    message: 'Reservoir restocked: +25L water filtered.',
+  };
+}
+
+function applyDefenseOrHullDutyImpact(
+  state: VesselSimulationState,
+  dutyId: string
+): { nextState: VesselSimulationState; message: string } {
+  if (dutyId === 'sentry_watch' || dutyId === 'inventory_armory') {
+    const defense = {
+      ...state.defense,
+      pdtAmmo: Math.min(200, state.defense.pdtAmmo + 20),
+      pdtReady: true,
+    };
+    return {
+      nextState: { ...state, defense },
+      message: 'Armory readiness drill complete: PDT ammunition restocked.',
+    };
+  }
+  const hull = { ...state.hull, integrityPercent: Math.min(100, state.hull.integrityPercent + 4) };
+  return {
+    nextState: { ...state, hull, hullIntegrityPercent: hull.integrityPercent },
+    message: 'Micro-stress fractures reinforced: +4% hull integrity.',
+  };
+}
+
+export function applyDutySubsystemImpact(
+  state: VesselSimulationState,
+  dutyId: string
+): { nextState: VesselSimulationState; message: string } {
+  if (dutyId === 'scrub_plasma' || dutyId === 'purge_coolant') {
+    return applyReactorDutyImpact(state, dutyId);
+  }
+  if (dutyId === 'calibrate_scrubbers' || dutyId === 'tend_scrubbers') {
+    const nextLs = calibrateScrubbers(state.lifeSupport);
+    return {
+      nextState: { ...state, lifeSupport: nextLs, oxygenLevelPercent: nextLs.o2LevelPercent },
+      message: 'CO2 scrubbers recalibrated: atmospheric replenishment restored.',
+    };
+  }
+  if (dutyId === 'mix_protein' || dutyId === 'brew_recaf' || dutyId === 'restock_water') {
+    return applySuppliesDutyImpact(state, dutyId);
+  }
+  if (
+    dutyId === 'weld_stress' ||
+    dutyId === 'salvage_scrap' ||
+    dutyId === 'sentry_watch' ||
+    dutyId === 'inventory_armory'
+  ) {
+    return applyDefenseOrHullDutyImpact(state, dutyId);
+  }
+  return { nextState: state, message: `Duty ${dutyId} executed satisfactorily.` };
 }

@@ -6,15 +6,36 @@ import type {
   ShiftTask,
   StartingRole,
 } from '@kybernetes/protocol';
+import { calculateClearanceRank } from '../duties';
 import { ROLE_DEFINITIONS } from '../roles';
+
+export function resolveTargetStationForDuty(role: StartingRole, stationType: string): string {
+  const map: Record<string, string> = {
+    reactor: 'reactor_primary_console',
+    mess: 'galley_prep_station',
+    hydroponics: 'hydro_algae_vats',
+    armory: 'armory_tactical_locker',
+    cargo: 'cargo_winch_main',
+    bridge: 'bridge_helm',
+    avionics: 'avionics_matrix',
+    airlock: 'airlock_starboard',
+    bunk: 'berth_pod_alpha',
+  };
+  return (
+    map[stationType] ?? (ROLE_DEFINITIONS[role]?.startingStationId || 'reactor_primary_console')
+  );
+}
 
 export function generateShiftChecklist(
   role: StartingRole,
   shiftNumber = 1,
-  now = Date.now()
+  now = Date.now(),
+  watchSection: 'alpha' | 'bravo' = 'alpha',
+  clearanceLevel = 1
 ): ShiftChecklistState {
   const roleDef = ROLE_DEFINITIONS[role];
   const duties = roleDef?.duties ?? [];
+  const rank = calculateClearanceRank(role, clearanceLevel);
 
   // Generate 3 sequential tasks alternating through role duties
   const tasks: ShiftTask[] = [];
@@ -37,7 +58,7 @@ export function generateShiftChecklist(
       stationType: duty.stationType,
       name: duty.name,
       description: duty.description,
-      targetStationId: roleDef?.startingStationId || 'bridge_helm',
+      targetStationId: resolveTargetStationForDuty(role, duty.stationType),
       completed: false,
     });
   }
@@ -49,6 +70,10 @@ export function generateShiftChecklist(
     currentTaskIndex: 0,
     startedAt: now,
     isCompleted: false,
+    phase: 'active_watch',
+    watchSection,
+    rankTitle: rank.rankTitle,
+    rankBadge: rank.rankBadge,
   };
 }
 
@@ -77,6 +102,7 @@ export function advanceShiftTask(
       tasks: updatedTasks,
       currentTaskIndex: nextTaskIndex,
       isCompleted: shiftFinished,
+      phase: shiftFinished ? 'off_duty' : 'active_watch',
     },
     taskCompleted: true,
     shiftFinished,
@@ -121,19 +147,21 @@ const EVAL_COMMENTS: Record<ShiftEvaluationGrade, string> = {
 export function evaluateShiftPerformance(
   shift: ShiftChecklistState,
   vitals: PlayerVitals,
-  now = Date.now()
+  now = Date.now(),
+  clearanceLevel = 1
 ): ShiftEvaluation {
   const elapsedSeconds = Math.max(1, Math.round((now - shift.startedAt) / 1000));
   const vitalsAvg = calculateVitalsAverage(vitals);
   const grade = calculateProjectedGrade(elapsedSeconds, vitals);
 
   const roleDef = ROLE_DEFINITIONS[shift.role];
+  const rank = calculateClearanceRank(shift.role, clearanceLevel);
   let baseCredits = 0;
   let baseXp = 0;
 
   for (const task of shift.tasks) {
     const dutyDef = roleDef?.duties.find((d) => d.id === task.dutyId);
-    baseCredits += dutyDef?.creditReward ?? 25;
+    baseCredits += Math.round((dutyDef?.creditReward ?? 25) * rank.salaryMultiplier);
     baseXp += dutyDef?.clearanceXp ?? 15;
   }
 
@@ -161,5 +189,49 @@ export function evaluateShiftPerformance(
     baseXp,
     bonusXp,
     evaluationText: EVAL_COMMENTS[grade],
+  };
+}
+
+export function handoverWatchRotation(
+  shift: ShiftChecklistState,
+  vitals: PlayerVitals,
+  currentClearanceLevel = 1,
+  currentClearanceXp = 0,
+  now = Date.now()
+): {
+  evaluation: ShiftEvaluation;
+  nextShift: ShiftChecklistState;
+  newClearanceLevel: number;
+  newClearanceXp: number;
+  promoted: boolean;
+} {
+  const evalResult = evaluateShiftPerformance(shift, vitals, now, currentClearanceLevel);
+  const totalXp = currentClearanceXp + evalResult.baseXp + evalResult.bonusXp;
+
+  const thresholds = [50, 150, 350, 650];
+  const targetThreshold = thresholds[currentClearanceLevel - 1] ?? 9999;
+  const promoted = totalXp >= targetThreshold && currentClearanceLevel < 5;
+  const newClearanceLevel = promoted ? currentClearanceLevel + 1 : currentClearanceLevel;
+  const rank = calculateClearanceRank(shift.role, newClearanceLevel);
+
+  evalResult.promoted = promoted;
+  evalResult.newClearanceLevel = newClearanceLevel;
+  evalResult.rankTitle = rank.rankTitle;
+  evalResult.rankBadge = rank.rankBadge;
+
+  const nextShift = generateShiftChecklist(
+    shift.role,
+    shift.shiftNumber + 1,
+    now,
+    shift.watchSection || 'alpha',
+    newClearanceLevel
+  );
+
+  return {
+    evaluation: evalResult,
+    nextShift,
+    newClearanceLevel,
+    newClearanceXp: totalXp,
+    promoted,
   };
 }

@@ -825,25 +825,33 @@ export class HudRenderer {
 
     const marginX = Math.max(72, Math.round(width * 0.055));
     const marginY = Math.max(38, Math.round(height * 0.055));
-    const panelW = 405;
-    const panelH = 140;
+    const isOffDuty = shift.phase === 'off_duty';
+    const panelW = 425;
+    const panelH = isOffDuty ? 165 : 140;
     const x = marginX;
     const y = marginY;
 
     this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.08, 0.82);
 
-    this.addText(`DEPARTMENTAL SHIFT #${shift.shiftNumber}`, x + 15, y + 10, {
+    const secTag = (shift.watchSection || 'alpha').toUpperCase();
+    const headerTitle = isOffDuty
+      ? `WATCH #${shift.shiftNumber} - SEC ${secTag} [OFF-DUTY]`
+      : `WATCH #${shift.shiftNumber} - SEC ${secTag} [ACTIVE]`;
+    const headerColor = isOffDuty ? '#ffb000' : '#00e5ff';
+
+    this.addText(headerTitle, x + 15, y + 10, {
       fontSize: 18,
       fontWeight: 'bold',
-      color: '#00e5ff',
+      color: headerColor,
     });
 
     const grade = state.projectedGrade || 'A';
     const timer = state.shiftTimerFormatted || '00:00';
     const gradeColor =
       grade === 'S' ? '#00ff88' : grade === 'A' ? '#00e5ff' : grade === 'B' ? '#ffb000' : '#ff3344';
+    const rankBadge = shift.rankBadge ? ` [${shift.rankBadge}]` : '';
 
-    this.addText(`RATING: [${grade}]  TIME: ${timer}`, x + 15, y + 36, {
+    this.addText(`RATING: [${grade}]  TIME: ${timer}${rankBadge}`, x + 15, y + 36, {
       fontSize: 16,
       color: gradeColor,
     });
@@ -852,7 +860,7 @@ export class HudRenderer {
       const task = shift.tasks[i];
       const ty = y + 60 + i * 26;
       const isDone = task.completed;
-      const isActive = i === shift.currentTaskIndex && !shift.isCompleted;
+      const isActive = i === shift.currentTaskIndex && !shift.isCompleted && !isOffDuty;
 
       let prefix = '[ ] ';
       let col = '#55708a';
@@ -868,6 +876,15 @@ export class HudRenderer {
         fontSize: 16,
         fontWeight: isActive ? 'bold' : 'normal',
         color: col,
+      });
+    }
+
+    if (isOffDuty) {
+      const offDutyY = y + 60 + shift.tasks.length * 26;
+      this.addText('[>] Rest in Crew Bunk (Hand Over Watch)', x + 15, offDutyY, {
+        fontSize: 15,
+        fontWeight: 'bold',
+        color: '#ffb000',
       });
     }
   }

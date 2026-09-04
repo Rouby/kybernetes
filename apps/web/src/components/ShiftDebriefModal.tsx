@@ -156,6 +156,23 @@ const styles = stylex.create({
     margin: 0,
     fontStyle: 'italic',
   },
+  promotionBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '10px 14px',
+    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: '#00ff88',
+    borderRadius: 3,
+  },
+  promotionText: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 1.2,
+    color: '#00ff88',
+  },
   actions: {
     display: 'flex',
     justifyContent: 'flex-end',
@@ -294,6 +311,16 @@ export const ShiftDebriefModal: React.FC<ShiftDebriefModalProps> = ({
             value={`+${evaluation.baseXp} + ${evaluation.bonusXp} bonus XP`}
           />
         </div>
+
+        {evaluation.promoted && (
+          <div {...stylex.props(styles.promotionBanner)}>
+            <Award size={16} color="#00ff88" />
+            <span {...stylex.props(styles.promotionText)}>
+              PROMOTED TO {evaluation.rankTitle?.toUpperCase()} [{evaluation.rankBadge}] — SALARY
+              BONUS UNLOCKED
+            </span>
+          </div>
+        )}
 
         <div {...stylex.props(styles.evalRemarksBox)}>
           <p {...stylex.props(styles.evalRemarksText)}>"{evaluation.evaluationText}"</p>

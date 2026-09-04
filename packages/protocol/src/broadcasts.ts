@@ -125,6 +125,15 @@ export interface LobbyStateBroadcast {
   connectedCrew: number;
 }
 
+export interface WatchRotationBroadcast {
+  type: 'WATCH_ROTATION_UPDATE';
+  watchNumber: number;
+  activeSection: 'alpha' | 'bravo';
+  phase: 'active_watch' | 'off_duty';
+  timeRemainingSeconds?: number;
+  timestamp: number;
+}
+
 export type ServerBroadcast =
   | SpatialSnapshotBroadcast
   | TelemetryDeltaBroadcast
@@ -136,4 +145,5 @@ export type ServerBroadcast =
   | DamageTriageBroadcast
   | DualProtocolBroadcast
   | CollabShiftUpdateBroadcast
-  | LobbyStateBroadcast;
+  | LobbyStateBroadcast
+  | WatchRotationBroadcast;

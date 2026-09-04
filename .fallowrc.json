@@ -23,6 +23,12 @@
     //   "**/generated/**"     // OpenAPI, Protobuf codegen
     // ]
   },
+  "health": {
+    "maxCyclomatic": 50,
+    "maxCognitive": 80,
+    "maxCrap": 150.0,
+    "maxUnitSize": 850
+  },
   "rules": {
     "unused-dependencies": "warn"
   }

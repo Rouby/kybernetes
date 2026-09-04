@@ -1263,7 +1263,9 @@ function getRoomCenter(roomId: string, nearX: number, nearY: number): { x: numbe
     return { x: nearX, y: 400 };
   }
   const room = HESPERIA_ROOMS.find((r) => r.id === roomId);
-  return room ? { x: room.x + room.width / 2, y: room.y + room.height / 2 } : { x: nearX, y: nearY };
+  return room
+    ? { x: room.x + room.width / 2, y: room.y + room.height / 2 }
+    : { x: nearX, y: nearY };
 }
 
 function getInternalDoorAirflowSource(
