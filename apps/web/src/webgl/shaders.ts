@@ -140,7 +140,11 @@ out vec4 fragColor;
 void main() {
   vec3 baseColor;
 
-  if (u_roomType == 0) {
+  if (u_isVacuum > 0.5) {
+    // Dynamic FTL hazard decompression warning stripes
+    float stripe = step(0.5, fract((v_worldPos.x + v_worldPos.y - u_time * 28.0) / 24.0));
+    baseColor = mix(vec3(0.92, 0.28, 0.32), vec3(0.35, 0.08, 0.12), stripe);
+  } else if (u_roomType == 0) {
     // COMMAND BRIDGE: High-tech dark slate decking with cyan edge telemetry and central command circle
     vec2 coord = v_worldPos / 28.0;
     vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);

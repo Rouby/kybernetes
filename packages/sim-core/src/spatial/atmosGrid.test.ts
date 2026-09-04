@@ -93,6 +93,22 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(messSummary.pressureKpa).toBeGreaterThan(70);
   });
 
+  it('decompresses hallway rapidly when both outer and inner airlock hatches are open', () => {
+    const grid = createInitialAtmosGrid();
+    const doors = createInitialDoors();
+    const stbdOuter = doors.find((d) => d.id === 'airlock_stbd_outer');
+    if (stbdOuter) stbdOuter.isOpen = true;
+    // Note: airlock_stbd_inner is already isOpen: true by default!
+
+    for (let t = 0; t < 10; t++) {
+      tickCellularAtmos(grid, doors, [], [], 0.05);
+    }
+
+    const sum = summarizeRoomAtmospheres(grid, doors, []);
+    expect(sum.airlock_stbd.pressureKpa).toBe(0);
+    expect(sum.corridor.pressureKpa).toBe(0);
+  });
+
   it('isolates decompression behind closed blast doors', () => {
     const grid = createInitialAtmosGrid();
     const doors = createInitialDoors();

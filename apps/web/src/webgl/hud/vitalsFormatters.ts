@@ -69,7 +69,7 @@ export function formatAtmosphereStatus(atmos?: RoomAtmosphereSummary): Formatted
   let hazardBanner: string | null = null;
   let isHazard = false;
 
-  if (p < 30) {
+  if (p < 30 || atmos.isVenting) {
     hazardBanner = 'VACUUM HAZARD';
     isHazard = true;
   } else if (o2 < 16) {

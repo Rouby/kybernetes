@@ -59,6 +59,10 @@ export class AtmosOverlayPass {
     gl.bindVertexArray(null);
   }
 
+  public getGrid(): CellularAtmosGrid {
+    return this.grid;
+  }
+
   // fallow-ignore-next-line complexity
   private syncRoomAverages(
     roomAtmospheres: Record<string, RoomAtmosphereSummary>,
@@ -85,7 +89,7 @@ export class AtmosOverlayPass {
               this.grid.pressure[idx] = 0;
               this.grid.o2Ratio[idx] = 0;
               this.grid.tempKelvin[idx] = 3.0;
-            } else {
+            } else if (this.grid.pressure[idx] > 1.0) {
               this.grid.o2Ratio[idx] += (targetO2 - this.grid.o2Ratio[idx]) * blendRate;
               this.grid.tempKelvin[idx] += (targetT - this.grid.tempKelvin[idx]) * blendRate;
               this.grid.pressure[idx] += (targetP - this.grid.pressure[idx]) * blendRate;
