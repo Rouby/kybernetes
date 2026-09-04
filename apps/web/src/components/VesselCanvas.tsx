@@ -124,6 +124,21 @@ function interpolateRemotePawns(
   return Array.from(cache.values());
 }
 
+function screenToWorld(
+  screenX: number,
+  screenY: number,
+  width: number,
+  height: number,
+  camX: number,
+  camY: number,
+  zoom: number
+): { x: number; y: number } {
+  return {
+    x: (screenX - width / 2) / zoom + camX,
+    y: (screenY - height / 2) / zoom + camY,
+  };
+}
+
 // fallow-ignore-next-line complexity
 function handleCanvasMouseDown(
   e: React.MouseEvent<HTMLCanvasElement>,
@@ -132,6 +147,9 @@ function handleCanvasMouseDown(
   camera: { x: number; y: number },
   nearestStation: StationFixture | null,
   zoom = 1.35,
+  mouseScreenRef?: React.MutableRefObject<{ x: number; y: number }>,
+  mouseWorldRef?: React.MutableRefObject<{ x: number; y: number }>,
+  hasMouseMovedRef?: React.MutableRefObject<boolean>,
   onStationClick?: (station: StationFixture) => void,
   startFiring?: () => void
 ) {
@@ -139,6 +157,8 @@ function handleCanvasMouseDown(
   const rect = canvas.getBoundingClientRect();
   const canvasPixelX = (e.clientX - rect.left) * (canvas.width / rect.width);
   const canvasPixelY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  if (mouseScreenRef) mouseScreenRef.current = { x: canvasPixelX, y: canvasPixelY };
+  if (hasMouseMovedRef) hasMouseMovedRef.current = true;
 
   if (
     renderer?.getHitTester().handleClick(canvasPixelX, canvasPixelY, canvas.width, canvas.height)
@@ -150,11 +170,19 @@ function handleCanvasMouseDown(
     return;
   }
 
-  const worldX = (canvasPixelX - canvas.width / 2) / zoom + camera.x;
-  const worldY = (canvasPixelY - canvas.height / 2) / zoom + camera.y;
+  const world = screenToWorld(
+    canvasPixelX,
+    canvasPixelY,
+    canvas.width,
+    canvas.height,
+    camera.x,
+    camera.y,
+    zoom
+  );
+  if (mouseWorldRef) mouseWorldRef.current = world;
 
   if (nearestStation && onStationClick) {
-    const dist = Math.hypot(nearestStation.x - worldX, nearestStation.y - worldY);
+    const dist = Math.hypot(nearestStation.x - world.x, nearestStation.y - world.y);
     if (dist < nearestStation.radius + 10) {
       onStationClick(nearestStation);
       return;
@@ -174,6 +202,7 @@ function handleCanvasMouseMove(
   pawn: { x: number; y: number },
   mouseScreenRef: React.MutableRefObject<{ x: number; y: number }>,
   mouseWorldRef: React.MutableRefObject<{ x: number; y: number }>,
+  hasMouseMovedRef: React.MutableRefObject<boolean>,
   facingAngleRef?: React.RefObject<number>
 ): void {
   if (!canvas) return;
@@ -181,6 +210,7 @@ function handleCanvasMouseMove(
   const canvasPixelX = (e.clientX - rect.left) * (canvas.width / rect.width);
   const canvasPixelY = (e.clientY - rect.top) * (canvas.height / rect.height);
   mouseScreenRef.current = { x: canvasPixelX, y: canvasPixelY };
+  hasMouseMovedRef.current = true;
 
   const hitTester = renderer?.getHitTester();
   if (hitTester) {
@@ -188,10 +218,15 @@ function handleCanvasMouseMove(
     canvas.style.cursor = isHit ? 'pointer' : 'crosshair';
   }
 
-  mouseWorldRef.current = {
-    x: (canvasPixelX - canvas.width / 2) / zoom + camera.x,
-    y: (canvasPixelY - canvas.height / 2) / zoom + camera.y,
-  };
+  mouseWorldRef.current = screenToWorld(
+    canvasPixelX,
+    canvasPixelY,
+    canvas.width,
+    canvas.height,
+    camera.x,
+    camera.y,
+    zoom
+  );
   if (facingAngleRef) {
     facingAngleRef.current = Math.atan2(
       mouseWorldRef.current.y - pawn.y,
@@ -244,6 +279,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   const rendererRef = useRef<WebGL2Renderer | null>(null);
   const mouseWorldRef = useRef({ x: pawn.x + 50, y: pawn.y });
   const mouseScreenRef = useRef({ x: 0, y: 0 });
+  const hasMouseMovedRef = useRef(false);
   const defaultDoorsRef = useRef(createInitialDoors());
   const remoteInterpolatedRef = useRef<Map<string, PawnState>>(new Map());
 
@@ -351,6 +387,24 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         mouseWorldRef.current.y,
         dt
       );
+
+      const zoom = zoomRef.current;
+      if (hasMouseMovedRef.current) {
+        mouseWorldRef.current = screenToWorld(
+          mouseScreenRef.current.x,
+          mouseScreenRef.current.y,
+          canvas.width,
+          canvas.height,
+          renderCam.x,
+          renderCam.y,
+          zoom
+        );
+      } else {
+        mouseWorldRef.current = {
+          x: pawn.x + 50,
+          y: pawn.y,
+        };
+      }
 
       const activeBoarding = getActiveBoarding(
         boarding,
@@ -519,6 +573,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             pawn,
             mouseScreenRef,
             mouseWorldRef,
+            hasMouseMovedRef,
             facingAngleRef
           )
         }
@@ -530,6 +585,9 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
             cameraRef.current,
             nearestStation,
             zoomRef.current,
+            mouseScreenRef,
+            mouseWorldRef,
+            hasMouseMovedRef,
             onStationClick,
             startFiring
           )

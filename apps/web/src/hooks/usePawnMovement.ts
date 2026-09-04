@@ -56,26 +56,9 @@ function getMovementInput(keys: Set<string>): { dx: number; dy: number } | null 
   return { dx: dx / len, dy: dy / len };
 }
 
-// fallow-ignore-next-line complexity
-function calculateNextPawnState(
-  current: PawnState,
-  keys: Set<string>,
-  dt: number,
-  doors?: DoorState[]
-): PawnState {
-  if (current.isOperating || current.isResting) {
-    return current;
-  }
-
-  const dir = getMovementInput(keys);
-  if (!dir) {
-    return current.vx !== 0 ? { ...current, vx: 0, vy: 0 } : current;
-  }
-
-  const targetX = current.x + dir.dx * PAWN_SPEED * dt;
-  const targetY = current.y + dir.dy * PAWN_SPEED * dt;
-
-  const closedDoorWalls: WallSegment[] = (doors || [])
+function getEffectiveWalls(doors?: DoorState[]): WallSegment[] {
+  if (!doors || doors.length === 0) return HESPERIA_WALLS;
+  const closedDoorWalls: WallSegment[] = doors
     .filter((d) => !d.isOpen)
     .map((d) => ({
       id: `door_wall_${d.id}`,
@@ -86,15 +69,32 @@ function calculateNextPawnState(
       isOpaque: true,
       isTraversable: false,
     }));
+  return closedDoorWalls.length > 0 ? [...HESPERIA_WALLS, ...closedDoorWalls] : HESPERIA_WALLS;
+}
 
-  const allWalls =
-    closedDoorWalls.length > 0 ? [...HESPERIA_WALLS, ...closedDoorWalls] : HESPERIA_WALLS;
+// fallow-ignore-next-line complexity
+function calculateNextPawnState(
+  current: PawnState,
+  keys: Set<string>,
+  dt: number,
+  doors?: DoorState[],
+  facingAngle?: number
+): PawnState {
+  if (current.isOperating || current.isResting) {
+    return current;
+  }
 
+  const dir = getMovementInput(keys);
+  if (!dir) {
+    return current.vx !== 0 || current.vy !== 0 ? { ...current, vx: 0, vy: 0 } : current;
+  }
+
+  const allWalls = getEffectiveWalls(doors);
   const resolved = resolvePawnMovement(
     current.x,
     current.y,
-    targetX,
-    targetY,
+    current.x + dir.dx * PAWN_SPEED * dt,
+    current.y + dir.dy * PAWN_SPEED * dt,
     PAWN_RADIUS,
     allWalls
   );
@@ -105,7 +105,7 @@ function calculateNextPawnState(
     y: resolved.y,
     vx: dir.dx * PAWN_SPEED,
     vy: dir.dy * PAWN_SPEED,
-    facingAngle: Math.atan2(dir.dy, dir.dx),
+    facingAngle: facingAngle ?? Math.atan2(dir.dy, dir.dx),
   };
 }
 
@@ -192,22 +192,25 @@ export function usePawnMovement(
           ? doorsRef.current
           : defaultDoorsRef.current;
 
+      const effectiveFacing = facingAngleRefHolder.current?.current;
+
       const nextPawn = calculateNextPawnState(
         pawnRef.current,
         keysPressed.current,
         dt,
-        activeDoors
+        activeDoors,
+        effectiveFacing
       );
       if (nextPawn !== pawnRef.current) setPawn(nextPawn);
 
-      const effectiveFacing = facingAngleRefHolder.current?.current ?? nextPawn.facingAngle;
+      const targetFacing = effectiveFacing ?? nextPawn.facingAngle;
 
       const nearby = findNearestStation(
         nextPawn.x,
         nextPawn.y,
         HESPERIA_STATIONS,
         54,
-        effectiveFacing
+        targetFacing
       );
       const nextStation = nearby ? nearby.station : null;
       const nextId = nextStation ? nextStation.id : null;
@@ -221,7 +224,7 @@ export function usePawnMovement(
         }
       }
 
-      const nearbyDoor = findNearestDoor(nextPawn.x, nextPawn.y, activeDoors, 42, effectiveFacing);
+      const nearbyDoor = findNearestDoor(nextPawn.x, nextPawn.y, activeDoors, 42, targetFacing);
       const nextDoor = nearbyDoor ? nearbyDoor.door : null;
       const nextDoorId = nextDoor ? nextDoor.id : null;
       const nextDoorIsOpen = nextDoor ? nextDoor.isOpen : undefined;
@@ -246,6 +249,8 @@ export function usePawnMovement(
           const surface = getDeckSurface(nextPawn.x, nextPawn.y);
           ShipAudioEngine.getInstance().playLocalFootstep(surface);
         }
+      } else {
+        footstepDistRef.current = 0;
       }
 
       animId = requestAnimationFrame(loop);

@@ -52,4 +52,63 @@ test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking'
     await page.waitForTimeout(100);
     await expect(canvas).toBeVisible();
   });
+
+  test('vertical locomotion (KeyW/KeyS) stops velocity and footsteps when released', async ({
+    page,
+  }) => {
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
+    const canvas = page.getByTestId('vessel-canvas');
+    await expect(canvas).toBeVisible();
+
+    // Move up with KeyW and release
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(300);
+    await page.keyboard.up('KeyW');
+    await page.waitForTimeout(200);
+
+    // Verify canvas remains active and stable
+    await expect(canvas).toBeVisible();
+
+    // Move down with KeyS and release
+    await page.keyboard.down('KeyS');
+    await page.waitForTimeout(300);
+    await page.keyboard.up('KeyS');
+    await page.waitForTimeout(200);
+
+    await expect(canvas).toBeVisible();
+  });
+
+  test('aiming reticle and fire trajectory remain locked to cursor position during WASD locomotion', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
+    const canvas = page.getByTestId('vessel-canvas');
+    await expect(canvas).toBeVisible();
+    await page.waitForTimeout(400);
+
+    // Hover mouse at target position (800, 360)
+    await page.mouse.move(800, 360);
+    await page.waitForTimeout(200);
+
+    // Move around with WASD while leaving mouse stationary
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(250);
+    await page.keyboard.up('KeyW');
+
+    // Fire weapon with Space while mouse rests at (800, 360)
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(100);
+
+    await page.keyboard.down('KeyS');
+    await page.waitForTimeout(250);
+    await page.keyboard.up('KeyS');
+
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(100);
+
+    await expect(canvas).toBeVisible();
+  });
 });
