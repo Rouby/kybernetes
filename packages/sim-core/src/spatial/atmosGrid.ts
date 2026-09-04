@@ -878,7 +878,7 @@ function collectActiveVentPortals(doors?: DoorState[], breaches?: string[]): Ven
       const rId = isPuncture ? breach.replace('puncture_', '') : breach;
       const room = HESPERIA_ROOMS.find((r) => r.id === rId);
       if (room) {
-        const midX = room.x + room.width / 2;
+        const midX = rId === 'corridor' ? 130 : room.x + room.width / 2;
         portals.push({
           roomId: getSubRoomId(rId, midX),
           x: midX,
@@ -1023,19 +1023,28 @@ export function isRoomVentingToVacuum(
 
   const connections = getOpenRoomConnections(doors);
   for (const start of startRooms) {
-    if (portals.some((p) => p.roomId === start)) return true;
-    const visited = new Set<string>([start]);
-    const queue: string[] = [start];
+    if (isSubRoomVentingToVacuum(start, portals, connections)) return true;
+  }
 
-    while (queue.length > 0) {
-      const curr = queue.shift();
-      if (!curr) break;
-      if (portals.some((p) => p.roomId === curr)) return true;
-      for (const conn of connections.get(curr) ?? []) {
-        if (!visited.has(conn.targetRoom)) {
-          visited.add(conn.targetRoom);
-          queue.push(conn.targetRoom);
-        }
+  return false;
+}
+
+function isSubRoomVentingToVacuum(
+  roomId: string,
+  portals: VentPortal[],
+  connections: Map<string, DoorConnection[]>
+): boolean {
+  const visited = new Set<string>([roomId]);
+  const queue: string[] = [roomId];
+
+  while (queue.length > 0) {
+    const currentRoomId = queue.shift();
+    if (!currentRoomId) continue;
+    if (portals.some((portal) => portal.roomId === currentRoomId)) return true;
+    for (const connection of connections.get(currentRoomId) ?? []) {
+      if (!visited.has(connection.targetRoom)) {
+        visited.add(connection.targetRoom);
+        queue.push(connection.targetRoom);
       }
     }
   }
@@ -1101,6 +1110,48 @@ export function summarizeRoomAtmospheres(
     };
   }
 
+  const portals = collectActiveVentPortals(doors, breaches);
+  const connections = getOpenRoomConnections(doors);
+  for (let zoneIndex = 0; zoneIndex < ZONE_DEFS.length; zoneIndex++) {
+    const zone = ZONE_DEFS[zoneIndex];
+    if (zone.id === zone.roomId) continue;
+
+    const indices = ZONE_CELL_INDICES[zoneIndex];
+    let sumP = 0;
+    let sumO2 = 0;
+    let sumSmoke = 0;
+    let sumT = 0;
+    let activeFires = 0;
+
+    for (const idx of indices) {
+      sumP += grid.pressure[idx];
+      sumO2 += grid.o2Ratio[idx];
+      sumSmoke += grid.toxicSmoke[idx];
+      sumT += grid.tempKelvin[idx];
+      if (grid.isFireActive[idx]) activeFires++;
+    }
+
+    const count = indices.length;
+    const rawAvgP = sumP / count;
+    const avgP = rawAvgP < 1.5 ? 0 : rawAvgP;
+    const rawAvgO2 = (sumO2 / count) * 100;
+    const avgO2 = avgP === 0 || rawAvgO2 < 0.5 ? 0 : rawAvgO2;
+    const avgSmoke = sumSmoke / count;
+    const avgT = sumT / count;
+
+    summary[zone.id] = {
+      roomId: zone.id,
+      pressureKpa: Number(avgP.toFixed(1)),
+      o2Percent: Number(avgO2.toFixed(1)),
+      co2Ppm: Math.round(400 + avgSmoke * 8000),
+      tempCelsius: Number((avgT - 273.15).toFixed(1)),
+      toxicSmokePercent: Number((avgSmoke * 100).toFixed(1)),
+      isVenting: isSubRoomVentingToVacuum(zone.id, portals, connections) && rawAvgP > 0.5,
+      activeFires,
+      activeBreaches: zone.id === 'corridor_fwd' && breaches?.includes('corridor') ? 1 : 0,
+    };
+  }
+
   return summary;
 }
 
@@ -1156,4 +1207,181 @@ export function formatAtmosOverlayValue(
     return `${(summary?.pressureKpa ?? 101.3).toFixed(1)} kPa`;
   }
   return '';
+}
+
+export interface DecompressionAirflowSource {
+  x: number;
+  y: number;
+  u: number;
+  v: number;
+  intensity: number;
+}
+
+function getRoomPressure(
+  roomId: string,
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): number {
+  if (!atmospheres) return 101.3;
+  if (atmospheres[roomId]) return atmospheres[roomId].pressureKpa;
+  if (roomId === 'corridor') {
+    const fwd = atmospheres.corridor_fwd?.pressureKpa;
+    const mid = atmospheres.corridor_mid?.pressureKpa;
+    const aft = atmospheres.corridor_aft?.pressureKpa;
+    if (fwd !== undefined || mid !== undefined || aft !== undefined) {
+      return Math.max(fwd ?? 0, mid ?? 0, aft ?? 0);
+    }
+  }
+  return 101.3;
+}
+
+function getOpenNeighborId(door: DoorState, roomId: string): string | null {
+  if (!door.isOpen) return null;
+  if (door.roomA === roomId && door.roomB !== 'vacuum') return door.roomB;
+  if (door.roomB === roomId && door.roomA !== 'vacuum') return door.roomA;
+  return null;
+}
+
+function getConnectedVentingPressure(
+  roomId: string,
+  doors: DoorState[],
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): number {
+  let pressure = getRoomPressure(roomId, atmospheres);
+  if (pressure > 0.5 || !atmospheres) return pressure;
+
+  for (const d of doors) {
+    const neighbor = getOpenNeighborId(d, roomId);
+    if (neighbor) {
+      pressure = Math.max(pressure, getRoomPressure(neighbor, atmospheres));
+    }
+  }
+  return pressure;
+}
+
+function getRoomCenter(roomId: string, nearX: number, nearY: number): { x: number; y: number } {
+  if (roomId === 'corridor') {
+    return { x: nearX, y: 400 };
+  }
+  const room = HESPERIA_ROOMS.find((r) => r.id === roomId);
+  return room ? { x: room.x + room.width / 2, y: room.y + room.height / 2 } : { x: nearX, y: nearY };
+}
+
+function getInternalDoorAirflowSource(
+  door: DoorState,
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): DecompressionAirflowSource | undefined {
+  if (!door.isOpen || door.roomA === 'vacuum' || door.roomB === 'vacuum') return undefined;
+
+  const pA = getRoomPressure(door.roomA, atmospheres);
+  const pB = getRoomPressure(door.roomB, atmospheres);
+  const deltaP = Math.abs(pA - pB);
+  if (deltaP < 10.0 || Math.min(pA, pB) > 40.0) return undefined;
+
+  const highRoom = pA > pB ? door.roomA : door.roomB;
+  const lowRoom = pA > pB ? door.roomB : door.roomA;
+  const midX = (door.x1 + door.x2) / 2;
+  const midY = (door.y1 + door.y2) / 2;
+
+  const highCenter = getRoomCenter(highRoom, midX, midY);
+  const lowCenter = getRoomCenter(lowRoom, midX, midY);
+
+  const len = Math.hypot(lowCenter.x - highCenter.x, lowCenter.y - highCenter.y);
+  if (len < 0.001) return undefined;
+
+  const dirX = (lowCenter.x - highCenter.x) / len;
+  const dirY = (lowCenter.y - highCenter.y) / len;
+  const pressureRatio = Math.min(1.0, deltaP / 101.3);
+  const ventSpeed = 160 + 140 * pressureRatio;
+
+  return {
+    x: midX,
+    y: midY,
+    u: dirX * ventSpeed,
+    v: dirY * ventSpeed,
+    intensity: pressureRatio,
+  };
+}
+
+function createAirflowSource(
+  roomId: string,
+  openingX: number,
+  openingY: number,
+  pressureKpa: number
+): DecompressionAirflowSource | undefined {
+  if (pressureKpa <= 0.5) return undefined;
+  const room = HESPERIA_ROOMS.find((candidate) => candidate.id === roomId);
+  if (!room) return undefined;
+
+  const deltaX = openingX - (room.x + room.width / 2);
+  const deltaY = openingY - (room.y + room.height / 2);
+  const distance = Math.hypot(deltaX, deltaY);
+  if (distance === 0) return undefined;
+
+  const pressureRatio = Math.min(1.0, pressureKpa / 101.3);
+  const ventSpeed = 160 + 140 * pressureRatio;
+  const dirX = deltaX / distance;
+  const dirY = deltaY / distance;
+
+  return {
+    x: openingX - dirX * 24,
+    y: openingY - dirY * 24,
+    u: dirX * ventSpeed,
+    v: dirY * ventSpeed,
+    intensity: pressureRatio,
+  };
+}
+
+function getDoorAirflowSource(
+  door: DoorState,
+  doors: DoorState[],
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): DecompressionAirflowSource | undefined {
+  if (!door.isOpen) return undefined;
+  if (door.roomA === 'vacuum' || door.roomB === 'vacuum') {
+    const roomId = door.roomA === 'vacuum' ? door.roomB : door.roomA;
+    const pressure = getConnectedVentingPressure(roomId, doors, atmospheres);
+    return createAirflowSource(roomId, (door.x1 + door.x2) / 2, (door.y1 + door.y2) / 2, pressure);
+  }
+  return getInternalDoorAirflowSource(door, atmospheres);
+}
+
+function getBreachCoordinates(
+  roomId: string,
+  room: { x: number; y: number; width: number; height: number }
+): { x: number; y: number } {
+  if (roomId === 'corridor') {
+    return { x: room.x, y: room.y + room.height / 2 };
+  }
+  const openingY = room.y < 368 ? room.y : room.y + room.height;
+  return { x: room.x + room.width / 2, y: openingY };
+}
+
+function getBreachAirflowSource(
+  breach: string,
+  doors: DoorState[],
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): DecompressionAirflowSource | undefined {
+  const roomId = breach.startsWith('puncture_') ? breach.replace('puncture_', '') : breach;
+  const room = HESPERIA_ROOMS.find((c) => c.id === roomId);
+  if (!room) return undefined;
+  const pressure = getConnectedVentingPressure(roomId, doors, atmospheres);
+  const { x, y } = getBreachCoordinates(roomId, room);
+  return createAirflowSource(roomId, x, y, pressure);
+}
+
+export function getDecompressionAirflowSources(
+  doors: DoorState[],
+  breaches: string[] | undefined,
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): DecompressionAirflowSource[] {
+  const sources: DecompressionAirflowSource[] = [];
+  for (const door of doors) {
+    const s = getDoorAirflowSource(door, doors, atmospheres);
+    if (s) sources.push(s);
+  }
+  for (const breach of breaches ?? []) {
+    const s = getBreachAirflowSource(breach, doors, atmospheres);
+    if (s) sources.push(s);
+  }
+  return sources;
 }

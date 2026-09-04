@@ -553,6 +553,160 @@ void main() {
 }
 `;
 
+export const FROST_EDGE_VS = `#version 300 es
+precision highp float;
+in vec2 a_position;
+out vec2 v_uv;
+
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+export const FROST_EDGE_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform float u_time;
+uniform float u_intensity;
+uniform float u_aspect;
+out vec4 fragColor;
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+vec2 hash22(vec2 p) {
+  float n = sin(dot(p, vec2(127.1, 311.7)));
+  return fract(vec2(269.5, 183.3) * n);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float dendriticFbm(vec2 p) {
+  float v = 0.0;
+  float amp = 0.52;
+  mat2 rot = mat2(0.80, 0.60, -0.60, 0.80);
+  for (int i = 0; i < 4; i++) {
+    v += amp * noise(p);
+    p = rot * p * 2.15 + vec2(1.2, 4.3);
+    amp *= 0.48;
+  }
+  return v;
+}
+
+// 6-fold dendritic stellar snowflake
+float renderFlake(vec2 pos, float size, float angleOffset) {
+  float r = length(pos) / size;
+  if (r > 1.0) return 0.0;
+
+  float theta = atan(pos.y, pos.x) + angleOffset;
+  // Fold into 60-degree sector (pi / 3.0)
+  const float sector = 3.14159265 / 3.0;
+  float phi = mod(theta + sector * 0.5, sector) - sector * 0.5;
+  vec2 q = vec2(cos(phi), sin(phi)) * r;
+
+  // Main primary dendritic spine along x
+  float spine = 1.0 - smoothstep(0.02, 0.065, abs(q.y));
+  spine *= (1.0 - smoothstep(0.75, 1.0, q.x));
+
+  // Secondary side-barbs at 60 degree angle
+  // Branch 1 (inner):
+  float b1 = 1.0 - smoothstep(0.015, 0.045, abs(abs(q.y) - (q.x - 0.28) * 0.577));
+  b1 *= step(0.28, q.x) * step(q.x, 0.62) * (1.0 - smoothstep(0.12, 0.24, abs(q.y)));
+
+  // Branch 2 (outer):
+  float b2 = 1.0 - smoothstep(0.012, 0.04, abs(abs(q.y) - (q.x - 0.60) * 0.577));
+  b2 *= step(0.60, q.x) * step(q.x, 0.88) * (1.0 - smoothstep(0.08, 0.18, abs(q.y)));
+
+  // Central hexagonal core
+  float core = 1.0 - smoothstep(0.06, 0.18, r);
+
+  return max(core * 0.85, max(spine, max(b1, b2)));
+}
+
+// Jittered cellular distribution of snowflakes
+float sampleSnowflakes(vec2 uvAspect, float coldMask) {
+  if (coldMask <= 0.01) return 0.0;
+
+  vec2 gridP = uvAspect * 8.5;
+  vec2 cellId = floor(gridP);
+  float totalFlakes = 0.0;
+
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 neighbor = cellId + vec2(float(x), float(y));
+      float cellRnd = hash21(neighbor);
+      // Only form flakes in cold perimeter cells with probability based on coldMask
+      if (cellRnd > 0.42) {
+        vec2 jitter = hash22(neighbor);
+        vec2 flakeCenter = (neighbor + 0.15 + 0.70 * jitter) / 8.5;
+        vec2 delta = uvAspect - flakeCenter;
+        float flakeSize = 0.045 + cellRnd * 0.045;
+        float rot = cellRnd * 6.28 + u_time * 0.02;
+        float flake = renderFlake(delta, flakeSize, rot);
+        totalFlakes = max(totalFlakes, flake * (0.65 + cellRnd * 0.35));
+      }
+    }
+  }
+
+  return totalFlakes * coldMask;
+}
+
+void main() {
+  float aspect = u_aspect > 0.1 ? u_aspect : 1.777;
+  vec2 ndc = v_uv * 2.0 - 1.0;
+  vec2 uvAspect = vec2(v_uv.x * aspect, v_uv.y);
+
+  // Visor curvature perimeter distance:
+  // Preserves clear center, concentrates frost around helmet bezel/corners
+  vec2 d = abs(ndc) - vec2(0.68, 0.58);
+  float cornerDist = length(max(d, vec2(0.0)));
+  float edgeDist = max(max(abs(ndc.x) - 0.75, abs(ndc.y) - 0.65), cornerDist);
+
+  // Dendritic organic frost growth tendrils
+  float warp = dendriticFbm(v_uv * 6.0 + vec2(u_time * 0.01, -u_time * 0.008));
+  float frostThreshold = 0.08 + u_intensity * 0.42 + warp * 0.18;
+  float coldMask = smoothstep(0.0, frostThreshold, edgeDist + warp * 0.12);
+
+  // Fern-like crystalline structures along the creeping boundary
+  float crystalNeedles = dendriticFbm(v_uv * 18.0 + vec2(warp * 0.5));
+  float frostEdge = smoothstep(0.15, 0.85, coldMask * (0.45 + crystalNeedles * 0.55));
+
+  // Organic dendritic snowflakes adhering to the cold perimeter glass
+  float snowflakes = sampleSnowflakes(uvAspect, coldMask);
+
+  // Crystalline sparkle/glint catching light
+  float sparkle = pow(hash21(floor(v_uv * 120.0) + vec2(floor(u_time * 6.0))), 22.0) * 2.0;
+
+  // Composite frost alpha and icy palette
+  float combined = max(frostEdge * 0.75, snowflakes * 0.95) * u_intensity;
+  if (combined < 0.01) {
+    discard;
+  }
+
+  vec3 deepIce = vec3(0.48, 0.78, 0.96);
+  vec3 brightFlake = vec3(0.92, 0.98, 1.0);
+  vec3 glintColor = vec3(1.0, 1.0, 1.0);
+
+  vec3 color = mix(deepIce, brightFlake, max(snowflakes, frostEdge * 0.6));
+  color += glintColor * (sparkle * combined * 0.6);
+
+  fragColor = vec4(color, clamp(combined * 0.88, 0.0, 0.92));
+}
+`;
+
 export const HUD_VECTOR_VS = `#version 300 es
 precision highp float;
 in vec2 a_position;

@@ -5,6 +5,7 @@ import {
   formatAtmosOverlayValue,
   getAirflowDragVector,
   getAtmosOverlayColor,
+  getDecompressionAirflowSources,
   sampleAirflowVelocityAt,
   sampleAtmosphereAt,
   summarizeRoomAtmospheres,
@@ -133,7 +134,7 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
 
     // Every other room was closed, so none should have leaked!
     for (const [roomId, s] of Object.entries(summary)) {
-      if (roomId !== 'corridor') {
+      if (!roomId.startsWith('corridor')) {
         expect(s.pressureKpa).toBe(101.3);
         expect(s.o2Percent).toBe(20.9);
       }
@@ -154,6 +155,11 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(sampleAtmosphereAt(spineGrid, 300, 400).pressureKpa).toBe(0);
     // East of spine door (x=600) should be protected and remain nominal
     expect(sampleAtmosphereAt(spineGrid, 600, 400).pressureKpa).toBe(101.3);
+
+    // Corridor telemetry must preserve the pressure boundary at the closed bulkhead.
+    const segmentedSummary = summarizeRoomAtmospheres(spineGrid, spineDoors, ['corridor']);
+    expect(segmentedSummary.corridor_fwd.pressureKpa).toBe(0);
+    expect(segmentedSummary.corridor_mid.pressureKpa).toBe(101.3);
   });
 
   it('rapidly equalizes pressure between connected rooms within 1.5 seconds', () => {
@@ -217,11 +223,11 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(ventedMess.pressureKpa).toBeLessThan(70.0);
   });
 
-  it('summarizes room atmospheres into telemetry records for all 11 rooms', () => {
+  it('summarizes room atmospheres into room and corridor-segment telemetry records', () => {
     const grid = createInitialAtmosGrid();
     const summaries = summarizeRoomAtmospheres(grid);
 
-    expect(Object.keys(summaries).length).toBe(11);
+    expect(Object.keys(summaries).length).toBe(14);
     expect(summaries.bridge.pressureKpa).toBe(101.3);
     expect(summaries.engineering.o2Percent).toBe(20.9);
     expect(summaries.quarters.tempCelsius).toBe(21.0);
@@ -462,5 +468,130 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
 
     const vacuumDrag = getAirflowDragVector(960, 280, doors, [], vacuumSummary);
     expect(vacuumDrag).toEqual({ u: 0, v: 0 });
+  });
+
+  describe('getDecompressionAirflowSources', () => {
+    it('generates an airflow source at open exterior airlock hatch when room has atmosphere', () => {
+      const doors = createInitialDoors();
+      const stbdOuter = doors.find((d) => d.id === 'airlock_stbd_outer');
+      if (stbdOuter) stbdOuter.isOpen = true;
+      const stbdInner = doors.find((d) => d.id === 'airlock_stbd_inner');
+      if (stbdInner) stbdInner.isOpen = false;
+
+      const sources = getDecompressionAirflowSources(doors, []);
+      expect(sources).toHaveLength(1);
+      expect(sources[0].intensity).toBeGreaterThan(0.9);
+      expect(sources[0].v).toBeLessThan(0);
+    });
+
+    it('stops emitting airflow source when isolated room reaches vacuum', () => {
+      const doors = createInitialDoors();
+      const stbdOuter = doors.find((d) => d.id === 'airlock_stbd_outer');
+      if (stbdOuter) stbdOuter.isOpen = true;
+      const stbdInner = doors.find((d) => d.id === 'airlock_stbd_inner');
+      if (stbdInner) stbdInner.isOpen = false;
+
+      const vacuumAtmospheres = {
+        airlock_stbd: {
+          roomId: 'airlock_stbd',
+          pressureKpa: 0.0,
+          o2Percent: 0,
+          co2Ppm: 0,
+          tempCelsius: -270,
+          toxicSmokePercent: 0,
+          isVenting: false,
+          activeFires: 0,
+          activeBreaches: 0,
+        },
+      };
+
+      const sources = getDecompressionAirflowSources(doors, [], vacuumAtmospheres);
+      expect(sources).toHaveLength(0);
+    });
+
+    it('cascades airflow through internal door and maintains exterior vent when connected room is opened', () => {
+      const doors = createInitialDoors();
+      const stbdOuter = doors.find((d) => d.id === 'airlock_stbd_outer');
+      if (stbdOuter) stbdOuter.isOpen = true;
+      const stbdInner = doors.find((d) => d.id === 'airlock_stbd_inner');
+      if (stbdInner) stbdInner.isOpen = true;
+
+      const atmospheres = {
+        airlock_stbd: {
+          roomId: 'airlock_stbd',
+          pressureKpa: 0.0,
+          o2Percent: 0,
+          co2Ppm: 0,
+          tempCelsius: -270,
+          toxicSmokePercent: 0,
+          isVenting: false,
+          activeFires: 0,
+          activeBreaches: 0,
+        },
+        corridor: {
+          roomId: 'corridor',
+          pressureKpa: 101.3,
+          o2Percent: 20.9,
+          co2Ppm: 400,
+          tempCelsius: 21,
+          toxicSmokePercent: 0,
+          isVenting: false,
+          activeFires: 0,
+          activeBreaches: 0,
+        },
+      };
+
+      const sources = getDecompressionAirflowSources(doors, [], atmospheres);
+      expect(sources).toHaveLength(2);
+
+      const hatchSource = sources.find((s) => Math.abs(s.y - 228) < 30);
+      expect(hatchSource).toBeDefined();
+      expect(hatchSource?.intensity).toBeGreaterThan(0.9);
+
+      const doorSource = sources.find((s) => Math.abs(s.y - 368) < 20);
+      expect(doorSource).toBeDefined();
+      expect(doorSource?.v).toBeLessThan(0);
+    });
+
+    it('generates airflow source for hull breaches and cascades from upstream rooms', () => {
+      const doors = createInitialDoors();
+      const sourcesNominal = getDecompressionAirflowSources(doors, ['puncture_mess']);
+      expect(sourcesNominal.some((s) => s.intensity > 0.9)).toBe(true);
+
+      const doorMess = doors.find((d) => d.id === 'door_mess');
+      if (doorMess) doorMess.isOpen = true;
+
+      const atmospheres = {
+        mess: {
+          roomId: 'mess',
+          pressureKpa: 0.0,
+          o2Percent: 0,
+          co2Ppm: 0,
+          tempCelsius: -270,
+          toxicSmokePercent: 0,
+          isVenting: false,
+          activeFires: 0,
+          activeBreaches: 1,
+        },
+        corridor: {
+          roomId: 'corridor',
+          pressureKpa: 101.3,
+          o2Percent: 20.9,
+          co2Ppm: 400,
+          tempCelsius: 21,
+          toxicSmokePercent: 0,
+          isVenting: false,
+          activeFires: 0,
+          activeBreaches: 0,
+        },
+      };
+
+      const cascadingSources = getDecompressionAirflowSources(
+        doors,
+        ['puncture_mess'],
+        atmospheres
+      );
+      expect(cascadingSources.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });

@@ -30,8 +30,23 @@ interface MuzzleFlash {
   maxLife: number;
 }
 
+interface AirflowParticle {
+  kind: 'vapor' | 'glint';
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  maxSize: number;
+  life: number;
+  maxLife: number;
+  intensity: number;
+  seed: number;
+}
+
 export class ParticleSystem {
   private particles: ImpactParticle[] = [];
+  private airflowParticles: AirflowParticle[] = [];
   private dustMotes: DustMote[] = [];
   private muzzleFlashes: MuzzleFlash[] = [];
   private lastWeaponRecoil = 0;
@@ -110,6 +125,63 @@ export class ParticleSystem {
     this.lastWeaponRecoil = flash.weaponType === 'kinetic_carbine' ? 2.5 : 4.0;
   }
 
+  public emitAirflow(x: number, y: number, u: number, v: number, intensity = 1.0): void {
+    const speed = Math.hypot(u, v);
+    if (speed < 1 || intensity <= 0.02) return;
+
+    const dirX = u / speed;
+    const dirY = v / speed;
+    const perpX = -dirY;
+    const perpY = dirX;
+
+    // 1. Fine aerosol vapor mist (dense clusters of delicate micro-fog particles)
+    const vaporCount = Math.round(intensity * (4 + Math.random() * 4));
+    for (let i = 0; i < vaporCount; i++) {
+      const offset = (Math.random() - 0.5) * 18;
+      const angleJitter = (Math.random() - 0.5) * 0.32;
+      const cosJ = Math.cos(angleJitter);
+      const sinJ = Math.sin(angleJitter);
+      const jDirX = dirX * cosJ - dirY * sinJ;
+      const jDirY = dirX * sinJ + dirY * cosJ;
+      const particleSpeed = speed * (0.65 + Math.random() * 0.45);
+
+      this.airflowParticles.push({
+        kind: 'vapor',
+        x: x + perpX * offset,
+        y: y + perpY * offset,
+        vx: jDirX * particleSpeed,
+        vy: jDirY * particleSpeed,
+        size: 1.0 + Math.random() * 0.8,
+        maxSize: 2.4 + Math.random() * 2.2,
+        life: 0.35 + Math.random() * 0.35,
+        maxLife: 0.7,
+        intensity: Math.min(1.0, intensity),
+        seed: Math.random() * 100,
+      });
+    }
+
+    // 2. Micro-ice glints (tiny sparkling ice needles)
+    if (Math.random() < intensity * 1.5) {
+      const glintOffset = (Math.random() - 0.5) * 12;
+      const glintSpeed = speed * (1.1 + Math.random() * 0.5);
+      this.airflowParticles.push({
+        kind: 'glint',
+        x: x + perpX * glintOffset,
+        y: y + perpY * glintOffset,
+        vx: dirX * glintSpeed + (Math.random() - 0.5) * 20,
+        vy: dirY * glintSpeed + (Math.random() - 0.5) * 20,
+        size: 0.8 + Math.random() * 0.6,
+        maxSize: 1.4,
+        life: 0.3 + Math.random() * 0.25,
+        maxLife: 0.55,
+        intensity: Math.min(1.0, intensity),
+        seed: Math.random() * 50,
+      });
+    }
+
+    if (this.airflowParticles.length > 500) this.airflowParticles.shift();
+  }
+
   public update(dt: number): void {
     this.lastWeaponRecoil = Math.max(0, this.lastWeaponRecoil - dt * 20.0);
     for (let i = this.muzzleFlashes.length - 1; i >= 0; i--) {
@@ -131,12 +203,14 @@ export class ParticleSystem {
   public renderDustMotes(
     gl: WebGL2RenderingContext,
     flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
     timeSec: number,
     dt: number,
     drawCircle: (cx: number, cy: number, r: number, segments: number) => void
   ): void {
     gl.useProgram(flatProg);
+    gl.bindVertexArray(flatVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
 
     for (const m of this.dustMotes) {
@@ -147,12 +221,14 @@ export class ParticleSystem {
       gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.8, 0.9, 1.0, shimmer);
       drawCircle(m.x, m.y, m.size, 6);
     }
+    gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity
   public renderImpactParticles(
     gl: WebGL2RenderingContext,
     flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
     dt: number,
     drawQuad: (x: number, y: number, w: number, h: number) => void
@@ -160,6 +236,7 @@ export class ParticleSystem {
     if (this.particles.length === 0) return;
 
     gl.useProgram(flatProg);
+    gl.bindVertexArray(flatVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
@@ -181,5 +258,60 @@ export class ParticleSystem {
     }
 
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(null);
+  }
+
+  public renderAirflowParticles(
+    gl: WebGL2RenderingContext,
+    flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
+    matrix: Float32Array,
+    timeSec: number,
+    dt: number,
+    drawQuad: (x: number, y: number, w: number, h: number) => void,
+    drawCircle: (cx: number, cy: number, r: number, segments: number) => void
+  ): void {
+    if (this.airflowParticles.length === 0) return;
+
+    gl.useProgram(flatProg);
+    gl.bindVertexArray(flatVAO);
+    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+    for (let i = this.airflowParticles.length - 1; i >= 0; i--) {
+      const particle = this.airflowParticles[i];
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.vx *= 0.982;
+      particle.vy *= 0.982;
+      particle.life -= dt;
+      if (particle.life <= 0) {
+        this.airflowParticles.splice(i, 1);
+        continue;
+      }
+
+      if (particle.kind === 'vapor') {
+        const progress = Math.max(0, 1.0 - particle.life / particle.maxLife);
+        const currentRadius =
+          particle.size + (particle.maxSize - particle.size) * Math.sqrt(progress);
+        const alpha = Math.sin(progress * Math.PI) * 0.18 * particle.intensity;
+        gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.88, 0.95, 1.0, alpha);
+        drawCircle(particle.x, particle.y, currentRadius, 6);
+      } else {
+        const glintLife = particle.life / particle.maxLife;
+        const shimmer = 0.45 + 0.55 * Math.sin(timeSec * 28.0 + particle.seed);
+        const alpha = glintLife * shimmer * 0.75 * particle.intensity;
+        gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.96, 0.98, 1.0, alpha);
+        drawQuad(
+          particle.x - particle.size * 0.5,
+          particle.y - particle.size * 0.5,
+          particle.size,
+          particle.size
+        );
+      }
+    }
+
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(null);
   }
 }

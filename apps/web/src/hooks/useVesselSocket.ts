@@ -21,6 +21,12 @@ export interface UseVesselSocketOptions {
   onVitalsDelta?: (v: VitalsDeltaBroadcast) => void;
 }
 
+declare global {
+  interface Window {
+    __kybernetesSocket?: WebSocket;
+  }
+}
+
 // fallow-ignore-next-line complexity
 function handleSocketMessage(
   data: string,
@@ -146,6 +152,7 @@ export function useVesselSocket(
       if (isDisposed) return;
       ws = new WebSocket('ws://localhost:3001');
       wsRef.current = ws;
+      window.__kybernetesSocket = ws;
 
       ws.onopen = () => {
         if (isDisposed) return;
@@ -184,6 +191,7 @@ export function useVesselSocket(
 
       ws.onclose = () => {
         setWsConnected(false);
+        if (window.__kybernetesSocket === ws) delete window.__kybernetesSocket;
         wsRef.current = null;
         if (!isDisposed) {
           reconnectTimeout = setTimeout(connect, 2000);
@@ -208,6 +216,7 @@ export function useVesselSocket(
         ws.close();
       }
       wsRef.current = null;
+      if (window.__kybernetesSocket === ws) delete window.__kybernetesSocket;
       setWsConnected(false);
     };
   }, [activeVesselCode, onTelemetry]);

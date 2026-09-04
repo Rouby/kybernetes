@@ -3,11 +3,15 @@ import type {
   DoorState,
   PawnState,
   ProjectileState,
+  RoomAtmosphereSummary,
   WeaponType,
 } from '@kybernetes/protocol';
 import {
   createInitialDoors,
+  getAirflowDragVector,
+  getDecompressionAirflowSources,
   getOpaqueWallSegments,
+  HESPERIA_ROOMS,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
   isImpactVisible,
@@ -36,7 +40,14 @@ import {
   renderReactorConsole,
   renderStationInteractionAura,
 } from './StationModels';
-import { FLAT_FS, FLAT_VS, PROJECTILE_FS, PROJECTILE_VS } from './shaders';
+import {
+  FLAT_FS,
+  FLAT_VS,
+  FROST_EDGE_FS,
+  FROST_EDGE_VS,
+  PROJECTILE_FS,
+  PROJECTILE_VS,
+} from './shaders';
 import { FramebufferManager } from './systems/FramebufferManager';
 import { ParticleSystem } from './systems/ParticleSystem';
 
@@ -45,6 +56,50 @@ export interface WebGLRenderState extends HudDrawState {
   muzzleFlashes?: Array<{ x: number; y: number; weaponType: WeaponType }>;
   zoom?: number;
   nearestDoorId?: string;
+}
+
+function getPlayerAtmosphere(state: WebGLRenderState) {
+  const atmospheres = state.telemetry?.roomAtmospheres;
+  if (!atmospheres) return undefined;
+
+  const room = HESPERIA_ROOMS.find(
+    (candidate) =>
+      state.pawn.x >= candidate.x &&
+      state.pawn.x < candidate.x + candidate.width &&
+      state.pawn.y >= candidate.y &&
+      state.pawn.y < candidate.y + candidate.height
+  );
+  if (!room) return undefined;
+  if (room.id !== 'corridor') return atmospheres[room.id];
+  if (state.pawn.x <= 440) return atmospheres.corridor_fwd ?? atmospheres.corridor;
+  if (state.pawn.x < 760) return atmospheres.corridor_mid ?? atmospheres.corridor;
+  return atmospheres.corridor_aft ?? atmospheres.corridor;
+}
+
+function computeTargetFrostIntensity(
+  state: WebGLRenderState,
+  playerAtmosphere: RoomAtmosphereSummary | undefined
+): number {
+  let intensity = 0;
+
+  if (playerAtmosphere) {
+    if (playerAtmosphere.pressureKpa < 20 || playerAtmosphere.tempCelsius < -50) {
+      intensity = Math.max(intensity, 0.88);
+    } else if (playerAtmosphere.tempCelsius < 5) {
+      intensity = Math.max(intensity, Math.min(0.75, (5 - playerAtmosphere.tempCelsius) / 25));
+    }
+    if (playerAtmosphere.isVenting && playerAtmosphere.pressureKpa > 1.0) {
+      intensity = Math.max(intensity, 0.95);
+    }
+  }
+
+  const bodyTemp = state.vitals?.bodyTempCelsius;
+  if (bodyTemp !== undefined && bodyTemp < 35.5) {
+    const hypothermiaRatio = Math.min(1.0, (35.5 - bodyTemp) / 8.0);
+    intensity = Math.max(intensity, hypothermiaRatio);
+  }
+
+  return intensity;
 }
 
 // fallow-ignore-next-line complexity
@@ -66,6 +121,7 @@ export class WebGL2Renderer {
   private gl: WebGL2RenderingContext;
   private flatProg: WebGLProgram;
   private projProg: WebGLProgram;
+  private frostProg: WebGLProgram;
 
   private quadBuffer: WebGLBuffer;
   private dynamicBuffer: WebGLBuffer;
@@ -73,6 +129,7 @@ export class WebGL2Renderer {
   private flatVAO: WebGLVertexArrayObject;
   private projVAO: WebGLVertexArrayObject;
   private vignetteVAO: WebGLVertexArrayObject;
+  private frostVAO: WebGLVertexArrayObject;
 
   private framebufferManager: FramebufferManager;
   private particleSystem: ParticleSystem;
@@ -82,6 +139,7 @@ export class WebGL2Renderer {
   private fogOfWarPass: FogOfWarPass;
   private atmosOverlayPass: AtmosOverlayPass;
   private hudRenderer: HudRenderer;
+  private currentFrostIntensity = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -104,6 +162,7 @@ export class WebGL2Renderer {
 
     this.flatProg = createProgram(gl, FLAT_VS, FLAT_FS);
     this.projProg = createProgram(gl, PROJECTILE_VS, PROJECTILE_FS);
+    this.frostProg = createProgram(gl, FROST_EDGE_VS, FROST_EDGE_FS);
 
     this.flatVAO = gl.createVertexArray()!;
     gl.bindVertexArray(this.flatVAO);
@@ -128,6 +187,14 @@ export class WebGL2Renderer {
     const vPos = gl.getAttribLocation(this.flatProg, 'a_position');
     gl.enableVertexAttribArray(vPos);
     gl.vertexAttribPointer(vPos, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    this.frostVAO = gl.createVertexArray()!;
+    gl.bindVertexArray(this.frostVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+    const frostPos = gl.getAttribLocation(this.frostProg, 'a_position');
+    gl.enableVertexAttribArray(frostPos);
+    gl.vertexAttribPointer(frostPos, 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
 
     this.framebufferManager = new FramebufferManager(gl);
@@ -584,10 +651,17 @@ export class WebGL2Renderer {
     this.renderFullscreenVignette(0.01, 0.01, 0.02, alpha);
   }
 
-  private renderFrostVignette(bodyTempCelsius: number, time: number): void {
-    const coldRatio = Math.min(1.0, Math.max(0.0, (34 - bodyTempCelsius) / 10));
-    const pulse = 0.12 * coldRatio + 0.05 * Math.sin(time * 2.0);
-    this.renderFullscreenVignette(0.6, 0.85, 1.0, pulse);
+  private renderFrostCrystals(timeSec: number, intensity: number, aspect: number): void {
+    const gl = this.gl;
+    gl.useProgram(this.frostProg);
+    gl.bindVertexArray(this.frostVAO);
+    gl.uniform1f(gl.getUniformLocation(this.frostProg, 'u_time'), timeSec);
+    gl.uniform1f(gl.getUniformLocation(this.frostProg, 'u_intensity'), intensity);
+    gl.uniform1f(gl.getUniformLocation(this.frostProg, 'u_aspect'), aspect);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity
@@ -598,7 +672,20 @@ export class WebGL2Renderer {
     const timeSec = state.timeMs * 0.001;
     const dt = 0.016;
 
-    const doors = state.boarding?.doors || createInitialDoors();
+    const doors = state.telemetry?.boarding?.doors || state.boarding?.doors || createInitialDoors();
+    const playerAtmosphere = getPlayerAtmosphere(state);
+    const decompressionSources = getDecompressionAirflowSources(
+      doors,
+      state.telemetry?.hull?.breaches,
+      state.telemetry?.roomAtmospheres
+    );
+    const targetFrost = computeTargetFrostIntensity(state, playerAtmosphere);
+    const thawRate = targetFrost > this.currentFrostIntensity ? 0.85 : 0.45;
+    this.currentFrostIntensity +=
+      (targetFrost - this.currentFrostIntensity) * Math.min(1.0, dt * thawRate * 3.5);
+    if (this.currentFrostIntensity < 0.005) {
+      this.currentFrostIntensity = 0;
+    }
     if (state.impacts) {
       for (const imp of state.impacts) {
         if (isImpactVisible({ x: state.pawn.x, y: state.pawn.y }, { x: imp.x, y: imp.y }, doors)) {
@@ -610,6 +697,20 @@ export class WebGL2Renderer {
       for (const mf of state.muzzleFlashes) {
         this.particleSystem.addMuzzleFlash(mf);
       }
+    }
+    for (const source of decompressionSources) {
+      this.particleSystem.emitAirflow(source.x, source.y, source.u, source.v, source.intensity);
+    }
+    if (playerAtmosphere?.isVenting && playerAtmosphere.pressureKpa > 0.5) {
+      const airflow = getAirflowDragVector(
+        state.pawn.x,
+        state.pawn.y,
+        doors,
+        state.telemetry?.hull?.breaches,
+        state.telemetry?.roomAtmospheres
+      );
+      const intensity = Math.min(1.0, playerAtmosphere.pressureKpa / 101.3);
+      this.particleSystem.emitAirflow(state.pawn.x, state.pawn.y, airflow.u, airflow.v, intensity);
     }
     this.particleSystem.update(dt);
 
@@ -686,6 +787,7 @@ export class WebGL2Renderer {
     this.particleSystem.renderDustMotes(
       gl,
       this.flatProg,
+      this.flatVAO,
       matrix,
       timeSec,
       dt,
@@ -724,9 +826,20 @@ export class WebGL2Renderer {
     this.particleSystem.renderImpactParticles(
       gl,
       this.flatProg,
+      this.flatVAO,
       matrix,
       dt,
       this.drawQuad.bind(this)
+    );
+    this.particleSystem.renderAirflowParticles(
+      gl,
+      this.flatProg,
+      this.flatVAO,
+      matrix,
+      timeSec,
+      dt,
+      this.drawQuad.bind(this),
+      this.drawCircle.bind(this)
     );
     this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
 
@@ -741,15 +854,15 @@ export class WebGL2Renderer {
           timeSec
         );
       }
-      if (state.vitals.bodyTempCelsius < 34) {
-        this.renderFrostVignette(state.vitals.bodyTempCelsius, timeSec);
-      }
     }
 
     // PASS 5: Curved Visor & Tactical Diegetic HUD
     const hudW = state.screenWidth ?? width;
     const hudH = state.screenHeight ?? height;
     this.hudRenderer.render(state, hudW, hudH, timeSec, playerLoSPoly);
+    if (this.currentFrostIntensity > 0.005) {
+      this.renderFrostCrystals(timeSec, this.currentFrostIntensity, hudW / Math.max(1, hudH));
+    }
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -763,9 +876,11 @@ export class WebGL2Renderer {
     this.fogOfWarPass.dispose();
     gl.deleteProgram(this.flatProg);
     gl.deleteProgram(this.projProg);
+    gl.deleteProgram(this.frostProg);
     gl.deleteVertexArray(this.flatVAO);
     gl.deleteVertexArray(this.projVAO);
     gl.deleteVertexArray(this.vignetteVAO);
+    gl.deleteVertexArray(this.frostVAO);
     gl.deleteBuffer(this.quadBuffer);
     gl.deleteBuffer(this.dynamicBuffer);
   }

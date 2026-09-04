@@ -93,18 +93,18 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
     await page.keyboard.press('KeyV');
     await page.waitForTimeout(300);
 
-    // Trigger airlock opening via window or socket
+    // Wait for the joined session socket before triggering the outer hatch.
+    await expect
+      .poll(() => page.evaluate(() => window.__kybernetesSocket?.readyState === WebSocket.OPEN))
+      .toBe(true);
     await page.evaluate(() => {
-      const win = window as unknown as { __kybernetesSocket?: WebSocket };
-      if (win.__kybernetesSocket && win.__kybernetesSocket.readyState === WebSocket.OPEN) {
-        win.__kybernetesSocket.send(
-          JSON.stringify({
-            type: 'TOGGLE_DOOR',
-            doorId: 'airlock_stbd_outer',
-            timestamp: Date.now(),
-          })
-        );
-      }
+      window.__kybernetesSocket?.send(
+        JSON.stringify({
+          type: 'TOGGLE_DOOR',
+          doorId: 'airlock_stbd_outer',
+          timestamp: Date.now(),
+        })
+      );
     });
 
     // Wait for fast 2-4s decompression wave to vent airlock
@@ -113,6 +113,77 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
     // Capture screenshot of decompressed void indigo cells
     await page.screenshot({
       path: 'C:/Users/jonat/.gemini/antigravity/brain/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_pressure.png',
+    });
+  });
+
+  test('renders gentle decompression vapor billowing into space and organic snowflake visor frost upon depressurization', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?e2e=true');
+    await page.getByTestId('quick-board-btn').click();
+
+    const canvas = page.getByTestId('vessel-canvas');
+    await expect(canvas).toBeVisible();
+
+    // Wait for the joined session socket before triggering the outer hatch.
+    await expect
+      .poll(() => page.evaluate(() => window.__kybernetesSocket?.readyState === WebSocket.OPEN))
+      .toBe(true);
+
+    // 1. Isolate engineering first by closing the radiation blast door
+    await page.evaluate(() => {
+      window.__kybernetesSocket?.send(
+        JSON.stringify({
+          type: 'TOGGLE_DOOR',
+          doorId: 'door_eng',
+          open: false,
+          timestamp: Date.now(),
+        })
+      );
+    });
+    await page.waitForTimeout(100);
+
+    // 2. Open aft engineering purge vent into vacuum
+    await page.evaluate(() => {
+      window.__kybernetesSocket?.send(
+        JSON.stringify({
+          type: 'TOGGLE_DOOR',
+          doorId: 'airlock_eng',
+          open: true,
+          timestamp: Date.now(),
+        })
+      );
+    });
+
+    // Capture initial fine mist jet venting into space from the purge vent
+    await page.waitForTimeout(500);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/isolated_airlock_venting_mist.png',
+    });
+
+    // 3. Wait for the isolated engineering compartment to fully evacuate to 0.0 kPa (2.5s)
+    await page.waitForTimeout(2500);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/isolated_airlock_evacuated_stopped.png',
+    });
+
+    // 4. Now open the NEXT door (door_eng): pressurized corridor vents into engineering and out the purge vent!
+    await page.evaluate(() => {
+      window.__kybernetesSocket?.send(
+        JSON.stringify({
+          type: 'TOGGLE_DOOR',
+          doorId: 'door_eng',
+          open: true,
+          timestamp: Date.now(),
+        })
+      );
+    });
+
+    // Wait 500ms for cascading fine mist to erupt across the doorway and through the purge vent
+    await page.waitForTimeout(500);
+    await page.screenshot({
+      path: 'C:/Users/jonat/.gemini/antigravity/brain/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/cascading_next_room_fine_mist.png',
     });
   });
 });
