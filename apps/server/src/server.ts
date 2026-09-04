@@ -17,6 +17,7 @@ import {
   GameLoop,
   generateShiftChecklist,
   getBreachLocation,
+  getBreachWeldSeconds,
   HESPERIA_SPAWNS,
   HESPERIA_WALLS,
   normalizeBreachRoomId,
@@ -398,7 +399,13 @@ export class VesselServer {
 
       const dist = Math.hypot(cl.pawn.x - loc.x, cl.pawn.y - loc.y);
       if (dist <= 75) {
-        const res = trackBreachWelding(session.breachRepairProgress, breach, dtSeconds, 3.0);
+        const requiredSeconds = getBreachWeldSeconds(breach);
+        const res = trackBreachWelding(
+          session.breachRepairProgress,
+          breach,
+          dtSeconds,
+          requiredSeconds
+        );
         session.breachRepairProgress = res.nextProgress;
         if (res.completed) {
           const repairRes = repairHullPlating(session.vesselState.hull, breach);

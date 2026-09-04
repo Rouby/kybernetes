@@ -62,3 +62,26 @@ export interface RoomAtmosphereSummary {
 }
 
 export type AtmosOverlayMode = 'off' | 'o2' | 'temp' | 'pressure';
+
+export type BreachKind = 'puncture' | 'breach' | 'door';
+
+export interface BreachDescriptor {
+  id: string;
+  roomId: string;
+  kind: BreachKind;
+  areaM2: number;
+  x?: number;
+  y?: number;
+}
+
+export interface CompartmentAtmosphere {
+  compartmentId: string;
+  roomId: string;
+  volumeM3: number;
+  pressureKpa: number;
+  tempCelsius: number;
+  o2Percent: number;
+  co2Ppm: number;
+  isVenting: boolean;
+  isRepressurizing: boolean;
+}

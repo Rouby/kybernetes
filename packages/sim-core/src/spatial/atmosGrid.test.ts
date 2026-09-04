@@ -75,8 +75,15 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     if (engDoor) engDoor.isOpen = false;
     if (engVent) engVent.isOpen = true;
 
-    // After 0.4s (8 ticks of 0.05s), engineering pressure should reach 0
+    // After 0.4s (8 ticks of 0.05s), the 4 m2 purge vent has dumped most air
     for (let t = 0; t < 8; t++) {
+      tickCellularAtmos(grid, doors, [], [], 0.05);
+    }
+    const earlySummary = summarizeRoomAtmospheres(grid, doors, []).engineering;
+    expect(earlySummary.pressureKpa).toBeLessThan(60);
+
+    // After ~6s the isolated compartment reaches hard vacuum asymptotically
+    for (let t = 8; t < 120; t++) {
       tickCellularAtmos(grid, doors, [], [], 0.05);
     }
 
@@ -94,14 +101,25 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(messSummary.pressureKpa).toBeGreaterThan(70);
   });
 
-  it('decompresses hallway rapidly when both outer and inner airlock hatches are open', () => {
+  it('floods the hallway to vacuum over seconds when outer and inner airlock hatches are open', () => {
     const grid = createInitialAtmosGrid();
     const doors = createInitialDoors();
     const stbdOuter = doors.find((d) => d.id === 'airlock_stbd_outer');
     if (stbdOuter) stbdOuter.isOpen = true;
     // Note: airlock_stbd_inner is already isOpen: true by default!
+    // Seal cabins so only the airlock plus corridor spine vent through the hatch.
+    for (const d of doors) {
+      if (
+        d.id !== 'airlock_stbd_outer' &&
+        d.id !== 'airlock_stbd_inner' &&
+        d.id !== 'door_spine_fwd' &&
+        d.id !== 'door_spine_aft'
+      ) {
+        d.isOpen = false;
+      }
+    }
 
-    for (let t = 0; t < 10; t++) {
+    for (let t = 0; t < 200; t++) {
       tickCellularAtmos(grid, doors, [], [], 0.05);
     }
 
@@ -123,8 +141,8 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
       }
     }
 
-    // Breach corridor directly
-    for (let t = 0; t < 20; t++) {
+    // Breach corridor directly (full rupture needs ~35s to pump the sealed spine dry)
+    for (let t = 0; t < 700; t++) {
       tickCellularAtmos(grid, doors, ['corridor'], [], 0.05);
     }
 
@@ -143,12 +161,15 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     // Now verify spine door isolates corridor segments:
     const spineGrid = createInitialAtmosGrid();
     const spineDoors = createInitialDoors();
-    // Close forward spine door
+    // Close forward spine door and seal cabins so each corridor third stands alone
     const spineFwd = spineDoors.find((d) => d.id === 'door_spine_fwd');
     if (spineFwd) spineFwd.isOpen = false;
+    for (const d of spineDoors) {
+      if (d.id !== 'door_spine_aft' && d.id !== 'door_spine_fwd') d.isOpen = false;
+    }
 
     // Breach corridor on far left (col 6)
-    for (let t = 0; t < 20; t++) {
+    for (let t = 0; t < 300; t++) {
       tickCellularAtmos(spineGrid, spineDoors, ['corridor'], [], 0.05);
     }
     // West of spine door (x=300) should be vented
@@ -172,8 +193,8 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     if (stbdOuter) stbdOuter.isOpen = true;
     if (stbdInner) stbdInner.isOpen = false;
 
-    // Vent airlock to hard vacuum
-    for (let t = 0; t < 20; t++) {
+    // Vent airlock to hard vacuum (isolated 91 m3 through a 3 m2 hatch: ~3s)
+    for (let t = 0; t < 60; t++) {
       tickCellularAtmos(grid, doors, [], [], 0.05);
     }
     expect(sampleAtmosphereAt(grid, 960, 280).pressureKpa).toBe(0);
@@ -214,7 +235,9 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(burningMess.toxicSmokePercent).toBeGreaterThan(0);
     expect(burningMess.tempCelsius).toBeGreaterThan(21.0);
 
-    // Vent room by breach
+    // Isolate the mess hall, then vent it by breach (146 m3 through 1 m2: ~2s)
+    const messDoor = doors.find((d) => d.id === 'door_mess');
+    if (messDoor) messDoor.isOpen = false;
     for (let t = 0; t < 40; t++) {
       tickCellularAtmos(grid, doors, ['mess'], ['mess'], 0.05);
     }
@@ -333,15 +356,18 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(formatAtmosOverlayValue('off')).toBe('');
   });
 
-  it('rapidly evacuates an open airlock compartment to vacuum within 1.0 to 1.5 seconds', () => {
+  it('rapidly evacuates an isolated airlock compartment to vacuum within ~2 seconds', () => {
     const grid = createInitialAtmosGrid();
     const doors = createInitialDoors();
 
     const stbdOuter = doors.find((d) => d.id === 'airlock_stbd_outer');
     expect(stbdOuter).toBeDefined();
     if (stbdOuter) stbdOuter.isOpen = true;
+    // Isolate the airlock so the hatch vents only its own 91 m3
+    const stbdInner = doors.find((d) => d.id === 'airlock_stbd_inner');
+    if (stbdInner) stbdInner.isOpen = false;
 
-    // Sonic rarefaction wave should reach across the room within 3 ticks (0.15s)
+    // Choked outflow drops pressure across the room within 3 ticks (0.15s)
     for (let t = 0; t < 3; t++) {
       tickCellularAtmos(grid, doors, [], [], 0.05);
     }
@@ -349,8 +375,8 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(earlyAtmos.pressureKpa).toBeLessThan(90.0);
     expect(earlyAtmos.condensationPlume).toBeGreaterThan(0);
 
-    // After 1.5 seconds (30 ticks at 0.05s), room should have reached hard vacuum (0.0 kPa)
-    for (let t = 3; t < 30; t++) {
+    // After 3.0 seconds (60 ticks at 0.05s), room should have reached hard vacuum (0.0 kPa)
+    for (let t = 3; t < 60; t++) {
       tickCellularAtmos(grid, doors, [], [], 0.05);
     }
     const finalAtmos = sampleAtmosphereAt(grid, 960, 280);
@@ -383,8 +409,8 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     if (stbdOuter) stbdOuter.isOpen = true;
     if (stbdInner) stbdInner.isOpen = true;
 
-    // Simulate 3 seconds
-    for (let t = 0; t < 60; t++) {
+    // Simulate 10 seconds: one hatch pumps the whole connected ship dry
+    for (let t = 0; t < 200; t++) {
       tickCellularAtmos(grid, doors, [], [], 0.05);
     }
 
@@ -444,6 +470,25 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     if (spineAft) spineAft.isOpen = true;
     const midCorridorDragOpen = getAirflowDragVector(600, 400, doors, []);
     expect(midCorridorDragOpen.u).toBeGreaterThan(0);
+  });
+
+  it('keeps pulling pawns standing inside vent-path doorways instead of stalling on the waypoint', () => {
+    const doors = createInitialDoors();
+    const stbdOuter = doors.find((d) => d.id === 'airlock_stbd_outer');
+    if (stbdOuter) stbdOuter.isOpen = true;
+
+    // Pawn inside the inner hatch (970, 368): flow routes through this exact door
+    const innerHatchDrag = getAirflowDragVector(970, 368, doors, []);
+    expect(Math.hypot(innerHatchDrag.u, innerHatchDrag.v)).toBeGreaterThan(50);
+    expect(innerHatchDrag.v).toBeLessThan(0);
+
+    // Pawn inside the spine bulkhead doorway on the vent path
+    const spineDrag = getAirflowDragVector(440, 400, doors, []);
+    expect(Math.hypot(spineDrag.u, spineDrag.v)).toBeGreaterThan(50);
+
+    // Pawn sitting on the outer hatch itself is pushed along the outward normal
+    const hatchDrag = getAirflowDragVector(970, 228, doors, []);
+    expect(hatchDrag.v).toBeLessThan(-50);
   });
 
   it('stops venting and pull when room is fully evacuated to vacuum or doors closed', () => {

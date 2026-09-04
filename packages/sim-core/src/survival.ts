@@ -126,8 +126,10 @@ function updateRespiration(
       hypoxia = Math.max(0, hypoxia - dtSeconds * 20.0);
     }
   } else {
-    // Ambient breathing
-    const isHypoxic = localAtmos.pressureKpa < 45.0 || localAtmos.o2Percent < 15.0;
+    // Ambient breathing keys on oxygen partial pressure (sea level ~21.2 kPa).
+    // Low total pressure and oxygen-depleted mixes both drive hypoxia through pO2.
+    const pO2kPa = localAtmos.pressureKpa * (localAtmos.o2Percent / 100);
+    const isHypoxic = pO2kPa < 14.0;
     if (isHypoxic) {
       hypoxia = Math.min(100, hypoxia + dtSeconds * 25.0);
       if (localAtmos.pressureKpa < 20.0) {
