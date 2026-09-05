@@ -107,7 +107,36 @@ export const HESPERIA_ROOMS: RoomDefinition[] = [
     height: 140,
     tag: 'DECK-D',
   },
+  {
+    id: 'gauntlet',
+    name: 'Docking Gauntlet',
+    x: 580,
+    y: 572,
+    width: 40,
+    height: 78,
+    tag: 'GAUNTLET',
+  },
+  {
+    id: 'station_lobby',
+    name: 'Station Lobby',
+    x: 120,
+    y: 650,
+    width: 900,
+    height: 150,
+    tag: 'STATION',
+  },
+  {
+    id: 'station_bay',
+    name: 'Station Docking Bay',
+    x: 120,
+    y: 800,
+    width: 900,
+    height: 150,
+    tag: 'STATION',
+  },
 ];
+
+export const STATION_BAY_SPAWN = { x: 560, y: 875 };
 
 export const HESPERIA_WALLS: WallSegment[] = [
   // Outer Hull Enclosure (Top Y=228, Bottom Y=572, Left X=120, Right X=1020)
@@ -119,6 +148,188 @@ export const HESPERIA_WALLS: WallSegment[] = [
     y1: 228,
     x2: 1020,
     y2: 368,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  // South station block outer enclosure (x120 -> x1020, y650 -> y950)
+  {
+    id: 'st_hull_top_west',
+    x1: 120,
+    y1: 650,
+    x2: 500,
+    y2: 650,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_win_dock_west',
+    x1: 500,
+    y1: 650,
+    x2: 560,
+    y2: 650,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'st_hull_top_port',
+    x1: 560,
+    y1: 650,
+    x2: 580,
+    y2: 650,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_hull_top_stbd',
+    x1: 620,
+    y1: 650,
+    x2: 640,
+    y2: 650,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_win_dock_east',
+    x1: 640,
+    y1: 650,
+    x2: 700,
+    y2: 650,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'st_hull_top_east',
+    x1: 700,
+    y1: 650,
+    x2: 1020,
+    y2: 650,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_hull_left_south',
+    x1: 120,
+    y1: 650,
+    x2: 120,
+    y2: 665,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_win_west_alpha',
+    x1: 120,
+    y1: 665,
+    x2: 120,
+    y2: 705,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'st_hull_left_mid',
+    x1: 120,
+    y1: 705,
+    x2: 120,
+    y2: 745,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_win_west_beta',
+    x1: 120,
+    y1: 745,
+    x2: 120,
+    y2: 785,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'st_hull_left_north',
+    x1: 120,
+    y1: 785,
+    x2: 120,
+    y2: 950,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_hull_right_south',
+    x1: 1020,
+    y1: 650,
+    x2: 1020,
+    y2: 665,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_win_east_alpha',
+    x1: 1020,
+    y1: 665,
+    x2: 1020,
+    y2: 705,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'st_hull_right_mid',
+    x1: 1020,
+    y1: 705,
+    x2: 1020,
+    y2: 745,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_win_east_beta',
+    x1: 1020,
+    y1: 745,
+    x2: 1020,
+    y2: 785,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'st_hull_right_north',
+    x1: 1020,
+    y1: 785,
+    x2: 1020,
+    y2: 950,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'st_hull_bottom',
+    x1: 120,
+    y1: 950,
+    x2: 1020,
+    y2: 950,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  // Station lobby/bay partition with open arch (gap x630 -> x670, no door)
+  { id: 'st_part_west', x1: 120, y1: 800, x2: 630, y2: 800, isOpaque: true, isTraversable: false },
+  { id: 'st_part_east', x1: 670, y1: 800, x2: 1020, y2: 800, isOpaque: true, isTraversable: false },
+  // Vertical docking gauntlet tube (x580 -> x620, y572 -> y650)
+  {
+    id: 'gauntlet_tube_west',
+    x1: 580,
+    y1: 572,
+    x2: 580,
+    y2: 650,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'gauntlet_tube_east',
+    x1: 620,
+    y1: 572,
+    x2: 620,
+    y2: 650,
     isOpaque: true,
     isTraversable: false,
   },
@@ -150,8 +361,55 @@ export const HESPERIA_WALLS: WallSegment[] = [
     isTraversable: false,
   },
   {
-    id: 'hull_bottom_r',
+    id: 'hull_bottom_r_east',
     x1: 1020,
+    y1: 572,
+    x2: 700,
+    y2: 572,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'hull_win_cargo_east',
+    x1: 700,
+    y1: 572,
+    x2: 640,
+    y2: 572,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'hull_bottom_gauntlet_east',
+    x1: 640,
+    y1: 572,
+    x2: 620,
+    y2: 572,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'hull_bottom_gauntlet_west',
+    x1: 580,
+    y1: 572,
+    x2: 560,
+    y2: 572,
+    isOpaque: true,
+    isTraversable: false,
+  },
+  {
+    id: 'hull_win_cargo_west',
+    x1: 560,
+    y1: 572,
+    x2: 500,
+    y2: 572,
+    isOpaque: false,
+    isTraversable: false,
+    isWindow: true,
+  },
+  {
+    id: 'hull_bottom_r_west',
+    x1: 500,
     y1: 572,
     x2: 400,
     y2: 572,
@@ -639,6 +897,15 @@ export const HESPERIA_STATIONS: StationFixture[] = [
     prompt: '[E] Operate Cargo Winch',
   },
   {
+    id: 'lobby_job_board',
+    deckId: 'station',
+    name: 'Station Job Board',
+    stationType: 'job_board',
+    x: 300,
+    y: 700,
+    radius: 24,
+  },
+  {
     id: 'reactor_primary_console',
     deckId: 'deck_d',
     name: 'Reactor Core Monitor',
@@ -662,7 +929,7 @@ export const DEFAULT_DECK: DeckDefinition = {
   id: 'css_hesperia_main',
   name: 'CSS Hesperia - Primary Deck',
   width: 1200,
-  height: 800,
+  height: 1000,
   walls: HESPERIA_WALLS,
   stations: HESPERIA_STATIONS,
   spawnPoints: HESPERIA_SPAWNS,
@@ -820,6 +1087,36 @@ export const HESPERIA_LIGHTS: LightDefinition[] = [
     room: 'cargo',
   },
   {
+    id: 'light_station_lobby',
+    name: 'Station Lobby Concourse Array',
+    x: 570,
+    y: 725,
+    radius: 220,
+    intensity: 1.0,
+    color: [1.0, 0.95, 0.85],
+    room: 'station_lobby',
+  },
+  {
+    id: 'light_station_bay',
+    name: 'Station Bay Floodlight',
+    x: 570,
+    y: 875,
+    radius: 230,
+    intensity: 1.0,
+    color: [0.85, 0.92, 1.0],
+    room: 'station_bay',
+  },
+  {
+    id: 'light_gauntlet',
+    name: 'Gauntlet Tube Strip',
+    x: 600,
+    y: 610,
+    radius: 120,
+    intensity: 0.9,
+    color: [0.4, 0.85, 1.0],
+    room: 'gauntlet',
+  },
+  {
     id: 'light_engineering',
     name: 'Reactor Chamber Core Glow',
     x: 890,
@@ -845,6 +1142,9 @@ export const ROOM_AMBIENTS: Record<string, [number, number, number]> = {
   airlock_port: [0.15, 0.18, 0.22],
   cargo: [0.2, 0.2, 0.2],
   engineering: [0.24, 0.2, 0.2],
+  gauntlet: [0.16, 0.2, 0.26],
+  station_lobby: [0.28, 0.27, 0.24],
+  station_bay: [0.2, 0.23, 0.28],
 };
 
 export interface BreachLocation {
@@ -870,6 +1170,8 @@ function findWallForHullPoint(x: number, y: number): WallSegment | undefined {
 function getHullNormalAt(x: number, y: number): { normalX: number; normalY: number } {
   if (Math.abs(y - 228) <= 4) return { normalX: 0, normalY: -1 };
   if (Math.abs(y - 572) <= 4) return { normalX: 0, normalY: 1 };
+  if (Math.abs(y - 650) <= 4) return { normalX: 0, normalY: -1 };
+  if (Math.abs(y - 950) <= 4) return { normalX: 0, normalY: 1 };
   if (Math.abs(x - 120) <= 4) return { normalX: -1, normalY: 0 };
   if (Math.abs(x - 1020) <= 4) return { normalX: 1, normalY: 0 };
   return { normalX: 0, normalY: -1 };
@@ -951,10 +1253,10 @@ export const HESPERIA_BREACH_LOCATIONS: Record<string, BreachLocation> = {
     normalX: 0,
     normalY: 1,
   },
-  cargo: { roomId: 'cargo', wallId: 'hull_bottom_r', x: 600, y: 572, normalX: 0, normalY: 1 },
+  cargo: { roomId: 'cargo', wallId: 'hull_bottom_r_east', x: 800, y: 572, normalX: 0, normalY: 1 },
   engineering: {
     roomId: 'engineering',
-    wallId: 'hull_bottom_r',
+    wallId: 'hull_bottom_r_east',
     x: 890,
     y: 572,
     normalX: 0,
@@ -962,13 +1264,37 @@ export const HESPERIA_BREACH_LOCATIONS: Record<string, BreachLocation> = {
   },
   reactor: {
     roomId: 'engineering',
-    wallId: 'hull_bottom_r',
+    wallId: 'hull_bottom_r_east',
     x: 890,
     y: 572,
     normalX: 0,
     normalY: 1,
   },
   corridor: { roomId: 'corridor', wallId: 'hull_left', x: 120, y: 400, normalX: -1, normalY: 0 },
+  gauntlet: {
+    roomId: 'gauntlet',
+    wallId: 'hull_bottom_gauntlet_west',
+    x: 570,
+    y: 572,
+    normalX: 0,
+    normalY: 1,
+  },
+  station_lobby: {
+    roomId: 'station_lobby',
+    wallId: 'st_hull_top_west',
+    x: 300,
+    y: 650,
+    normalX: 0,
+    normalY: -1,
+  },
+  station_bay: {
+    roomId: 'station_bay',
+    wallId: 'st_hull_bottom',
+    x: 300,
+    y: 950,
+    normalX: 0,
+    normalY: 1,
+  },
 };
 
 interface BreachPointOnWall {
@@ -1071,6 +1397,93 @@ export function carveBreachedWallSegments(
   }
 
   return carved;
+}
+
+export interface DockFrameOffset {
+  x: number;
+  y: number;
+}
+
+export function isShipSideRoom(roomId: string): boolean {
+  const room = HESPERIA_ROOMS.find((r) => r.id === roomId);
+  if (!room) return false;
+  return room.tag.startsWith('DECK') || room.tag === 'CORRIDOR';
+}
+
+export function findWorldRoom(x: number, y: number, offset: DockFrameOffset): string | null {
+  for (const r of HESPERIA_ROOMS) {
+    const shipSide = isShipSideRoom(r.id);
+    const rx = shipSide ? r.x + offset.x : r.x;
+    const ry = shipSide ? r.y + offset.y : r.y;
+    if (x >= rx && x <= rx + r.width && y >= ry && y <= ry + r.height) {
+      return r.id;
+    }
+  }
+  return null;
+}
+
+export function isAboardShip(x: number, y: number, offset: DockFrameOffset): boolean {
+  const roomId = findWorldRoom(x, y, offset);
+  return roomId !== null && isShipSideRoom(roomId);
+}
+
+export function isShipSideWall(wall: WallSegment): boolean {
+  return !wall.id.startsWith('st_') && !wall.id.startsWith('gauntlet_');
+}
+
+export function getShipFrameWalls(): WallSegment[] {
+  return HESPERIA_WALLS.filter((w) => isShipSideWall(w));
+}
+
+export function partitionFrameWalls(walls: WallSegment[]): {
+  ship: WallSegment[];
+  station: WallSegment[];
+} {
+  return {
+    ship: walls.filter((w) => isShipSideWall(w)),
+    station: walls.filter((w) => !isShipSideWall(w)),
+  };
+}
+
+export function getStationFrameWalls(): WallSegment[] {
+  return HESPERIA_WALLS.filter((w) => !isShipSideWall(w));
+}
+
+export function getWorldRooms(offset: DockFrameOffset): RoomDefinition[] {
+  return HESPERIA_ROOMS.map((r) => {
+    if (!isShipSideRoom(r.id)) return r;
+    return { ...r, x: r.x + offset.x, y: r.y + offset.y };
+  });
+}
+
+export function getWorldStations(offset: DockFrameOffset): StationFixture[] {
+  return HESPERIA_STATIONS.map((s) => {
+    if (s.y >= 640) return s;
+    return { ...s, x: s.x + offset.x, y: s.y + offset.y };
+  });
+}
+
+export function getWorldLights(offset: DockFrameOffset): LightDefinition[] {
+  return HESPERIA_LIGHTS.map((l) => {
+    if (!l.room || !isShipSideRoom(l.room)) return l;
+    return { ...l, x: l.x + offset.x, y: l.y + offset.y };
+  });
+}
+
+export function applyShipOffsetToWalls(
+  walls: WallSegment[],
+  offset: DockFrameOffset
+): WallSegment[] {
+  return walls.map((w) => {
+    if (!isShipSideWall(w)) return w;
+    return {
+      ...w,
+      x1: w.x1 + offset.x,
+      y1: w.y1 + offset.y,
+      x2: w.x2 + offset.x,
+      y2: w.y2 + offset.y,
+    };
+  });
 }
 
 export function findRoomAtHullImpact(x: number, y: number): string | null {

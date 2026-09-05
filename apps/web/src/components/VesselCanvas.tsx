@@ -1,6 +1,7 @@
 import type {
   AtmosOverlayMode,
   BoardingTacticsTelemetry,
+  DockingPhase,
   DoorState,
   DualProtocolBroadcast,
   PawnState,
@@ -23,6 +24,7 @@ import {
 import { useTacticalCamera } from '../hooks/useTacticalCamera';
 import type { ActiveInteraction } from '../types';
 import { WebGL2Renderer } from '../webgl';
+import { liveEtaSeconds, resolveClientShipOffset } from '../webgl/StationHub';
 
 interface VesselCanvasProps {
   pawn: PawnState;
@@ -86,6 +88,10 @@ interface VesselCanvasProps {
   currentRoomId?: string;
   overlayMode?: AtmosOverlayMode;
   onCycleOverlay?: () => void;
+  dockingPhase?: DockingPhase;
+  dockingEtaSeconds?: number;
+  dockingLegIndex?: number;
+  dockingReceivedAt?: number;
 }
 
 function getActiveBoarding(
@@ -285,6 +291,10 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   currentRoomId,
   overlayMode = 'off',
   onCycleOverlay,
+  dockingPhase,
+  dockingEtaSeconds,
+  dockingLegIndex,
+  dockingReceivedAt,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<WebGL2Renderer | null>(null);
@@ -380,16 +390,39 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       const dt = Math.min((now - lastFrameTimeRef.current) / 1000, 0.05);
       lastFrameTimeRef.current = now;
 
+      const frameOffset = resolveClientShipOffset(
+        dockingPhase,
+        dockingReceivedAt
+          ? liveEtaSeconds(dockingEtaSeconds ?? 20, dockingReceivedAt, now)
+          : (dockingEtaSeconds ?? 20),
+        dockingLegIndex
+      );
+      (window as unknown as { __shipOffset?: { x: number; y: number } }).__shipOffset = frameOffset;
+
       const doors = boarding?.doors || defaultDoorsRef.current;
       ShipAudioEngine.getInstance().updateListener(pawn.x, pawn.y, doors);
 
-      stepProjectiles(dt, doors, (hitX, hitY, type) => {
-        if (isImpactVisible({ x: pawn.x, y: pawn.y }, { x: hitX, y: hitY }, doors)) {
-          queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
-          addScreenShake(1.4);
-          ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
-        }
-      });
+      stepProjectiles(
+        dt,
+        doors,
+        (hitX, hitY, type) => {
+          if (
+            isImpactVisible(
+              { x: pawn.x, y: pawn.y },
+              { x: hitX, y: hitY },
+              doors,
+              undefined,
+              undefined,
+              frameOffset
+            )
+          ) {
+            queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
+            addScreenShake(1.4);
+            ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
+          }
+        },
+        frameOffset
+      );
 
       const renderCam = updateCamera(
         pawn.x,
@@ -427,7 +460,8 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
         now,
         dt,
         doors,
-        activeBoarding
+        activeBoarding,
+        frameOffset
       );
 
       const activePawn = { ...pawn, facingAngle: aimAngle };
@@ -507,6 +541,7 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
           currentRoomId,
           overlayMode,
           onCycleOverlay,
+          shipOffset: frameOffset,
           screenWidth: canvas.clientWidth,
           screenHeight: canvas.clientHeight,
         },
@@ -568,6 +603,10 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     zoomRef,
     nearestDoor?.id,
     facingAngleRef,
+    dockingPhase,
+    dockingEtaSeconds,
+    dockingLegIndex,
+    dockingReceivedAt,
   ]);
 
   return (

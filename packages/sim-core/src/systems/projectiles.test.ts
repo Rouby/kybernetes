@@ -178,4 +178,126 @@ describe('Weapon Systems: Kinetic, Charged Laser & Welder AOE', () => {
     expect(res.partitionHits).toHaveLength(0);
     expect(res.newBreaches).toHaveLength(0);
   });
+
+  describe('Moving Ship Frame Collisions (Docking Offset)', () => {
+    const shipOffset = { x: 1400, y: 0 };
+
+    it('handles kinetic collisions and hull breaches against shifted ship hull at offset', () => {
+      const originalRandom = Math.random;
+      try {
+        Math.random = () => 0.001; // Force puncture chance
+        // Hull top at unshifted y=228, x=200; with offset.x=1400, world hull is at x=1600, y=228
+        const bullet = createProjectile(1600, 240, 1600, 220, 'kinetic_carbine', true);
+        const res = tickProjectiles([bullet], 0.05, [], [], { x: 0, y: 0 }, undefined, shipOffset);
+
+        expect(res.nextProjectiles).toHaveLength(0); // Absorbed by hull
+        expect(res.hullDamageTaken).toBe(0.4);
+        expect(res.newBreaches).toHaveLength(1);
+        // Breach coordinate must be normalized to ship-local space (x=200, y=228)
+        expect(res.newBreaches?.[0]).toBe('puncture_bridge_200_228');
+      } finally {
+        Math.random = originalRandom;
+      }
+    });
+
+    it('registers partition bullet holes at shifted world coordinates on moving ship', () => {
+      // Partition wall part_bridge_avionics at local x=320, y=280 -> world x=1720, y=280
+      const bullet = createProjectile(1710, 280, 1730, 280, 'kinetic_carbine', true);
+      const res = tickProjectiles([bullet], 0.05, [], [], { x: 0, y: 0 }, undefined, shipOffset);
+
+      expect(res.nextProjectiles).toHaveLength(0);
+      expect(res.partitionHits).toBeDefined();
+      expect(res.partitionHits).toHaveLength(1);
+      expect(res.partitionHits?.[0].wallId).toBe('part_bridge_avionics');
+      expect(res.partitionHits?.[0].x).toBe(1720);
+      expect(res.partitionHits?.[0].y).toBe(280);
+    });
+
+    it('blocks projectiles at shifted closed ship doors when offset is active', () => {
+      const doors: DoorState[] = [
+        {
+          id: 'door_bridge',
+          name: 'Bridge Door',
+          x1: 200,
+          y1: 368,
+          x2: 240,
+          y2: 368,
+          isOpen: false,
+          roomA: 'bridge',
+          roomB: 'corridor',
+        },
+      ];
+      // World door shifted by 1400: x=1600..1640, y=368
+      const bullet = createProjectile(1620, 360, 1620, 380, 'kinetic_carbine', true);
+      const res = tickProjectiles([bullet], 0.05, doors, [], { x: 0, y: 0 }, undefined, shipOffset);
+
+      expect(res.nextProjectiles).toHaveLength(0); // Blocked by closed door
+    });
+
+    it('allows projectiles through shifted open doors on moving ship', () => {
+      const doors: DoorState[] = [
+        {
+          id: 'door_bridge',
+          name: 'Bridge Door',
+          x1: 200,
+          y1: 368,
+          x2: 240,
+          y2: 368,
+          isOpen: true,
+          roomA: 'bridge',
+          roomB: 'corridor',
+        },
+      ];
+      const bullet = createProjectile(1620, 360, 1620, 380, 'kinetic_carbine', true);
+      const res = tickProjectiles([bullet], 0.01, doors, [], { x: 0, y: 0 }, undefined, shipOffset);
+
+      expect(res.nextProjectiles).toHaveLength(1); // Flew through open doorway
+      expect(res.nextProjectiles[0].y).toBeGreaterThan(360);
+    });
+
+    it('damages intruders and respects blast doors during welder AOE on moving ship', () => {
+      const doors: DoorState[] = [
+        {
+          id: 'door_cargo',
+          x1: 200,
+          y1: 80,
+          x2: 200,
+          y2: 120,
+          isOpen: false,
+          roomA: 'cargo',
+          roomB: 'corridor',
+        },
+      ];
+      const intruders: IntruderState[] = [
+        {
+          id: 'raider-aboard-shifted',
+          name: 'Marauder Breacher',
+          x: 1615,
+          y: 100,
+          health: 50,
+          maxHealth: 100,
+          state: 'advancing',
+          facingAngle: Math.PI,
+        },
+      ];
+
+      // Blocked by closed shifted door (door at world x=1600, welder at 1580 aiming east)
+      const blocked = applyWelderAoeDamage(intruders, 1580, 100, 0, 25, 48, doors, shipOffset);
+      expect(blocked.hitIntruders).toHaveLength(0);
+
+      // Open shifted door allows damage through
+      const openDoors: DoorState[] = [{ ...doors[0], isOpen: true }];
+      const hit = applyWelderAoeDamage(intruders, 1580, 100, 0, 25, 48, openDoors, shipOffset);
+      expect(hit.hitIntruders).toHaveLength(1);
+      expect(hit.nextIntruders[0].health).toBe(25);
+    });
+
+    it('collides against fixed station walls while ship is offset', () => {
+      // Station wall st_hull_top_west at stationary y=650, x=120..500
+      const bullet = createProjectile(300, 660, 300, 640, 'kinetic_carbine', true);
+      const res = tickProjectiles([bullet], 0.05, [], [], { x: 0, y: 0 }, undefined, shipOffset);
+
+      expect(res.nextProjectiles).toHaveLength(0); // Absorbed by station hull
+    });
+  });
 });

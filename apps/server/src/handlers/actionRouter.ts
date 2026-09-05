@@ -26,9 +26,10 @@ import {
   deploySentryGun,
   engageIntruder,
   executeDualProtocol,
-  HESPERIA_SPAWNS,
+  getShipDockingOffset,
   handoverWatchRotation,
   interceptNavalEvent,
+  isGauntletDoorId,
   joinCollabShift,
   leaveCollabShift,
   type PersistedCrewMember,
@@ -38,6 +39,7 @@ import {
   refillSuitO2,
   repairHullPlating,
   reviveCrew,
+  STATION_BAY_SPAWN,
   spawnBoardingEvent,
   stateToTelemetryBroadcast,
   toggleBulkheadLock,
@@ -54,6 +56,7 @@ import {
   sendInitialPackets,
 } from '../broadcast/deltaBroadcaster';
 import type { ClientSession, VesselSession } from '../types.js';
+import { handleAcceptJobOffer, handleTalkToCaptain, sendIntroToClient } from './introHandler.js';
 
 export interface ServerRouterContext {
   getOrCreateSession: (code: string) => VesselSession;
@@ -86,7 +89,7 @@ function spawnFreshClientPawn(
   callsign: string,
   color?: string
 ): PawnState {
-  const spawn = HESPERIA_SPAWNS[role] ?? { x: 500, y: 350 };
+  const spawn = STATION_BAY_SPAWN;
   const fallbackColor = ROLE_DEFINITIONS[role]?.color ?? '#00e5ff';
   return {
     ...base,
@@ -123,6 +126,14 @@ export class ActionRouter {
     const session = this.ctx.sessions.get(client.vesselCode);
     if (!session) return;
 
+    if (action.type === 'TALK_TO_CAPTAIN') {
+      handleTalkToCaptain(session, client);
+      return;
+    }
+    if (action.type === 'ACCEPT_JOB_OFFER') {
+      handleAcceptJobOffer(session, client, action);
+      return;
+    }
     if (action.type === 'PLAYER_MOVE') {
       this.handleMoveAction(client, action);
     } else if (action.type === 'INITIATE_DUAL_PROTOCOL') {
@@ -197,6 +208,7 @@ export class ActionRouter {
     );
 
     sendInitialPackets(client, session);
+    sendIntroToClient(client, session);
     broadcastCrewManifest(session);
     broadcastSpatialSnapshot(session);
   }
@@ -499,6 +511,7 @@ export class ActionRouter {
         proj,
       ];
     } else if (action.type === 'WELDER_AOE') {
+      const offset = getShipDockingOffset(session.intro);
       const res = applyWelderAoeDamage(
         session.vesselState.boarding.intruders,
         action.originX,
@@ -506,10 +519,12 @@ export class ActionRouter {
         action.facingAngle,
         action.damage,
         action.range || 48,
-        session.vesselState.boarding.doors
+        session.vesselState.boarding.doors,
+        offset
       );
       session.vesselState.boarding.intruders = res.nextIntruders;
     } else if (action.type === 'TOGGLE_DOOR') {
+      if (isGauntletDoorId(action.doorId)) return;
       session.vesselState.boarding.doors = toggleDoor(
         session.vesselState.boarding.doors,
         action.doorId,

@@ -1,4 +1,4 @@
-import { HESPERIA_ROOMS, type Point2D, ROOM_AMBIENTS } from '@kybernetes/sim-core';
+import { getWorldRooms, type Point2D, ROOM_AMBIENTS } from '@kybernetes/sim-core';
 import { createProgram } from '../glUtils';
 import { FOW_AMBIENT_FS, FOW_AMBIENT_VS, FOW_STAMP_FS, FOW_STAMP_VS } from '../shaders';
 import type { FramebufferManager } from '../systems/FramebufferManager';
@@ -125,7 +125,11 @@ export class FogOfWarPass {
   }
 
   // fallow-ignore-next-line complexity
-  public renderShipAmbientRooms(fboManager: FramebufferManager, matrix: Float32Array): void {
+  public renderShipAmbientRooms(
+    fboManager: FramebufferManager,
+    matrix: Float32Array,
+    shipDx = 0
+  ): void {
     const gl = this.gl;
     fboManager.ensureFowFBO();
     gl.useProgram(this.fowAmbientProg);
@@ -142,7 +146,7 @@ export class FogOfWarPass {
     gl.bindTexture(gl.TEXTURE_2D, fboManager.getFowTexture());
     gl.uniform1i(gl.getUniformLocation(this.fowAmbientProg, 'u_fowTexture'), 0);
 
-    for (const room of HESPERIA_ROOMS) {
+    for (const room of getWorldRooms({ x: shipDx, y: 0 })) {
       const amb = ROOM_AMBIENTS[room.id] ?? [0.2, 0.2, 0.2];
       gl.uniform3f(
         gl.getUniformLocation(this.fowAmbientProg, 'u_roomAmbient'),

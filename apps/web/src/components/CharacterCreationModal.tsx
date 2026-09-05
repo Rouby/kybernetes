@@ -2,7 +2,7 @@ import type { StartingRole } from '@kybernetes/protocol';
 import { ROLE_DEFINITIONS } from '@kybernetes/sim-core';
 import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
-import { Check, ChevronRight, Palette, RefreshCw, Shield, User, X } from 'lucide-react';
+import { Check, ChevronRight, Palette, RefreshCw, User, X } from 'lucide-react';
 import type React from 'react';
 import { useState } from 'react';
 
@@ -39,14 +39,6 @@ const RANDOM_CALLSIGNS = [
   'Rook',
   'Phoenix',
   'Talon',
-];
-
-const ROLES: StartingRole[] = [
-  'wiper',
-  'galley_hand',
-  'security_private',
-  'hydro_tender',
-  'stevedore',
 ];
 
 const styles = stylex.create({
@@ -353,41 +345,6 @@ const CallsignField: React.FC<{
   </div>
 );
 
-const RoleGrid: React.FC<{
-  selectedRole: StartingRole;
-  onSelectRole: (role: StartingRole) => void;
-}> = ({ selectedRole, onSelectRole }) => (
-  <div {...stylex.props(styles.section)}>
-    <span {...stylex.props(styles.sectionLabel)}>
-      <Shield size={13} />
-      <span>OPERATIONAL ROLE ASSIGNMENT</span>
-    </span>
-    <div {...stylex.props(styles.roleGrid)}>
-      {ROLES.map((r) => {
-        const def = ROLE_DEFINITIONS[r];
-        const isSelected = selectedRole === r;
-        return (
-          <button
-            type="button"
-            key={r}
-            data-testid={`dossier-role-${r}`}
-            {...stylex.props(styles.roleCard, isSelected && styles.roleSelected)}
-            onClick={() => onSelectRole(r)}
-          >
-            <span
-              {...stylex.props(styles.roleName)}
-              style={{ color: def.color || hudColors.cyanTelemetry }}
-            >
-              {def.name}
-            </span>
-            <span {...stylex.props(styles.roleDept)}>{def.department}</span>
-          </button>
-        );
-      })}
-    </div>
-  </div>
-);
-
 const SuitColorGrid: React.FC<{
   selectedColor: string;
   onSelectColor: (hex: string) => void;
@@ -463,7 +420,6 @@ export const CharacterCreationModal: React.FC<CharacterCreationModalProps> = ({
 }) => {
   const [initCallsign, initRole, initColor] = getInitialProfileValues(initialProfile);
   const [callsign, setCallsign] = useState(initCallsign);
-  const [role, setRole] = useState<StartingRole>(initRole);
   const [color, setColor] = useState(initColor);
 
   const handleRandomizeCallsign = () => {
@@ -471,18 +427,11 @@ export const CharacterCreationModal: React.FC<CharacterCreationModalProps> = ({
     setCallsign(picked);
   };
 
-  const handleSelectRole = (r: StartingRole) => {
-    setRole(r);
-    if (!initialProfile?.color) {
-      setColor(ROLE_DEFINITIONS[r].color ?? '#00e5ff');
-    }
-  };
-
   const handleConfirm = () => {
     const trimmed = callsign.trim();
     onConfirm({
       callsign: trimmed.length > 0 ? trimmed : 'Cadet',
-      role,
+      role: initRole,
       color,
     });
   };
@@ -495,7 +444,7 @@ export const CharacterCreationModal: React.FC<CharacterCreationModalProps> = ({
             <span {...stylex.props(styles.beaconBadge)}>VESSEL: {vesselCode}</span>
             <h2 {...stylex.props(styles.title)}>OPERATOR DOSSIER SPECIFICATION</h2>
             <p {...stylex.props(styles.subtitle)}>
-              CONFIGURE CALLSIGN, DUTY ROLE & SUIT IDENTIFIER
+              CONFIGURE CALLSIGN & SUIT IDENTIFIER — BILLET ASSIGNED ABOARD BY THE CAPTAIN
             </p>
           </div>
           <button
@@ -514,11 +463,9 @@ export const CharacterCreationModal: React.FC<CharacterCreationModalProps> = ({
           onRandomize={handleRandomizeCallsign}
         />
 
-        <RoleGrid selectedRole={role} onSelectRole={handleSelectRole} />
-
         <SuitColorGrid selectedColor={color} onSelectColor={setColor} />
 
-        <AvatarPreview color={color} callsign={callsign} role={role} />
+        <AvatarPreview color={color} callsign={callsign} role={initRole} />
 
         <div {...stylex.props(styles.actionsRow)}>
           <button type="button" {...stylex.props(styles.backBtn)} onClick={onAbort}>

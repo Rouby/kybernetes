@@ -143,6 +143,39 @@ describe('VesselServer lifecycle and wire loopback', () => {
     expect(snapshot.pawns.some((p) => p.callsign === 'Loopback-4')).toBe(true);
   });
 
+  it('JOIN streams the current docking phase immediately', async () => {
+    const server = await startServer();
+    const ws = await connectAndJoin(server.getPort(), 'Loopback-5');
+    sockets.push(ws);
+
+    const docking = (await waitForType(ws, 'SHIP_DOCKING_UPDATE')) as {
+      phase: string;
+      shipName: string;
+    };
+    expect(docking.shipName).toBeTruthy();
+    expect(['inbound', 'docked', 'departing', 'in_transit', 'arrived']).toContain(docking.phase);
+  });
+
+  it('gauntlet hatches ignore manual toggle while sealed', async () => {
+    const server = await startServer();
+    const ws = await connectAndJoin(server.getPort(), 'Loopback-6');
+    sockets.push(ws);
+    await waitForType(ws, 'CREW_MANIFEST');
+
+    ws.send(JSON.stringify({ type: 'TOGGLE_DOOR', doorId: 'gauntlet_ship_door', open: true }));
+    const first = (await waitForType(ws, 'TELEMETRY_DELTA')) as {
+      boarding: { doors: { id: string; isOpen: boolean }[] };
+    };
+    const second = (await waitForType(ws, 'TELEMETRY_DELTA')) as {
+      boarding: { doors: { id: string; isOpen: boolean }[] };
+    };
+    const hatch = [...first.boarding.doors, ...second.boarding.doors].find(
+      (d) => d.id === 'gauntlet_ship_door'
+    );
+    expect(hatch).toBeDefined();
+    expect(second.boarding.doors.find((d) => d.id === 'gauntlet_ship_door')?.isOpen).toBe(false);
+  });
+
   it('stop() releases the port so a new daemon can bind it', async () => {
     const first = await startServer();
     const port = first.getPort();

@@ -1,7 +1,7 @@
 import type { ProjectileState, WallSegment } from '@kybernetes/protocol';
 import {
   computeVisibilityPolygon,
-  HESPERIA_LIGHTS,
+  getWorldLights,
   isPointInPolygon,
   type Point2D,
 } from '@kybernetes/sim-core';
@@ -193,18 +193,24 @@ export class LightingPass {
   public renderStaticShipLights(
     matrix: Float32Array,
     timeSec: number,
-    opaqueWalls: WallSegment[]
+    opaqueWalls: WallSegment[],
+    shipDx = 0
   ): void {
-    for (const light of HESPERIA_LIGHTS) {
+    for (const light of getWorldLights({ x: shipDx, y: 0 })) {
       let intensity = light.intensity;
       if (light.flickerSpeed && light.flickerAmount) {
         intensity += Math.sin(timeSec * light.flickerSpeed) * light.flickerAmount;
       }
 
-      let poly = this.cachedStaticLights.get(light.id);
+      let poly: Point2D[] | undefined;
+      if (shipDx === 0) {
+        poly = this.cachedStaticLights.get(light.id);
+      }
       if (!poly) {
         poly = computeVisibilityPolygon({ x: light.x, y: light.y }, light.radius, opaqueWalls, 36);
-        this.cachedStaticLights.set(light.id, poly);
+        if (shipDx === 0) {
+          this.cachedStaticLights.set(light.id, poly);
+        }
       }
 
       this.drawLightPolygonFan(
@@ -322,7 +328,8 @@ export class LightingPass {
     width: number,
     height: number,
     fboManager: FramebufferManager,
-    fogOfWarPass: FogOfWarPass
+    fogOfWarPass: FogOfWarPass,
+    shipDx = 0
   ): Point2D[] {
     const gl = this.gl;
     const { fbo } = fboManager.ensureLightFBO(width, height);
@@ -354,10 +361,10 @@ export class LightingPass {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ZERO);
 
-    fogOfWarPass.renderShipAmbientRooms(fboManager, matrix);
+    fogOfWarPass.renderShipAmbientRooms(fboManager, matrix, shipDx);
 
     gl.blendFunc(gl.ONE, gl.ONE);
-    this.renderStaticShipLights(matrix, timeSec, opaqueWalls);
+    this.renderStaticShipLights(matrix, timeSec, opaqueWalls, shipDx);
 
     this.drawLightPolygonFan(
       matrix,

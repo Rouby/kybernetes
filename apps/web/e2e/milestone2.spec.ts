@@ -2,19 +2,13 @@ import { expect, test } from '@playwright/test';
 import { quickBoard, waitForBroadcast } from './helpers';
 
 test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking', () => {
-  test('selects starting role and updates department and spawn location', async ({ page }) => {
+  test('role picker is gone: billets come from the captain hire flow', async ({ page }) => {
     await quickBoard(page);
     await expect(page.getByTestId('vessel-canvas')).toBeVisible();
 
-    // Press 'KeyP' (or click WebGL role badge) to open role select modal
+    // Pressing 'KeyP' no longer opens a role select modal
     await page.keyboard.press('KeyP');
-    await expect(page.getByText('CREW MANIFEST: SELECT STARTING ORIGIN')).toBeVisible();
-
-    // Select Cargo Stevedore
-    await page.getByRole('button', { name: /Cargo Stevedore/i }).click({ force: true });
-    await page.getByRole('button', { name: /CONFIRM ASSIGNMENT/i }).click();
-
-    // Verify modal is closed and canvas remains active
+    await page.waitForTimeout(300);
     await expect(page.getByText('CREW MANIFEST: SELECT STARTING ORIGIN')).not.toBeVisible();
     await expect(page.getByTestId('vessel-canvas')).toBeVisible();
   });

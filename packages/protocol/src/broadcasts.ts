@@ -1,4 +1,10 @@
 import type { BoardingTacticsTelemetry } from './boarding';
+import type {
+  CaptainJobOfferBroadcast,
+  JobAssignedBroadcast,
+  ShipDockingUpdateBroadcast,
+  TransitUpdateBroadcast,
+} from './intro';
 import type { BulkheadState, PawnState } from './spatial';
 import type {
   DefenseTelemetry,
@@ -146,4 +152,8 @@ export type ServerBroadcast =
   | DualProtocolBroadcast
   | CollabShiftUpdateBroadcast
   | LobbyStateBroadcast
-  | WatchRotationBroadcast;
+  | WatchRotationBroadcast
+  | ShipDockingUpdateBroadcast
+  | CaptainJobOfferBroadcast
+  | JobAssignedBroadcast
+  | TransitUpdateBroadcast;

@@ -1,6 +1,7 @@
 export * from './bots/botManager';
 export * from './duties';
 export * from './gameLoop';
+export * from './intro';
 export * from './quests/shiftChecklist';
 export * from './roles';
 export * from './spatial/acoustics';

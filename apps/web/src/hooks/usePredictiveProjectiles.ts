@@ -1,5 +1,12 @@
 import type { DoorState, ProjectileState } from '@kybernetes/protocol';
-import { HESPERIA_WALLS, isSegmentBlockedByDoors, segmentsIntersect } from '@kybernetes/sim-core';
+import {
+  applyShipOffsetToWalls,
+  type DockFrameOffset,
+  getWorldDoors,
+  HESPERIA_WALLS,
+  isSegmentBlockedByDoors,
+  segmentsIntersect,
+} from '@kybernetes/sim-core';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 
 export interface PredictedProjectile extends ProjectileState {
@@ -39,9 +46,13 @@ function integrateProjectiles(
   projectiles: PredictedProjectile[],
   dt: number,
   doors: DoorState[],
-  onImpact?: ProjectileImpactCallback
+  onImpact?: ProjectileImpactCallback,
+  offset: DockFrameOffset = { x: 0, y: 0 }
 ): PredictedProjectile[] {
   const result: PredictedProjectile[] = [];
+  const worldWalls = applyShipOffsetToWalls(HESPERIA_WALLS, offset);
+  const worldDoors = getWorldDoors(doors, offset);
+
   for (const p of projectiles) {
     const nextX = p.x + p.vx * dt;
     const nextY = p.y + p.vy * dt;
@@ -58,13 +69,13 @@ function integrateProjectiles(
     const p2 = { x: nextX, y: nextY };
 
     // Line-segment collision with ship bulkheads
-    const hitWall = HESPERIA_WALLS.some(
+    const hitWall = worldWalls.some(
       (w) =>
         !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
     );
 
     // Line-segment collision with closed blast doors
-    const hitDoor = isSegmentBlockedByDoors(p1, p2, doors);
+    const hitDoor = isSegmentBlockedByDoors(p1, p2, worldDoors);
 
     if (hitWall || hitDoor) {
       const type =
@@ -91,7 +102,8 @@ export interface UsePredictiveProjectilesReturn {
   stepProjectiles: (
     dt: number,
     doors: DoorState[],
-    onImpact?: ProjectileImpactCallback
+    onImpact?: ProjectileImpactCallback,
+    offset?: DockFrameOffset
   ) => PredictedProjectile[];
 }
 
@@ -113,12 +125,18 @@ export function usePredictiveProjectiles(
     localProjectilesRef.current.push({ ...proj, spawnTime: now });
   };
 
-  const stepProjectiles = (dt: number, doors: DoorState[], onImpact?: ProjectileImpactCallback) => {
+  const stepProjectiles = (
+    dt: number,
+    doors: DoorState[],
+    onImpact?: ProjectileImpactCallback,
+    offset: DockFrameOffset = { x: 0, y: 0 }
+  ) => {
     localProjectilesRef.current = integrateProjectiles(
       localProjectilesRef.current,
       dt,
       doors,
-      onImpact
+      onImpact,
+      offset
     );
     return localProjectilesRef.current;
   };

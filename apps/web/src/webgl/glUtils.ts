@@ -50,6 +50,12 @@ export function createCameraMatrix(
   return new Float32Array([sx, 0, 0, 0, sy, 0, tx, ty, 1]);
 }
 
+export function translateMatrixX(matrix: Float32Array, dx: number): Float32Array {
+  const out = matrix.slice();
+  out[6] += dx * matrix[0];
+  return out;
+}
+
 export function createScreenMatrix(width: number, height: number): Float32Array {
   const sx = 2 / width;
   const sy = -2 / height;

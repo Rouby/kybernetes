@@ -363,3 +363,53 @@ export function renderAirlockConsole(
   setColor(ctx, blink ? 0.0 : 0.9, blink ? 0.9 : 0.2, 0.2, isNear ? 1.0 : 0.7);
   ctx.drawQuad(st.x - 8, st.y - 5, 16, 10);
 }
+
+function drawJobBoardRow(
+  ctx: RenderContext,
+  x: number,
+  y: number,
+  r: number,
+  g: number,
+  b: number,
+  filled: boolean
+): void {
+  setColor(ctx, r, g, b, filled ? 0.95 : 0.35);
+  ctx.drawCircle(x, y, 3, 8);
+  setColor(ctx, 0.55, 0.62, 0.75, 0.85);
+  ctx.drawQuad(x + 7, y - 1.5, 34, 3);
+}
+
+export function renderJobBoard(
+  ctx: RenderContext,
+  st: StationFixture,
+  isNear: boolean,
+  time: number
+): void {
+  setColor(ctx, 0.1, 0.13, 0.19);
+  ctx.drawQuad(st.x - 32, st.y - 22, 64, 44);
+  setColor(ctx, 0.0, 0.9, 1.0, isNear ? 0.95 : 0.55);
+  ctx.drawQuad(st.x - 32, st.y - 22, 64, 5);
+  const pulse = 0.6 + 0.4 * Math.sin(time * 3.0);
+  drawJobBoardRow(ctx, st.x - 24, st.y - 8, 1.0, 0.69, 0.0, true);
+  drawJobBoardRow(ctx, st.x - 24, st.y + 2, 0.0, 0.9, 1.0, true);
+  drawJobBoardRow(ctx, st.x - 24, st.y + 12, 1.0, 0.67, 0.2, isNear || pulse > 0.7);
+}
+
+export function renderStationNpc(
+  ctx: RenderContext,
+  x: number,
+  y: number,
+  color: string,
+  time: number
+): void {
+  const bob = Math.sin(time * 1.6 + x * 0.05) * 1.5;
+  const r = parseInt(color.slice(1, 3), 16) / 255;
+  const g = parseInt(color.slice(3, 5), 16) / 255;
+  const b = parseInt(color.slice(5, 7), 16) / 255;
+  setColor(ctx, 0.1, 0.12, 0.17);
+  ctx.drawCircle(x, y + bob, 13, 14);
+  setColor(ctx, r, g, b, 0.9);
+  ctx.drawQuad(x - 7, y - 6 + bob, 14, 14);
+  setColor(ctx, 0.0, 0.9, 1.0, 0.85);
+  ctx.drawQuad(x - 4, y - 3 + bob, 8, 3);
+}

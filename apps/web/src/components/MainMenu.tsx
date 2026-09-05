@@ -232,10 +232,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   };
 
   const handleQuickBoard = () => {
+    const cleanBeacon = beacon.trim().toUpperCase() || 'HESP01';
     if (onQuickBoard) {
-      onQuickBoard('HESP01');
+      onQuickBoard(cleanBeacon);
     } else {
-      onBoardVessel('HESP01');
+      onBoardVessel(cleanBeacon);
     }
   };
 
@@ -341,7 +342,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               onClick={handleQuickBoard}
             >
               <Radio size={14} />
-              <span>QUICK BOARD [CSS HESPERIA — HESP01]</span>
+              <span>QUICK BOARD [ACTIVE BEACON]</span>
             </button>
           </div>
         )}

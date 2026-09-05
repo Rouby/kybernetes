@@ -6,7 +6,7 @@ import type {
   ProjectileState,
   WeaponType,
 } from '@kybernetes/protocol';
-import { applyWelderAoeDamage, createProjectile } from '@kybernetes/sim-core';
+import { applyWelderAoeDamage, createProjectile, type DockFrameOffset } from '@kybernetes/sim-core';
 import { type MutableRefObject, useCallback, useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 
@@ -64,7 +64,8 @@ interface UseCanvasWeaponsReturn {
     now: number,
     dt: number,
     doors: DoorState[],
-    activeBoarding: BoardingTacticsTelemetry
+    activeBoarding: BoardingTacticsTelemetry,
+    offset?: DockFrameOffset
   ) => StepWeaponsResult;
 }
 
@@ -115,10 +116,11 @@ function tickWelderAoe(
     damage: number,
     range?: number
   ) => void,
-  onImpact?: (x: number, y: number, type: 'kinetic' | 'laser' | 'welder') => void
+  onImpact?: (x: number, y: number, type: 'kinetic' | 'laser' | 'welder') => void,
+  offset: DockFrameOffset = { x: 0, y: 0 }
 ): void {
   ShipAudioEngine.getInstance().playWeaponFire(pawn.x, pawn.y, 'arc_welder', 1.0, true);
-  const aoe = applyWelderAoeDamage(intruders, pawn.x, pawn.y, aimAngle, 10, 48, doors);
+  const aoe = applyWelderAoeDamage(intruders, pawn.x, pawn.y, aimAngle, 10, 48, doors, offset);
   if (aoe.hitIntruders.length === 0) return;
   onWelderAoe?.(pawn.x, pawn.y, aimAngle, 10, 48);
   for (const hit of aoe.hitIntruders) {
@@ -311,7 +313,8 @@ export function useCanvasWeapons({
       now: number,
       dt: number,
       doors: DoorState[],
-      activeBoarding: BoardingTacticsTelemetry
+      activeBoarding: BoardingTacticsTelemetry,
+      offset: DockFrameOffset = { x: 0, y: 0 }
     ): StepWeaponsResult => {
       advanceKineticReload(kineticAmmoRef.current, now);
 
@@ -350,7 +353,15 @@ export function useCanvasWeapons({
 
       if (isWelderActive && now - lastWelderTickRef.current >= 100) {
         lastWelderTickRef.current = now;
-        tickWelderAoe(activeBoarding.intruders, pawn, aimAngle, doors, onWelderAoe, onImpact);
+        tickWelderAoe(
+          activeBoarding.intruders,
+          pawn,
+          aimAngle,
+          doors,
+          onWelderAoe,
+          onImpact,
+          offset
+        );
       }
 
       return {

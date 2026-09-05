@@ -16,8 +16,8 @@ import {
   createInitialPlayerVitals,
   createInitialVesselState,
   evaluateShiftPerformance,
+  findWorldRoom,
   generateShiftChecklist,
-  HESPERIA_ROOMS,
   handoverWatchRotation,
   refillSuitO2,
   toggleDoor,
@@ -33,13 +33,14 @@ import { AudioSettingsModal } from './components/AudioSettingsModal';
 import { BeaconLobbyModal } from './components/BeaconLobbyModal';
 import { CharacterCreationModal, type CharacterProfile } from './components/CharacterCreationModal';
 import { CrewManifestModal } from './components/CrewManifestModal';
+import { DockingBanner } from './components/DockingBanner';
 import { MainMenu } from './components/MainMenu';
-import { RoleSelectModal } from './components/RoleSelectModal';
 import { ShiftDebriefModal } from './components/ShiftDebriefModal';
 import { VesselCanvas } from './components/VesselCanvas';
 import { usePawnMovement } from './hooks/usePawnMovement';
 import { getStationActionConfig, useStationInteraction } from './hooks/useStationInteraction';
 import { useVesselSocket } from './hooks/useVesselSocket';
+import { resolveClientShipOffset } from './webgl/StationHub';
 
 const styles = stylex.create({
   container: {
@@ -223,7 +224,6 @@ export const App: React.FC = () => {
   const [showAudioModal, setShowAudioModal] = useState(false);
 
   const [role, setRole] = useState<StartingRole>('wiper');
-  const [showRoleSelect, setShowRoleSelect] = useState(false);
   const [shiftChecklist, setShiftChecklist] = useState<ShiftChecklistState>(() =>
     generateShiftChecklist('wiper', 1)
   );
@@ -250,16 +250,36 @@ export const App: React.FC = () => {
   const [equippedWeapon, setEquippedWeapon] = useState<WeaponType>('kinetic_carbine');
   const [overlayMode, setOverlayMode] = useState<AtmosOverlayMode>('off');
 
-  const { triageNotice, remotePawns, crewManifest, dualProtocol, collabShift, sendAction } =
-    useVesselSocket(setTelemetry, activeVesselCode, {
-      callsign,
-      role,
-      color: suitColor,
-      userId,
-      onVitalsDelta: (v) => setVitals(v.vitals),
-    });
+  const {
+    triageNotice,
+    remotePawns,
+    crewManifest,
+    dualProtocol,
+    collabShift,
+    docking,
+    dockingReceivedAt,
+    jobOffer,
+    jobAssigned,
+    transit,
+    sendAction,
+    setJobOffer,
+  } = useVesselSocket(setTelemetry, activeVesselCode, {
+    callsign,
+    role,
+    color: suitColor,
+    userId,
+    onVitalsDelta: (v) => setVitals(v.vitals),
+  });
 
   const facingAngleRef = useRef(0);
+  const dockingView = docking
+    ? {
+        phase: docking.phase,
+        etaSeconds: docking.etaSeconds,
+        legIndex: docking.legIndex,
+        receivedAt: dockingReceivedAt,
+      }
+    : undefined;
   const { pawn, setPawn, nearestStation, nearestDoor, resetToSpawn } = usePawnMovement(
     role,
     telemetry.boarding?.doors,
@@ -267,14 +287,16 @@ export const App: React.FC = () => {
     facingAngleRef,
     vitals,
     telemetry.roomAtmospheres,
-    telemetry.hull?.breaches
+    telemetry.hull?.breaches,
+    dockingView
   );
 
   const currentRoomId = useMemo(() => {
-    return HESPERIA_ROOMS.find(
-      (r) => pawn.x >= r.x && pawn.x <= r.x + r.width && pawn.y >= r.y && pawn.y <= r.y + r.height
-    )?.id;
-  }, [pawn.x, pawn.y]);
+    const offset = docking
+      ? resolveClientShipOffset(docking.phase, docking.etaSeconds, docking.legIndex)
+      : { x: 0, y: 0 };
+    return findWorldRoom(pawn.x, pawn.y, offset) ?? undefined;
+  }, [pawn.x, pawn.y, docking]);
 
   const handleToggleHelmet = useCallback(() => {
     setVitals((prev) => {
@@ -466,6 +488,9 @@ export const App: React.FC = () => {
     [activeVesselCode, pawn.x, pawn.y, pawn.vx, pawn.vy, pawn.facingAngle, sendAction]
   );
 
+  const handleTalkToCaptain = useCallback(() => {
+    sendAction({ type: 'TALK_TO_CAPTAIN', captainId: 'captain_helm_01' });
+  }, [sendAction]);
   const handleLeaveShip = () => {
     setActiveVesselCode(null);
     setShowCharacterCreation(false);
@@ -700,6 +725,17 @@ export const App: React.FC = () => {
           });
           return;
         }
+        if (
+          docking?.phase === 'docked' &&
+          !jobOffer &&
+          (nearestStation?.id === 'bridge_helm' ||
+            nearestStation?.id === 'bridge_helm_console' ||
+            nearestStation?.stationType === 'bridge' ||
+            nearestStation?.stationType === 'mess')
+        ) {
+          handleTalkToCaptain();
+          return;
+        }
         if (interaction) {
           abortInteraction();
         } else if (nearestStation) {
@@ -707,8 +743,6 @@ export const App: React.FC = () => {
         }
       } else if (e.code === 'KeyH') {
         handleToggleHelmet();
-      } else if (e.code === 'KeyP' || (e.code === 'KeyR' && e.shiftKey)) {
-        setShowRoleSelect((v) => !v);
       } else if (e.code === 'KeyM') {
         setShowManifestModal((v) => !v);
       } else if (e.code === 'KeyB') {
@@ -741,7 +775,6 @@ export const App: React.FC = () => {
         handleCycleOverlay();
       } else if (e.code === 'Escape') {
         if (interaction) abortInteraction();
-        if (showRoleSelect) setShowRoleSelect(false);
         if (showManifestModal) setShowManifestModal(false);
         if (showBeaconModal) setShowBeaconModal(false);
         if (showAudioModal) setShowAudioModal(false);
@@ -752,7 +785,6 @@ export const App: React.FC = () => {
   }, [
     interaction,
     nearestStation,
-    showRoleSelect,
     showManifestModal,
     showBeaconModal,
     showAudioModal,
@@ -765,6 +797,9 @@ export const App: React.FC = () => {
     handleToggleDoor,
     handleToggleHelmet,
     handleCycleOverlay,
+    docking,
+    jobOffer,
+    handleTalkToCaptain,
   ]);
 
   const handleCommenceNextShift = useCallback(() => {
@@ -910,6 +945,10 @@ export const App: React.FC = () => {
           collabShift={collabShift}
           currentRoomId={currentRoomId}
           overlayMode={overlayMode}
+          dockingPhase={docking?.phase}
+          dockingEtaSeconds={docking?.etaSeconds}
+          dockingLegIndex={docking?.legIndex}
+          dockingReceivedAt={dockingReceivedAt}
           onCycleOverlay={handleCycleOverlay}
           onToggleHelmet={handleToggleHelmet}
           onRefillSuit={handleRefillSuit}
@@ -927,7 +966,7 @@ export const App: React.FC = () => {
           onWeldingStateChange={handleWeldingChange}
           onBeaconClick={() => setShowBeaconModal(true)}
           onManifestClick={() => setShowManifestModal(true)}
-          onRoleClick={() => setShowRoleSelect(true)}
+          onRoleClick={handleTalkToCaptain}
           onAudioClick={() => setShowAudioModal(true)}
           onDisembarkClick={handleLeaveShip}
           onEquipWeapon={setEquippedWeapon}
@@ -950,26 +989,6 @@ export const App: React.FC = () => {
           }}
         />
       </main>
-
-      {showRoleSelect && (
-        <RoleSelectModal
-          currentRole={role}
-          onSelectRole={(r) => {
-            setRole(r);
-            resetToSpawn(r);
-            setShowRoleSelect(false);
-            abortInteraction();
-            setShiftChecklist(generateShiftChecklist(r, 1));
-            sendAction({
-              type: 'JOIN_VESSEL',
-              vesselCode: beaconCode,
-              callsign,
-              role: r,
-            });
-          }}
-          onClose={() => setShowRoleSelect(false)}
-        />
-      )}
 
       {showDebriefModal && shiftEvaluation && (
         <ShiftDebriefModal
@@ -997,6 +1016,17 @@ export const App: React.FC = () => {
       )}
 
       {showAudioModal && <AudioSettingsModal onClose={() => setShowAudioModal(false)} />}
+      <DockingBanner
+        docking={docking}
+        jobOffer={jobOffer}
+        jobAssigned={jobAssigned}
+        transit={transit}
+        onTalkToCaptain={handleTalkToCaptain}
+        onAcceptJob={(offerId, job) => {
+          sendAction({ type: 'ACCEPT_JOB_OFFER', offerId, job });
+          setJobOffer(null);
+        }}
+      />
     </div>
   );
 };

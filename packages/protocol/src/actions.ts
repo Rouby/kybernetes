@@ -1,4 +1,5 @@
 import type { WeaponType } from './boarding';
+import type { AcceptJobOfferAction, TalkToCaptainAction } from './intro';
 import type { NavalDamageEventType } from './subsystems';
 
 export type StartingRole =
@@ -222,4 +223,6 @@ export type ClientAction =
   | ToggleHelmetAction
   | RefillSuitAction
   | PatchSuitAction
-  | ReviveCrewAction;
+  | ReviveCrewAction
+  | TalkToCaptainAction
+  | AcceptJobOfferAction;

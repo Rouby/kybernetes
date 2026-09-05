@@ -22,12 +22,14 @@ export async function waitForVesselSocket(page: Page, timeout = 20_000): Promise
 }
 
 /**
- * Generate a short unique vessel code for test isolation (6 uppercase alphanumerics,
- * matching the beacon style used across the suite).
+ * Generate a unique 6-character vessel code for test isolation (full-entropy
+ * base36 so parallel workers never share server state).
  */
 export function uniqueBeacon(): string {
-  const rand = Math.floor(Math.random() * 46656).toString(36);
-  return `E${Date.now().toString(36)}${rand}`.slice(-6).toUpperCase();
+  return Math.floor(Math.random() * 2176782336)
+    .toString(36)
+    .toUpperCase()
+    .padStart(6, '0');
 }
 
 /**

@@ -250,7 +250,7 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     const grid = createInitialAtmosGrid();
     const summaries = summarizeRoomAtmospheres(grid);
 
-    expect(Object.keys(summaries).length).toBe(14);
+    expect(Object.keys(summaries).length).toBe(17);
     expect(summaries.bridge.pressureKpa).toBe(101.3);
     expect(summaries.engineering.o2Percent).toBe(20.9);
     expect(summaries.quarters.tempCelsius).toBe(21.0);

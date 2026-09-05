@@ -16,6 +16,7 @@ import {
   summarizeRoomAtmospheres,
   tickCellularAtmos,
 } from './spatial/atmosGrid';
+import type { DockFrameOffset } from './spatial/deck';
 import { createInitialDoors } from './spatial/doors';
 import { createInitialBoardingState, tickBoardingCombat } from './systems/boardingCombat';
 import { createInitialHull, createInitialShields, tickShields } from './systems/hull';
@@ -134,7 +135,8 @@ function processEventsTick(
 // fallow-ignore-next-line complexity
 export function tickVesselState(
   state: VesselSimulationState,
-  dtSeconds: number
+  dtSeconds: number,
+  offset: DockFrameOffset = { x: 0, y: 0 }
 ): VesselSimulationState {
   const extraHeat = state.activeFires.length * 3.0;
   let reactor = tickReactor(state.reactor, dtSeconds, extraHeat);
@@ -163,7 +165,7 @@ export function tickVesselState(
   activeFires = eventRes.activeFires;
 
   let boarding = state.boarding || createInitialBoardingState();
-  const boardingRes = tickBoardingCombat(boarding, dtSeconds);
+  const boardingRes = tickBoardingCombat(boarding, dtSeconds, undefined, offset);
   boarding = boardingRes.nextState;
 
   if (boardingRes.sabotageDetonated || boardingRes.hullDamageInflicted > 0) {

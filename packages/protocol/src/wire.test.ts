@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ClientAction, NavalDamageEventType, ServerBroadcast } from './index';
+import type { ClientAction, DoorState, NavalDamageEventType, ServerBroadcast } from './index';
 
 function roundTrip<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as unknown as T;
@@ -179,6 +179,89 @@ describe('protocol wire contracts', () => {
     } else {
       expect.unreachable('wrong discriminant tag');
     }
+  });
+
+  it('intro hire flow survives serialization', () => {
+    const talk: ClientAction = { type: 'TALK_TO_CAPTAIN', captainId: 'captain_helm_01' };
+    const accept: ClientAction = { type: 'ACCEPT_JOB_OFFER', offerId: 'offer_1', job: 'engineer' };
+    expect(roundTrip(talk)).toEqual(talk);
+    expect(roundTrip(accept)).toEqual(accept);
+
+    const offer: ServerBroadcast = {
+      type: 'CAPTAIN_JOB_OFFER',
+      offerId: 'offer_1',
+      captainId: 'captain_helm_01',
+      captainName: 'Captain Reyes',
+      jobs: [
+        {
+          job: 'engineer',
+          title: 'Engineer',
+          department: 'Engineering',
+          description: 'Maintain reactor and propulsion stability while in transit.',
+          badge: 'ENG-3',
+          color: '#ffb000',
+        },
+        {
+          job: 'cook',
+          title: 'Cook',
+          department: 'Sustenance & Logistics',
+          description: 'Prepare meals the crew can eat to restore vitals.',
+          badge: 'LOG-3',
+          color: '#00e5ff',
+        },
+      ],
+      timestamp: Date.now(),
+    };
+    expect(roundTrip(offer)).toEqual(offer);
+
+    const docking: ServerBroadcast = {
+      type: 'SHIP_DOCKING_UPDATE',
+      phase: 'docked',
+      shipName: 'Kestrel',
+      destination: 'Station B',
+      etaSeconds: 0,
+      legIndex: 1,
+      timestamp: Date.now(),
+    };
+    const assigned: ServerBroadcast = {
+      type: 'JOB_ASSIGNED',
+      playerId: 'p1',
+      job: 'cook',
+      title: 'Cook',
+      timestamp: Date.now(),
+    };
+    const transit: ServerBroadcast = {
+      type: 'TRANSIT_UPDATE',
+      destination: 'Station B',
+      progressPercent: 12.5,
+      legIndex: 1,
+      timestamp: Date.now(),
+    };
+    expect(roundTrip(docking)).toEqual(docking);
+    expect(roundTrip(assigned)).toEqual(assigned);
+    expect(roundTrip(transit)).toEqual(transit);
+  });
+
+  it('gauntlet doors keep sealed and open distinct across the wire', () => {
+    const sealed: DoorState = {
+      id: 'gauntlet_ship_door',
+      name: 'Gauntlet Ship-Side Hatch',
+      x1: 1020,
+      y1: 280,
+      x2: 1020,
+      y2: 320,
+      isOpen: false,
+      isSealed: true,
+      isAirlock: true,
+      roomA: 'airlock_stbd',
+      roomB: 'gauntlet',
+    };
+    const parsed = roundTrip(sealed);
+    expect(parsed.isSealed).toBe(true);
+    expect(parsed.isOpen).toBe(false);
+    const unsealed = roundTrip({ ...sealed, isSealed: false, isOpen: true });
+    expect(unsealed.isSealed).toBe(false);
+    expect(unsealed.isOpen).toBe(true);
   });
 
   it('unknown broadcast types fall through narrowing without throwing', () => {

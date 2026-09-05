@@ -15,7 +15,7 @@ import {
 
 export const ATMOS_CELL_SIZE = 20;
 export const ATMOS_GRID_COLS = 60; // 1200 / 20
-export const ATMOS_GRID_ROWS = 40; // 800 / 20
+export const ATMOS_GRID_ROWS = 50; // 1000 / 20
 export const ATMOS_TOTAL_CELLS = ATMOS_GRID_COLS * ATMOS_GRID_ROWS; // 2400
 
 export interface CellAtmosphere {
@@ -860,6 +860,7 @@ export function formatAtmosOverlayValue(
 }
 
 export interface DecompressionAirflowSource {
+  roomId: string;
   x: number;
   y: number;
   u: number;
@@ -946,6 +947,7 @@ function getInternalDoorAirflowSource(
   const ventSpeed = 160 + 140 * pressureRatio;
 
   return {
+    roomId: highRoom,
     x: midX,
     y: midY,
     u: dirX * ventSpeed,
@@ -974,7 +976,9 @@ function createAirflowSource(
   const dirX = deltaX / distance;
   const dirY = deltaY / distance;
 
+  const roomOwner = HESPERIA_ROOMS.find((candidate) => candidate.id === roomId);
   return {
+    roomId: roomOwner ? roomOwner.id : roomId,
     x: openingX - dirX * 24,
     y: openingY - dirY * 24,
     u: dirX * ventSpeed,
@@ -1032,6 +1036,7 @@ function getBreachAirflowSource(
     const dirX = loc.normalX;
     const dirY = loc.normalY;
     return {
+      roomId,
       x: loc.x - dirX * 4,
       y: loc.y - dirY * 4,
       u: dirX * ventSpeed,

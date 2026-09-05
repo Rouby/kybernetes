@@ -3,7 +3,7 @@ import { waitForBroadcast, waitForVesselSocket } from './helpers';
 
 async function embarkFromMenu(
   page: Page,
-  options?: { callsign?: string; role?: string; colorId?: string; isCommission?: boolean }
+  options?: { callsign?: string; colorId?: string; isCommission?: boolean }
 ) {
   if (options?.isCommission) {
     await page.getByTestId('start-ship-btn').click();
@@ -13,9 +13,6 @@ async function embarkFromMenu(
   await expect(page.getByTestId('character-creation-modal')).toBeVisible();
   if (options?.callsign) {
     await page.getByTestId('dossier-callsign-input').fill(options.callsign);
-  }
-  if (options?.role) {
-    await page.getByTestId(`dossier-role-${options.role}`).click();
   }
   if (options?.colorId) {
     await page.getByTestId(`suit-color-${options.colorId}`).click();
@@ -37,7 +34,6 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
     await embarkFromMenu(page, {
       isCommission: true,
       callsign: 'Cmdr-Rex',
-      role: 'security_private',
       colorId: 'security_crimson',
     });
 
@@ -73,10 +69,9 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
       await expect(page2.getByTestId('main-menu')).toBeVisible();
 
       // Board vessel and configure operator dossier
-      await embarkFromMenu(page1, { callsign: 'Alpha-1', role: 'wiper', colorId: 'hazard_amber' });
+      await embarkFromMenu(page1, { callsign: 'Alpha-1', colorId: 'hazard_amber' });
       await embarkFromMenu(page2, {
         callsign: 'Bravo-2',
-        role: 'galley_hand',
         colorId: 'cyan_tech',
       });
 
@@ -112,10 +107,10 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
 
     try {
       await page1.goto('/?beacon=HESP01');
-      await embarkFromMenu(page1, { callsign: 'Alpha-1', role: 'wiper' });
+      await embarkFromMenu(page1, { callsign: 'Alpha-1' });
 
       await page2.goto('/?beacon=HESP01');
-      await embarkFromMenu(page2, { callsign: 'Bravo-2', role: 'wiper' });
+      await embarkFromMenu(page2, { callsign: 'Bravo-2' });
 
       await expect(page1.getByTestId('vessel-canvas')).toBeVisible();
       await expect(page2.getByTestId('vessel-canvas')).toBeVisible();
@@ -205,7 +200,7 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
     }
   });
 
-  test('crew state persistence per user (position, callsign and role preserved across disembark)', async ({
+  test('crew state persistence per user (position and callsign preserved across disembark)', async ({
     page,
   }) => {
     await page.goto('/?beacon=HESP01');
@@ -213,7 +208,6 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
     // Commission/board with custom character profile
     await embarkFromMenu(page, {
       callsign: 'Persist-Cadet',
-      role: 'stevedore',
       colorId: 'warp_violet',
     });
 
@@ -253,10 +247,10 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
 
     try {
       await page1.goto('/?beacon=HESP01');
-      await embarkFromMenu(page1, { callsign: 'Welder-1', role: 'wiper' });
+      await embarkFromMenu(page1, { callsign: 'Welder-1' });
 
       await page2.goto('/?beacon=HESP01');
-      await embarkFromMenu(page2, { callsign: 'Observer-2', role: 'security_private' });
+      await embarkFromMenu(page2, { callsign: 'Observer-2' });
 
       await expect(page1.getByTestId('vessel-canvas')).toBeVisible();
       await expect(page2.getByTestId('vessel-canvas')).toBeVisible();

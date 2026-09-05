@@ -12,25 +12,29 @@ import {
   createBotSession,
   createCollabShift,
   createDualProtocol,
+  createInitialIntroState,
   createInitialPlayerVitals,
   createInitialVesselState,
   GameLoop,
   generateShiftChecklist,
   getBreachLocation,
   getBreachWeldSeconds,
-  HESPERIA_SPAWNS,
-  HESPERIA_WALLS,
+  getShipDockingOffset,
+  isAboardShip,
+  isGauntletDoorId,
   normalizeBreachRoomId,
   type PersistedCrewMember,
   ROLE_DEFINITIONS,
   repairHullPlating,
-  resolvePawnMovement,
+  resolveFramedMovement,
+  STATION_BAY_SPAWN,
   sampleAirflowVelocityAt,
   sampleAtmosphereAt,
   stateToTelemetryBroadcast,
   tickBot,
   tickCollabShift,
   tickDualProtocol,
+  tickIntroState,
   tickVesselState,
   toggleDoor,
   trackBreachWelding,
@@ -44,6 +48,7 @@ import {
   broadcastVitals,
 } from './broadcast/deltaBroadcaster';
 import { ActionRouter } from './handlers/actionRouter.js';
+import { broadcastDocking, syncGauntletDoors } from './handlers/introHandler.js';
 import type { ClientSession, VesselSession } from './types.js';
 
 export class VesselServer {
@@ -151,6 +156,10 @@ export class VesselServer {
       watchPhase: 'active_watch',
       timeRemainingSeconds: 180,
       breachRepairProgress: new Map(),
+      intro: createInitialIntroState(),
+      hireOfferCounter: 0,
+      lastIntroPhase: 'inbound',
+      lastShipOffset: getShipDockingOffset(createInitialIntroState()),
     };
     this.reconcileBotsForSession(session);
     session.loop.start();
@@ -174,7 +183,11 @@ export class VesselServer {
       if (humanRoles.has(role)) {
         session.bots.delete(role);
       } else if (!session.bots.has(role)) {
-        session.bots.set(role, createBotSession(role, i * 4));
+        const spawn = createBotSession(role, i * 4);
+        const offset = getShipDockingOffset(session.intro);
+        spawn.pawn.x = Number((spawn.pawn.x + offset.x).toFixed(2));
+        spawn.pawn.y = Number((spawn.pawn.y + offset.y).toFixed(2));
+        session.bots.set(role, spawn);
       }
     }
   }
@@ -182,7 +195,7 @@ export class VesselServer {
   private registerClient(ws: WebSocket): ClientSession {
     const id = `crew_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
     const role: StartingRole = 'wiper';
-    const spawn = HESPERIA_SPAWNS[role] || { x: 500, y: 350 };
+    const spawn = STATION_BAY_SPAWN;
     const roleDef = ROLE_DEFINITIONS[role];
 
     const pawn: PawnState = {
@@ -247,8 +260,61 @@ export class VesselServer {
   }
 
   // fallow-ignore-next-line complexity
+  private carryAboardPawns(session: VesselSession, prev: { x: number; y: number }): void {
+    const next = getShipDockingOffset(session.intro);
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    if (dx === 0 && dy === 0) {
+      session.lastShipOffset = next;
+      return;
+    }
+    for (const client of session.clients.values()) {
+      if (isAboardShip(client.pawn.x, client.pawn.y, prev)) {
+        client.pawn.x = Number((client.pawn.x + dx).toFixed(2));
+        client.pawn.y = Number((client.pawn.y + dy).toFixed(2));
+      }
+    }
+    for (const bot of session.bots.values()) {
+      if (isAboardShip(bot.pawn.x, bot.pawn.y, prev)) {
+        bot.pawn.x = Number((bot.pawn.x + dx).toFixed(2));
+        bot.pawn.y = Number((bot.pawn.y + dy).toFixed(2));
+      }
+    }
+    for (const intruder of session.vesselState.boarding?.intruders || []) {
+      if (isAboardShip(intruder.x, intruder.y, prev)) {
+        intruder.x = Number((intruder.x + dx).toFixed(2));
+        intruder.y = Number((intruder.y + dy).toFixed(2));
+      }
+    }
+    for (const sentry of session.vesselState.boarding?.sentries || []) {
+      if (isAboardShip(sentry.x, sentry.y, prev)) {
+        sentry.x = Number((sentry.x + dx).toFixed(2));
+        sentry.y = Number((sentry.y + dy).toFixed(2));
+      }
+    }
+    for (const proj of session.vesselState.boarding?.projectiles || []) {
+      if (isAboardShip(proj.x, proj.y, prev)) {
+        proj.x = Number((proj.x + dx).toFixed(2));
+        proj.y = Number((proj.y + dy).toFixed(2));
+      }
+    }
+    session.lastShipOffset = next;
+  }
+
+  private tickIntro(session: VesselSession, dtSeconds: number): void {
+    session.intro = tickIntroState(session.intro, dtSeconds);
+    this.carryAboardPawns(session, session.lastShipOffset);
+    syncGauntletDoors(session);
+    if (session.intro.phase !== session.lastIntroPhase) {
+      session.lastIntroPhase = session.intro.phase;
+      broadcastDocking(session);
+    }
+  }
+
   private onSimulationTick(session: VesselSession, dtSeconds: number): void {
-    session.vesselState = tickVesselState(session.vesselState, dtSeconds);
+    const offset = getShipDockingOffset(session.intro);
+    session.vesselState = tickVesselState(session.vesselState, dtSeconds, offset);
+    this.tickIntro(session, dtSeconds);
 
     if (session.dualProtocol.stage === 'primed') {
       const res = tickDualProtocol(session.dualProtocol, dtSeconds);
@@ -306,32 +372,24 @@ export class VesselServer {
   // fallow-ignore-next-line complexity
   private tickClientVitalsAndAtmosphere(session: VesselSession, dtSeconds: number): void {
     const atmos = session.vesselState.atmos;
-    const closedDoors = (session.vesselState.boarding?.doors || [])
-      .filter((d) => !d.isOpen)
-      .map((d) => ({
-        id: `door_wall_${d.id}`,
-        x1: d.x1,
-        y1: d.y1,
-        x2: d.x2,
-        y2: d.y2,
-        isOpaque: true,
-        isTraversable: false,
-      }));
-    const allWalls = closedDoors.length > 0 ? [...HESPERIA_WALLS, ...closedDoors] : HESPERIA_WALLS;
-
+    const offset = getShipDockingOffset(session.intro);
     for (const client of session.clients.values()) {
-      const cellAtmos = sampleAtmosphereAt(atmos, client.pawn.x, client.pawn.y);
-      const wind = sampleAirflowVelocityAt(atmos, client.pawn.x, client.pawn.y);
+      const aboard = isAboardShip(client.pawn.x, client.pawn.y, offset);
+      const sampleX = aboard ? client.pawn.x - offset.x : client.pawn.x;
+      const sampleY = aboard ? client.pawn.y - offset.y : client.pawn.y;
+      const cellAtmos = sampleAtmosphereAt(atmos, sampleX, sampleY);
+      const wind = sampleAirflowVelocityAt(atmos, sampleX, sampleY);
       if (!client.pawn.isOperating && Math.hypot(wind.vx, wind.vy) > 20) {
         const targetX = client.pawn.x + wind.vx * dtSeconds * 0.5;
         const targetY = client.pawn.y + wind.vy * dtSeconds * 0.5;
-        const res = resolvePawnMovement(
+        const res = resolveFramedMovement(
           client.pawn.x,
           client.pawn.y,
           targetX,
           targetY,
           14,
-          allWalls
+          session.vesselState.boarding?.doors || [],
+          offset
         );
         client.pawn.x = res.x;
         client.pawn.y = res.y;
@@ -384,16 +442,29 @@ export class VesselServer {
 
   // fallow-ignore-next-line complexity
   private tickSessionBots(session: VesselSession, dtSeconds: number): void {
+    const offset = getShipDockingOffset(session.intro);
     for (const [role, bot] of session.bots.entries()) {
+      const framed: typeof bot = isAboardShip(bot.pawn.x, bot.pawn.y, offset)
+        ? {
+            ...bot,
+            pawn: { ...bot.pawn, x: bot.pawn.x - offset.x, y: bot.pawn.y - offset.y },
+          }
+        : bot;
       const { nextBot, assistance, doorToOpen, doorToToggle, doorsToClose } = tickBot(
-        bot,
+        framed,
         dtSeconds,
         session.vesselState.boarding.doors
       );
-      session.bots.set(role, nextBot);
+      const worldBot = isAboardShip(bot.pawn.x, bot.pawn.y, offset)
+        ? {
+            ...nextBot,
+            pawn: { ...nextBot.pawn, x: nextBot.pawn.x + offset.x, y: nextBot.pawn.y + offset.y },
+          }
+        : nextBot;
+      session.bots.set(role, worldBot);
 
       const openId = doorToOpen ?? doorToToggle;
-      if (openId) {
+      if (openId && !isGauntletDoorId(openId)) {
         session.vesselState.boarding.doors = toggleDoor(
           session.vesselState.boarding.doors,
           openId,
@@ -457,6 +528,7 @@ export class VesselServer {
   }
 
   private tickActiveWelders(session: VesselSession, dtSeconds: number): void {
+    const offset = getShipDockingOffset(session.intro);
     for (const cl of session.clients.values()) {
       if (!cl.pawn.isWelding) continue;
 
@@ -468,7 +540,8 @@ export class VesselServer {
           cl.pawn.facingAngle,
           5,
           48,
-          session.vesselState.boarding.doors
+          session.vesselState.boarding.doors,
+          offset
         );
         session.vesselState.boarding.intruders = res.nextIntruders;
       }

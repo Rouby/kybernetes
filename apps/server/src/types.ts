@@ -9,6 +9,7 @@ import type {
   CollabShiftState,
   DualProtocolState,
   GameLoop,
+  IntroState,
   PersistedCrewMember,
   VesselSimulationState,
 } from '@kybernetes/sim-core';
@@ -46,4 +47,8 @@ export interface VesselSession {
   watchPhase: 'active_watch' | 'off_duty';
   timeRemainingSeconds: number;
   breachRepairProgress: Map<string, number>;
+  intro: IntroState;
+  hireOfferCounter: number;
+  lastIntroPhase: string;
+  lastShipOffset: { x: number; y: number };
 }

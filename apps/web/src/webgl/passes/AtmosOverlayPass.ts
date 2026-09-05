@@ -10,6 +10,7 @@ import {
   getPressureOverlayColor,
   getTempOverlayColor,
   HESPERIA_ROOMS,
+  isShipSideRoom,
   tickCellularAtmos,
 } from '@kybernetes/sim-core';
 import { createProgram } from '../glUtils';
@@ -177,17 +178,19 @@ export class AtmosOverlayPass {
   }
 
   // fallow-ignore-next-line complexity
-  private buildCellVertices(mode: AtmosOverlayMode, pulse: number): number {
+  private buildCellVertices(mode: AtmosOverlayMode, pulse: number, shipDx = 0): number {
     let offset = 0;
     let quadCount = 0;
 
     for (let idx = 0; idx < ATMOS_TOTAL_CELLS; idx++) {
-      if (this.grid.cellRoomId[idx] === null) continue;
+      const roomId = this.grid.cellRoomId[idx];
+      if (roomId === null) continue;
       if (quadCount >= MAX_DECK_CELLS) break;
 
       const col = idx % ATMOS_GRID_COLS;
       const row = Math.floor(idx / ATMOS_GRID_COLS);
-      const x1 = col * ATMOS_CELL_SIZE + INSET;
+      const dx = isShipSideRoom(roomId) ? shipDx : 0;
+      const x1 = col * ATMOS_CELL_SIZE + INSET + dx;
       const y1 = row * ATMOS_CELL_SIZE + INSET;
       const x2 = x1 + ATMOS_CELL_SIZE - INSET * 2;
       const y2 = y1 + ATMOS_CELL_SIZE - INSET * 2;
@@ -210,7 +213,8 @@ export class AtmosOverlayPass {
     activeFires: string[] | undefined,
     roomAtmospheres: Record<string, RoomAtmosphereSummary> | undefined,
     mode: AtmosOverlayMode,
-    time: number
+    time: number,
+    shipDx = 0
   ): void {
     const dt = this.lastTime === 0 ? 0.05 : Math.min(0.1, Math.max(0.001, time - this.lastTime));
     this.lastTime = time;
@@ -226,7 +230,7 @@ export class AtmosOverlayPass {
     if (mode === 'off' && !hasPlume) return;
 
     const pulse = 0.9 + 0.1 * Math.sin(time * 2.5);
-    const quadCount = this.buildCellVertices(mode, pulse);
+    const quadCount = this.buildCellVertices(mode, pulse, shipDx);
     if (quadCount === 0) return;
 
     const gl = this.gl;

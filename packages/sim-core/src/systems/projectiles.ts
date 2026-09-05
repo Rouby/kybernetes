@@ -7,7 +7,14 @@ import type {
   WeaponType,
 } from '@kybernetes/protocol';
 import { isSegmentBlockedByDoors, segmentsIntersect } from '../spatial/collision';
-import { findRoomAtHullImpact, HESPERIA_WALLS } from '../spatial/deck';
+import {
+  applyShipOffsetToWalls,
+  type DockFrameOffset,
+  findRoomAtHullImpact,
+  HESPERIA_WALLS,
+  isShipSideWall,
+} from '../spatial/deck';
+import { getWorldDoors } from '../spatial/doors';
 
 export function createProjectile(
   originX: number,
@@ -79,11 +86,14 @@ export function applyWelderAoeDamage(
   facingAngle: number,
   damage: number,
   range = 48,
-  doors?: DoorState[]
+  doors?: DoorState[],
+  offset: DockFrameOffset = { x: 0, y: 0 }
 ): { nextIntruders: IntruderState[]; hitIntruders: Array<{ id: string; damage: number }> } {
   const hitIntruders: Array<{ id: string; damage: number }> = [];
   const halfCone = (40 * Math.PI) / 180; // 40-degree cone
   const p1 = { x: originX, y: originY };
+  const worldWalls = applyShipOffsetToWalls(HESPERIA_WALLS, offset);
+  const worldDoors = doors ? getWorldDoors(doors, offset) : undefined;
 
   const nextIntruders = intruders.map((i) => {
     if (i.state === 'neutralized') return i;
@@ -99,14 +109,14 @@ export function applyWelderAoeDamage(
 
     // Check line-of-sight collision against bulkheads
     const p2 = { x: i.x, y: i.y };
-    const hitWall = HESPERIA_WALLS.some(
+    const hitWall = worldWalls.some(
       (w) =>
         !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
     );
     if (hitWall) return i;
 
     // Check line-of-sight collision against closed blast doors
-    if (isSegmentBlockedByDoors(p1, p2, doors)) return i;
+    if (isSegmentBlockedByDoors(p1, p2, worldDoors)) return i;
 
     hitIntruders.push({ id: i.id, damage });
     const nextHealth = Math.max(0, i.health - damage);
@@ -164,7 +174,8 @@ function handleWallHit(
   hitWall: WallSegment,
   hitPos: { x: number; y: number },
   newBreaches: string[],
-  partitionHits: PartitionHole[]
+  partitionHits: PartitionHole[],
+  worldHit: { x: number; y: number } = hitPos
 ): number {
   const isKinetic = proj.weaponType === 'kinetic_carbine' || proj.weaponType === 'railgun_pistol';
   if (!isKinetic) return 0;
@@ -182,7 +193,7 @@ function handleWallHit(
     return dmg;
   }
 
-  partitionHits.push({ x: hitPos.x, y: hitPos.y, wallId: hitWall.id });
+  partitionHits.push({ x: worldHit.x, y: worldHit.y, wallId: hitWall.id });
   return 0;
 }
 
@@ -218,7 +229,8 @@ export function tickProjectiles(
   doors: DoorState[],
   intruders: IntruderState[],
   playerPos: { x: number; y: number },
-  walls: WallSegment[] = HESPERIA_WALLS
+  walls: WallSegment[] = HESPERIA_WALLS,
+  offset: DockFrameOffset = { x: 0, y: 0 }
 ): ProjectileTickResult {
   const nextProjectiles: ProjectileState[] = [];
   const damagedIntruders: Array<{ id: string; damage: number }> = [];
@@ -226,6 +238,8 @@ export function tickProjectiles(
   const partitionHits: PartitionHole[] = [];
   let playerDamageTaken = 0;
   let hullDamageTaken = 0;
+  const worldWalls = applyShipOffsetToWalls(walls, offset);
+  const worldDoors = getWorldDoors(doors, offset);
 
   for (const proj of projectiles) {
     const nextX = proj.x + proj.vx * dtSeconds;
@@ -237,22 +251,37 @@ export function tickProjectiles(
     const p1 = { x: proj.x, y: proj.y };
     const p2 = { x: nextX, y: nextY };
 
-    // 1. Line-segment collision with ship walls
-    const hitWall = walls.find(
+    // 1. Line-segment collision with world walls
+    const hitWall = worldWalls.find(
       (w) =>
         !w.isTraversable && segmentsIntersect(p1, p2, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })
     );
     if (hitWall) {
-      const hitPos = getWallHitPoint(p1, p2, hitWall);
-      hullDamageTaken += handleWallHit(proj, hitWall, hitPos, newBreaches, partitionHits);
+      const worldHit = getWallHitPoint(p1, p2, hitWall);
+      const isShip = isShipSideWall(hitWall);
+      const localHit = isShip ? { x: worldHit.x - offset.x, y: worldHit.y - offset.y } : worldHit;
+      hullDamageTaken += handleWallHit(
+        proj,
+        hitWall,
+        localHit,
+        newBreaches,
+        partitionHits,
+        worldHit
+      );
       continue; // Projectile stopped and absorbed by wall
     }
 
     // 2. Line-segment collision with closed blast doors
-    if (isSegmentBlockedByDoors(p1, p2, doors)) continue;
+    if (isSegmentBlockedByDoors(p1, p2, worldDoors)) continue;
 
-    // Check collision with outer boundaries
-    if (nextX < 50 || nextX > 1150 || nextY < 50 || nextY > 750) continue;
+    // Check collision with outer boundaries of the active frames
+    const inShipBounds =
+      nextX >= 50 + offset.x &&
+      nextX <= 1150 + offset.x &&
+      nextY >= 50 + offset.y &&
+      nextY <= 650 + offset.y;
+    const inStationBounds = nextX >= 50 && nextX <= 1150 && nextY >= 600 && nextY <= 1000;
+    if (!inShipBounds && !inStationBounds) continue;
 
     if (proj.fromPlayer) {
       const hitIntruder = findHitIntruder(p1, p2, intruders);

@@ -1,25 +1,27 @@
 import type {
+  DockingPhase,
   DoorState,
   PawnState,
   PlayerVitals,
   RoomAtmosphereSummary,
   StartingRole,
   StationFixture,
-  WallSegment,
 } from '@kybernetes/protocol';
 import {
   createInitialDoors,
   findNearestDoor,
   findNearestStation,
   getAirflowDragVector,
-  HESPERIA_SPAWNS,
-  HESPERIA_STATIONS,
-  HESPERIA_WALLS,
-  resolvePawnMovement,
+  getWorldDoors,
+  getWorldStations,
+  isAboardShip,
+  resolveFramedMovement,
+  STATION_BAY_SPAWN,
 } from '@kybernetes/sim-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { DeckSurfaceType } from '../audio/synths/MetallicPlateSynth';
+import { liveEtaSeconds, resolveClientShipOffset } from '../webgl/StationHub';
 
 const PAWN_SPEED = 180;
 const PAWN_RADIUS = 14;
@@ -59,20 +61,11 @@ function getMovementInput(keys: Set<string>): { dx: number; dy: number } | null 
   return { dx: dx / len, dy: dy / len };
 }
 
-function getEffectiveWalls(doors?: DoorState[]): WallSegment[] {
-  if (!doors || doors.length === 0) return HESPERIA_WALLS;
-  const closedDoorWalls: WallSegment[] = doors
-    .filter((d) => !d.isOpen)
-    .map((d) => ({
-      id: `door_wall_${d.id}`,
-      x1: d.x1,
-      y1: d.y1,
-      x2: d.x2,
-      y2: d.y2,
-      isOpaque: true,
-      isTraversable: false,
-    }));
-  return closedDoorWalls.length > 0 ? [...HESPERIA_WALLS, ...closedDoorWalls] : HESPERIA_WALLS;
+export interface DockingView {
+  phase: DockingPhase;
+  etaSeconds: number;
+  legIndex: number;
+  receivedAt: number;
 }
 
 // fallow-ignore-next-line complexity
@@ -83,7 +76,8 @@ function calculateNextPawnState(
   doors?: DoorState[],
   facingAngle?: number,
   vitals?: PlayerVitals,
-  dragVector?: { u: number; v: number }
+  dragVector?: { u: number; v: number },
+  offset: { x: number; y: number } = { x: 0, y: 0 }
 ): PawnState {
   if (current.isOperating || current.isResting) {
     return current;
@@ -105,14 +99,14 @@ function calculateNextPawnState(
   const totalVx = inputVx + dragU;
   const totalVy = inputVy + dragV;
 
-  const allWalls = getEffectiveWalls(doors);
-  const resolved = resolvePawnMovement(
+  const resolved = resolveFramedMovement(
     current.x,
     current.y,
     current.x + totalVx * dt,
     current.y + totalVy * dt,
     PAWN_RADIUS,
-    allWalls
+    doors ?? [],
+    offset
   );
 
   return {
@@ -132,10 +126,14 @@ export function usePawnMovement(
   facingAngleRef?: React.RefObject<number>,
   vitals?: PlayerVitals,
   roomAtmospheres?: Record<string, RoomAtmosphereSummary>,
-  breaches?: string[]
+  breaches?: string[],
+  docking?: DockingView
 ) {
+  const dockingRef = useRef(docking);
+  dockingRef.current = docking;
+  const lastOffsetRef = useRef({ x: 0, y: 0 });
   const [pawn, setPawn] = useState<PawnState>(() => {
-    const spawn = HESPERIA_SPAWNS[initialRole];
+    const spawn = STATION_BAY_SPAWN;
     return {
       id: 'local_player',
       callsign: 'RECRUIT-01',
@@ -175,7 +173,7 @@ export function usePawnMovement(
   const defaultDoorsRef = useRef(createInitialDoors());
 
   const resetToSpawn = useCallback((role: StartingRole) => {
-    const spawn = HESPERIA_SPAWNS[role];
+    const spawn = STATION_BAY_SPAWN;
     setPawn((prev) => ({
       ...prev,
       role,
@@ -217,11 +215,32 @@ export function usePawnMovement(
           ? doorsRef.current
           : defaultDoorsRef.current;
 
+      const dock = dockingRef.current;
+      const liveEta = dock ? liveEtaSeconds(dock.etaSeconds, dock.receivedAt, time) : 20;
+      const offset = dock
+        ? resolveClientShipOffset(dock.phase, liveEta, dock.legIndex)
+        : { x: 0, y: 0 };
+      const last = lastOffsetRef.current;
+      if (
+        (offset.x !== last.x || offset.y !== last.y) &&
+        isAboardShip(pawnRef.current.x, pawnRef.current.y, last)
+      ) {
+        const carried = {
+          ...pawnRef.current,
+          x: pawnRef.current.x + (offset.x - last.x),
+          y: pawnRef.current.y + (offset.y - last.y),
+        };
+        pawnRef.current = carried;
+        setPawn(carried);
+      }
+      lastOffsetRef.current = offset;
+
       const effectiveFacing = facingAngleRefHolder.current?.current;
 
+      const dragAboard = isAboardShip(pawnRef.current.x, pawnRef.current.y, offset);
       const dragVector = getAirflowDragVector(
-        pawnRef.current.x,
-        pawnRef.current.y,
+        dragAboard ? pawnRef.current.x - offset.x : pawnRef.current.x,
+        dragAboard ? pawnRef.current.y - offset.y : pawnRef.current.y,
         activeDoors,
         breachesRef.current,
         roomAtmospheresRef.current
@@ -234,7 +253,8 @@ export function usePawnMovement(
         activeDoors,
         effectiveFacing,
         vitalsRef.current,
-        dragVector
+        dragVector,
+        offset
       );
       if (nextPawn !== pawnRef.current) setPawn(nextPawn);
 
@@ -243,7 +263,7 @@ export function usePawnMovement(
       const nearby = findNearestStation(
         nextPawn.x,
         nextPawn.y,
-        HESPERIA_STATIONS,
+        getWorldStations(offset),
         54,
         targetFacing
       );
@@ -259,7 +279,13 @@ export function usePawnMovement(
         }
       }
 
-      const nearbyDoor = findNearestDoor(nextPawn.x, nextPawn.y, activeDoors, 42, targetFacing);
+      const nearbyDoor = findNearestDoor(
+        nextPawn.x,
+        nextPawn.y,
+        getWorldDoors(activeDoors, offset).filter((d) => !d.isSealed),
+        42,
+        targetFacing
+      );
       const nextDoor = nearbyDoor ? nearbyDoor.door : null;
       const nextDoorId = nextDoor ? nextDoor.id : null;
       const nextDoorIsOpen = nextDoor ? nextDoor.isOpen : undefined;
@@ -281,7 +307,11 @@ export function usePawnMovement(
         footstepDistRef.current += Math.hypot(nextPawn.vx, nextPawn.vy) * dt;
         if (footstepDistRef.current >= 56) {
           footstepDistRef.current = 0;
-          const surface = getDeckSurface(nextPawn.x, nextPawn.y);
+          const surfaceAboard = isAboardShip(nextPawn.x, nextPawn.y, offset);
+          const surface = getDeckSurface(
+            surfaceAboard ? nextPawn.x - offset.x : nextPawn.x,
+            surfaceAboard ? nextPawn.y - offset.y : nextPawn.y
+          );
           ShipAudioEngine.getInstance().playLocalFootstep(surface);
         }
       } else {

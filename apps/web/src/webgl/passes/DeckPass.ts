@@ -1,13 +1,23 @@
 import type { DoorState } from '@kybernetes/protocol';
 import {
+  applyShipOffsetToWalls,
   carveBreachedWallSegments,
   getBreachLocation,
+  getWorldDoors,
+  getWorldRooms,
   HESPERIA_LIGHTS,
-  HESPERIA_ROOMS,
   HESPERIA_WALLS,
+  isShipSideRoom,
 } from '@kybernetes/sim-core';
+
 import { renderDeckFurniture } from '../DeckFurniture';
-import { addThickSegment, bufferAndDraw, createProgram, drawQuad } from '../glUtils';
+import {
+  addThickSegment,
+  bufferAndDraw,
+  createProgram,
+  drawQuad,
+  translateMatrixX,
+} from '../glUtils';
 import { DECK_FLOOR_FS, DECK_FLOOR_VS } from '../shaders';
 
 function drawDoorBrackets(
@@ -69,15 +79,18 @@ function renderBreachFractureHoles(
   dynamicBuffer: WebGLBuffer,
   flatProg: WebGLProgram,
   breaches: string[],
-  timeSec = 0
+  timeSec = 0,
+  shipDx = 0
 ): void {
   const glowLines: number[] = [];
   const frostLines: number[] = [];
   const pulse = 0.75 + 0.25 * Math.sin(timeSec * 7);
 
   for (const b of breaches) {
-    const loc = getBreachLocation(b);
-    if (!loc) continue;
+    const raw = getBreachLocation(b);
+    if (!raw) continue;
+    const dx = isShipSideRoom(raw.roomId) ? shipDx : 0;
+    const loc = { ...raw, x: raw.x + dx };
 
     const nx = loc.normalX;
     const ny = loc.normalY;
@@ -132,6 +145,28 @@ function renderBreachFractureHoles(
   }
 }
 
+function renderWindowGlass(
+  gl: WebGL2RenderingContext,
+  dynamicBuffer: WebGLBuffer,
+  flatProg: WebGLProgram,
+  glass: Array<{ x1: number; y1: number; x2: number; y2: number }>
+): void {
+  if (glass.length === 0) return;
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.55, 0.68, 0.8, 0.28);
+  const paneLines: number[] = [];
+  for (const pane of glass) {
+    addThickSegment(paneLines, pane.x1, pane.y1, pane.x2, pane.y2, 6);
+  }
+  bufferAndDraw(gl, dynamicBuffer, new Float32Array(paneLines));
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.9, 1.0, 0.8);
+  const frameLines: number[] = [];
+  for (const pane of glass) {
+    addThickSegment(frameLines, pane.x1 - 3, pane.y1 - 3, pane.x1 + 3, pane.y1 + 3, 2.4);
+    addThickSegment(frameLines, pane.x2 - 3, pane.y2 - 3, pane.x2 + 3, pane.y2 + 3, 2.4);
+  }
+  bufferAndDraw(gl, dynamicBuffer, new Float32Array(frameLines));
+}
+
 function renderPartitionHoles(
   gl: WebGL2RenderingContext,
   dynamicBuffer: WebGLBuffer,
@@ -162,6 +197,7 @@ function renderPartitionHoles(
 }
 
 export class DeckPass {
+  public shipOffset: { x: number; y: number } = { x: 0, y: 0 };
   private gl: WebGL2RenderingContext;
   private deckProg: WebGLProgram;
   private deckVAO: WebGLVertexArrayObject;
@@ -222,9 +258,12 @@ export class DeckPass {
       life_support: 8,
       airlock_port: 9,
       airlock_stbd: 10,
+      gauntlet: 3,
+      station_lobby: 2,
+      station_bay: 5,
     };
 
-    for (const room of HESPERIA_ROOMS) {
+    for (const room of getWorldRooms(this.shipOffset)) {
       gl.uniform1i(gl.getUniformLocation(this.deckProg, 'u_roomType'), roomTypeMap[room.id] ?? 1);
       gl.uniform4f(
         gl.getUniformLocation(this.deckProg, 'u_roomBounds'),
@@ -258,15 +297,20 @@ export class DeckPass {
     gl.bindVertexArray(flatVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
 
-    const walls =
+    const walls = applyShipOffsetToWalls(
       breaches && breaches.length > 0
         ? carveBreachedWallSegments(HESPERIA_WALLS, breaches)
-        : HESPERIA_WALLS;
+        : HESPERIA_WALLS,
+      this.shipOffset
+    );
+
+    const solids = walls.filter((w) => !w.isWindow);
+    const glass = walls.filter((w) => w.isWindow);
 
     // 1. Soft Wall Drop Shadows cast onto the floor along bottom/right (+4, +5)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.0, 0.0, 0.42);
     const shadowLines: number[] = [];
-    for (const wall of walls) {
+    for (const wall of solids) {
       addThickSegment(shadowLines, wall.x1 + 4, wall.y1 + 5, wall.x2 + 4, wall.y2 + 5, 10);
     }
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(shadowLines));
@@ -274,7 +318,7 @@ export class DeckPass {
     // 2. Heavy Armored Structural Casing Core (7.5px dark charcoal gunmetal)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
     const coreLines: number[] = [];
-    for (const wall of walls) {
+    for (const wall of solids) {
       addThickSegment(coreLines, wall.x1, wall.y1, wall.x2, wall.y2, 7.5);
     }
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(coreLines));
@@ -282,17 +326,27 @@ export class DeckPass {
     // 3. Metallic Beveled Edge Highlight (2.8px steel blue)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.32, 0.38, 0.48, 1.0);
     const bevelLines: number[] = [];
-    for (const wall of walls) {
+    for (const wall of solids) {
       addThickSegment(bevelLines, wall.x1, wall.y1, wall.x2, wall.y2, 2.8);
     }
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(bevelLines));
 
     // 4. Panel Seams
-    renderPanelSeams(gl, this.dynamicBuffer, flatProg, walls);
+    renderPanelSeams(gl, this.dynamicBuffer, flatProg, solids);
+
+    // 5. Viewport glass: translucent panes with bright frame ticks
+    renderWindowGlass(gl, this.dynamicBuffer, flatProg, glass);
 
     // 5. Active Wall Breach Fracture Holes
     if (breaches && breaches.length > 0) {
-      renderBreachFractureHoles(gl, this.dynamicBuffer, flatProg, breaches, timeSec);
+      renderBreachFractureHoles(
+        gl,
+        this.dynamicBuffer,
+        flatProg,
+        breaches,
+        timeSec,
+        this.shipOffset.x
+      );
     }
 
     // 6. Partition Bullet Holes (Impact craters)
@@ -310,6 +364,19 @@ export class DeckPass {
     time: number
   ): void {
     const gl = this.bindFlat(flatProg, flatVAO, matrix);
+
+    // Station block hull plate (static south wing)
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.09, 0.11, 0.16, 1.0);
+    drawQuad(gl, this.dynamicBuffer, 110, 640, 920, 320);
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.22, 0.28, 0.38, 1.0);
+    const stationLines: number[] = [];
+    addThickSegment(stationLines, 110, 640, 1030, 640, 4);
+    addThickSegment(stationLines, 1030, 640, 1030, 960, 4);
+    addThickSegment(stationLines, 1030, 960, 110, 960, 4);
+    addThickSegment(stationLines, 110, 960, 110, 640, 4);
+    bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(stationLines));
+
+    this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
 
     // Dark armor hull base enclosing the compact submarine ship
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
@@ -354,7 +421,7 @@ export class DeckPass {
     matrix: Float32Array,
     time: number
   ): void {
-    this.bindFlat(flatProg, flatVAO, matrix);
+    this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
     renderDeckFurniture(this.gl, this.dynamicBuffer, flatProg, time);
     this.gl.bindVertexArray(null);
   }
@@ -370,7 +437,7 @@ export class DeckPass {
   ): void {
     const gl = this.bindFlat(flatProg, flatVAO, matrix);
 
-    for (const door of doors) {
+    for (const door of getWorldDoors(doors, this.shipOffset)) {
       const isHoriz = Math.abs(door.y2 - door.y1) < Math.abs(door.x2 - door.x1);
       const minX = Math.min(door.x1, door.x2);
       const minY = Math.min(door.y1, door.y2);
@@ -464,7 +531,7 @@ export class DeckPass {
     matrix: Float32Array,
     time: number
   ): void {
-    const gl = this.bindFlat(flatProg, flatVAO, matrix);
+    const gl = this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
 
     const corridorLights = HESPERIA_LIGHTS.filter((l) => l.room === 'corridor');
     for (const cl of corridorLights) {

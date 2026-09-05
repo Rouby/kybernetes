@@ -1,6 +1,12 @@
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { type Point2D, segmentsIntersect } from './collision';
-import { carveBreachedWallSegments, HESPERIA_WALLS } from './deck';
+import {
+  applyShipOffsetToWalls,
+  carveBreachedWallSegments,
+  type DockFrameOffset,
+  HESPERIA_WALLS,
+} from './deck';
+import { getWorldDoors } from './doors';
 
 export interface VisibilityRayHit {
   angle: number;
@@ -21,6 +27,33 @@ export function getOpaqueWallSegments(
 
   const result = [...opaqueWalls];
   for (const door of doors) {
+    if (!door.isOpen) {
+      result.push({
+        id: door.id,
+        x1: door.x1,
+        y1: door.y1,
+        x2: door.x2,
+        y2: door.y2,
+        isOpaque: true,
+        isTraversable: false,
+      });
+    }
+  }
+  return result;
+}
+
+export function getWorldOpaqueWalls(
+  walls: WallSegment[],
+  doors: DoorState[] | undefined,
+  breaches: string[] | undefined,
+  offset: DockFrameOffset
+): WallSegment[] {
+  const carved =
+    breaches && breaches.length > 0 ? carveBreachedWallSegments(walls, breaches) : walls;
+  const shifted = applyShipOffsetToWalls(carved, offset);
+  if (!doors) return shifted.filter((w) => w.isOpaque !== false);
+  const result = shifted.filter((w) => w.isOpaque !== false);
+  for (const door of getWorldDoors(doors, offset)) {
     if (!door.isOpen) {
       result.push({
         id: door.id,
@@ -322,7 +355,8 @@ export function isImpactVisible(
   target: Point2D,
   doors?: DoorState[],
   walls: WallSegment[] = HESPERIA_WALLS,
-  maxDistance = 650
+  maxDistance = 650,
+  offset: DockFrameOffset = { x: 0, y: 0 }
 ): boolean {
   const dx = target.x - observer.x;
   const dy = target.y - observer.y;
@@ -335,7 +369,9 @@ export function isImpactVisible(
     y: observer.y + dy * 0.96,
   };
 
-  const opaqueWalls = getOpaqueWallSegments(walls, doors);
+  const worldWalls = applyShipOffsetToWalls(walls, offset);
+  const worldDoors = doors ? getWorldDoors(doors, offset) : undefined;
+  const opaqueWalls = getOpaqueWallSegments(worldWalls, worldDoors);
   for (const seg of opaqueWalls) {
     if (segmentsIntersect(observer, testPt, { x: seg.x1, y: seg.y1 }, { x: seg.x2, y: seg.y2 })) {
       return false;

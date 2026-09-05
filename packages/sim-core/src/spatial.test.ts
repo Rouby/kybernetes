@@ -36,10 +36,10 @@ describe('Deck Layout & Geometry', () => {
   it('initializes default CSS Hesperia deck layout', () => {
     const deck = createDefaultDeck();
     expect(deck.width).toBe(1200);
-    expect(deck.height).toBe(800);
+    expect(deck.height).toBe(1000);
     expect(deck.walls.length).toBeGreaterThan(15);
-    expect(deck.stations.length).toBe(13);
-    expect(HESPERIA_ROOMS.length).toBe(11);
+    expect(deck.stations.length).toBe(14);
+    expect(HESPERIA_ROOMS.length).toBe(14);
   });
 
   it('defines valid spawn points for all 5 starting roles', () => {
@@ -206,7 +206,9 @@ describe('2D Raycast Visibility & Lighting Cones', () => {
     // Initially interior doors are open, 3 exterior airlocks are closed
     const initialOpaque = getOpaqueWallSegments(HESPERIA_WALLS, doors);
     const initialClosedCount = doors.filter((d) => !d.isOpen).length;
-    expect(initialOpaque.length).toBe(HESPERIA_WALLS.length + initialClosedCount);
+    const solidCount = HESPERIA_WALLS.filter((w) => w.isOpaque !== false).length;
+    expect(initialOpaque.length).toBe(solidCount + initialClosedCount);
+    expect(initialOpaque.some((w) => w.isWindow)).toBe(false);
 
     // Close the bridge door
     doors[0].isOpen = false;

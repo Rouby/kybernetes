@@ -1,13 +1,17 @@
 import type {
+  CaptainJobOfferBroadcast,
   ClientAction,
   CollabShiftUpdateBroadcast,
   CrewManifestBroadcast,
   DualProtocolBroadcast,
+  JobAssignedBroadcast,
   LobbyStateBroadcast,
   PawnState,
   ServerBroadcast,
+  ShipDockingUpdateBroadcast,
   StartingRole,
   TelemetryDeltaBroadcast,
+  TransitUpdateBroadcast,
   VitalsDeltaBroadcast,
 } from '@kybernetes/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -39,6 +43,10 @@ function handleSocketMessage(
     setDualProtocol: (d: DualProtocolBroadcast | null) => void;
     setCollabShift: (s: CollabShiftUpdateBroadcast | null) => void;
     setLobbyState: (l: LobbyStateBroadcast) => void;
+    setDocking: (d: ShipDockingUpdateBroadcast) => void;
+    setJobOffer: (o: CaptainJobOfferBroadcast | null) => void;
+    setJobAssigned: (j: JobAssignedBroadcast) => void;
+    setTransit: (t: TransitUpdateBroadcast) => void;
     localCallsign: string;
   }
 ) {
@@ -76,6 +84,24 @@ function handleSocketMessage(
       ShipAudioEngine.getInstance().playExplosionShockwave();
       callbacks.setNotice(`ALERT: Inbound ${msg.event.title}`);
       setTimeout(() => callbacks.setNotice(null), 3500);
+    } else if (msg.type === 'SHIP_DOCKING_UPDATE') {
+      callbacks.setDocking(msg);
+      if (msg.phase === 'docked') {
+        callbacks.setNotice(`[DOCK] ${msg.shipName} docked. Board and talk to the captain (E).`);
+        setTimeout(() => callbacks.setNotice(null), 4000);
+      } else if (msg.phase === 'arrived') {
+        callbacks.setNotice(`[ARRIVAL] ${msg.shipName} arrived at ${msg.destination}.`);
+        setTimeout(() => callbacks.setNotice(null), 4000);
+      }
+    } else if (msg.type === 'CAPTAIN_JOB_OFFER') {
+      callbacks.setJobOffer(msg);
+    } else if (msg.type === 'JOB_ASSIGNED') {
+      callbacks.setJobAssigned(msg);
+      callbacks.setJobOffer(null);
+      callbacks.setNotice(`[HIRE] Signed on as ${msg.title}. Ship departing.`);
+      setTimeout(() => callbacks.setNotice(null), 4000);
+    } else if (msg.type === 'TRANSIT_UPDATE') {
+      callbacks.setTransit(msg);
     }
   } catch {
     // ignore malformed
@@ -97,6 +123,15 @@ export function useVesselSocket(
   const [dualProtocol, setDualProtocol] = useState<DualProtocolBroadcast | null>(null);
   const [collabShift, setCollabShift] = useState<CollabShiftUpdateBroadcast | null>(null);
   const [lobbyState, setLobbyState] = useState<LobbyStateBroadcast | null>(null);
+  const [docking, setDocking] = useState<ShipDockingUpdateBroadcast | null>(null);
+  const [dockingReceivedAt, setDockingReceivedAt] = useState<number>(0);
+  const handleDocking = useCallback((d: ShipDockingUpdateBroadcast) => {
+    setDocking(d);
+    setDockingReceivedAt(performance.now());
+  }, []);
+  const [jobOffer, setJobOffer] = useState<CaptainJobOfferBroadcast | null>(null);
+  const [jobAssigned, setJobAssigned] = useState<JobAssignedBroadcast | null>(null);
+  const [transit, setTransit] = useState<TransitUpdateBroadcast | null>(null);
 
   const currentOptsRef = useRef({
     vesselCode: activeVesselCode || '',
@@ -141,6 +176,10 @@ export function useVesselSocket(
       setDualProtocol(null);
       setCollabShift(null);
       setLobbyState(null);
+      setDocking(null);
+      setJobOffer(null);
+      setJobAssigned(null);
+      setTransit(null);
       return;
     }
 
@@ -185,6 +224,10 @@ export function useVesselSocket(
           setDualProtocol,
           setCollabShift,
           setLobbyState,
+          setDocking: handleDocking,
+          setJobOffer,
+          setJobAssigned,
+          setTransit,
           localCallsign: currentOptsRef.current.callsign,
         });
       };
@@ -219,7 +262,7 @@ export function useVesselSocket(
       if (window.__kybernetesSocket === ws) delete window.__kybernetesSocket;
       setWsConnected(false);
     };
-  }, [activeVesselCode, onTelemetry]);
+  }, [activeVesselCode, onTelemetry, handleDocking]);
 
   return {
     wsConnected,
@@ -229,7 +272,13 @@ export function useVesselSocket(
     dualProtocol,
     collabShift,
     lobbyState,
+    docking,
+    dockingReceivedAt,
+    jobOffer,
+    jobAssigned,
+    transit,
     sendAction,
     setNotice: setTriageNotice,
+    setJobOffer,
   };
 }

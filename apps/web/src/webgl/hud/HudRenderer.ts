@@ -722,7 +722,7 @@ export class HudRenderer {
       color: '#7090b0',
     });
 
-    // Minimal navigation buttons: BCN, CREW, ROLE, AUDIO, SENSOR, and DISEMBARK
+    // Minimal navigation buttons: BCN, CREW, BILLET, AUDIO, SENSOR, and DISEMBARK
     this.addButton(
       'btn_beacon',
       x + 10,
@@ -747,9 +747,9 @@ export class HudRenderer {
       'btn_role',
       x + 165,
       y + 21,
-      50,
+      55,
       27,
-      'ROLE',
+      'BILLET',
       { fontSize: 13 },
       state.onRoleClick
     );

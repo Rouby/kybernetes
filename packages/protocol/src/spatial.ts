@@ -41,6 +41,7 @@ export interface WallSegment {
   y2: number;
   isOpaque?: boolean;
   isTraversable?: boolean;
+  isWindow?: boolean;
 }
 
 export interface StationFixture {
@@ -56,7 +57,9 @@ export interface StationFixture {
     | 'bunk'
     | 'bridge'
     | 'avionics'
-    | 'airlock';
+    | 'airlock'
+    | 'job_board'
+    | 'viewport_window';
   x: number;
   y: number;
   radius: number;

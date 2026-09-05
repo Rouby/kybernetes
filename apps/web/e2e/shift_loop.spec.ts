@@ -6,7 +6,6 @@ async function embarkAsWiper(page: Page, callsign = 'Cadet-Solo') {
   await page.getByTestId('join-ship-btn').click();
   await expect(page.getByTestId('character-creation-modal')).toBeVisible();
   await page.getByTestId('dossier-callsign-input').fill(callsign);
-  await page.getByTestId('dossier-role-wiper').click();
   await page.getByTestId('confirm-dossier-btn').click();
   const canvas = page.getByTestId('vessel-canvas');
   await expect(canvas).toBeVisible();

@@ -10,6 +10,7 @@ import type {
   WeaponType,
 } from '@kybernetes/protocol';
 import { segmentsIntersect } from '../spatial/collision';
+import type { DockFrameOffset } from '../spatial/deck';
 import { createInitialDoors, toggleDoor } from '../spatial/doors';
 import { findWaypointPath } from '../spatial/navigation';
 import { applySuctionToPosition, createInitialRoomO2, tickAirVenting } from './airVenting';
@@ -318,7 +319,8 @@ export interface BoardingCombatTickResult {
 export function tickBoardingCombat(
   state: BoardingTacticsTelemetry,
   dtSeconds: number,
-  playerPos: { x: number; y: number } = { x: 100, y: 100 }
+  playerPos: { x: number; y: number } = { x: 100, y: 100 },
+  offset: DockFrameOffset = { x: 0, y: 0 }
 ): BoardingCombatTickResult {
   let sabotageDetonated = false;
   let hullDamageInflicted = 0;
@@ -370,7 +372,15 @@ export function tickBoardingCombat(
 
   // 4. Tick Projectiles & Check Collisions
   const allProjectiles = [...(state.projectiles || []), ...spawnedProjectiles];
-  const projRes = tickProjectiles(allProjectiles, dtSeconds, doors, nextIntruders, playerPos);
+  const projRes = tickProjectiles(
+    allProjectiles,
+    dtSeconds,
+    doors,
+    nextIntruders,
+    playerPos,
+    undefined,
+    offset
+  );
 
   // Apply projectile damage to intruders
   for (const hit of projRes.damagedIntruders) {

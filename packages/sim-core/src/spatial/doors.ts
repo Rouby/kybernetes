@@ -1,5 +1,11 @@
-import type { DoorState } from '@kybernetes/protocol';
-import { closestPointOnSegment } from './collision';
+import type { DoorState, WallSegment } from '@kybernetes/protocol';
+import { closestPointOnSegment, resolvePawnMovement } from './collision';
+import {
+  type DockFrameOffset,
+  getShipFrameWalls,
+  getStationFrameWalls,
+  isAboardShip,
+} from './deck';
 
 export function createInitialDoors(): DoorState[] {
   return [
@@ -190,6 +196,35 @@ export function createInitialDoors(): DoorState[] {
       roomA: 'airlock_port',
       roomB: 'vacuum',
     },
+    // Docking gauntlet hatches (driven by the docking cycle, sealed unless docked)
+    {
+      id: 'gauntlet_ship_door',
+      name: 'Gauntlet Ship-Side Hatch',
+      x1: 580,
+      y1: 572,
+      x2: 620,
+      y2: 572,
+      isOpen: false,
+      isSealed: true,
+      isAirlock: false,
+      roomA: 'cargo',
+      roomB: 'gauntlet',
+      health: 100,
+    },
+    {
+      id: 'gauntlet_station_door',
+      name: 'Gauntlet Station-Side Hatch',
+      x1: 580,
+      y1: 650,
+      x2: 620,
+      y2: 650,
+      isOpen: false,
+      isSealed: true,
+      isAirlock: false,
+      roomA: 'gauntlet',
+      roomB: 'station_lobby',
+      health: 100,
+    },
     {
       id: 'airlock_eng',
       name: 'Aft Engineering Emergency Purge Vent',
@@ -203,6 +238,77 @@ export function createInitialDoors(): DoorState[] {
       roomB: 'vacuum',
     },
   ];
+}
+
+export const GAUNTLET_DOOR_IDS: readonly string[] = [
+  'gauntlet_ship_door',
+  'gauntlet_station_door',
+] as const;
+
+export function isGauntletDoorId(doorId: string): boolean {
+  return (GAUNTLET_DOOR_IDS as readonly string[]).includes(doorId);
+}
+
+export function isStationSideDoor(door: DoorState): boolean {
+  const stationSide = (roomId: string): boolean =>
+    roomId === 'gauntlet' || roomId.startsWith('station_');
+  return stationSide(door.roomA) && stationSide(door.roomB);
+}
+
+export function getWorldDoors(doors: DoorState[], offset: DockFrameOffset): DoorState[] {
+  return doors.map((d) => {
+    if (isStationSideDoor(d)) return d;
+    return {
+      ...d,
+      x1: d.x1 + offset.x,
+      y1: d.y1 + offset.y,
+      x2: d.x2 + offset.x,
+      y2: d.y2 + offset.y,
+    };
+  });
+}
+
+function closedDoorSegments(doors: DoorState[], stationSide: boolean): WallSegment[] {
+  return doors
+    .filter((d) => !d.isOpen && isStationSideDoor(d) === stationSide)
+    .map((d) => ({
+      id: `door_wall_${d.id}`,
+      x1: d.x1,
+      y1: d.y1,
+      x2: d.x2,
+      y2: d.y2,
+      isOpaque: true,
+      isTraversable: false,
+    }));
+}
+
+export function resolveFramedMovement(
+  x: number,
+  y: number,
+  targetX: number,
+  targetY: number,
+  radius: number,
+  doors: DoorState[],
+  offset: DockFrameOffset
+): { x: number; y: number; collided: boolean } {
+  if (isAboardShip(x, y, offset)) {
+    const walls = [...getShipFrameWalls(), ...closedDoorSegments(doors, false)];
+    const res = resolvePawnMovement(
+      x - offset.x,
+      y - offset.y,
+      targetX - offset.x,
+      targetY - offset.y,
+      radius,
+      walls
+    );
+    return {
+      x: Number((res.x + offset.x).toFixed(2)),
+      y: Number((res.y + offset.y).toFixed(2)),
+      collided: res.collided,
+    };
+  }
+  const walls = [...getStationFrameWalls(), ...closedDoorSegments(doors, true)];
+  return resolvePawnMovement(x, y, targetX, targetY, radius, walls);
 }
 
 export function toggleDoor(doors: DoorState[], doorId: string, forceState?: boolean): DoorState[] {

@@ -62,6 +62,7 @@ export interface DoorState {
   x2: number;
   y2: number;
   isOpen: boolean;
+  isSealed?: boolean; // True when locked by the docking cycle (e.g. gauntlet while undocked)
   isAirlock: boolean; // True if an exterior hull door opening to space vacuum
   roomA: string;
   roomB: string; // 'vacuum' if isAirlock
