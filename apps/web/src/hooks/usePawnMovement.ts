@@ -238,13 +238,15 @@ export function usePawnMovement(
       const effectiveFacing = facingAngleRefHolder.current?.current;
 
       const dragAboard = isAboardShip(pawnRef.current.x, pawnRef.current.y, offset);
-      const dragVector = getAirflowDragVector(
-        dragAboard ? pawnRef.current.x - offset.x : pawnRef.current.x,
-        dragAboard ? pawnRef.current.y - offset.y : pawnRef.current.y,
-        activeDoors,
-        breachesRef.current,
-        roomAtmospheresRef.current
-      );
+      const dragVector = dragAboard
+        ? getAirflowDragVector(
+            pawnRef.current.x - offset.x,
+            pawnRef.current.y - offset.y,
+            activeDoors,
+            breachesRef.current,
+            roomAtmospheresRef.current
+          )
+        : { u: 0, v: 0 };
 
       const nextPawn = calculateNextPawnState(
         pawnRef.current,

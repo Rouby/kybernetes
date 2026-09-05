@@ -222,6 +222,13 @@ describe('protocol wire contracts', () => {
       etaSeconds: 0,
       legIndex: 1,
       timestamp: Date.now(),
+      kinematics: {
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        flightMode: 'docked',
+      },
     };
     const assigned: ServerBroadcast = {
       type: 'JOB_ASSIGNED',

@@ -1404,10 +1404,46 @@ export interface DockFrameOffset {
   y: number;
 }
 
+export const SHIP_ROOM_IDS = new Set<string>([
+  'bridge',
+  'avionics',
+  'life_support',
+  'quarters',
+  'mess',
+  'airlock_stbd',
+  'corridor',
+  'armory',
+  'airlock_port',
+  'cargo',
+  'engineering',
+]);
+
 export function isShipSideRoom(roomId: string): boolean {
-  const room = HESPERIA_ROOMS.find((r) => r.id === roomId);
-  if (!room) return false;
-  return room.tag.startsWith('DECK') || room.tag === 'CORRIDOR';
+  return SHIP_ROOM_IDS.has(roomId);
+}
+
+export const STATION_ROOM_IDS = new Set<string>(['station_lobby', 'station_bay', 'gauntlet']);
+
+export function isStationRoom(roomId: string): boolean {
+  return STATION_ROOM_IDS.has(roomId);
+}
+
+export function toShipLocal(
+  x: number,
+  y: number,
+  offset: DockFrameOffset
+): { x: number; y: number } {
+  return {
+    x: Number((x - offset.x).toFixed(2)),
+    y: Number((y - offset.y).toFixed(2)),
+  };
+}
+
+export function toWorld(x: number, y: number, offset: DockFrameOffset): { x: number; y: number } {
+  return {
+    x: Number((x + offset.x).toFixed(2)),
+    y: Number((y + offset.y).toFixed(2)),
+  };
 }
 
 export function findWorldRoom(x: number, y: number, offset: DockFrameOffset): string | null {

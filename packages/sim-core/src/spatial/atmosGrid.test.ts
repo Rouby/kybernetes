@@ -254,6 +254,13 @@ describe('20px Cellular Automata Atmospheric Grid', () => {
     expect(summaries.bridge.pressureKpa).toBe(101.3);
     expect(summaries.engineering.o2Percent).toBe(20.9);
     expect(summaries.quarters.tempCelsius).toBe(21.0);
+    expect(summaries.station_lobby.pressureKpa).toBe(101.3);
+    expect(summaries.station_bay.o2Percent).toBe(20.9);
+
+    // Verify grid cells for station locations are null/vacuum (no station cellular sim)
+    const stationCellIdx = worldToIndex(500, 700);
+    expect(grid.cellRoomId[stationCellIdx]).toBeNull();
+    expect(grid.pressure[stationCellIdx]).toBe(0.0);
   });
 
   it('maps atmos overlay colors and formats values across O2, temperature, and pressure', () => {

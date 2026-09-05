@@ -119,4 +119,17 @@ describe('Player Survival Vitals & Suit Simulation', () => {
     vitals = patchSuitIntegrity(vitals);
     expect(vitals.suit.integrityPercent).toBe(100);
   });
+
+  it('breathes normally without suit seal in station ambient atmosphere', () => {
+    let vitals = createInitialPlayerVitals();
+    expect(vitals.suit.isSealed).toBe(false);
+
+    for (let t = 0; t < 10; t++) {
+      vitals = updatePlayerVitals(vitals, 1.0, false, false);
+    }
+
+    expect(vitals.hypoxiaPercent).toBe(0);
+    expect(vitals.health).toBe(100);
+    expect(vitals.suit.o2RemainingSeconds).toBe(600); // Suit tank not consumed
+  });
 });

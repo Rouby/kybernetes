@@ -180,7 +180,8 @@ function updateSingleIntruderAI(
   doors: DoorState[],
   playerPos: { x: number; y: number },
   dtSeconds: number,
-  spawnedProjectiles: ProjectileState[]
+  spawnedProjectiles: ProjectileState[],
+  shipVelocity?: { vx: number; vy: number }
 ): {
   nextObj: IntruderState;
   sabotageDetonated: boolean;
@@ -237,7 +238,16 @@ function updateSingleIntruderAI(
     const lastShot = intruder.lastShotTime || 0;
     if (now - lastShot > 1200) {
       spawnedProjectiles.push(
-        createProjectile(suckedPos.x, suckedPos.y, playerPos.x, playerPos.y, 'raider_plasma', false)
+        createProjectile(
+          suckedPos.x,
+          suckedPos.y,
+          playerPos.x,
+          playerPos.y,
+          'raider_plasma',
+          false,
+          1.0,
+          shipVelocity
+        )
       );
       intruder.lastShotTime = now;
     }
@@ -320,7 +330,8 @@ export function tickBoardingCombat(
   state: BoardingTacticsTelemetry,
   dtSeconds: number,
   playerPos: { x: number; y: number } = { x: 100, y: 100 },
-  offset: DockFrameOffset = { x: 0, y: 0 }
+  offset: DockFrameOffset = { x: 0, y: 0 },
+  shipVelocity?: { vx: number; vy: number }
 ): BoardingCombatTickResult {
   let sabotageDetonated = false;
   let hullDamageInflicted = 0;
@@ -363,7 +374,8 @@ export function tickBoardingCombat(
       doors,
       playerPos,
       dtSeconds,
-      spawnedProjectiles
+      spawnedProjectiles,
+      shipVelocity
     );
     nextIntruders.push(res.nextObj);
     if (res.sabotageDetonated) sabotageDetonated = true;

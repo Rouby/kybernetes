@@ -10,9 +10,15 @@ import type {
   ShiftEvaluationGrade,
   StationFixture,
   TelemetryDeltaBroadcast,
+  VesselKinematics,
   WeaponType,
 } from '@kybernetes/protocol';
-import { createInitialDoors, interpolatePawn, isImpactVisible } from '@kybernetes/sim-core';
+import {
+  createInitialDoors,
+  interpolatePawn,
+  isAboardShip,
+  isImpactVisible,
+} from '@kybernetes/sim-core';
 import type React from 'react';
 import { useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
@@ -24,7 +30,7 @@ import {
 import { useTacticalCamera } from '../hooks/useTacticalCamera';
 import type { ActiveInteraction } from '../types';
 import { WebGL2Renderer } from '../webgl';
-import { liveEtaSeconds, resolveClientShipOffset } from '../webgl/StationHub';
+import { liveEtaSeconds, resolveClientShipKinematics } from '../webgl/StationHub';
 
 interface VesselCanvasProps {
   pawn: PawnState;
@@ -305,8 +311,15 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
   const remoteInterpolatedRef = useRef<Map<string, PawnState>>(new Map());
 
   const lastFrameTimeRef = useRef<number>(performance.now());
+  const shipKinematicsRef = useRef<VesselKinematics | undefined>(undefined);
+  const shipOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const queuedImpactsRef = useRef<
-    Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>
+    Array<{
+      x: number;
+      y: number;
+      type: 'kinetic' | 'laser' | 'welder';
+      shipVelocity?: { vx: number; vy: number };
+    }>
   >([]);
   const queuedMuzzleFlashesRef = useRef<Array<{ x: number; y: number; weaponType: WeaponType }>>(
     []
@@ -334,13 +347,19 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
     pawn,
     mouseWorldRef,
     equippedWeapon,
+    shipOffsetRef,
+    shipKinematicsRef,
     onFireWeapon,
     onWelderAoe,
     onWeldingStateChange,
     onSpawnProjectile: addPredictedProjectile,
     onMuzzleFlash: (flash) => queuedMuzzleFlashesRef.current.push(flash),
     onImpact: (x, y, type) => {
-      queuedImpactsRef.current.push({ x, y, type });
+      const shipVelocity =
+        shipKinematicsRef.current && isAboardShip(x, y, shipOffsetRef.current)
+          ? { vx: shipKinematicsRef.current.vx, vy: shipKinematicsRef.current.vy }
+          : undefined;
+      queuedImpactsRef.current.push({ x, y, type, shipVelocity });
       addScreenShake(1.4);
       ShipAudioEngine.getInstance().playImpact(x, y, type);
     },
@@ -390,13 +409,13 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
       const dt = Math.min((now - lastFrameTimeRef.current) / 1000, 0.05);
       lastFrameTimeRef.current = now;
 
-      const frameOffset = resolveClientShipOffset(
-        dockingPhase,
-        dockingReceivedAt
-          ? liveEtaSeconds(dockingEtaSeconds ?? 20, dockingReceivedAt, now)
-          : (dockingEtaSeconds ?? 20),
-        dockingLegIndex
-      );
+      const liveEta = dockingReceivedAt
+        ? liveEtaSeconds(dockingEtaSeconds ?? 20, dockingReceivedAt, now)
+        : (dockingEtaSeconds ?? 20);
+      const frameKinematics = resolveClientShipKinematics(dockingPhase, liveEta, dockingLegIndex);
+      const frameOffset = { x: frameKinematics.x, y: frameKinematics.y };
+      shipKinematicsRef.current = frameKinematics;
+      shipOffsetRef.current = frameOffset;
       (window as unknown as { __shipOffset?: { x: number; y: number } }).__shipOffset = frameOffset;
 
       const doors = boarding?.doors || defaultDoorsRef.current;
@@ -416,7 +435,11 @@ export const VesselCanvas: React.FC<VesselCanvasProps> = ({
               frameOffset
             )
           ) {
-            queuedImpactsRef.current.push({ x: hitX, y: hitY, type });
+            const shipVelocity =
+              shipKinematicsRef.current && isAboardShip(hitX, hitY, frameOffset)
+                ? { vx: shipKinematicsRef.current.vx, vy: shipKinematicsRef.current.vy }
+                : undefined;
+            queuedImpactsRef.current.push({ x: hitX, y: hitY, type, shipVelocity });
             addScreenShake(1.4);
             ShipAudioEngine.getInstance().playImpact(hitX, hitY, type);
           }

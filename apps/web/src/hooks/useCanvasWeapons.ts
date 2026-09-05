@@ -4,9 +4,15 @@ import type {
   IntruderState,
   PawnState,
   ProjectileState,
+  VesselKinematics,
   WeaponType,
 } from '@kybernetes/protocol';
-import { applyWelderAoeDamage, createProjectile, type DockFrameOffset } from '@kybernetes/sim-core';
+import {
+  applyWelderAoeDamage,
+  createProjectile,
+  type DockFrameOffset,
+  isAboardShip,
+} from '@kybernetes/sim-core';
 import { type MutableRefObject, useCallback, useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 
@@ -23,7 +29,9 @@ interface KineticAmmoState {
 interface UseCanvasWeaponsOptions {
   pawn: PawnState;
   mouseWorldRef: MutableRefObject<{ x: number; y: number }>;
-  equippedWeapon: WeaponType;
+  equippedWeapon?: WeaponType;
+  shipOffsetRef?: MutableRefObject<{ x: number; y: number } | undefined>;
+  shipKinematicsRef?: MutableRefObject<VesselKinematics | undefined>;
   onFireWeapon?: (
     originX: number,
     originY: number,
@@ -136,6 +144,8 @@ export function useCanvasWeapons({
   pawn,
   mouseWorldRef,
   equippedWeapon,
+  shipOffsetRef,
+  shipKinematicsRef,
   onFireWeapon,
   onWelderAoe,
   onWeldingStateChange,
@@ -174,6 +184,12 @@ export function useCanvasWeapons({
     ) => {
       if (weaponType === 'arc_welder') return;
 
+      const offset = shipOffsetRef?.current ?? { x: 0, y: 0 };
+      const kinematics = shipKinematicsRef?.current;
+      const aboard = isAboardShip(originX, originY, offset);
+      const initialVelocity =
+        aboard && kinematics ? { vx: kinematics.vx, vy: kinematics.vy } : undefined;
+
       const proj = createProjectile(
         originX,
         originY,
@@ -181,7 +197,8 @@ export function useCanvasWeapons({
         targetY,
         weaponType,
         true,
-        chargeRatio
+        chargeRatio,
+        initialVelocity
       );
       onSpawnProjectile(proj);
 
@@ -201,7 +218,14 @@ export function useCanvasWeapons({
       ShipAudioEngine.getInstance().playWeaponFire(originX, originY, weaponType, chargeRatio, true);
       onFireWeapon?.(originX, originY, targetX, targetY, weaponType, chargeRatio);
     },
-    [addScreenShake, onFireWeapon, onMuzzleFlash, onSpawnProjectile]
+    [
+      addScreenShake,
+      onFireWeapon,
+      onMuzzleFlash,
+      onSpawnProjectile,
+      shipKinematicsRef,
+      shipOffsetRef,
+    ]
   );
 
   const triggerReload = useCallback(() => {

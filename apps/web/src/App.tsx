@@ -2,6 +2,7 @@ import type {
   AtmosOverlayMode,
   DoorState,
   PlayerVitals,
+  RoomAtmosphereSummary,
   ShiftChecklistState,
   ShiftEvaluation,
   StartingRole,
@@ -11,6 +12,7 @@ import type {
 } from '@kybernetes/protocol';
 import {
   advanceShiftTask,
+  type CellAtmosphere,
   calculateDutyRewards,
   calculateProjectedGrade,
   createInitialPlayerVitals,
@@ -19,7 +21,10 @@ import {
   findWorldRoom,
   generateShiftChecklist,
   handoverWatchRotation,
+  isStationRoom,
   refillSuitO2,
+  SPACE_VACUUM_ATMOS,
+  STATION_AMBIENT_ATMOS,
   toggleDoor,
   toggleHelmet,
   updatePlayerVitals,
@@ -187,6 +192,38 @@ function resolvePromptActionName(
   }
   if (!station) return undefined;
   return getStationActionConfig(station, role, activeDutyId)?.actionName;
+}
+
+// fallow-ignore-next-line complexity
+function resolveClientLocalAtmosphere(
+  curRoom?: string,
+  telemetryAtmospheres?: Record<string, RoomAtmosphereSummary>
+): CellAtmosphere {
+  if (!curRoom) return SPACE_VACUUM_ATMOS;
+  if (isStationRoom(curRoom)) return STATION_AMBIENT_ATMOS;
+  const summary = telemetryAtmospheres?.[curRoom];
+  if (summary) {
+    return {
+      pressureKpa: summary.pressureKpa,
+      o2Percent: summary.o2Percent,
+      co2Ppm: summary.co2Ppm,
+      tempCelsius: summary.tempCelsius,
+      toxicSmokePercent: summary.toxicSmokePercent,
+      velX: 0,
+      velY: 0,
+      roomId: summary.roomId,
+    };
+  }
+  return {
+    pressureKpa: 101.3,
+    o2Percent: 20.9,
+    co2Ppm: 400,
+    tempCelsius: 21.0,
+    toxicSmokePercent: 0,
+    velX: 0,
+    velY: 0,
+    roomId: curRoom,
+  };
 }
 
 // fallow-ignore-next-line complexity
@@ -838,19 +875,10 @@ export const App: React.FC = () => {
       lastTime = now;
       const dt = Math.min(0.25, Math.max(0.01, rawDt));
       tickInteraction(dt);
-      const summary = telemetryAtmospheresRef.current?.[currentRoomIdRef.current ?? 'corridor'];
-      const cellAtmos = summary
-        ? {
-            pressureKpa: summary.pressureKpa,
-            o2Percent: summary.o2Percent,
-            co2Ppm: summary.co2Ppm,
-            tempCelsius: summary.tempCelsius,
-            toxicSmokePercent: summary.toxicSmokePercent,
-            velX: 0,
-            velY: 0,
-            roomId: summary.roomId,
-          }
-        : undefined;
+      const cellAtmos = resolveClientLocalAtmosphere(
+        currentRoomIdRef.current,
+        telemetryAtmospheresRef.current
+      );
       setVitals((v) =>
         updatePlayerVitals(
           v,

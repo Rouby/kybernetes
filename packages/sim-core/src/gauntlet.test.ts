@@ -1,6 +1,7 @@
 import type { WallSegment } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
 import { createInitialIntroState, getShipDockingOffset, tickIntroState } from './intro';
+import { createInitialAtmosGrid, resolveAtmosphereAt } from './spatial/atmosGrid';
 import { resolvePawnMovement, resolveWallCollision } from './spatial/collision';
 import {
   applyShipOffsetToWalls,
@@ -9,6 +10,7 @@ import {
   HESPERIA_WALLS,
   isAboardShip,
   isShipSideRoom,
+  isStationRoom,
   STATION_BAY_SPAWN,
 } from './spatial/deck';
 import {
@@ -114,10 +116,29 @@ describe('docking gauntlet', () => {
     expect(isShipSideRoom('cargo')).toBe(true);
     expect(isShipSideRoom('station_bay')).toBe(false);
     expect(isShipSideRoom('gauntlet')).toBe(false);
+    expect(isStationRoom('station_lobby')).toBe(true);
+    expect(isStationRoom('station_bay')).toBe(true);
+    expect(isStationRoom('gauntlet')).toBe(true);
+    expect(isStationRoom('cargo')).toBe(false);
+
     expect(findWorldRoom(600, 500, { x: 0, y: 0 })).toBe('cargo');
     expect(findWorldRoom(600, 500, { x: -1400, y: 0 })).toBeNull();
     expect(isAboardShip(600, 500, { x: 0, y: 0 })).toBe(true);
     expect(isAboardShip(600, 875, { x: 0, y: 0 })).toBe(false);
+
+    const grid = createInitialAtmosGrid();
+    const shipAtmos = resolveAtmosphereAt(grid, 600, 500, { x: 0, y: 0 });
+    expect(shipAtmos.pressureKpa).toBe(101.3);
+    expect(shipAtmos.roomId).toBe('cargo');
+
+    const stationAtmos = resolveAtmosphereAt(grid, 500, 700, { x: 0, y: 0 });
+    expect(stationAtmos.pressureKpa).toBe(101.3);
+    expect(stationAtmos.roomId).toBe('station_lobby');
+
+    const voidAtmos = resolveAtmosphereAt(grid, 600, 500, { x: -1400, y: 0 });
+    expect(voidAtmos.pressureKpa).toBe(0);
+    expect(voidAtmos.tempCelsius).toBe(-270.0);
+    expect(voidAtmos.roomId).toBeNull();
   });
 
   it('shifts only ship-side walls and doors with the offset', () => {

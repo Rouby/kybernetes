@@ -30,6 +30,7 @@ import {
   formatAtmosphereStatus,
   formatIncapacitatedNotice,
   formatSuitStatus,
+  resolveRoomAtmosSummary,
 } from './vitalsFormatters';
 
 export interface HudDrawState {
@@ -424,7 +425,10 @@ export class HudRenderer {
     this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
 
     const suitFmt = formatSuitStatus(vitals);
-    const roomAtmos = state.telemetry?.roomAtmospheres?.[state.currentRoomId ?? 'corridor'];
+    const roomAtmos = resolveRoomAtmosSummary(
+      state.telemetry?.roomAtmospheres,
+      state.currentRoomId
+    );
     const atmosFmt = formatAtmosphereStatus(roomAtmos);
     const incNotice = formatIncapacitatedNotice(vitals);
 

@@ -152,6 +152,30 @@ function updateRespiration(
   return { suit, hypoxiaPercent: Number(hypoxia.toFixed(1)), envHealthDrain };
 }
 
+export const STATION_AMBIENT_ATMOS: CellAtmosphere = {
+  pressureKpa: 101.3,
+  o2Percent: 20.9,
+  co2Ppm: 400,
+  tempCelsius: 21.0,
+  toxicSmokePercent: 0,
+  velX: 0,
+  velY: 0,
+  roomId: 'station_lobby',
+  condensationPlume: 0,
+};
+
+export const SPACE_VACUUM_ATMOS: CellAtmosphere = {
+  pressureKpa: 0,
+  o2Percent: 0,
+  co2Ppm: 0,
+  tempCelsius: -270.0,
+  toxicSmokePercent: 0,
+  velX: 0,
+  velY: 0,
+  roomId: null,
+  condensationPlume: 0,
+};
+
 // fallow-ignore-next-line complexity
 export function updatePlayerVitals(
   vitals: PlayerVitals,
@@ -160,16 +184,7 @@ export function updatePlayerVitals(
   isOperating: boolean,
   localAtmos?: CellAtmosphere
 ): PlayerVitals {
-  const atmos: CellAtmosphere = localAtmos ?? {
-    pressureKpa: 101.3,
-    o2Percent: 20.9,
-    co2Ppm: 400,
-    tempCelsius: 21.0,
-    toxicSmokePercent: 0,
-    velX: 0,
-    velY: 0,
-    roomId: 'corridor',
-  };
+  const atmos: CellAtmosphere = localAtmos ?? STATION_AMBIENT_ATMOS;
 
   // If already incapacitated, tick bleedout
   if (vitals.incapacitated.isIncapacitated) {

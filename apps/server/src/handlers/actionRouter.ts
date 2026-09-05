@@ -27,8 +27,10 @@ import {
   engageIntruder,
   executeDualProtocol,
   getShipDockingOffset,
+  getShipKinematics,
   handoverWatchRotation,
   interceptNavalEvent,
+  isAboardShip,
   isGauntletDoorId,
   joinCollabShift,
   leaveCollabShift,
@@ -497,6 +499,10 @@ export class ActionRouter {
     } else if (action.type === 'DEPLOY_SENTRY') {
       session.vesselState.boarding = deploySentryGun(session.vesselState.boarding, action.roomId);
     } else if (action.type === 'FIRE_WEAPON') {
+      const offset = getShipDockingOffset(session.intro);
+      const kinematics = getShipKinematics(session.intro);
+      const aboard = isAboardShip(action.originX, action.originY, offset);
+      const initialVelocity = aboard ? { vx: kinematics.vx, vy: kinematics.vy } : undefined;
       const proj = createProjectile(
         action.originX,
         action.originY,
@@ -504,7 +510,8 @@ export class ActionRouter {
         action.targetY,
         action.weaponType,
         true,
-        action.chargeRatio ?? 1.0
+        action.chargeRatio ?? 1.0,
+        initialVelocity
       );
       session.vesselState.boarding.projectiles = [
         ...(session.vesselState.boarding.projectiles || []),

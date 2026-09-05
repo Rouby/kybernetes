@@ -151,9 +151,12 @@ describe('VesselServer lifecycle and wire loopback', () => {
     const docking = (await waitForType(ws, 'SHIP_DOCKING_UPDATE')) as {
       phase: string;
       shipName: string;
+      kinematics?: { x: number; y: number; vx: number; vy: number; flightMode: string };
     };
     expect(docking.shipName).toBeTruthy();
     expect(['inbound', 'docked', 'departing', 'in_transit', 'arrived']).toContain(docking.phase);
+    expect(docking.kinematics).toBeDefined();
+    expect(docking.kinematics?.flightMode).toBe(docking.phase);
   });
 
   it('gauntlet hatches ignore manual toggle while sealed', async () => {
@@ -174,6 +177,46 @@ describe('VesselServer lifecycle and wire loopback', () => {
     );
     expect(hatch).toBeDefined();
     expect(second.boarding.doors.find((d) => d.id === 'gauntlet_ship_door')?.isOpen).toBe(false);
+  });
+
+  it('station spawn maintains healthy vitals with unsealed visor', async () => {
+    const server = await startServer();
+    const ws = await connectAndJoin(server.getPort(), 'Loopback-7');
+    sockets.push(ws);
+
+    // Initial spawn is in station bay (y >= 800) with unsealed visor
+    const delta = (await waitForType(ws, 'VITALS_DELTA')) as {
+      vitals: {
+        health: number;
+        hypoxiaPercent: number;
+        suit: { isSealed: boolean };
+      };
+    };
+    expect(delta.vitals.suit.isSealed).toBe(false);
+    expect(delta.vitals.hypoxiaPercent).toBe(0);
+    expect(delta.vitals.health).toBe(100);
+  });
+
+  it('unsealed crew in space vacuum suffers hypoxia and decompression damage', async () => {
+    const server = await startServer();
+    const ws = await connectAndJoin(server.getPort(), 'Loopback-8');
+    sockets.push(ws);
+    await waitForType(ws, 'CREW_MANIFEST');
+
+    // Move outside any room enclosure into space vacuum
+    ws.send(JSON.stringify({ type: 'PLAYER_MOVE', x: 50, y: 50, vx: 0, vy: 0, facingAngle: 0 }));
+
+    let damaged = false;
+    for (let i = 0; i < 15; i++) {
+      const delta = (await waitForType(ws, 'VITALS_DELTA')) as {
+        vitals: { health: number; hypoxiaPercent: number; suit: { isSealed: boolean } };
+      };
+      if (delta.vitals.hypoxiaPercent > 0 || delta.vitals.health < 100) {
+        damaged = true;
+        break;
+      }
+    }
+    expect(damaged).toBe(true);
   });
 
   it('stop() releases the port so a new daemon can bind it', async () => {

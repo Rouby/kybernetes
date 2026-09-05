@@ -11,6 +11,16 @@ describe('Weapon Systems: Kinetic, Charged Laser & Welder AOE', () => {
     expect(bullet.color).toBe('#ffd166');
   });
 
+  it('inherits vessel momentum when fired aboard moving ship', () => {
+    // Fired straight in Y (target dx=0, dy=100) with ship moving in X at 150 px/s
+    const bullet = createProjectile(100, 100, 100, 200, 'kinetic_carbine', true, 1.0, {
+      vx: 150,
+      vy: 0,
+    });
+    expect(bullet.vx).toBe(150); // Muzzle 0 + ship 150
+    expect(bullet.vy).toBe(1050); // Muzzle 1050 + ship 0
+  });
+
   it('scales laser damage, speed, and chargeRatio from tap to full charge', () => {
     // Tap fire (0.2 charge)
     const tapLaser = createProjectile(100, 100, 200, 100, 'pulse_laser', true, 0.2);
@@ -200,7 +210,7 @@ describe('Weapon Systems: Kinetic, Charged Laser & Welder AOE', () => {
       }
     });
 
-    it('registers partition bullet holes at shifted world coordinates on moving ship', () => {
+    it('registers partition bullet holes in ship-local coordinates on moving ship', () => {
       // Partition wall part_bridge_avionics at local x=320, y=280 -> world x=1720, y=280
       const bullet = createProjectile(1710, 280, 1730, 280, 'kinetic_carbine', true);
       const res = tickProjectiles([bullet], 0.05, [], [], { x: 0, y: 0 }, undefined, shipOffset);
@@ -209,7 +219,7 @@ describe('Weapon Systems: Kinetic, Charged Laser & Welder AOE', () => {
       expect(res.partitionHits).toBeDefined();
       expect(res.partitionHits).toHaveLength(1);
       expect(res.partitionHits?.[0].wallId).toBe('part_bridge_avionics');
-      expect(res.partitionHits?.[0].x).toBe(1720);
+      expect(res.partitionHits?.[0].x).toBe(320); // Ship-local coordinate so decal moves with the ship
       expect(res.partitionHits?.[0].y).toBe(280);
     });
 

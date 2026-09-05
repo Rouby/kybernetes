@@ -3,6 +3,7 @@ import {
   acceptJobOffer,
   createInitialIntroState,
   getNpcCrewForHire,
+  getShipKinematics,
   openCaptainOffer,
   pickJobOfferPair,
   startNextLeg,
@@ -79,6 +80,26 @@ describe('intro docking and hire loop', () => {
   it('fills NPC crew with the two unchosen jobs', () => {
     expect(getNpcCrewForHire('engineer')).toEqual(['cook', 'deckhand']);
     expect(getNpcCrewForHire('cook')).toHaveLength(2);
+  });
+
+  it('computes smooth kinematics and velocities across docking phases', () => {
+    const inboundStart = createInitialIntroState();
+    const kInboundStart = getShipKinematics(inboundStart);
+    expect(kInboundStart.x).toBe(-1400);
+    expect(kInboundStart.vx).toBe(0); // Zero velocity at arrival window start
+
+    const inboundMid = { ...inboundStart, etaSeconds: 10 };
+    const kInboundMid = getShipKinematics(inboundMid);
+    expect(kInboundMid.vx).toBeGreaterThan(50); // Accelerates in mid-approach
+
+    const docked = { ...inboundStart, phase: 'docked' as const, etaSeconds: 0 };
+    const kDocked = getShipKinematics(docked);
+    expect(kDocked.x).toBe(0);
+    expect(kDocked.vx).toBe(0);
+
+    const departingMid = { ...inboundStart, phase: 'departing' as const, etaSeconds: 2.5 };
+    const kDepartingMid = getShipKinematics(departingMid);
+    expect(kDepartingMid.vx).toBeGreaterThan(0); // Moves outward toward station exit
   });
 
   it('starts the next leg back at docked', () => {

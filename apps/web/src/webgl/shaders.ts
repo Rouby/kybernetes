@@ -133,54 +133,57 @@ uniform int u_roomType;
 uniform vec4 u_roomBounds; // xy = origin, zw = dimensions
 uniform vec4 u_projLights[6]; // xy = pos, z = radius, w = intensity
 uniform vec3 u_projColors[6];
+uniform vec2 u_shipOffset;
+uniform int u_isShipRoom;
 
 out vec4 fragColor;
 
 void main() {
+  vec2 refPos = u_isShipRoom == 1 ? (v_worldPos - u_shipOffset) : v_worldPos;
   vec3 baseColor;
 
   if (u_roomType == 0) {
     // COMMAND BRIDGE: High-tech dark slate decking with cyan edge telemetry and central command circle
-    vec2 coord = v_worldPos / 28.0;
+    vec2 coord = refPos / 28.0;
     vec2 grid = abs(fract(coord - 0.5) - 0.5) / fwidth(coord);
     float line = 1.0 - min(min(grid.x, grid.y), 1.0);
     vec3 bridgePlate = mix(vec3(0.11, 0.14, 0.20), vec3(0.18, 0.23, 0.32), clamp(line * 0.8, 0.0, 1.0));
 
     // Command helm dais concentric tactical ring (at helm vicinity x=220, y=290)
-    float dCenter = length(v_worldPos - vec2(220.0, 290.0));
+    float dCenter = length(refPos - vec2(220.0, 290.0));
     float ring = smoothstep(1.5, 0.0, abs(dCenter - 48.0)) * 0.45;
     float innerRing = smoothstep(1.2, 0.0, abs(dCenter - 28.0)) * 0.35;
     baseColor = bridgePlate + vec3(0.0, 0.85, 1.0) * (ring + innerRing);
 
   } else if (u_roomType == 7) {
     // AVIONICS MATRIX: Server rack cooling channels with electric cyan data bus tracers
-    vec2 avCoord = v_worldPos / 20.0;
+    vec2 avCoord = refPos / 20.0;
     float busline = step(0.85, fract(avCoord.x)) + step(0.85, fract(avCoord.y * 0.5));
     vec3 avMetal = mix(vec3(0.10, 0.13, 0.18), vec3(0.16, 0.20, 0.28), clamp(busline * 0.6, 0.0, 1.0));
-    float pulse = 0.5 + 0.5 * sin(v_worldPos.x * 0.1 + u_time * 4.0);
+    float pulse = 0.5 + 0.5 * sin(refPos.x * 0.1 + u_time * 4.0);
     baseColor = avMetal + vec3(0.0, 0.6, 0.9) * (step(0.92, fract(avCoord.x)) * pulse * 0.4);
 
   } else if (u_roomType == 8) {
     // LIFE SUPPORT & RECYCLER: Bio-dome drainage tiles with emerald green bioluminescent tracer lines
-    vec2 bioCoord = v_worldPos / 24.0;
+    vec2 bioCoord = refPos / 24.0;
     vec2 bioGrid = abs(fract(bioCoord - 0.5) - 0.5) / fwidth(bioCoord);
     float bioLine = 1.0 - min(min(bioGrid.x, bioGrid.y), 1.0);
     vec3 bioBase = mix(vec3(0.11, 0.16, 0.13), vec3(0.16, 0.24, 0.19), clamp(bioLine * 0.7, 0.0, 1.0));
 
     // Bio-scrubber circular intake ring (around scrubber x=520, y=290)
-    float dScrub = length(v_worldPos - vec2(520.0, 290.0));
+    float dScrub = length(refPos - vec2(520.0, 290.0));
     float scrubRing = smoothstep(1.5, 0.0, abs(dScrub - 38.0)) * 0.5;
     baseColor = bioBase + vec3(0.1, 0.9, 0.4) * scrubRing;
 
   } else if (u_roomType == 6) {
     // REACTOR ENGINEERING: Industrial steel diamond tread plate with high-voltage hazard zone
-    vec2 dPos = v_worldPos * 0.18;
+    vec2 dPos = refPos * 0.18;
     float diamond = abs(fract(dPos.x + dPos.y) - 0.5) + abs(fract(dPos.x - dPos.y) - 0.5);
     float plate = step(0.68, diamond) * 0.15;
     vec3 engMetal = mix(vec3(0.14, 0.16, 0.20), vec3(0.24, 0.27, 0.33), plate);
 
     // High-voltage warning ring around reactor core monitor (x=890, y=510)
-    float dCore = length(v_worldPos - vec2(890.0, 510.0));
+    float dCore = length(refPos - vec2(890.0, 510.0));
     if (dCore > 40.0 && dCore < 50.0) {
       baseColor = mix(engMetal, vec3(0.95, 0.78, 0.05), 0.75);
     } else {
@@ -195,7 +198,7 @@ void main() {
     vec3 cargoMetal = mix(vec3(0.19, 0.20, 0.23), vec3(0.26, 0.28, 0.31), clamp(cLine * 0.75, 0.0, 1.0));
 
     // Staging mag-pad perimeter (around winch x=600, y=510)
-    vec2 cargoRel = abs(v_worldPos - vec2(600.0, 510.0));
+    vec2 cargoRel = abs(refPos - vec2(600.0, 510.0));
     if (max(cargoRel.x, cargoRel.y) > 36.0 && max(cargoRel.x, cargoRel.y) < 44.0) {
       baseColor = mix(cargoMetal, vec3(0.92, 0.74, 0.08), 0.75);
     } else {
@@ -204,7 +207,7 @@ void main() {
 
   } else if (u_roomType == 4) {
     // ARMORY & SECURITY: Reinforced ballistic dark gunmetal deck with crimson security perimeter
-    vec2 aCoord = v_worldPos / 28.0;
+    vec2 aCoord = refPos / 28.0;
     vec2 aGrid = abs(fract(aCoord - 0.5) - 0.5) / fwidth(aCoord);
     float aLine = 1.0 - min(min(aGrid.x, aGrid.y), 1.0);
     vec3 armoryBase = mix(vec3(0.13, 0.15, 0.19), vec3(0.22, 0.25, 0.30), clamp(aLine * 0.7, 0.0, 1.0));
@@ -219,7 +222,7 @@ void main() {
 
   } else if (u_roomType == 9 || u_roomType == 10) {
     // AIRLOCK VESTIBULES (Port & Starboard): Brushed dark gunmetal airlock chamber plating with cyan border rim
-    vec2 airCoord = v_worldPos / 24.0;
+    vec2 airCoord = refPos / 24.0;
     vec2 airGrid = abs(fract(airCoord - 0.5) - 0.5) / fwidth(airCoord);
     float airLine = 1.0 - min(min(airGrid.x, airGrid.y), 1.0);
     vec3 airMetal = mix(vec3(0.12, 0.15, 0.20), vec3(0.18, 0.23, 0.30), clamp(airLine * 0.7, 0.0, 1.0));
@@ -229,11 +232,11 @@ void main() {
 
   } else if (u_roomType == 3) {
     // CENTRAL CATWALK SPINE: Perforated steel subfloor grating with visible conduit channels beneath
-    float distFromCenter = abs(v_worldPos.y - 400.0);
+    float distFromCenter = abs(refPos.y - 400.0);
     float runner = step(distFromCenter, 20.0);
-    float rib = step(0.45, fract(v_worldPos.x / 16.0)) * 0.18;
+    float rib = step(0.45, fract(refPos.x / 16.0)) * 0.18;
     // Subfloor conduit depth effect
-    float grateHoles = step(0.65, fract(v_worldPos.x / 8.0)) * step(0.65, fract(v_worldPos.y / 8.0));
+    float grateHoles = step(0.65, fract(refPos.x / 8.0)) * step(0.65, fract(refPos.y / 8.0));
     vec3 catwalkMetal = mix(vec3(0.11, 0.13, 0.16), vec3(0.20, 0.24, 0.30), rib);
     catwalkMetal = mix(catwalkMetal, vec3(0.04, 0.05, 0.07), grateHoles * 0.45);
 
@@ -243,7 +246,7 @@ void main() {
 
   } else {
     // CREW BUNKS (1) & MESS HALL (2): Modular clean living panels
-    vec2 qCoord = v_worldPos / 32.0;
+    vec2 qCoord = refPos / 32.0;
     vec2 qGrid = abs(fract(qCoord - 0.5) - 0.5) / fwidth(qCoord);
     float qLine = 1.0 - min(min(qGrid.x, qGrid.y), 1.0);
     baseColor = mix(u_floorColor, vec3(0.68, 0.74, 0.82), clamp(qLine * 0.85, 0.0, 1.0));

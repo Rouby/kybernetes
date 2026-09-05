@@ -61,6 +61,14 @@ export interface AcceptJobOfferAction {
   job: HireableJob;
 }
 
+export interface VesselKinematics {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  flightMode: DockingPhase;
+}
+
 export interface ShipDockingUpdateBroadcast {
   type: 'SHIP_DOCKING_UPDATE';
   phase: DockingPhase;
@@ -69,6 +77,7 @@ export interface ShipDockingUpdateBroadcast {
   etaSeconds: number;
   legIndex: number;
   timestamp: number;
+  kinematics?: VesselKinematics;
 }
 
 export interface CaptainJobOfferBroadcast {

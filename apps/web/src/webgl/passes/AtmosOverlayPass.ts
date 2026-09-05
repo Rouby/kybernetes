@@ -13,7 +13,7 @@ import {
   isShipSideRoom,
   tickCellularAtmos,
 } from '@kybernetes/sim-core';
-import { createProgram } from '../glUtils';
+import { createProgram, translateMatrixX } from '../glUtils';
 import { ATMOS_CELL_FS, ATMOS_CELL_VS } from '../shaders';
 
 const INSET = 0.5;
@@ -66,6 +66,7 @@ export class AtmosOverlayPass {
     blendRate: number
   ): void {
     for (const r of HESPERIA_ROOMS) {
+      if (!isShipSideRoom(r.id)) continue;
       const summary = roomAtmospheres[r.id];
       if (!summary) continue;
 
@@ -178,7 +179,7 @@ export class AtmosOverlayPass {
   }
 
   // fallow-ignore-next-line complexity
-  private buildCellVertices(mode: AtmosOverlayMode, pulse: number, shipDx = 0): number {
+  private buildCellVertices(mode: AtmosOverlayMode, pulse: number): number {
     let offset = 0;
     let quadCount = 0;
 
@@ -189,8 +190,7 @@ export class AtmosOverlayPass {
 
       const col = idx % ATMOS_GRID_COLS;
       const row = Math.floor(idx / ATMOS_GRID_COLS);
-      const dx = isShipSideRoom(roomId) ? shipDx : 0;
-      const x1 = col * ATMOS_CELL_SIZE + INSET + dx;
+      const x1 = col * ATMOS_CELL_SIZE + INSET;
       const y1 = row * ATMOS_CELL_SIZE + INSET;
       const x2 = x1 + ATMOS_CELL_SIZE - INSET * 2;
       const y2 = y1 + ATMOS_CELL_SIZE - INSET * 2;
@@ -230,13 +230,14 @@ export class AtmosOverlayPass {
     if (mode === 'off' && !hasPlume) return;
 
     const pulse = 0.9 + 0.1 * Math.sin(time * 2.5);
-    const quadCount = this.buildCellVertices(mode, pulse, shipDx);
+    const quadCount = this.buildCellVertices(mode, pulse);
     if (quadCount === 0) return;
 
     const gl = this.gl;
     gl.useProgram(this.cellProg);
     gl.bindVertexArray(this.cellVAO);
-    gl.uniformMatrix3fv(this.uMatrixLoc, false, matrix);
+    const renderMatrix = shipDx !== 0 ? translateMatrixX(matrix, shipDx) : matrix;
+    gl.uniformMatrix3fv(this.uMatrixLoc, false, renderMatrix);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

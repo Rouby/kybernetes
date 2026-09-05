@@ -3,11 +3,11 @@ import {
   applyShipOffsetToWalls,
   carveBreachedWallSegments,
   getBreachLocation,
-  getWorldDoors,
   getWorldRooms,
   HESPERIA_LIGHTS,
   HESPERIA_WALLS,
   isShipSideRoom,
+  isStationSideDoor,
 } from '@kybernetes/sim-core';
 
 import { renderDeckFurniture } from '../DeckFurniture';
@@ -171,7 +171,8 @@ function renderPartitionHoles(
   gl: WebGL2RenderingContext,
   dynamicBuffer: WebGLBuffer,
   flatProg: WebGLProgram,
-  holes: Array<{ x: number; y: number }>
+  holes: Array<{ x: number; y: number; wallId?: string }>,
+  shipOffset: { x: number; y: number } = { x: 0, y: 0 }
 ): void {
   if (holes.length === 0) return;
   const scorchVerts: number[] = [];
@@ -179,11 +180,15 @@ function renderPartitionHoles(
   const rimVerts: number[] = [];
 
   for (const h of holes) {
-    addThickSegment(scorchVerts, h.x - 3.5, h.y, h.x + 3.5, h.y, 3.5);
-    addThickSegment(scorchVerts, h.x, h.y - 3.5, h.x, h.y + 3.5, 3.5);
-    addThickSegment(rimVerts, h.x - 2.5, h.y - 1.5, h.x + 2.5, h.y - 1.5, 1.2);
-    addThickSegment(coreVerts, h.x - 1.5, h.y, h.x + 1.5, h.y, 2.0);
-    addThickSegment(coreVerts, h.x, h.y - 1.5, h.x, h.y + 1.5, 2.0);
+    const isShip = !h.wallId || (!h.wallId.startsWith('st_') && !h.wallId.startsWith('gauntlet_'));
+    const hx = isShip ? h.x + shipOffset.x : h.x;
+    const hy = isShip ? h.y + shipOffset.y : h.y;
+
+    addThickSegment(scorchVerts, hx - 3.5, hy, hx + 3.5, hy, 3.5);
+    addThickSegment(scorchVerts, hx, hy - 3.5, hx, hy + 3.5, 3.5);
+    addThickSegment(rimVerts, hx - 2.5, hy - 1.5, hx + 2.5, hy - 1.5, 1.2);
+    addThickSegment(coreVerts, hx - 1.5, hy, hx + 1.5, hy, 2.0);
+    addThickSegment(coreVerts, hx, hy - 1.5, hx, hy + 1.5, 2.0);
   }
 
   gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.08, 0.1, 0.14, 0.95);
@@ -203,11 +208,30 @@ export class DeckPass {
   private deckVAO: WebGLVertexArrayObject;
   private dynamicBuffer: WebGLBuffer;
   private doorOpenRatios = new Map<string, number>();
+  private uMatrixLoc: WebGLUniformLocation | null = null;
+  private uTimeLoc: WebGLUniformLocation | null = null;
+  private uProjLightsLoc: WebGLUniformLocation | null = null;
+  private uProjColorsLoc: WebGLUniformLocation | null = null;
+  private uRoomTypeLoc: WebGLUniformLocation | null = null;
+  private uRoomBoundsLoc: WebGLUniformLocation | null = null;
+  private uFloorColorLoc: WebGLUniformLocation | null = null;
+  private uShipOffsetLoc: WebGLUniformLocation | null = null;
+  private uIsShipRoomLoc: WebGLUniformLocation | null = null;
 
   constructor(gl: WebGL2RenderingContext, dynamicBuffer: WebGLBuffer) {
     this.gl = gl;
     this.dynamicBuffer = dynamicBuffer;
     this.deckProg = createProgram(gl, DECK_FLOOR_VS, DECK_FLOOR_FS);
+
+    this.uMatrixLoc = gl.getUniformLocation(this.deckProg, 'u_matrix');
+    this.uTimeLoc = gl.getUniformLocation(this.deckProg, 'u_time');
+    this.uProjLightsLoc = gl.getUniformLocation(this.deckProg, 'u_projLights');
+    this.uProjColorsLoc = gl.getUniformLocation(this.deckProg, 'u_projColors');
+    this.uRoomTypeLoc = gl.getUniformLocation(this.deckProg, 'u_roomType');
+    this.uRoomBoundsLoc = gl.getUniformLocation(this.deckProg, 'u_roomBounds');
+    this.uFloorColorLoc = gl.getUniformLocation(this.deckProg, 'u_floorColor');
+    this.uShipOffsetLoc = gl.getUniformLocation(this.deckProg, 'u_shipOffset');
+    this.uIsShipRoomLoc = gl.getUniformLocation(this.deckProg, 'u_isShipRoom');
 
     this.deckVAO = gl.createVertexArray()!;
     gl.bindVertexArray(this.deckVAO);
@@ -240,11 +264,12 @@ export class DeckPass {
     const gl = this.gl;
     gl.useProgram(this.deckProg);
     gl.bindVertexArray(this.deckVAO);
-    gl.uniformMatrix3fv(gl.getUniformLocation(this.deckProg, 'u_matrix'), false, matrix);
-    gl.uniform1f(gl.getUniformLocation(this.deckProg, 'u_time'), time);
+    gl.uniformMatrix3fv(this.uMatrixLoc, false, matrix);
+    gl.uniform1f(this.uTimeLoc, time);
 
-    gl.uniform4fv(gl.getUniformLocation(this.deckProg, 'u_projLights'), currentLights);
-    gl.uniform3fv(gl.getUniformLocation(this.deckProg, 'u_projColors'), currentLightColors);
+    gl.uniform4fv(this.uProjLightsLoc, currentLights);
+    gl.uniform3fv(this.uProjColorsLoc, currentLightColors);
+    gl.uniform2f(this.uShipOffsetLoc, this.shipOffset.x, this.shipOffset.y);
 
     const roomTypeMap: Record<string, number> = {
       bridge: 0,
@@ -264,19 +289,14 @@ export class DeckPass {
     };
 
     for (const room of getWorldRooms(this.shipOffset)) {
-      gl.uniform1i(gl.getUniformLocation(this.deckProg, 'u_roomType'), roomTypeMap[room.id] ?? 1);
-      gl.uniform4f(
-        gl.getUniformLocation(this.deckProg, 'u_roomBounds'),
-        room.x,
-        room.y,
-        room.width,
-        room.height
-      );
+      gl.uniform1i(this.uIsShipRoomLoc, isShipSideRoom(room.id) ? 1 : 0);
+      gl.uniform1i(this.uRoomTypeLoc, roomTypeMap[room.id] ?? 1);
+      gl.uniform4f(this.uRoomBoundsLoc, room.x, room.y, room.width, room.height);
 
       if (room.id === 'corridor') {
-        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.12, 0.14, 0.18);
+        gl.uniform3f(this.uFloorColorLoc, 0.12, 0.14, 0.18);
       } else {
-        gl.uniform3f(gl.getUniformLocation(this.deckProg, 'u_floorColor'), 0.9, 0.92, 0.95);
+        gl.uniform3f(this.uFloorColorLoc, 0.9, 0.92, 0.95);
       }
 
       drawQuad(gl, this.dynamicBuffer, room.x, room.y, room.width, room.height);
@@ -290,7 +310,7 @@ export class DeckPass {
     matrix: Float32Array,
     breaches?: string[],
     timeSec = 0,
-    partitionHoles?: Array<{ x: number; y: number }>
+    partitionHoles?: Array<{ x: number; y: number; wallId?: string }>
   ): void {
     const gl = this.gl;
     gl.useProgram(flatProg);
@@ -351,7 +371,7 @@ export class DeckPass {
 
     // 6. Partition Bullet Holes (Impact craters)
     if (partitionHoles && partitionHoles.length > 0) {
-      renderPartitionHoles(gl, this.dynamicBuffer, flatProg, partitionHoles);
+      renderPartitionHoles(gl, this.dynamicBuffer, flatProg, partitionHoles, this.shipOffset);
     }
 
     gl.bindVertexArray(null);
@@ -400,17 +420,25 @@ export class DeckPass {
     drawQuad(gl, this.dynamicBuffer, 1036, 480, 16, 20);
 
     // Animated rear thruster plasma plumes (3 engines firing aft +X)
-    const flicker = 0.8 + 0.2 * Math.sin(time * 15.0);
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.85, 1.0, flicker);
-    drawQuad(gl, this.dynamicBuffer, 1050, 302, 42, 16);
-    drawQuad(gl, this.dynamicBuffer, 1056, 386, 58, 28);
-    drawQuad(gl, this.dynamicBuffer, 1050, 482, 42, 16);
+    const isMoving = this.shipOffset.x !== 0;
+    const flareScale = isMoving ? 1.35 : 0.85;
+    const flicker = (0.8 + 0.2 * Math.sin(time * 15.0)) * (isMoving ? 1.1 : 0.9);
+    gl.uniform4f(
+      gl.getUniformLocation(flatProg, 'u_color'),
+      0.0,
+      0.85,
+      1.0,
+      Math.min(1.0, flicker)
+    );
+    drawQuad(gl, this.dynamicBuffer, 1050, 302, 42 * flareScale, 16);
+    drawQuad(gl, this.dynamicBuffer, 1056, 386, 58 * flareScale, 28);
+    drawQuad(gl, this.dynamicBuffer, 1050, 482, 42 * flareScale, 16);
 
     // Hot white inner thruster core
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.9, 0.98, 1.0, 0.95);
-    drawQuad(gl, this.dynamicBuffer, 1044, 305, 20, 10);
-    drawQuad(gl, this.dynamicBuffer, 1048, 392, 28, 16);
-    drawQuad(gl, this.dynamicBuffer, 1044, 485, 20, 10);
+    drawQuad(gl, this.dynamicBuffer, 1044, 305, 20 * flareScale, 10);
+    drawQuad(gl, this.dynamicBuffer, 1048, 392, 28 * flareScale, 16);
+    drawQuad(gl, this.dynamicBuffer, 1044, 485, 20 * flareScale, 10);
 
     gl.bindVertexArray(null);
   }
@@ -427,6 +455,91 @@ export class DeckPass {
   }
 
   // fallow-ignore-next-line complexity
+  private drawSingleDoor(
+    gl: WebGL2RenderingContext,
+    flatProg: WebGLProgram,
+    door: DoorState,
+    dt: number,
+    isNearest: boolean
+  ): void {
+    const isHoriz = Math.abs(door.y2 - door.y1) < Math.abs(door.x2 - door.x1);
+    const minX = Math.min(door.x1, door.x2);
+    const minY = Math.min(door.y1, door.y2);
+    const w = isHoriz ? Math.abs(door.x2 - door.x1) : 14;
+    const h = isHoriz ? 14 : Math.abs(door.y2 - door.y1);
+    const x = isHoriz ? minX : door.x1 - 7;
+    const y = isHoriz ? door.y1 - 7 : minY;
+
+    if (isNearest) {
+      drawDoorBrackets(gl, this.dynamicBuffer, flatProg, x, y, w, h);
+    }
+
+    const targetRatio = door.isOpen ? 1.0 : 0.0;
+    const prevRatio = this.doorOpenRatios.get(door.id) ?? targetRatio;
+    const newRatio = prevRatio + (targetRatio - prevRatio) * Math.min(1.0, dt * 9.0);
+    this.doorOpenRatios.set(door.id, newRatio);
+
+    // 1. Recessed door frame track housing (fixed at jambs)
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.12, 0.14, 0.18, 1.0);
+    if (isHoriz) {
+      drawQuad(gl, this.dynamicBuffer, x, y, 7, h);
+      drawQuad(gl, this.dynamicBuffer, x + w - 7, y, 7, h);
+    } else {
+      drawQuad(gl, this.dynamicBuffer, x, y, w, 7);
+      drawQuad(gl, this.dynamicBuffer, x, y + h - 7, w, 7);
+    }
+
+    // 2. Frame clearance indicator LED (green when open, red when closed)
+    const ledCol: [number, number, number] = door.isOpen ? [0.1, 0.95, 0.35] : [0.95, 0.2, 0.2];
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), ledCol[0], ledCol[1], ledCol[2], 1.0);
+    if (isHoriz) {
+      drawQuad(gl, this.dynamicBuffer, x + 2, y + 2, 3, 3);
+      drawQuad(gl, this.dynamicBuffer, x + w - 5, y + 2, 3, 3);
+    } else {
+      drawQuad(gl, this.dynamicBuffer, x + 2, y + 2, 3, 3);
+      drawQuad(gl, this.dynamicBuffer, x + 2, y + h - 5, 3, 3);
+    }
+
+    // 3. Sliding Blast Door Slabs (retract towards jambs as newRatio -> 1.0)
+    const slideOffset = (isHoriz ? w * 0.42 : h * 0.42) * newRatio;
+    const slabW = isHoriz ? w * 0.5 - 2 : w - 2;
+    const slabH = isHoriz ? h - 2 : h * 0.5 - 2;
+
+    const s1x = isHoriz ? x + 1 - slideOffset : x + 1;
+    const s1y = isHoriz ? y + 1 : y + 1 - slideOffset;
+    const s2x = isHoriz ? x + w * 0.5 + 1 + slideOffset : x + 1;
+    const s2y = isHoriz ? y + 1 : y + h * 0.5 + 1 + slideOffset;
+
+    gl.uniform4f(
+      gl.getUniformLocation(flatProg, 'u_color'),
+      0.88,
+      0.68,
+      0.05,
+      1.0 - newRatio * 0.8
+    );
+    drawQuad(gl, this.dynamicBuffer, s1x, s1y, slabW, slabH);
+    drawQuad(gl, this.dynamicBuffer, s2x, s2y, slabW, slabH);
+
+    gl.uniform4f(
+      gl.getUniformLocation(flatProg, 'u_color'),
+      0.12,
+      0.14,
+      0.16,
+      1.0 - newRatio * 0.8
+    );
+    const stripes = isHoriz ? Math.floor(w / 16) : Math.floor(h / 16);
+    for (let i = 0; i < stripes; i += 2) {
+      const off = i * 16;
+      if (isHoriz) {
+        drawQuad(gl, this.dynamicBuffer, s1x + off, s1y, 8, slabH);
+        drawQuad(gl, this.dynamicBuffer, s2x + off, s2y, 8, slabH);
+      } else {
+        drawQuad(gl, this.dynamicBuffer, s1x, s1y + off, slabW, 8);
+        drawQuad(gl, this.dynamicBuffer, s2x + off, s2y, 8, slabH);
+      }
+    }
+  }
+
   public renderDoors(
     flatProg: WebGLProgram,
     flatVAO: WebGLVertexArrayObject,
@@ -435,93 +548,20 @@ export class DeckPass {
     dt: number,
     nearestDoorId?: string
   ): void {
-    const gl = this.bindFlat(flatProg, flatVAO, matrix);
-
-    for (const door of getWorldDoors(doors, this.shipOffset)) {
-      const isHoriz = Math.abs(door.y2 - door.y1) < Math.abs(door.x2 - door.x1);
-      const minX = Math.min(door.x1, door.x2);
-      const minY = Math.min(door.y1, door.y2);
-      const w = isHoriz ? Math.abs(door.x2 - door.x1) : 14;
-      const h = isHoriz ? 14 : Math.abs(door.y2 - door.y1);
-      const x = isHoriz ? minX : door.x1 - 7;
-      const y = isHoriz ? door.y1 - 7 : minY;
-
-      if (nearestDoorId === door.id) {
-        drawDoorBrackets(gl, this.dynamicBuffer, flatProg, x, y, w, h);
-      }
-
-      const targetRatio = door.isOpen ? 1.0 : 0.0;
-      const prevRatio = this.doorOpenRatios.get(door.id) ?? targetRatio;
-      const newRatio = prevRatio + (targetRatio - prevRatio) * Math.min(1.0, dt * 9.0);
-      this.doorOpenRatios.set(door.id, newRatio);
-
-      // 1. Recessed door frame track housing (fixed at jambs)
-      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.12, 0.14, 0.18, 1.0);
-      if (isHoriz) {
-        drawQuad(gl, this.dynamicBuffer, x, y, 7, h);
-        drawQuad(gl, this.dynamicBuffer, x + w - 7, y, 7, h);
-      } else {
-        drawQuad(gl, this.dynamicBuffer, x, y, w, 7);
-        drawQuad(gl, this.dynamicBuffer, x, y + h - 7, w, 7);
-      }
-
-      // 2. Frame clearance indicator LED (green when open, red when closed)
-      const ledCol: [number, number, number] = door.isOpen ? [0.1, 0.95, 0.35] : [0.95, 0.2, 0.2];
-      gl.uniform4f(
-        gl.getUniformLocation(flatProg, 'u_color'),
-        ledCol[0],
-        ledCol[1],
-        ledCol[2],
-        1.0
-      );
-      if (isHoriz) {
-        drawQuad(gl, this.dynamicBuffer, x + 2, y + 2, 3, 3);
-        drawQuad(gl, this.dynamicBuffer, x + w - 5, y + 2, 3, 3);
-      } else {
-        drawQuad(gl, this.dynamicBuffer, x + 2, y + 2, 3, 3);
-        drawQuad(gl, this.dynamicBuffer, x + 2, y + h - 5, 3, 3);
-      }
-
-      // 3. Sliding Blast Door Slabs (retract towards jambs as newRatio -> 1.0)
-      const slideOffset = (isHoriz ? w * 0.42 : h * 0.42) * newRatio;
-      const slabW = isHoriz ? w * 0.5 - 2 : w - 2;
-      const slabH = isHoriz ? h - 2 : h * 0.5 - 2;
-
-      const s1x = isHoriz ? x + 1 - slideOffset : x + 1;
-      const s1y = isHoriz ? y + 1 : y + 1 - slideOffset;
-      const s2x = isHoriz ? x + w * 0.5 + 1 + slideOffset : x + 1;
-      const s2y = isHoriz ? y + 1 : y + h * 0.5 + 1 + slideOffset;
-
-      gl.uniform4f(
-        gl.getUniformLocation(flatProg, 'u_color'),
-        0.88,
-        0.68,
-        0.05,
-        1.0 - newRatio * 0.8
-      );
-      drawQuad(gl, this.dynamicBuffer, s1x, s1y, slabW, slabH);
-      drawQuad(gl, this.dynamicBuffer, s2x, s2y, slabW, slabH);
-
-      gl.uniform4f(
-        gl.getUniformLocation(flatProg, 'u_color'),
-        0.12,
-        0.14,
-        0.16,
-        1.0 - newRatio * 0.8
-      );
-      const stripes = isHoriz ? Math.floor(w / 16) : Math.floor(h / 16);
-      for (let i = 0; i < stripes; i += 2) {
-        const off = i * 16;
-        if (isHoriz) {
-          drawQuad(gl, this.dynamicBuffer, s1x + off, s1y, 8, slabH);
-          drawQuad(gl, this.dynamicBuffer, s2x + off, s2y, 8, slabH);
-        } else {
-          drawQuad(gl, this.dynamicBuffer, s1x, s1y + off, slabW, 8);
-          drawQuad(gl, this.dynamicBuffer, s2x, s2y + off, slabW, 8);
-        }
-      }
+    // Ship doors rendered with GPU translated model matrix
+    const glShip = this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
+    for (const door of doors) {
+      if (isStationSideDoor(door)) continue;
+      this.drawSingleDoor(glShip, flatProg, door, dt, nearestDoorId === door.id);
     }
-    gl.bindVertexArray(null);
+
+    // Station doors rendered with static base matrix
+    const glStation = this.bindFlat(flatProg, flatVAO, matrix);
+    for (const door of doors) {
+      if (!isStationSideDoor(door)) continue;
+      this.drawSingleDoor(glStation, flatProg, door, dt, nearestDoorId === door.id);
+    }
+    glStation.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity

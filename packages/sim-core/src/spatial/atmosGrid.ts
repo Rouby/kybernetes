@@ -1,4 +1,5 @@
 import type { AtmosOverlayMode, DoorState, RoomAtmosphereSummary } from '@kybernetes/protocol';
+import { SPACE_VACUUM_ATMOS, STATION_AMBIENT_ATMOS } from '../survival';
 import {
   buildCompartmentGraph,
   COMPARTMENT_DEFS,
@@ -7,10 +8,15 @@ import {
   tickCompartments,
 } from './atmosPhysics';
 import {
+  type DockFrameOffset,
+  findWorldRoom,
   getBreachLocation,
   HESPERIA_ROOMS,
+  isShipSideRoom,
+  isStationRoom,
   normalizeBreachRoomId,
   type RoomDefinition,
+  toShipLocal,
 } from './deck';
 
 export const ATMOS_CELL_SIZE = 20;
@@ -91,7 +97,7 @@ export function createInitialAtmosGrid(): CellularAtmosGrid {
       const wy = r * ATMOS_CELL_SIZE + ATMOS_CELL_SIZE / 2;
       const room = findRoomForWorldPos(wx, wy);
 
-      if (room) {
+      if (room && isShipSideRoom(room.id)) {
         grid.cellRoomId[idx] = room.id;
         grid.pressure[idx] = 101.3;
         grid.o2Ratio[idx] = 0.209;
@@ -380,6 +386,23 @@ export function sampleAtmosphereAt(grid: CellularAtmosGrid, x: number, y: number
     roomId: grid.cellRoomId[idx],
     condensationPlume: Number(grid.condensationPlume[idx].toFixed(2)),
   };
+}
+
+export function resolveAtmosphereAt(
+  grid: CellularAtmosGrid,
+  worldX: number,
+  worldY: number,
+  offset: DockFrameOffset
+): CellAtmosphere {
+  const roomId = findWorldRoom(worldX, worldY, offset);
+  if (roomId && isShipSideRoom(roomId)) {
+    const local = toShipLocal(worldX, worldY, offset);
+    return sampleAtmosphereAt(grid, local.x, local.y);
+  }
+  if (roomId && isStationRoom(roomId)) {
+    return { ...STATION_AMBIENT_ATMOS, roomId };
+  }
+  return SPACE_VACUUM_ATMOS;
 }
 
 export function sampleAirflowVelocityAt(
@@ -703,6 +726,22 @@ export function summarizeRoomAtmospheres(
   const summary: Record<string, RoomAtmosphereSummary> = {};
 
   for (const r of HESPERIA_ROOMS) {
+    if (isStationRoom(r.id)) {
+      summary[r.id] = {
+        roomId: r.id,
+        pressureKpa: 101.3,
+        o2Percent: 20.9,
+        co2Ppm: 400,
+        tempCelsius: 21.0,
+        toxicSmokePercent: 0,
+        isVenting: false,
+        isRepressurizing: false,
+        activeFires: 0,
+        activeBreaches: 0,
+      };
+      continue;
+    }
+
     let sumP = 0;
     let sumO2 = 0;
     let sumSmoke = 0;

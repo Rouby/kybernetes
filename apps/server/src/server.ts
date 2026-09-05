@@ -15,21 +15,23 @@ import {
   createInitialIntroState,
   createInitialPlayerVitals,
   createInitialVesselState,
+  type DockFrameOffset,
   GameLoop,
   generateShiftChecklist,
   getBreachLocation,
   getBreachWeldSeconds,
   getShipDockingOffset,
+  getShipKinematics,
   isAboardShip,
   isGauntletDoorId,
   normalizeBreachRoomId,
   type PersistedCrewMember,
   ROLE_DEFINITIONS,
   repairHullPlating,
+  resolveAtmosphereAt,
   resolveFramedMovement,
   STATION_BAY_SPAWN,
   sampleAirflowVelocityAt,
-  sampleAtmosphereAt,
   stateToTelemetryBroadcast,
   tickBot,
   tickCollabShift,
@@ -37,6 +39,8 @@ import {
   tickIntroState,
   tickVesselState,
   toggleDoor,
+  toShipLocal,
+  toWorld,
   trackBreachWelding,
   updatePlayerVitals,
 } from '@kybernetes/sim-core';
@@ -292,12 +296,6 @@ export class VesselServer {
         sentry.y = Number((sentry.y + dy).toFixed(2));
       }
     }
-    for (const proj of session.vesselState.boarding?.projectiles || []) {
-      if (isAboardShip(proj.x, proj.y, prev)) {
-        proj.x = Number((proj.x + dx).toFixed(2));
-        proj.y = Number((proj.y + dy).toFixed(2));
-      }
-    }
     session.lastShipOffset = next;
   }
 
@@ -313,7 +311,11 @@ export class VesselServer {
 
   private onSimulationTick(session: VesselSession, dtSeconds: number): void {
     const offset = getShipDockingOffset(session.intro);
-    session.vesselState = tickVesselState(session.vesselState, dtSeconds, offset);
+    const kinematics = getShipKinematics(session.intro);
+    session.vesselState = tickVesselState(session.vesselState, dtSeconds, offset, {
+      vx: kinematics.vx,
+      vy: kinematics.vy,
+    });
     this.tickIntro(session, dtSeconds);
 
     if (session.dualProtocol.stage === 'primed') {
@@ -374,11 +376,10 @@ export class VesselServer {
     const atmos = session.vesselState.atmos;
     const offset = getShipDockingOffset(session.intro);
     for (const client of session.clients.values()) {
+      const cellAtmos = resolveAtmosphereAt(atmos, client.pawn.x, client.pawn.y, offset);
       const aboard = isAboardShip(client.pawn.x, client.pawn.y, offset);
-      const sampleX = aboard ? client.pawn.x - offset.x : client.pawn.x;
-      const sampleY = aboard ? client.pawn.y - offset.y : client.pawn.y;
-      const cellAtmos = sampleAtmosphereAt(atmos, sampleX, sampleY);
-      const wind = sampleAirflowVelocityAt(atmos, sampleX, sampleY);
+      const local = aboard ? toShipLocal(client.pawn.x, client.pawn.y, offset) : client.pawn;
+      const wind = aboard ? sampleAirflowVelocityAt(atmos, local.x, local.y) : { vx: 0, vy: 0 };
       if (!client.pawn.isOperating && Math.hypot(wind.vx, wind.vy) > 20) {
         const targetX = client.pawn.x + wind.vx * dtSeconds * 0.5;
         const targetY = client.pawn.y + wind.vy * dtSeconds * 0.5;
@@ -444,10 +445,12 @@ export class VesselServer {
   private tickSessionBots(session: VesselSession, dtSeconds: number): void {
     const offset = getShipDockingOffset(session.intro);
     for (const [role, bot] of session.bots.entries()) {
-      const framed: typeof bot = isAboardShip(bot.pawn.x, bot.pawn.y, offset)
+      const aboard = isAboardShip(bot.pawn.x, bot.pawn.y, offset);
+      const localPawn = aboard ? toShipLocal(bot.pawn.x, bot.pawn.y, offset) : bot.pawn;
+      const framed: typeof bot = aboard
         ? {
             ...bot,
-            pawn: { ...bot.pawn, x: bot.pawn.x - offset.x, y: bot.pawn.y - offset.y },
+            pawn: { ...bot.pawn, x: localPawn.x, y: localPawn.y },
           }
         : bot;
       const { nextBot, assistance, doorToOpen, doorToToggle, doorsToClose } = tickBot(
@@ -455,10 +458,11 @@ export class VesselServer {
         dtSeconds,
         session.vesselState.boarding.doors
       );
-      const worldBot = isAboardShip(bot.pawn.x, bot.pawn.y, offset)
+      const worldPawn = aboard ? toWorld(nextBot.pawn.x, nextBot.pawn.y, offset) : nextBot.pawn;
+      const worldBot = aboard
         ? {
             ...nextBot,
-            pawn: { ...nextBot.pawn, x: nextBot.pawn.x + offset.x, y: nextBot.pawn.y + offset.y },
+            pawn: { ...nextBot.pawn, x: worldPawn.x, y: worldPawn.y },
           }
         : nextBot;
       session.bots.set(role, worldBot);
@@ -488,7 +492,8 @@ export class VesselServer {
   private tickWelderBreachRepairs(
     session: VesselSession,
     cl: ClientSession,
-    dtSeconds: number
+    dtSeconds: number,
+    offset: DockFrameOffset = { x: 0, y: 0 }
   ): void {
     const breaches = session.vesselState.hull.breaches;
     if (breaches.length === 0) return;
@@ -498,7 +503,8 @@ export class VesselServer {
       const loc = getBreachLocation(breach);
       if (!loc) continue;
 
-      const dist = Math.hypot(cl.pawn.x - loc.x, cl.pawn.y - loc.y);
+      const target = toWorld(loc.x, loc.y, offset);
+      const dist = Math.hypot(cl.pawn.x - target.x, cl.pawn.y - target.y);
       if (dist <= 75) {
         const requiredSeconds = getBreachWeldSeconds(breach);
         const res = trackBreachWelding(
@@ -546,7 +552,7 @@ export class VesselServer {
         session.vesselState.boarding.intruders = res.nextIntruders;
       }
 
-      this.tickWelderBreachRepairs(session, cl, dtSeconds);
+      this.tickWelderBreachRepairs(session, cl, dtSeconds, offset);
     }
   }
 

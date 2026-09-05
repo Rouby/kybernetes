@@ -6,7 +6,7 @@ import type {
   ShipAlertBroadcast,
   ShipDockingUpdateBroadcast,
 } from '@kybernetes/protocol';
-import { acceptJobOffer, openCaptainOffer } from '@kybernetes/sim-core';
+import { acceptJobOffer, getShipKinematics, openCaptainOffer } from '@kybernetes/sim-core';
 import { WebSocket } from 'ws';
 import { broadcastToSession } from '../broadcast/deltaBroadcaster.js';
 import type { ClientSession, VesselSession } from '../types.js';
@@ -25,6 +25,7 @@ function dockingSnapshot(session: VesselSession): ShipDockingUpdateBroadcast {
     etaSeconds: session.intro.etaSeconds,
     legIndex: session.intro.legIndex,
     timestamp: Date.now(),
+    kinematics: getShipKinematics(session.intro),
   };
 }
 

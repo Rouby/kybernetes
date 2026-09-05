@@ -4,6 +4,7 @@ import {
   type HireableJob,
   JOB_OFFER_CATALOG,
   type JobOffer,
+  type VesselKinematics,
 } from '@kybernetes/protocol';
 
 export interface IntroState {
@@ -56,19 +57,49 @@ function roundOffset(value: number): number {
   return Number(value.toFixed(2));
 }
 
-export function getShipDockingOffset(state: IntroState): ShipDockingOffset {
+function smoothstep(u: number): number {
+  const clamped = Math.min(1, Math.max(0, u));
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+function smoothstepDerivative(u: number): number {
+  const clamped = Math.min(1, Math.max(0, u));
+  return 6 * clamped * (1 - clamped);
+}
+
+export function getShipKinematics(state: IntroState): VesselKinematics {
   const entrySide = getEntrySide(state.legIndex);
   const exitSide = (entrySide * -1) as -1 | 1;
-  if (state.phase === 'docked') return { x: 0, y: 0 };
+
+  if (state.phase === 'docked') {
+    return { x: 0, y: 0, vx: 0, vy: 0, flightMode: 'docked' };
+  }
   if (state.phase === 'inbound') {
-    const progress = Math.min(1, Math.max(0, 1 - Math.max(0, state.etaSeconds) / 20));
-    return { x: roundOffset(entrySide * DOCK_APPROACH_DISTANCE * (1 - progress)), y: 0 };
+    const u = Math.min(1, Math.max(0, 1 - Math.max(0, state.etaSeconds) / 20));
+    const progress = smoothstep(u);
+    const x = roundOffset(entrySide * DOCK_APPROACH_DISTANCE * (1 - progress));
+    const vx = roundOffset((-entrySide * DOCK_APPROACH_DISTANCE * smoothstepDerivative(u)) / 20);
+    return { x, y: 0, vx, vy: 0, flightMode: 'inbound' };
   }
   if (state.phase === 'departing') {
-    const progress = Math.min(1, Math.max(0, 1 - Math.max(0, state.etaSeconds) / 5));
-    return { x: roundOffset(exitSide * DOCK_APPROACH_DISTANCE * progress), y: 0 };
+    const u = Math.min(1, Math.max(0, 1 - Math.max(0, state.etaSeconds) / 5));
+    const progress = smoothstep(u);
+    const x = roundOffset(exitSide * DOCK_APPROACH_DISTANCE * progress);
+    const vx = roundOffset((exitSide * DOCK_APPROACH_DISTANCE * smoothstepDerivative(u)) / 5);
+    return { x, y: 0, vx, vy: 0, flightMode: 'departing' };
   }
-  return { x: exitSide * DOCK_APPROACH_DISTANCE, y: 0 };
+  return {
+    x: exitSide * DOCK_APPROACH_DISTANCE,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    flightMode: state.phase,
+  };
+}
+
+export function getShipDockingOffset(state: IntroState): ShipDockingOffset {
+  const k = getShipKinematics(state);
+  return { x: k.x, y: k.y };
 }
 
 const ORDER: readonly HireableJob[] = ['engineer', 'cook', 'deckhand'] as const;

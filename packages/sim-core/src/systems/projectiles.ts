@@ -23,7 +23,8 @@ export function createProjectile(
   targetY: number,
   weaponType: WeaponType | 'raider_plasma',
   fromPlayer: boolean,
-  chargeRatio = 1.0
+  chargeRatio = 1.0,
+  initialVelocity?: { vx: number; vy: number }
 ): ProjectileState {
   const dx = targetX - originX;
   const dy = targetY - originY;
@@ -62,12 +63,17 @@ export function createProjectile(
     lifeSeconds = 1.4;
   }
 
+  const baseVx = Math.cos(angle) * speed;
+  const baseVy = Math.sin(angle) * speed;
+  const totalVx = baseVx + (initialVelocity?.vx ?? 0);
+  const totalVy = baseVy + (initialVelocity?.vy ?? 0);
+
   return {
     id: `proj-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     x: originX,
     y: originY,
-    vx: Number((Math.cos(angle) * speed).toFixed(2)),
-    vy: Number((Math.sin(angle) * speed).toFixed(2)),
+    vx: Number(totalVx.toFixed(2)),
+    vy: Number(totalVy.toFixed(2)),
     damage,
     color,
     fromPlayer,
@@ -174,8 +180,7 @@ function handleWallHit(
   hitWall: WallSegment,
   hitPos: { x: number; y: number },
   newBreaches: string[],
-  partitionHits: PartitionHole[],
-  worldHit: { x: number; y: number } = hitPos
+  partitionHits: PartitionHole[]
 ): number {
   const isKinetic = proj.weaponType === 'kinetic_carbine' || proj.weaponType === 'railgun_pistol';
   if (!isKinetic) return 0;
@@ -184,16 +189,21 @@ function handleWallHit(
     const isRailgun = proj.weaponType === 'railgun_pistol';
     const punctureChance = isRailgun ? 0.35 : 0.05;
     const dmg = isRailgun ? 1.5 : 0.4;
+    let didPuncture = false;
     if (Math.random() < punctureChance) {
       const roomId = findRoomAtHullImpact(hitPos.x, hitPos.y);
       if (roomId) {
         newBreaches.push(`puncture_${roomId}_${Math.round(hitPos.x)}_${Math.round(hitPos.y)}`);
+        didPuncture = true;
       }
+    }
+    if (!didPuncture) {
+      partitionHits.push({ x: hitPos.x, y: hitPos.y, wallId: hitWall.id });
     }
     return dmg;
   }
 
-  partitionHits.push({ x: worldHit.x, y: worldHit.y, wallId: hitWall.id });
+  partitionHits.push({ x: hitPos.x, y: hitPos.y, wallId: hitWall.id });
   return 0;
 }
 
@@ -260,14 +270,7 @@ export function tickProjectiles(
       const worldHit = getWallHitPoint(p1, p2, hitWall);
       const isShip = isShipSideWall(hitWall);
       const localHit = isShip ? { x: worldHit.x - offset.x, y: worldHit.y - offset.y } : worldHit;
-      hullDamageTaken += handleWallHit(
-        proj,
-        hitWall,
-        localHit,
-        newBreaches,
-        partitionHits,
-        worldHit
-      );
+      hullDamageTaken += handleWallHit(proj, hitWall, localHit, newBreaches, partitionHits);
       continue; // Projectile stopped and absorbed by wall
     }
 

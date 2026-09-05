@@ -65,7 +65,14 @@ export class ParticleSystem {
   }
 
   // fallow-ignore-next-line complexity
-  public addImpact(x: number, y: number, type: 'kinetic' | 'laser' | 'welder'): void {
+  public addImpact(
+    x: number,
+    y: number,
+    type: 'kinetic' | 'laser' | 'welder',
+    shipVelocity?: { vx: number; vy: number }
+  ): void {
+    const svx = shipVelocity?.vx ?? 0;
+    const svy = shipVelocity?.vy ?? 0;
     if (type === 'kinetic') {
       for (let i = 0; i < 10; i++) {
         const a = Math.random() * Math.PI * 2;
@@ -73,8 +80,8 @@ export class ParticleSystem {
         this.particles.push({
           x,
           y,
-          vx: Math.cos(a) * spd,
-          vy: Math.sin(a) * spd,
+          vx: Math.cos(a) * spd + svx,
+          vy: Math.sin(a) * spd + svy,
           r: 1.0,
           g: 0.65 + Math.random() * 0.35,
           b: 0.15,
@@ -90,8 +97,8 @@ export class ParticleSystem {
         this.particles.push({
           x,
           y,
-          vx: Math.cos(a) * spd,
-          vy: Math.sin(a) * spd,
+          vx: Math.cos(a) * spd + svx,
+          vy: Math.sin(a) * spd + svy,
           r: 0.0,
           g: 0.95,
           b: 1.0,
@@ -107,8 +114,8 @@ export class ParticleSystem {
         this.particles.push({
           x,
           y,
-          vx: Math.cos(a) * spd,
-          vy: Math.sin(a) * spd,
+          vx: Math.cos(a) * spd + svx,
+          vy: Math.sin(a) * spd + svy,
           r: Math.random() > 0.5 ? 0.0 : 0.75,
           g: 0.85,
           b: 1.0,

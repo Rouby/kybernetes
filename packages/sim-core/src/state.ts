@@ -136,7 +136,8 @@ function processEventsTick(
 export function tickVesselState(
   state: VesselSimulationState,
   dtSeconds: number,
-  offset: DockFrameOffset = { x: 0, y: 0 }
+  offset: DockFrameOffset = { x: 0, y: 0 },
+  shipVelocity?: { vx: number; vy: number }
 ): VesselSimulationState {
   const extraHeat = state.activeFires.length * 3.0;
   let reactor = tickReactor(state.reactor, dtSeconds, extraHeat);
@@ -165,7 +166,7 @@ export function tickVesselState(
   activeFires = eventRes.activeFires;
 
   let boarding = state.boarding || createInitialBoardingState();
-  const boardingRes = tickBoardingCombat(boarding, dtSeconds, undefined, offset);
+  const boardingRes = tickBoardingCombat(boarding, dtSeconds, undefined, offset, shipVelocity);
   boarding = boardingRes.nextState;
 
   if (boardingRes.sabotageDetonated || boardingRes.hullDamageInflicted > 0) {

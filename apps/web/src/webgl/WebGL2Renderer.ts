@@ -59,7 +59,12 @@ import { ParticleSystem } from './systems/ParticleSystem';
 
 export interface WebGLRenderState extends HudDrawState {
   shipOffset?: { x: number; y: number };
-  impacts?: Array<{ x: number; y: number; type: 'kinetic' | 'laser' | 'welder' }>;
+  impacts?: Array<{
+    x: number;
+    y: number;
+    type: 'kinetic' | 'laser' | 'welder';
+    shipVelocity?: { vx: number; vy: number };
+  }>;
   muzzleFlashes?: Array<{ x: number; y: number; weaponType: WeaponType }>;
   zoom?: number;
   nearestDoorId?: string;
@@ -685,6 +690,9 @@ export class WebGL2Renderer {
     const timeSec = state.timeMs * 0.001;
     const dt = 0.016;
 
+    const frameOffset = state.shipOffset ?? { x: 0, y: 0 };
+    this.deckPass.shipOffset = frameOffset;
+
     const doors = state.telemetry?.boarding?.doors || state.boarding?.doors || createInitialDoors();
     const playerAtmosphere = getPlayerAtmosphere(state);
     const decompressionSources = getDecompressionAirflowSources(
@@ -699,13 +707,13 @@ export class WebGL2Renderer {
     if (this.currentFrostIntensity < 0.005) {
       this.currentFrostIntensity = 0;
     }
-    const impactDoors = getWorldDoors(doors, state.shipOffset ?? { x: 0, y: 0 });
+    const impactDoors = getWorldDoors(doors, frameOffset);
     if (state.impacts) {
       for (const imp of state.impacts) {
         if (
           isImpactVisible({ x: state.pawn.x, y: state.pawn.y }, { x: imp.x, y: imp.y }, impactDoors)
         ) {
-          this.particleSystem.addImpact(imp.x, imp.y, imp.type);
+          this.particleSystem.addImpact(imp.x, imp.y, imp.type, imp.shipVelocity);
         }
       }
     }
@@ -714,7 +722,7 @@ export class WebGL2Renderer {
         this.particleSystem.addMuzzleFlash(mf);
       }
     }
-    const particleOffset = state.shipOffset ?? { x: 0, y: 0 };
+    const particleOffset = frameOffset;
     for (const source of decompressionSources) {
       const sx = isShipSideRoom(source.roomId) ? source.x + particleOffset.x : source.x;
       this.particleSystem.emitAirflow(sx, source.y, source.u, source.v, source.intensity);
@@ -737,7 +745,7 @@ export class WebGL2Renderer {
       HESPERIA_WALLS,
       doors,
       state.telemetry?.hull?.breaches,
-      state.shipOffset ?? { x: 0, y: 0 }
+      frameOffset
     );
     const doorsHash = (state.boarding?.doors || [])
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
@@ -757,7 +765,7 @@ export class WebGL2Renderer {
       height,
       this.framebufferManager,
       this.fogOfWarPass,
-      (state.shipOffset ?? { x: 0, y: 0 }).x
+      frameOffset.x
     );
 
     const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
@@ -789,7 +797,7 @@ export class WebGL2Renderer {
       state.telemetry?.roomAtmospheres,
       state.overlayMode ?? 'off',
       timeSec,
-      (state.shipOffset ?? { x: 0, y: 0 }).x
+      frameOffset.x
     );
     this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
     const partitionHoles =
@@ -802,8 +810,6 @@ export class WebGL2Renderer {
       timeSec,
       partitionHoles
     );
-    const frameOffset = state.shipOffset ?? { x: 0, y: 0 };
-    this.deckPass.shipOffset = frameOffset;
     this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);
     this.renderStations(matrix, state.nearestStation?.id, timeSec, frameOffset);

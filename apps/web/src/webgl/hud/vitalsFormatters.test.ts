@@ -4,6 +4,8 @@ import {
   formatAtmosphereStatus,
   formatIncapacitatedNotice,
   formatSuitStatus,
+  STATION_ATMOS_SUMMARY,
+  VACUUM_ATMOS_SUMMARY,
 } from './vitalsFormatters';
 
 function makeVitals(
@@ -157,6 +159,20 @@ describe('formatAtmosphereStatus', () => {
   it('reports repressurization as non-hazard crew information', () => {
     const status = formatAtmosphereStatus(makeAtmos({ isRepressurizing: true, pressureKpa: 80 }));
     expect(status.hazardBanner).toBe('ECS REPRESSURIZING');
+    expect(status.isHazard).toBe(false);
+  });
+
+  it('formats vacuum environment as hazardous space vacuum', () => {
+    const status = formatAtmosphereStatus(VACUUM_ATMOS_SUMMARY);
+    expect(status.ambientText).toBe('VACUUM // 0 kPa • 0% O2 • -270°C');
+    expect(status.hazardBanner).toBe('VACUUM HAZARD');
+    expect(status.isHazard).toBe(true);
+  });
+
+  it('formats station environment as nominal habitat atmosphere', () => {
+    const status = formatAtmosphereStatus(STATION_ATMOS_SUMMARY);
+    expect(status.ambientText).toBe('AMB: 101 kPa • 21% O2 • 21°C');
+    expect(status.hazardBanner).toBeNull();
     expect(status.isHazard).toBe(false);
   });
 });

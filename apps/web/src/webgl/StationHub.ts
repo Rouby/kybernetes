@@ -1,16 +1,16 @@
-import type { DockingPhase } from '@kybernetes/protocol';
-import { getShipDockingOffset, type IntroState } from '@kybernetes/sim-core';
+import type { DockingPhase, VesselKinematics } from '@kybernetes/protocol';
+import { getShipDockingOffset, getShipKinematics, type IntroState } from '@kybernetes/sim-core';
 
 export function liveEtaSeconds(broadcastEta: number, receivedAtMs: number, nowMs: number): number {
   return Math.max(0, broadcastEta - (nowMs - receivedAtMs) / 1000);
 }
 
-export function resolveClientShipOffset(
+function buildClientIntroState(
   phase: DockingPhase | undefined,
   etaSeconds: number | undefined,
   legIndex: number | undefined
-): { x: number; y: number } {
-  const state: IntroState = {
+): IntroState {
+  return {
     phase: phase ?? 'inbound',
     shipName: '',
     destination: '',
@@ -23,7 +23,22 @@ export function resolveClientShipOffset(
     assignedJob: null,
     turnaroundSeconds: 30,
   };
-  return getShipDockingOffset(state);
+}
+
+export function resolveClientShipOffset(
+  phase: DockingPhase | undefined,
+  etaSeconds: number | undefined,
+  legIndex: number | undefined
+): { x: number; y: number } {
+  return getShipDockingOffset(buildClientIntroState(phase, etaSeconds, legIndex));
+}
+
+export function resolveClientShipKinematics(
+  phase: DockingPhase | undefined,
+  etaSeconds: number | undefined,
+  legIndex: number | undefined
+): VesselKinematics {
+  return getShipKinematics(buildClientIntroState(phase, etaSeconds, legIndex));
 }
 
 export interface StationNpc {

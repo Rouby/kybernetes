@@ -1,4 +1,5 @@
 import type { PlayerVitals, RoomAtmosphereSummary } from '@kybernetes/protocol';
+import { isShipSideRoom, isStationRoom } from '@kybernetes/sim-core';
 
 export interface FormattedSuitStatus {
   visorLabel: string;
@@ -52,6 +53,32 @@ export interface FormattedAtmosStatus {
   isHazard: boolean;
 }
 
+export const STATION_ATMOS_SUMMARY: RoomAtmosphereSummary = {
+  roomId: 'station',
+  pressureKpa: 101.3,
+  o2Percent: 20.9,
+  tempCelsius: 21.0,
+  toxicSmokePercent: 0,
+  co2Ppm: 400,
+  isVenting: false,
+  isRepressurizing: false,
+  activeFires: 0,
+  activeBreaches: 0,
+};
+
+export const VACUUM_ATMOS_SUMMARY: RoomAtmosphereSummary = {
+  roomId: 'vacuum',
+  pressureKpa: 0,
+  o2Percent: 0,
+  tempCelsius: -270.0,
+  toxicSmokePercent: 0,
+  co2Ppm: 0,
+  isVenting: false,
+  isRepressurizing: false,
+  activeFires: 0,
+  activeBreaches: 0,
+};
+
 export function formatAtmosphereStatus(atmos?: RoomAtmosphereSummary): FormattedAtmosStatus {
   if (!atmos) {
     return {
@@ -66,7 +93,8 @@ export function formatAtmosphereStatus(atmos?: RoomAtmosphereSummary): Formatted
   const t = Math.round(atmos.tempCelsius);
   const smoke = Math.round(atmos.toxicSmokePercent);
 
-  const ambientText = `AMB: ${p} kPa • ${o2}% O2 • ${t}°C`;
+  const ambientText =
+    p === 0 ? `VACUUM // 0 kPa • 0% O2 • ${t}°C` : `AMB: ${p} kPa • ${o2}% O2 • ${t}°C`;
   let hazardBanner: string | null = null;
   let isHazard = false;
 
@@ -100,4 +128,31 @@ export function formatIncapacitatedNotice(vitals: PlayerVitals): string | null {
   if (!vitals.incapacitated?.isIncapacitated) return null;
   const rem = Math.round(vitals.incapacitated.bleedoutSecondsRemaining);
   return `CRITICAL: INCAPACITATED (${vitals.incapacitated.cause.toUpperCase()}) - BLEEDOUT: ${rem}s`;
+}
+
+export function resolveRoomAtmosSummary(
+  roomAtmospheres?: Record<string, RoomAtmosphereSummary>,
+  currentRoomId?: string
+): RoomAtmosphereSummary {
+  if (!currentRoomId) return VACUUM_ATMOS_SUMMARY;
+  if (isStationRoom(currentRoomId)) {
+    return roomAtmospheres?.[currentRoomId] ?? STATION_ATMOS_SUMMARY;
+  }
+  if (isShipSideRoom(currentRoomId)) {
+    return (
+      roomAtmospheres?.[currentRoomId] ?? {
+        roomId: currentRoomId,
+        pressureKpa: 101.3,
+        o2Percent: 20.9,
+        co2Ppm: 400,
+        tempCelsius: 21.0,
+        toxicSmokePercent: 0,
+        isVenting: false,
+        isRepressurizing: false,
+        activeFires: 0,
+        activeBreaches: 0,
+      }
+    );
+  }
+  return VACUUM_ATMOS_SUMMARY;
 }
