@@ -15,7 +15,7 @@ function waitForType(ws: WebSocket, type: string, timeoutMs = TIMEOUT_MS): Promi
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       ws.off('message', onMessage);
-      reject(new Error('timed out waiting for ' + type));
+      reject(new Error(`timed out waiting for ${type}`));
     }, timeoutMs);
     const onMessage = (data: WebSocket.RawData) => {
       let parsed: unknown;
@@ -36,7 +36,7 @@ function waitForType(ws: WebSocket, type: string, timeoutMs = TIMEOUT_MS): Promi
 
 function connect(port: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket('ws://localhost:' + port);
+    const ws = new WebSocket(`ws://localhost:${port}`);
     const timer = setTimeout(() => reject(new Error('connect timeout')), TIMEOUT_MS);
     ws.on('open', () => {
       clearTimeout(timer);
