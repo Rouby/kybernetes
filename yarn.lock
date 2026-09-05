@@ -2,7 +2,7 @@
 # Manual changes might be lost - proceed with caution!
 
 __metadata:
-  version: 10
+  version: 8
   cacheKey: 10c0
 
 "@babel/code-frame@npm:^7.29.7":
@@ -2723,7 +2723,7 @@ __metadata:
 
 "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Alocator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>":
   version: 7.0.2
-  resolution: "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Aversion=7.0.2&hash=f858d2&locator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>::version=7.0.2&hash=3bafbf"
+  resolution: "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Aversion=7.0.2&hash=f858d2&locator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>::version=7.0.2&hash=5786d5"
   dependencies:
     "@typescript/typescript-aix-ppc64": "npm:7.0.2"
     "@typescript/typescript-darwin-arm64": "npm:7.0.2"

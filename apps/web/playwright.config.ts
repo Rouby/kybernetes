@@ -16,7 +16,7 @@ export default defineConfig({
   // starves every vessel's broadcasts until the 60s test cap. File-level
   // parallelism keeps the proven-green serial semantics per file.
   fullyParallel: false,
-  workers: isCI ? 2 : Math.max(2, Math.min(4, Math.floor(os.availableParallelism() / 2))),
+  workers: 2,
   retries: isCI ? 2 : 1,
   timeout: 60_000,
   expect: {
