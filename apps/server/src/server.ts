@@ -368,21 +368,45 @@ export class VesselServer {
     }
   }
 
+  private isDoorCrowded(session: VesselSession, doorId: string): boolean {
+    const door = session.vesselState.boarding.doors.find((d) => d.id === doorId);
+    if (!door) return true;
+    const midX = (door.x1 + door.x2) / 2;
+    const midY = (door.y1 + door.y2) / 2;
+    for (const cl of session.clients.values()) {
+      if (Math.hypot(cl.pawn.x - midX, cl.pawn.y - midY) < 60) return true;
+    }
+    for (const bot of session.bots.values()) {
+      if (Math.hypot(bot.pawn.x - midX, bot.pawn.y - midY) < 60) return true;
+    }
+    return false;
+  }
+
   // fallow-ignore-next-line complexity
   private tickSessionBots(session: VesselSession, dtSeconds: number): void {
     for (const [role, bot] of session.bots.entries()) {
-      const { nextBot, assistance, doorToToggle } = tickBot(
+      const { nextBot, assistance, doorToOpen, doorToToggle, doorsToClose } = tickBot(
         bot,
         dtSeconds,
         session.vesselState.boarding.doors
       );
       session.bots.set(role, nextBot);
 
-      if (doorToToggle) {
+      const openId = doorToOpen ?? doorToToggle;
+      if (openId) {
         session.vesselState.boarding.doors = toggleDoor(
           session.vesselState.boarding.doors,
-          doorToToggle,
+          openId,
           true
+        );
+      }
+
+      for (const closeId of doorsToClose ?? []) {
+        if (this.isDoorCrowded(session, closeId)) continue;
+        session.vesselState.boarding.doors = toggleDoor(
+          session.vesselState.boarding.doors,
+          closeId,
+          false
         );
       }
 
