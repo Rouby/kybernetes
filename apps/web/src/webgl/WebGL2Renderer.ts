@@ -653,11 +653,6 @@ export class WebGL2Renderer {
     gl.bindVertexArray(null);
   }
 
-  private renderRedAlertVignette(time: number): void {
-    const pulse = 0.12 + 0.08 * Math.sin(time * 5.0);
-    this.renderFullscreenVignette(1.0, 0.05, 0.05, pulse);
-  }
-
   private renderHypoxiaVignette(
     hypoxiaPercent: number,
     isIncapacitated: boolean,
@@ -893,9 +888,6 @@ export class WebGL2Renderer {
     );
     this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
 
-    if (state.alertLevel === 'red') {
-      this.renderRedAlertVignette(timeSec);
-    }
     if (state.vitals) {
       if (state.vitals.hypoxiaPercent > 20 || state.vitals.incapacitated?.isIncapacitated) {
         this.renderHypoxiaVignette(
