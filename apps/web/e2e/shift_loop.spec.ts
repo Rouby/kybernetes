@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { waitForVesselSocket } from './helpers';
 
 async function embarkAsWiper(page: Page, callsign = 'Cadet-Solo') {
   await page.goto('/?beacon=SOLO01&e2e=true');
@@ -17,7 +18,7 @@ test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
     page,
   }) => {
     await embarkAsWiper(page, 'Solo-Eng');
-    await page.waitForTimeout(500);
+    await waitForVesselSocket(page);
 
     // Open Crew Manifest Modal via [M]
     await page.keyboard.press('KeyM');
@@ -42,11 +43,11 @@ test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
   }) => {
     test.setTimeout(90000);
     await embarkAsWiper(page, 'Shift-Wiper');
-    await page.waitForTimeout(1000);
+    await waitForVesselSocket(page);
 
     // Capture gameplay HUD with top-left Shift Checklist panel
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/ca834404-2e36-4392-85f2-f64b63704217/shift_checklist_hud.png',
+      path: 'test-results/screenshots/ca834404-2e36-4392-85f2-f64b63704217/shift_checklist_hud.png',
     });
 
     // Wiper spawns in Engineering right by reactor_primary_console (x: 850, y: 560)
@@ -83,7 +84,7 @@ test.describe('Shift Checklist Quests & Ambient Bot Crew Loop', () => {
 
     // Capture debrief popup card
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/ca834404-2e36-4392-85f2-f64b63704217/shift_debrief_modal.png',
+      path: 'test-results/screenshots/ca834404-2e36-4392-85f2-f64b63704217/shift_debrief_modal.png',
     });
 
     // Verify button to commence next watch shift

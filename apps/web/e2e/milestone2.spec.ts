@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { quickBoard, waitForBroadcast } from './helpers';
 
 test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking', () => {
   test('selects starting role and updates department and spawn location', async ({ page }) => {
-    await page.goto('/?e2e=true');
-    await page.getByTestId('quick-board-btn').click();
+    await quickBoard(page);
     await expect(page.getByTestId('vessel-canvas')).toBeVisible();
 
     // Press 'KeyP' (or click WebGL role badge) to open role select modal
@@ -20,10 +20,7 @@ test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking'
   });
 
   test('WASD movement updates pawn position coordinates', async ({ page }) => {
-    await page.goto('/?e2e=true');
-    await page.getByTestId('quick-board-btn').click();
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
+    const canvas = await quickBoard(page);
 
     // Focus canvas and press ArrowLeft / KeyA to move left
     await canvas.click({ force: true });
@@ -31,17 +28,16 @@ test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking'
       await page.keyboard.press('KeyA');
       await page.waitForTimeout(50);
     }
-    // Verify movement completed without error
+    // Server replication proof: spatial snapshots must stream after movement.
+    const snapshot = await waitForBroadcast<{ pawns: unknown[] }>(page, 'SPATIAL_SNAPSHOT');
+    expect(snapshot.pawns.length).toBeGreaterThan(0);
     await expect(canvas).toBeVisible();
   });
 
   test('interacts with nearest station via [E] key and begins shift duty with round progress bar', async ({
     page,
   }) => {
-    await page.goto('/?e2e=true');
-    await page.getByTestId('quick-board-btn').click();
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
+    const canvas = await quickBoard(page);
 
     // Press 'e' to start interaction immediately (rendered directly on WebGL2 HUD)
     await page.keyboard.press('KeyE');
@@ -56,10 +52,7 @@ test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking'
   test('vertical locomotion (KeyW/KeyS) stops velocity and footsteps when released', async ({
     page,
   }) => {
-    await page.goto('/?e2e=true');
-    await page.getByTestId('quick-board-btn').click();
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
+    const canvas = await quickBoard(page);
 
     // Move up with KeyW and release
     await page.keyboard.down('KeyW');
@@ -85,9 +78,7 @@ test.describe('Milestone 2: 2D Viewport, WASD Controls, Roles & Station Docking'
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/?e2e=true');
     await page.getByTestId('quick-board-btn').click();
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
-    await page.waitForTimeout(400);
+    const canvas = await quickBoard(page);
 
     // Hover mouse at target position (800, 360)
     await page.mouse.move(800, 360);

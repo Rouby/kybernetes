@@ -43,8 +43,8 @@ import {
   broadcastToSession,
   broadcastVitals,
 } from './broadcast/deltaBroadcaster';
-import { ActionRouter } from './handlers/actionRouter';
-import type { ClientSession, VesselSession } from './types';
+import { ActionRouter } from './handlers/actionRouter.js';
+import type { ClientSession, VesselSession } from './types.js';
 
 export class VesselServer {
   private wss: WebSocketServer | null = null;
@@ -111,6 +111,12 @@ export class VesselServer {
         });
       });
     }
+  }
+
+  public getPort(): number {
+    const address = this.wss?.address();
+    if (address && typeof address === 'object') return address.port;
+    return this.port;
   }
 
   private terminateClients(): void {

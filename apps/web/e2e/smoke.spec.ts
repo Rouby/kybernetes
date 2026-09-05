@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { waitForVesselSocket } from './helpers';
 
 test.describe('Kybernetes HUD Smoke Test', () => {
   test('renders tactical dashboard and vessel designation', async ({ page }) => {
@@ -23,7 +24,7 @@ test.describe('Kybernetes HUD Smoke Test', () => {
 
     const canvas = page.getByTestId('vessel-canvas');
     await expect(canvas).toBeVisible();
-    await page.waitForTimeout(400);
+    await waitForVesselSocket(page);
 
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
@@ -38,40 +39,40 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.setViewportSize({ width: 1024, height: 380 });
     await page.goto('/?e2e=true');
     await page.getByTestId('quick-board-btn').click();
-    await page.waitForTimeout(600);
+    await waitForVesselSocket(page);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/e40c455b-b06c-4b84-922b-edbfbc5751e2/user_aspect_ratio_hud.png',
+      path: 'test-results/screenshots/e40c455b-b06c-4b84-922b-edbfbc5751e2/user_aspect_ratio_hud.png',
     });
 
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/?e2e=true');
     await page.getByTestId('quick-board-btn').click();
-    await page.waitForTimeout(600);
+    await waitForVesselSocket(page);
 
     await page.mouse.move(400, 200);
     await page.waitForTimeout(400);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/9ba7b719-c9d3-4458-b337-560f7c7a90d8/nameplate_removed_hud.png',
+      path: 'test-results/screenshots/9ba7b719-c9d3-4458-b337-560f7c7a90d8/nameplate_removed_hud.png',
     });
 
     // Hover mouse directly over the crew member at screen center (640, 360)
     await page.mouse.move(640, 360);
     await page.waitForTimeout(400);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/9ba7b719-c9d3-4458-b337-560f7c7a90d8/crew_dossier_hud.png',
+      path: 'test-results/screenshots/9ba7b719-c9d3-4458-b337-560f7c7a90d8/crew_dossier_hud.png',
     });
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/e40c455b-b06c-4b84-922b-edbfbc5751e2/curved_helmet_hud.png',
+      path: 'test-results/screenshots/e40c455b-b06c-4b84-922b-edbfbc5751e2/curved_helmet_hud.png',
     });
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/reticle_zoom_alignment.png',
+      path: 'test-results/screenshots/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/reticle_zoom_alignment.png',
     });
   });
 
   test('captures realistic lighting and dark corridor viewport screenshot', async ({ page }) => {
     await page.goto('/?e2e=true');
     await page.getByTestId('quick-board-btn').click();
-    await page.waitForTimeout(800);
+    await waitForVesselSocket(page);
     // Move player down towards the central transit corridor
     await page.keyboard.down('KeyS');
     await page.waitForTimeout(500);
@@ -79,16 +80,15 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.mouse.move(500, 350);
     await page.waitForTimeout(600);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/dense_submarine_ship.png',
+      path: 'test-results/screenshots/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/dense_submarine_ship.png',
     });
   });
 
   test('captures main menu screenshot', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByTestId('main-menu')).toBeVisible();
-    await page.waitForTimeout(300);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/67a09665-d3cf-43a0-83fb-b03bc38ed4c7/main_menu.png',
+      path: 'test-results/screenshots/67a09665-d3cf-43a0-83fb-b03bc38ed4c7/main_menu.png',
       fullPage: true,
     });
   });
@@ -97,7 +97,7 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/?e2e=true');
     await page.getByTestId('quick-board-btn').click();
-    await page.waitForTimeout(500);
+    await waitForVesselSocket(page);
 
     const canvas = page.getByTestId('vessel-canvas');
     await expect(canvas).toBeVisible();
@@ -132,7 +132,7 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/?e2e=true');
     await page.getByTestId('quick-board-btn').click();
-    await page.waitForTimeout(500);
+    await waitForVesselSocket(page);
 
     const canvas = page.getByTestId('vessel-canvas');
     await expect(canvas).toBeVisible();
@@ -168,7 +168,7 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.waitForTimeout(300);
 
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/door_proximity_prompt.png',
+      path: 'test-results/screenshots/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/door_proximity_prompt.png',
     });
 
     // 3. Press [E] to toggle the hatch closed while looking directly at it
@@ -176,7 +176,7 @@ test.describe('Kybernetes HUD Smoke Test', () => {
     await page.waitForTimeout(300);
 
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/door_closed_prompt.png',
+      path: 'test-results/screenshots/8eda711e-fa63-41a6-a093-9f9e68fe4f8e/door_closed_prompt.png',
     });
 
     // 4. Press [E] immediately again while standing in place to toggle the hatch open again

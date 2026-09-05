@@ -17,6 +17,10 @@
       "dependsOn": ["build"],
       "cache": false
     },
+    "test:e2e:smoke": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
     "lint": {
       "dependsOn": ["^build"]
     },

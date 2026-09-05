@@ -58,7 +58,12 @@ jobs:
       - name: 🎭 Provision Chromium Tactical Sensor Rig
         run: npx playwright install --with-deps chromium
 
-      - name: 🎮 Gate 6 — Playwright Neural Deck Viewport E2E
+      - name: 🎮 Gate 6a — Playwright Smoke Suite (PR fast-feedback)
+        if: github.event_name == 'pull_request'
+        run: yarn test:e2e:smoke
+
+      - name: 🎮 Gate 6b — Playwright Full Viewport Suite (main branch)
+        if: github.event_name != 'pull_request'
         run: yarn test:e2e
 
       - name: 💾 Transmit Blackbox Diagnostics on Failure

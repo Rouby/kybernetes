@@ -1,4 +1,4 @@
-import { VesselServer } from './server';
+import { VesselServer } from './server.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 const server = new VesselServer(PORT);

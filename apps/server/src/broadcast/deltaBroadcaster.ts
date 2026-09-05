@@ -10,7 +10,7 @@ import type {
 } from '@kybernetes/protocol';
 import { stateToTelemetryBroadcast } from '@kybernetes/sim-core';
 import { WebSocket } from 'ws';
-import type { ClientSession, VesselSession } from '../types';
+import type { ClientSession, VesselSession } from '../types.js';
 
 export function broadcastToSession(session: VesselSession, broadcast: ServerBroadcast): void {
   const payload = JSON.stringify(broadcast);

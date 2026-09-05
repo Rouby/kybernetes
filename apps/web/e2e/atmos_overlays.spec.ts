@@ -1,16 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { quickBoard } from './helpers';
 
 test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
   test('cycles view-overlays via [V] key shortcut and HUD sensor button', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto('/?e2e=true');
-
-    // Quick-board into the ship
-    await page.getByTestId('quick-board-btn').click();
-
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
-    await page.waitForTimeout(400);
+    const canvas = await quickBoard(page);
 
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
@@ -24,7 +18,7 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
 
     // Capture screenshot of Oxygen Available heatmap overlay
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_o2.png',
+      path: 'test-results/screenshots/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_o2.png',
     });
 
     // Cycle to Temperature
@@ -33,7 +27,7 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
 
     // Capture screenshot of Thermal distribution heatmap overlay
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_temp.png',
+      path: 'test-results/screenshots/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_temp.png',
     });
 
     // Cycle to Pressure
@@ -42,7 +36,7 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
 
     // Capture screenshot of Barometric cabin pressure heatmap overlay
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_pressure.png',
+      path: 'test-results/screenshots/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_pressure.png',
     });
 
     // Cycle back to OFF
@@ -81,11 +75,7 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto('/?e2e=true');
-    await page.getByTestId('quick-board-btn').click();
-
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
+    await quickBoard(page);
 
     // Cycle to Pressure overlay mode [V] x 3
     await page.keyboard.press('KeyV');
@@ -112,7 +102,7 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
 
     // Capture screenshot of decompressed void indigo cells
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_pressure.png',
+      path: 'test-results/screenshots/624877c0-8b32-434c-a965-cdf97ec0de13/sensor_overlay_pressure_decompressed.png',
     });
   });
 
@@ -120,11 +110,7 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto('/?e2e=true');
-    await page.getByTestId('quick-board-btn').click();
-
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
+    await quickBoard(page);
 
     // Wait for the joined session socket before triggering the outer hatch.
     await expect
@@ -159,13 +145,13 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
     // Capture initial fine mist jet venting into space from the purge vent
     await page.waitForTimeout(500);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/isolated_airlock_venting_mist.png',
+      path: 'test-results/screenshots/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/isolated_airlock_venting_mist.png',
     });
 
     // 3. Wait for the isolated engineering compartment to fully evacuate to 0.0 kPa (2.5s)
     await page.waitForTimeout(2500);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/isolated_airlock_evacuated_stopped.png',
+      path: 'test-results/screenshots/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/isolated_airlock_evacuated_stopped.png',
     });
 
     // 4. Now open the NEXT door (door_eng): pressurized corridor vents into engineering and out the purge vent!
@@ -183,7 +169,7 @@ test.describe('Atmospheric & Environmental Sensor View-Overlays', () => {
     // Wait 500ms for cascading fine mist to erupt across the doorway and through the purge vent
     await page.waitForTimeout(500);
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/cascading_next_room_fine_mist.png',
+      path: 'test-results/screenshots/fc111e1b-2af9-4a71-bc88-c998a7c12ac2/cascading_next_room_fine_mist.png',
     });
   });
 });

@@ -53,7 +53,7 @@ import {
   broadcastVitals,
   sendInitialPackets,
 } from '../broadcast/deltaBroadcaster';
-import type { ClientSession, VesselSession } from '../types';
+import type { ClientSession, VesselSession } from '../types.js';
 
 export interface ServerRouterContext {
   getOrCreateSession: (code: string) => VesselSession;

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { waitForBroadcast, waitForVesselSocket } from './helpers';
 
 async function embarkFromMenu(
   page: Page,
@@ -43,7 +44,7 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
     // Verify player is onboard an authoritative instance with WebGL2 canvas
     const canvas = page.getByTestId('vessel-canvas');
     await expect(canvas).toBeVisible();
-    await page.waitForTimeout(400);
+    await waitForVesselSocket(page);
 
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
@@ -81,7 +82,8 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
 
       await expect(page1.getByTestId('vessel-canvas')).toBeVisible();
       await expect(page2.getByTestId('vessel-canvas')).toBeVisible();
-      await page1.waitForTimeout(400);
+      await waitForVesselSocket(page1);
+      await waitForVesselSocket(page2);
 
       // Open Crew Manifest Modal on Page 1 via [M] hotkey
       await page1.keyboard.press('KeyM');
@@ -126,6 +128,10 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
       // Both canvases remain active and synced
       await expect(page1.getByTestId('vessel-canvas')).toBeVisible();
       await expect(page2.getByTestId('vessel-canvas')).toBeVisible();
+
+      // Replication proof: spatial snapshots stream to both peers.
+      await waitForBroadcast(page1, 'SPATIAL_SNAPSHOT');
+      await waitForBroadcast(page2, 'SPATIAL_SNAPSHOT');
     } finally {
       await ctx1.close();
       await ctx2.close();
@@ -186,11 +192,11 @@ test.describe('Milestone 5: Authoritative WebSocket Server, Multi-Room Lobbies &
 
       // Capture official Milestone 5 co-op screenshot
       await page1.screenshot({
-        path: '../../docs/images/milestone5_viewport.png',
+        path: 'test-results/screenshots/milestone5_viewport.png',
         fullPage: true,
       });
       await page1.screenshot({
-        path: 'C:/Users/jonat/.gemini/antigravity/brain/67a09665-d3cf-43a0-83fb-b03bc38ed4c7/milestone5_viewport.png',
+        path: 'test-results/screenshots/67a09665-d3cf-43a0-83fb-b03bc38ed4c7/milestone5_viewport.png',
         fullPage: true,
       });
     } finally {

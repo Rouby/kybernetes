@@ -3,10 +3,12 @@
   "version": "0.2.0",
   "private": true,
   "main": "./dist/index.js",
+  "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/boot.mjs --external:ws --sourcemap --log-level=warning",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/boot.mjs",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check ."
   },
@@ -19,7 +21,9 @@
     "@kybernetes/tsconfig": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.5.14",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }

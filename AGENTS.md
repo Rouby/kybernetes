@@ -73,8 +73,9 @@ yarn test
 # 5. Turborepo production build
 yarn build
 
-# 6. Playwright browser suite
-yarn test:e2e
+# 6. Playwright browser suite (smoke on PRs for speed, full on main)
+yarn test:e2e:smoke # PR fast-feedback: smoke.spec.ts only
+# yarn test:e2e # main branch: full viewport suite
 ```
 
 ### Step 7: Changeset

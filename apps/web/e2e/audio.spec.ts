@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { waitForVesselSocket } from './helpers';
 
 async function embark(page: Page, callsign = 'Audio-Tester') {
   await page.goto('/');
@@ -14,7 +15,7 @@ async function embark(page: Page, callsign = 'Audio-Tester') {
 test.describe('Pure Procedural Web Audio Engine & Acoustic Mixer', () => {
   test('toggles acoustic mixer modal via [O] key and adjusts mixer settings', async ({ page }) => {
     await embark(page, 'Sound-Officer');
-    await page.waitForTimeout(500);
+    await waitForVesselSocket(page);
 
     // Open Acoustic Mixer via [O] hotkey
     await page.keyboard.press('KeyO');
@@ -31,7 +32,7 @@ test.describe('Pure Procedural Web Audio Engine & Acoustic Mixer', () => {
 
     // Capture screenshot of Acoustic Mixer modal
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/f3f5442f-0049-4b42-a019-a73110627114/audio_mixer_modal.png',
+      path: 'test-results/screenshots/f3f5442f-0049-4b42-a019-a73110627114/audio_mixer_modal.png',
     });
 
     // Test mute toggle button

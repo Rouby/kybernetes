@@ -1,18 +1,12 @@
-import { expect, test } from '@playwright/test';
+import { test } from '@playwright/test';
+import { quickBoard } from './helpers';
 
 test.describe('Performant Line of Sight & Realistic Persistent Fog of War', () => {
   test('uncovers persistent fog of war as player navigates through vessel compartments', async ({
     page,
   }) => {
-    // 1. Board vessel via E2E quick board
-    await page.goto('/?e2e=true');
-    await expect(page.getByTestId('quick-board-btn')).toBeVisible();
-    await page.getByTestId('quick-board-btn').click();
-
-    // Wait for canvas to mount and initial frame to render
-    const canvas = page.getByTestId('vessel-canvas');
-    await expect(canvas).toBeVisible();
-    await page.waitForTimeout(400);
+    // 1. Board vessel via E2E quick board into an isolated room
+    await quickBoard(page);
 
     // 2. Aim flashlight North towards corridor doorway
     await page.mouse.move(500, 100);
@@ -37,7 +31,7 @@ test.describe('Performant Line of Sight & Realistic Persistent Fog of War', () =
     // 6. Capture high-res screenshot of persistent Fog of War
     // Shows: Active 160-degree flashlight beam down corridor, Engineering behind in grayed-out explored memory, Bridge ahead in pitch black!
     await page.screenshot({
-      path: 'C:/Users/jonat/.gemini/antigravity/brain/67a09665-d3cf-43a0-83fb-b03bc38ed4c7/fog_of_war.png',
+      path: 'test-results/screenshots/67a09665-d3cf-43a0-83fb-b03bc38ed4c7/fog_of_war.png',
       fullPage: true,
     });
   });
