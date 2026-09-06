@@ -827,11 +827,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@kybernetes/air-sim@workspace:packages/air-sim":
+"@kybernetes/air-sim@workspace:*, @kybernetes/air-sim@workspace:packages/air-sim":
   version: 0.0.0-use.local
   resolution: "@kybernetes/air-sim@workspace:packages/air-sim"
   dependencies:
-    "@kybernetes/protocol": "workspace:*"
     "@kybernetes/tsconfig": "workspace:*"
     "@vitest/ui": "npm:5.0.0"
     typescript: "npm:^7.0.2"
@@ -870,6 +869,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@kybernetes/sim-core@workspace:packages/sim-core"
   dependencies:
+    "@kybernetes/air-sim": "workspace:*"
     "@kybernetes/protocol": "workspace:*"
     "@kybernetes/tsconfig": "workspace:*"
     typescript: "npm:^7.0.2"

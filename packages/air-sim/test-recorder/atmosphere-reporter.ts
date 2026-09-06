@@ -10,6 +10,7 @@ import type {
 import type { AtmosphereRecording } from './atmosphere-recorder.ts';
 
 export default class AtmosphereHtmlReporter implements Reporter {
+  // fallow-ignore-next-line unused-class-member -- Vitest invokes reporter lifecycle hooks dynamically.
   onTestRunEnd(
     testModules: ReadonlyArray<TestModule>,
     _unhandledErrors: ReadonlyArray<SerializedError>,

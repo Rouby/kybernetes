@@ -9,8 +9,12 @@ export interface ReactorTelemetry {
 }
 
 export interface LifeSupportTelemetry {
+  /** Ambient oxygen partial pressure normalized to nominal ship air (100 = healthy). */
   o2LevelPercent: number;
+  /** Ambient carbon dioxide concentration in percent. */
   co2LevelPercent: number;
+  /** Finite life-support gas reserve, separate from the cabin atmosphere. */
+  oxygenReservePercent?: number;
   scrubberEfficiencyPercent: number;
   status: SubsystemStatus;
 }

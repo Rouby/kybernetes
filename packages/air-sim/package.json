@@ -11,9 +11,6 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check ."
   },
-  "dependencies": {
-    "@kybernetes/protocol": "workspace:*"
-  },
   "devDependencies": {
     "@kybernetes/tsconfig": "workspace:*",
     "@vitest/ui": "5.0.0",

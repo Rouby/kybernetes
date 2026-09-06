@@ -68,7 +68,7 @@ describe('AtmosphereSimulation flow rates', () => {
     sim.step(0.001);
 
     expect(100 - room.totalMoles).toBeCloseTo(rate * 0.001, 10);
-    expect(room.gas.temperatureK).toBeCloseTo(300, 10);
+    expect(room.gas.temperatureK).toBeLessThan(300);
   });
 
   it('uses compressible subsonic flow and remains continuous at the choked threshold', () => {
@@ -139,7 +139,7 @@ describe('AtmosphereSimulation stability', () => {
     sim.step(dt);
 
     expect(source.totalMoles).toBeCloseTo(50, 10);
-    expect(source.gas.temperatureK).toBeCloseTo(300, 10);
+    expect(source.gas.temperatureK).toBeCloseTo(180, 10);
   });
 
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
@@ -224,9 +224,9 @@ describe('AtmosphereSimulation transport', () => {
     expect(moved).toBeGreaterThan(0);
     expect(target.gas.moles[GasType.Oxygen]).toBeCloseTo(moved, 10);
     expect(target.gas.temperatureK).toBeCloseTo(
-      (targetMoles * 200 + moved * 400) / (targetMoles + moved),
+      (targetMoles * 200 + moved * GAMMA * 400) / (targetMoles + moved),
       10
     );
-    expect(source.gas.temperatureK).toBeCloseTo(400, 10);
+    expect(source.gas.temperatureK).toBeLessThan(400);
   });
 });

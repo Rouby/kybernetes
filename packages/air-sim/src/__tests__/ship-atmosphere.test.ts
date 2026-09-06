@@ -350,4 +350,83 @@ describe('Recorded Atmospheric Scenarios', () => {
       frames: recording.frames.filter((frame) => frame.time >= 12),
     });
   });
+
+  it('simulates a big ship', ({ task }) => {
+    const sim = new AtmosphereSimulation();
+    const cabin1 = new Room(
+      { id: 'Cabin1', x: 0, y: 0, width: 6, length: 4, height: 2.5 },
+      createAir(60)
+    );
+    const cabin2 = new Room(
+      { id: 'Cabin2', x: 6, y: 0, width: 6, length: 4, height: 2.5 },
+      createAir(60)
+    );
+    const cabin3 = new Room(
+      { id: 'Cabin3', x: 12, y: 0, width: 6, length: 4, height: 2.5 },
+      createAir(60)
+    );
+    const cabin4 = new Room(
+      { id: 'Cabin4', x: 18, y: 0, width: 6, length: 4, height: 2.5 },
+      createAir(60)
+    );
+    const corridor1 = new Room(
+      { id: 'Corridor1', x: 0, y: 4, width: 24, length: 2, height: 2.5 },
+      createAir(120)
+    );
+    const cabin5 = new Room(
+      { id: 'Cabin5', x: 0, y: 6, width: 4, length: 4, height: 2.5 },
+      createAir(40)
+    );
+    const airlock = new Room(
+      { id: 'Airlock', x: 4, y: 6, width: 4, length: 4, height: 2.5 },
+      createAir(40)
+    );
+    const cabin6 = new Room(
+      { id: 'Cabin6', x: 8, y: 6, width: 5, length: 4, height: 2.5 },
+      createAir(50)
+    );
+    const cabin7 = new Room(
+      { id: 'Cabin7', x: 13, y: 6, width: 5, length: 4, height: 2.5 },
+      createAir(50)
+    );
+    const cabin8 = new Room(
+      { id: 'Cabin8', x: 18, y: 6, width: 6, length: 4, height: 2.5 },
+      createAir(60)
+    );
+
+    sim.addRoom(cabin1);
+    sim.addRoom(cabin2);
+    sim.addRoom(cabin3);
+    sim.addRoom(cabin4);
+    sim.addRoom(corridor1);
+    sim.addRoom(cabin5);
+    sim.addRoom(airlock);
+    sim.addRoom(cabin6);
+    sim.addRoom(cabin7);
+    sim.addRoom(cabin8);
+
+    addDoor(sim, cabin1, corridor1, { side: 'south' });
+    addDoor(sim, cabin2, corridor1, { side: 'south' });
+    addDoor(sim, cabin3, corridor1, { side: 'south' });
+    addDoor(sim, cabin4, corridor1, { side: 'south' });
+    addDoor(sim, cabin5, corridor1, { side: 'north' });
+    addDoor(sim, airlock, corridor1, { side: 'north' });
+    const outdoor = addDoor(sim, airlock, null, { side: 'south', openRatio: 0, maxArea: 2 });
+    addDoor(sim, cabin6, corridor1, { side: 'north' });
+    addDoor(sim, cabin7, corridor1, { side: 'north' });
+    addDoor(sim, cabin8, corridor1, { side: 'north' });
+
+    // A sealed 4:1 volume pair: the empty airlock fills while cabin pressure falls.
+    const recording = recordScenario(sim, 'Big ship', {
+      events: [
+        {
+          atSeconds: 2,
+          portalId: outdoor.id,
+          openRatio: 1,
+          label: 'Airlock opens to vacuum',
+        },
+      ],
+    });
+    task.meta.atmosphereRecordings = [recording];
+  });
 });

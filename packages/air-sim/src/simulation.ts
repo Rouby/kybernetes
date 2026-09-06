@@ -44,7 +44,7 @@ function flowDurations(flows: PortalFlow[], dt: number): Map<Room, number> {
   const responseRates = new Map<Room, number>();
   for (const { source, target, molarRate } of flows) {
     const deltaP = source.pressure - (target?.pressure ?? 0);
-    const coupling = (molarRate * R_GAS * source.gas.temperatureK) / deltaP;
+    const coupling = (molarRate * R_GAS * source.gas.temperatureK * GAMMA) / deltaP;
     for (const room of [source, target]) {
       if (room) responseRates.set(room, (responseRates.get(room) ?? 0) + coupling / room.volume);
     }
@@ -80,7 +80,9 @@ function accumulateFlow(updates: Map<Room, RoomUpdate>, flow: PortalFlow, durati
     sourceUpdate.moles[gasType] -= transfer;
     if (targetUpdate) targetUpdate.moles[gasType] += transfer;
   }
-  const thermalContent = movedMoles * source.gas.temperatureK;
+  // Gas flow carries enthalpy (Cp*T), while room thermal content is Cv*n*T.
+  // Cp/Cv is gamma, so a donor cools during blowdown and a receiver warms during filling.
+  const thermalContent = movedMoles * GAMMA * source.gas.temperatureK;
   sourceUpdate.thermalContent -= thermalContent;
   if (targetUpdate) targetUpdate.thermalContent += thermalContent;
 }
