@@ -1,5 +1,5 @@
 {
-  "name": "@kybernetes/protocol",
+  "name": "@kybernetes/air-sim",
   "version": "0.3.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,12 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check ."
   },
+  "dependencies": {
+    "@kybernetes/protocol": "workspace:*"
+  },
   "devDependencies": {
     "@kybernetes/tsconfig": "workspace:*",
+    "@vitest/ui": "5.0.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }
