@@ -51,6 +51,34 @@ export function sealPortal(portal: PortalEdge, tick: number): PortalEdge {
   return { ...portal, state: 'sealed', cooldownUntilTick: tick };
 }
 
+/** Nearest portal to a pawn within maxDist of its segment midpoint. */
+export function nearestPortal(
+  world: World,
+  pawnId: string,
+  maxDist: number
+): PortalEdge | undefined {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined || !(maxDist > 0)) return undefined;
+  let nearest: PortalEdge | undefined;
+  let nearestDist = maxDist;
+  for (const portal of Object.values(world.portals)) {
+    const room = world.rooms[portal.roomA];
+    if (room === undefined || room.frameId !== pawn.frameId) continue;
+    const distance = segmentMidpointDistance(portal, pawn.pos);
+    if (distance < nearestDist) {
+      nearest = portal;
+      nearestDist = distance;
+    }
+  }
+  return nearest;
+}
+
+function segmentMidpointDistance(portal: PortalEdge, pos: { x: number; y: number }): number {
+  const midX = (portal.segment.x1 + portal.segment.x2) / 2;
+  const midY = (portal.segment.y1 + portal.segment.y2) / 2;
+  return Math.hypot(pos.x - midX, pos.y - midY);
+}
+
 function withDoorState(portal: PortalEdge, wantOpen: boolean, tick: number): PortalEdge {
   return {
     ...portal,

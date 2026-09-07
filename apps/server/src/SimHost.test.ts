@@ -1,4 +1,4 @@
-import { createEmptyWorld } from '@kybernetes/sim-core';
+import { assembleWorld, createEmptyWorld, StationHubSpec, spawnPawn } from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
 import { routeIntent } from './routers/intentRouter.js';
 import { DEFAULT_CLOCKS, SimHost } from './SimHost.js';
@@ -141,5 +141,31 @@ describe('SimHost scaffold', () => {
     }
     expect(validatePipePacket(input(20), 0, rates).kind).toBe('rate-limited');
     expect(validatePipePacket(input(21), 1001, rates).kind).toBe('ok');
+  });
+
+  it('routes DOOR intents through the portal kernel', () => {
+    const base = assembleWorld([{ frameId: 'station', hull: StationHubSpec }]);
+    const world = spawnPawn(base, {
+      id: 'p1',
+      owner: 'u1',
+      frameId: 'station',
+      roomId: 'station.lobby',
+      x: 590,
+      y: 200,
+      color: '#fff',
+    });
+    const door = (wantOpen: boolean) => ({
+      type: 'DOOR' as const,
+      seq: 1,
+      portalId: 'station.lobby_bay',
+      wantOpen,
+    });
+    const opened = routeIntent(world, 'p1', door(true), []);
+    expect(opened.notice).toBe('DOOR_ok');
+    expect(opened.world.portals['station.lobby_bay']?.state).toBe('open');
+    const shut = routeIntent(opened.world, 'p1', door(false), []);
+    expect(shut.notice).toBe('DOOR_cooldown');
+    const missing = routeIntent(world, 'p1', { ...door(true), portalId: 'station.nope' }, []);
+    expect(missing.notice).toBe('DOOR_not-found');
   });
 });

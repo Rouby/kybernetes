@@ -14,7 +14,7 @@ import {
 } from '@kybernetes/sim-core';
 import { useEffect, useRef } from 'react';
 
-const SPECS: Readonly<Record<string, { label: string; spec: HullSpec }>> = {
+export const SPECS: Readonly<Record<string, { label: string; spec: HullSpec }>> = {
   station: { label: 'Station Hub', spec: StationHubSpec },
   hesperia: { label: 'Hesperia V2', spec: HesperiaV2Spec },
 };

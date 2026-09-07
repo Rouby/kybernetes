@@ -3,7 +3,10 @@
  * Replaces trust-client-positions. Pure + deterministic; dt is passed in.
  */
 
-import type { PawnBody, Vec2, World } from './types.js';
+import type { WallSegment } from '@kybernetes/protocol';
+import { resolvePawnMovement } from '../spatial/collision.js';
+import { isPortalConnecting } from './doors.js';
+import type { PawnBody, PortalEdge, Vec2, World } from './types.js';
 
 export interface MoveInput {
   readonly moveVec: Vec2;
@@ -57,4 +60,42 @@ export function updateRoomHint(world: World, pawn: PawnBody, pos: Vec2): string 
 
 function pointInRect(p: Vec2, rect: { x: number; y: number; w: number; h: number }): boolean {
   return p.x >= rect.x && p.x <= rect.x + rect.w && p.y >= rect.y && p.y <= rect.y + rect.h;
+}
+
+/** Colliders for a frame: compiled walls plus shut-portal segments (closed doors block). */
+export function collidersForFrame(world: World, frameId: string): WallSegment[] {
+  const colliders = [...(world.wallsByFrame[frameId] ?? [])];
+  for (const portal of Object.values(world.portals)) {
+    if (isPortalConnecting(portal)) continue;
+    const room = world.rooms[portal.roomA];
+    if (room === undefined || room.frameId !== frameId) continue;
+    colliders.push(portalCollider(portal));
+  }
+  return colliders;
+}
+
+function portalCollider(portal: PortalEdge): WallSegment {
+  return {
+    id: `portal-shut.${portal.id}`,
+    x1: portal.segment.x1,
+    y1: portal.segment.y1,
+    x2: portal.segment.x2,
+    y2: portal.segment.y2,
+    isOpaque: true,
+    isTraversable: false,
+  };
+}
+
+export function collidePawn(pawn: PawnBody, target: Vec2, colliders: readonly WallSegment[]): Vec2 {
+  const result = resolvePawnMovement(pawn.pos.x, pawn.pos.y, target.x, target.y, pawn.radius, [
+    ...colliders,
+  ]);
+  return { x: result.x, y: result.y };
+}
+
+/** Pawns aboard a moving vessel inherit its frame velocity (no offset-hack). */
+export function carryByFrame(world: World, frameId: string, pos: Vec2, dtSeconds: number): Vec2 {
+  const frame = world.vessels[frameId];
+  if (frame === undefined || !(dtSeconds > 0)) return pos;
+  return { x: pos.x + frame.vel.x * dtSeconds, y: pos.y + frame.vel.y * dtSeconds };
 }

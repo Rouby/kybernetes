@@ -4,7 +4,7 @@
  */
 
 import type { ClientIntent } from '@kybernetes/protocol';
-import type { World, WorldInput } from '@kybernetes/sim-core';
+import { tryToggleDoor, type World, type WorldInput } from '@kybernetes/sim-core';
 
 export interface RouteResult {
   readonly world: World;
@@ -21,6 +21,8 @@ export function routeIntent(
   switch (intent.type) {
     case 'INPUT':
       return routeInput(world, pawnId, intent, pending);
+    case 'DOOR':
+      return routeDoor(world, intent, pending);
     case 'HELLO':
     case 'JOIN_BEACON':
       return { world, movement: pending, notice: intent.type };
@@ -42,6 +44,18 @@ function routeInput(
     sprint: intent.sprint,
   };
   return { world, movement: [...pending, movement] };
+}
+
+/** Clearance is 0 until roles land in M5; spec portals require 0. */
+function routeDoor(
+  world: World,
+  intent: Extract<ClientIntent, { type: 'DOOR' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const result = tryToggleDoor(world, intent.portalId, intent.wantOpen, 0);
+  if (!result.ok) return { world, movement: pending, notice: `DOOR_${result.reason}` };
+  const portals = { ...world.portals, [result.portal.id]: result.portal };
+  return { world: { ...world, portals }, movement: pending, notice: 'DOOR_ok' };
 }
 
 function routeAction(

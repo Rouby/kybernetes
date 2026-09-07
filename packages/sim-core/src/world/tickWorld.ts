@@ -1,16 +1,21 @@
 /**
  * tickWorld: the only tick. Small delegates, no god function.
- * M0: movement slice + tick advance. Air/survival/bots/combat/watch land in M3-M7.
+ * M3: movement slice with server-side collision, frame-velocity carry,
+ * room-hint tracking, and explored-memory. Air/survival/bots/combat/watch land in M4-M7.
  */
 
 import { advanceFrameOrigin } from './frames.js';
+import { unionRooms, visibleRooms } from './los.js';
 import {
+  carryByFrame,
+  collidePawn,
+  collidersForFrame,
   inputToAccel,
   integratePawnPosition,
   integratePawnVelocity,
   updateRoomHint,
 } from './movement.js';
-import { FIXED_DT, type World } from './types.js';
+import { FIXED_DT, type PawnBody, type World } from './types.js';
 
 export interface WorldInput {
   readonly pawnId: string;
@@ -33,21 +38,43 @@ function normalizeDt(dtSeconds: number): number {
 }
 
 function stepMovement(world: World, dt: number, inputs: readonly WorldInput[]): World {
-  if (inputs.length === 0) return world;
-  const pawns = { ...world.pawns };
-  for (const input of inputs) {
-    const pawn = pawns[input.pawnId];
-    if (pawn === undefined) continue;
-    const accel = inputToAccel({
-      moveVec: { x: input.moveX, y: input.moveY },
-      sprint: input.sprint,
-    });
-    const vel = integratePawnVelocity(pawn, accel, dt);
-    const pos = integratePawnPosition({ ...pawn, vel }, vel, dt);
-    const roomHint = updateRoomHint(world, pawn, pos);
-    pawns[input.pawnId] = { ...pawn, pos, vel, roomHint };
+  const latest = latestInputPerPawn(inputs);
+  const pawns: Record<string, PawnBody> = {};
+  for (const pawn of Object.values(world.pawns)) {
+    pawns[pawn.id] = stepPawn(world, pawn, latest.get(pawn.id), dt);
   }
-  return { ...world, pawns };
+  return stepMemory({ ...world, pawns });
+}
+
+function latestInputPerPawn(inputs: readonly WorldInput[]): Map<string, WorldInput> {
+  const latest = new Map<string, WorldInput>();
+  for (const input of inputs) latest.set(input.pawnId, input);
+  return latest;
+}
+
+function stepPawn(
+  world: World,
+  pawn: PawnBody,
+  input: WorldInput | undefined,
+  dt: number
+): PawnBody {
+  const accel = inputToAccel({
+    moveVec: { x: input?.moveX ?? 0, y: input?.moveY ?? 0 },
+    sprint: input?.sprint ?? false,
+  });
+  const vel = integratePawnVelocity(pawn, accel, dt);
+  const target = integratePawnPosition({ ...pawn, vel }, vel, dt);
+  const collided = collidePawn(pawn, target, collidersForFrame(world, pawn.frameId));
+  const pos = carryByFrame(world, pawn.frameId, collided, dt);
+  return { ...pawn, pos, vel, roomHint: updateRoomHint(world, pawn, pos) };
+}
+
+function stepMemory(world: World): World {
+  const memory = { ...world.memory };
+  for (const pawn of Object.values(world.pawns)) {
+    memory[pawn.id] = unionRooms(memory[pawn.id] ?? [], visibleRooms(world, pawn.id));
+  }
+  return { ...world, memory };
 }
 
 function stepFrames(world: World, dt: number): World {

@@ -4,6 +4,8 @@
  * Portal graph is the law: rooms are nodes, portals are edges.
  */
 
+import type { WallSegment } from '@kybernetes/protocol';
+
 export type PortalKind = 'door' | 'hole' | 'open' | 'airlock' | 'window';
 
 export type PortalState = 'open' | 'closed' | 'destroyed' | 'sealed';
@@ -131,6 +133,10 @@ export interface World {
   readonly fixtures: Readonly<Record<string, Fixture>>;
   readonly pawns: Readonly<Record<string, PawnBody>>;
   readonly projectiles: Readonly<Record<string, ProjectileBody>>;
+  /** Compiled wall segments per frame id; the collision and LOS source of truth. */
+  readonly wallsByFrame: Readonly<Record<string, readonly WallSegment[]>>;
+  /** Remembered fog-of-war: room ids ever visible per pawn id. */
+  readonly memory: Readonly<Record<string, readonly string[]>>;
 }
 
 export const FIXED_DT = 1 / 20;
@@ -146,5 +152,7 @@ export function createEmptyWorld(timeMs = 0): World {
     fixtures: {},
     pawns: {},
     projectiles: {},
+    wallsByFrame: {},
+    memory: {},
   };
 }
