@@ -53,10 +53,24 @@ function recordScenario(
   {
     durationSeconds = 20,
     events = [],
-  }: { durationSeconds?: number; events?: ScheduledPortalEvent[] } = {}
+    probes = [],
+  }: {
+    durationSeconds?: number;
+    events?: ScheduledPortalEvent[];
+    probes?: {
+      id: string;
+      roomId: string;
+      x: number;
+      y: number;
+      opts: { projectedAreaM2?: number; dragCoefficient?: number };
+    }[];
+  } = {}
 ) {
   const recorder = new SimulationRecorder(sim);
   const dt = 0.01;
+  probes.forEach((probe) => {
+    console.log(recorder.addProbe(probe.id, probe.roomId, probe.x, probe.y, probe.opts));
+  });
   recorder.runWithRecording(durationSeconds, dt, events);
   return recorder.getRecording(title, dt);
 }
@@ -422,6 +436,15 @@ describe('Recorded Atmospheric Scenarios', () => {
 
     const recording = recordScenario(sim, 'Big ship', {
       durationSeconds: 20,
+      probes: [
+        {
+          id: 'probe1',
+          roomId: cabin8.id,
+          x: cabin8.config.x + 3,
+          y: cabin8.config.y + 2,
+          opts: {},
+        },
+      ],
     });
     task.meta.atmosphereRecordings = [recording];
   });

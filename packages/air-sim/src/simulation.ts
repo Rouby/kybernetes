@@ -25,7 +25,7 @@ interface RoomUpdate {
   thermalContent: number; // n*T; common molar heat capacity cancels when mixing
 }
 
-interface DragTarget {
+export interface DragTarget {
   room: Room;
   position: { x: number; y: number };
   velocity?: { x: number; y: number }; // m/s, defaults to (0, 0, 0)
@@ -35,7 +35,7 @@ interface DragTarget {
   applyDrag?(dragResult: DragResult): void;
 }
 
-interface DragResult {
+export interface DragResult {
   force: { x: number; y: number }; // Newtons (N)
   windVelocity: { x: number; y: number }; // Local gas velocity at the target point (m/s)
   dynamicPressure: number; // 0.5 * rho * v^2 (Pa)
@@ -131,9 +131,11 @@ function portalPosition(portal: Portal) {
     0,
     Math.min(wallLength - length, wallLength * portal.position - length / 2)
   );
+
+  // return center of opening
   return {
-    x: x + (horizontal ? offset : portal.side === 'east' ? width : 0),
-    y: y + (horizontal ? (portal.side === 'south' ? depth : 0) : offset),
+    x: x + (horizontal ? offset : portal.side === 'east' ? width : 0) + length / 2,
+    y: y + (horizontal ? (portal.side === 'south' ? depth : 0) : offset) + length / 2,
   };
 }
 

@@ -208,7 +208,7 @@ export default class AtmosphereHtmlReporter implements Reporter {
         <span class="legend-item"><span class="legend-line legend-partial" aria-hidden="true"></span>Partial · 0–100%</span>
         <span class="legend-item"><span class="legend-line legend-open" aria-hidden="true"></span>Open · 100%</span>
       </div>
-      <p class="hint">Segments show the maximum opening. Color and dash show the current door setting; damaged closed doors may still leak.</p>
+      <p class="hint">Segments show the maximum opening. Color and dash show the current door setting; damaged closed doors may still leak. Probe arrows show solver wind at fixed points; length scales with speed.</p>
     </div>
 
     <section class="panel">
@@ -218,6 +218,10 @@ export default class AtmosphereHtmlReporter implements Reporter {
     <section class="panel">
       <h2>Portal status</h2>
       <div class="metrics" id="portalMetrics"></div>
+    </section>
+    <section class="panel">
+      <h2>Probe wind / drag</h2>
+      <div class="metrics" id="probeMetrics"></div>
     </section>
     <section class="panel">
       <h2>Door event timeline</h2>
@@ -246,6 +250,7 @@ export default class AtmosphereHtmlReporter implements Reporter {
     const canvas = document.getElementById('canvas');
     const roomMetrics = document.getElementById('roomMetrics');
     const portalMetrics = document.getElementById('portalMetrics');
+    const probeMetrics = document.getElementById('probeMetrics');
     const eventLog = document.getElementById('eventLog');
 
     // All recording labels go through textContent or setAttribute, never HTML parsing.
@@ -386,6 +391,55 @@ export default class AtmosphereHtmlReporter implements Reporter {
       });
     }
 
+    function probeWindColor(speed) {
+      if (speed < 0.5) return '#34d399';
+      if (speed < 8) return '#fbbf24';
+      return '#fb7185';
+    }
+
+    function drawEntities(root, layout, frame, scale, pad) {
+      const probes = layout.probes || [];
+      const states = frame.entities || {};
+      probes.forEach(p => {
+        const state = states[p.id] || { windXMps: 0, windYMps: 0, forceN: 0, dynamicPressurePa: 0 };
+        const speed = Math.hypot(state.windXMps, state.windYMps);
+        const px = p.x * scale + pad;
+        const py = p.y * scale + pad;
+        const color = probeWindColor(speed);
+        const group = svgElement('g', {});
+        group.append(svgElement('circle', { cx: px, cy: py, r: 4, fill: color, stroke: '#020617', 'stroke-width': 1 }));
+        if (speed > 0.05) {
+          const ux = state.windXMps / speed;
+          const uy = state.windYMps / speed;
+          const len = Math.min(90, 8 + speed * 4);
+          const tipX = px + ux * len;
+          const tipY = py + uy * len;
+          const arrow = svgElement('line', { x1: px, y1: py, x2: tipX, y2: tipY, stroke: color, 'stroke-width': 3, 'stroke-linecap': 'round', 'aria-label': p.id + ' wind ' + speed.toFixed(1) + ' m/s' });
+          arrow.append(svgElement('title', {}, p.id + ' · ' + speed.toFixed(1) + ' m/s · ' + state.forceN.toFixed(1) + ' N · ' + state.dynamicPressurePa.toFixed(1) + ' Pa'));
+          group.append(arrow);
+          group.append(svgElement('circle', { cx: tipX, cy: tipY, r: 2.5, fill: color }));
+        }
+        group.append(svgElement('text', { x: px + 7, y: py - 7, 'font-family': 'monospace', 'font-size': 10, fill: '#e2e8f0' }, p.id));
+        root.append(group);
+      });
+    }
+
+    function renderProbeMetrics(frame) {
+      const states = Object.values(frame.entities || {});
+      const cards = states.map(state => {
+        const speed = Math.hypot(state.windXMps, state.windYMps);
+        const card = metricCard(state.id + ' @ ' + state.roomId, [
+          ['Wind:', speed.toFixed(1) + ' m/s'],
+          ['Wind X/Y:', state.windXMps.toFixed(1) + ' / ' + state.windYMps.toFixed(1)],
+          ['Drag force:', state.forceN.toFixed(1) + ' N'],
+          ['Dyn pressure:', state.dynamicPressurePa.toFixed(1) + ' Pa'],
+        ]);
+        card.style.borderLeft = '3px solid ' + probeWindColor(speed);
+        return card;
+      });
+      probeMetrics.replaceChildren(...(cards.length ? cards : [element('p', 'hint', 'No probe entities in this recording.')]));
+    }
+
     function renderPortalMetrics(frame) {
       const cards = Object.values(frame.portals).map(state => {
         const setting = portalSetting(state);
@@ -439,6 +493,7 @@ export default class AtmosphereHtmlReporter implements Reporter {
         canvas.replaceChildren();
         roomMetrics.replaceChildren();
         portalMetrics.replaceChildren();
+        probeMetrics.replaceChildren();
         eventLog.replaceChildren(element('li', 'hint', 'No recorded frames.'));
         timeLabel.textContent = 'No recorded frames';
         return;
@@ -452,8 +507,10 @@ export default class AtmosphereHtmlReporter implements Reporter {
       drawGrid(root, bounds);
       drawRooms(root, sim.layout, frame, scale, pad);
       drawPortals(root, sim.layout, frame, scale, pad);
+      drawEntities(root, sim.layout, frame, scale, pad);
       canvas.replaceChildren(root);
       renderPortalMetrics(frame);
+      renderProbeMetrics(frame);
       renderEvents(sim, frame);
     }
 

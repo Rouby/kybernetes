@@ -1,4 +1,10 @@
-import { type AtmosphereSimulation, GasType, type Portal, type Room } from '../src';
+import {
+  type AtmosphereSimulation,
+  type DragResult,
+  GasType,
+  type Portal,
+  type Room,
+} from '../src';
 
 export interface RoomRect {
   roomId: string;
@@ -17,10 +23,29 @@ export interface PortalPosition {
   orientation: 'horizontal' | 'vertical';
 }
 
+export interface ProbeAnchor {
+  id: string;
+  roomId: string;
+  x: number;
+  y: number;
+}
+
+export interface ProbeFrameState {
+  id: string;
+  roomId: string;
+  x: number;
+  y: number;
+  windXMps: number;
+  windYMps: number;
+  forceN: number;
+  dynamicPressurePa: number;
+}
+
 export interface FloorplanLayout {
   scale?: number;
   rooms: RoomRect[];
   portals: PortalPosition[];
+  probes: ProbeAnchor[];
 }
 
 export interface RoomFrameState {
@@ -52,6 +77,7 @@ export interface SimulationFrame {
   time: number;
   rooms: Record<string, RoomFrameState>;
   portals: Record<string, PortalFrameState>;
+  entities: Record<string, ProbeFrameState>;
 }
 
 export interface AtmosphereRecording {
@@ -144,11 +170,26 @@ function resolveEvents(
     .sort((a, b) => a.event.atSeconds - b.event.atSeconds);
 }
 
+function probeFrame(id: string, anchor: ProbeAnchor, latest: DragResult | null): ProbeFrameState {
+  return {
+    id,
+    roomId: anchor.roomId,
+    x: anchor.x,
+    y: anchor.y,
+    windXMps: latest ? latest.windVelocity.x : 0,
+    windYMps: latest ? latest.windVelocity.y : 0,
+    forceN: latest ? Math.hypot(latest.force.x, latest.force.y) : 0,
+    dynamicPressurePa: latest ? latest.dynamicPressure : 0,
+  };
+}
+
 export class SimulationRecorder {
   private readonly frames: SimulationFrame[] = [];
   private readonly events: ScheduledPortalEvent[] = [];
   private currentTime = 0;
   private readonly layout: FloorplanLayout;
+  private readonly probeAnchors = new Map<string, ProbeAnchor>();
+  private readonly probeLatest = new Map<string, DragResult | null>();
 
   constructor(private readonly sim: AtmosphereSimulation) {
     this.layout = {
@@ -160,7 +201,43 @@ export class SimulationRecorder {
         length: config.length,
       })),
       portals: sim.portals.map(portalPosition),
+      probes: [],
     };
+  }
+
+  refreshLayout(): void {
+    this.layout.rooms = [...this.sim.rooms.values()].map(({ id, config }) => ({
+      roomId: id,
+      x: config.x,
+      y: config.y,
+      width: config.width,
+      length: config.length,
+    }));
+    this.layout.portals = this.sim.portals.map(portalPosition);
+  }
+
+  addProbe(
+    id: string,
+    roomId: string,
+    x: number,
+    y: number,
+    opts: { projectedAreaM2?: number; dragCoefficient?: number } = {}
+  ): boolean {
+    const room = this.sim.rooms.get(roomId);
+    if (!room || this.probeAnchors.has(id)) return false;
+    this.probeAnchors.set(id, { id, roomId, x, y });
+    this.probeLatest.set(id, null);
+    this.layout.probes.push({ id, roomId, x, y });
+    this.sim.addEntity({
+      room,
+      position: { x, y },
+      projectedArea: opts.projectedAreaM2 ?? 0.6,
+      dragCoefficient: opts.dragCoefficient ?? 1.1,
+      applyDrag: (dragResult) => {
+        this.probeLatest.set(id, dragResult);
+      },
+    });
+    return true;
   }
 
   private captureFrame(): void {
@@ -171,6 +248,12 @@ export class SimulationRecorder {
       ),
       portals: Object.fromEntries(
         this.sim.portals.map((portal) => [portal.id, portalFrame(portal)])
+      ),
+      entities: Object.fromEntries(
+        [...this.probeAnchors.values()].map((anchor) => [
+          anchor.id,
+          probeFrame(anchor.id, anchor, this.probeLatest.get(anchor.id) ?? null),
+        ])
       ),
     };
     // Continuing a recording replaces the boundary frame rather than adding another t=0.
