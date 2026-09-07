@@ -22,6 +22,8 @@ export * from './systems/navalCombat';
 export * from './systems/projectiles';
 export * from './systems/reactor';
 export * from './world/airAuthority';
+export * from './world/content/HesperiaV2.hull';
+export * from './world/content/StationHub.hull';
 export * from './world/doors';
 export * from './world/frames';
 export * from './world/hullCompiler';

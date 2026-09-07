@@ -22,6 +22,7 @@ export interface WindProbe {
 }
 
 export function portalEffectiveArea(portal: PortalEdge): number {
+  if (portal.kind === 'window') return 0;
   if (portal.state === 'sealed') return 0;
   if (portal.state === 'closed') return 0;
   if (portal.state === 'destroyed') return Math.max(portal.areaM2, 1.2);

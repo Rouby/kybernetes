@@ -17,10 +17,10 @@ export const HesperiaV2Spec: HullSpec = {
     { id: 'life_support', rect: { x: 420, y: 200, w: 120, h: 120 }, volumeM3: 90 },
     { id: 'berthing', rect: { x: 560, y: 200, w: 160, h: 120 }, volumeM3: 120 },
     { id: 'mess', rect: { x: 740, y: 200, w: 140, h: 120 }, volumeM3: 105 },
-    { id: 'corridor', rect: { x: 100, y: 340, w: 780, h: 60 }, volumeM3: 140 },
-    { id: 'armory', rect: { x: 100, y: 420, w: 140, h: 100 }, volumeM3: 84 },
-    { id: 'cargo', rect: { x: 260, y: 420, w: 280, h: 100 }, volumeM3: 280 },
-    { id: 'engineering', rect: { x: 560, y: 420, w: 320, h: 100 }, volumeM3: 320 },
+    { id: 'corridor', rect: { x: 100, y: 320, w: 780, h: 80 }, volumeM3: 140 },
+    { id: 'armory', rect: { x: 100, y: 400, w: 140, h: 100 }, volumeM3: 84 },
+    { id: 'cargo', rect: { x: 260, y: 400, w: 280, h: 100 }, volumeM3: 280 },
+    { id: 'engineering', rect: { x: 560, y: 400, w: 320, h: 100 }, volumeM3: 320 },
   ],
   portals: [
     {
@@ -68,7 +68,7 @@ export const HesperiaV2Spec: HullSpec = {
       roomA: 'armory',
       roomB: 'corridor',
       kind: 'door',
-      segment: { x1: 150, y1: 420, x2: 190, y2: 420 },
+      segment: { x1: 150, y1: 400, x2: 190, y2: 400 },
       areaM2: 2,
     },
     {
@@ -76,7 +76,7 @@ export const HesperiaV2Spec: HullSpec = {
       roomA: 'cargo',
       roomB: 'corridor',
       kind: 'door',
-      segment: { x1: 380, y1: 420, x2: 420, y2: 420 },
+      segment: { x1: 380, y1: 400, x2: 420, y2: 400 },
       areaM2: 2.4,
     },
     {
@@ -84,7 +84,7 @@ export const HesperiaV2Spec: HullSpec = {
       roomA: 'engineering',
       roomB: 'corridor',
       kind: 'door',
-      segment: { x1: 700, y1: 420, x2: 740, y2: 420 },
+      segment: { x1: 700, y1: 400, x2: 740, y2: 400 },
       areaM2: 2.4,
     },
     {

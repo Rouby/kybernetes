@@ -15,6 +15,7 @@ export type DoorToggleResult =
     };
 
 export function isPortalConnecting(portal: PortalEdge): boolean {
+  if (portal.kind === 'window') return false;
   if (portal.state === 'open') return true;
   if (portal.state === 'destroyed' && portal.kind === 'hole') return true;
   if (portal.kind === 'open') return true;

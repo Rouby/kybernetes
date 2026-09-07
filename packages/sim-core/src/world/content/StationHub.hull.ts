@@ -36,7 +36,7 @@ export const StationHubSpec: HullSpec = {
       id: 'lobby_window',
       roomA: 'lobby',
       roomB: 'space',
-      kind: 'open',
+      kind: 'window',
       segment: { x1: 100, y1: 0, x2: 500, y2: 0 },
       areaM2: 0,
       window: true,

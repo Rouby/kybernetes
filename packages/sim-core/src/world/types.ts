@@ -4,7 +4,7 @@
  * Portal graph is the law: rooms are nodes, portals are edges.
  */
 
-export type PortalKind = 'door' | 'hole' | 'open' | 'airlock';
+export type PortalKind = 'door' | 'hole' | 'open' | 'airlock' | 'window';
 
 export type PortalState = 'open' | 'closed' | 'destroyed' | 'sealed';
 
