@@ -45,7 +45,6 @@ export interface TelemetryDeltaBroadcast {
   activeFires: string[];
   boarding?: BoardingTacticsTelemetry;
   roomAtmospheres?: Record<string, RoomAtmosphereSummary>;
-  atmosDirtyCells?: Array<{ x: number; y: number; flags: number }>;
 }
 
 export interface VitalsDeltaBroadcast {

@@ -13,8 +13,88 @@ import { segmentsIntersect } from '../spatial/collision';
 import type { DockFrameOffset } from '../spatial/deck';
 import { createInitialDoors, toggleDoor } from '../spatial/doors';
 import { findWaypointPath } from '../spatial/navigation';
-import { applySuctionToPosition, createInitialRoomO2, tickAirVenting } from './airVenting';
+import { type AirSuction, applySuctionToPosition } from '../spatial/shipAtmosphere';
 import { createProjectile, tickProjectiles } from './projectiles';
+
+export function createInitialRoomO2(): Record<string, number> {
+  return {
+    bridge: 100,
+    avionics: 100,
+    life_support: 100,
+    quarters: 100,
+    mess: 100,
+    airlock_stbd: 100,
+    corridor: 100,
+    armory: 100,
+    airlock_port: 100,
+    cargo: 100,
+    engineering: 100,
+  };
+}
+
+export interface BoardingAirSnapshot {
+  ventedRooms: string[];
+  roomO2: Record<string, number>;
+  activeSuctions: AirSuction[];
+}
+
+function fallbackVentedRooms(doors: DoorState[], seeds: string[]): string[] {
+  const vented = new Set<string>();
+  for (const d of doors) {
+    if ((d.isAirlock || d.roomA === 'vacuum' || d.roomB === 'vacuum') && d.isOpen) {
+      if (d.roomA !== 'vacuum') vented.add(d.roomA);
+      if (d.roomB !== 'vacuum') vented.add(d.roomB);
+    }
+  }
+  for (const s of seeds) vented.add(s);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const door of doors) {
+      if (!door.isOpen || door.isAirlock) continue;
+      if (vented.has(door.roomA) && !vented.has(door.roomB)) {
+        vented.add(door.roomB);
+        changed = true;
+      } else if (vented.has(door.roomB) && !vented.has(door.roomA)) {
+        vented.add(door.roomA);
+        changed = true;
+      }
+    }
+  }
+  return Array.from(vented);
+}
+
+function fallbackTickRoomO2(
+  currentO2: Record<string, number>,
+  ventedRooms: string[],
+  dtSeconds: number
+): Record<string, number> {
+  const nextO2 = { ...currentO2 };
+  for (const roomId of Object.keys(nextO2)) {
+    if (ventedRooms.includes(roomId)) {
+      const remaining = nextO2[roomId] - 140 * dtSeconds;
+      nextO2[roomId] = remaining < 2.0 ? 0 : Number(remaining.toFixed(1));
+    } else {
+      nextO2[roomId] = Math.min(100, Number((nextO2[roomId] + 5 * dtSeconds).toFixed(1)));
+    }
+  }
+  return nextO2;
+}
+
+function fallbackSuctions(doors: DoorState[]): AirSuction[] {
+  const out: AirSuction[] = [];
+  for (const d of doors) {
+    if ((d.isAirlock || d.roomA === 'vacuum' || d.roomB === 'vacuum') && d.isOpen) {
+      out.push({
+        roomId: d.roomA !== 'vacuum' ? d.roomA : d.roomB,
+        targetX: (d.x1 + d.x2) / 2,
+        targetY: (d.y1 + d.y2) / 2,
+        strength: 90,
+      });
+    }
+  }
+  return out;
+}
 
 export function createInitialBoardingState(): BoardingTacticsTelemetry {
   return {
@@ -175,7 +255,7 @@ function updateSingleIntruderAI(
   intruder: IntruderState,
   state: BoardingTacticsTelemetry,
   roomO2: Record<string, number>,
-  ventingRes: ReturnType<typeof tickAirVenting>,
+  ventingRes: BoardingAirSnapshot,
   nextSentries: SentryGunState[],
   doors: DoorState[],
   playerPos: { x: number; y: number },
@@ -331,15 +411,25 @@ export function tickBoardingCombat(
   dtSeconds: number,
   playerPos: { x: number; y: number } = { x: 100, y: 100 },
   offset: DockFrameOffset = { x: 0, y: 0 },
-  shipVelocity?: { vx: number; vy: number }
+  shipVelocity?: { vx: number; vy: number },
+  airSnapshot?: BoardingAirSnapshot
 ): BoardingCombatTickResult {
   let sabotageDetonated = false;
   let hullDamageInflicted = 0;
 
-  // 1. Tick Air Venting & Suction Physics
+  // 1. Air snapshot: authoritative sim data when provided by state.ts,
+  // fallback door-based vent model for direct unit-test usage.
   const doors = state.doors || createInitialDoors();
-  const ventingRes = tickAirVenting(state.roomO2 || createInitialRoomO2(), doors, dtSeconds);
-  const roomO2 = ventingRes.nextRoomO2;
+  let ventingRes: BoardingAirSnapshot;
+  let roomO2: Record<string, number>;
+  if (airSnapshot) {
+    ventingRes = airSnapshot;
+    roomO2 = airSnapshot.roomO2;
+  } else {
+    const ventedRooms = fallbackVentedRooms(doors, state.ventedRooms || []);
+    roomO2 = fallbackTickRoomO2(state.roomO2 || createInitialRoomO2(), ventedRooms, dtSeconds);
+    ventingRes = { ventedRooms, roomO2, activeSuctions: fallbackSuctions(doors) };
+  }
 
   // 2. Process Sentry Targeting & Firing
   const nextSentries = state.sentries.map((sentry) => {

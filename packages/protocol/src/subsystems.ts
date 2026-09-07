@@ -63,6 +63,9 @@ export interface RoomAtmosphereSummary {
   isRepressurizing?: boolean;
   activeFires: number;
   activeBreaches: number;
+  /** Authoritative room-center wind from the air solver, px/s in ship-local space. */
+  windX?: number;
+  windY?: number;
 }
 
 export type AtmosOverlayMode = 'off' | 'o2' | 'temp' | 'pressure';

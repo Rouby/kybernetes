@@ -1,6 +1,7 @@
 import type {
   BoardingTacticsTelemetry,
   DefenseTelemetry,
+  DoorState,
   HullTelemetry,
   LifeSupportTelemetry,
   MacroCrewSupplies,
@@ -10,14 +11,16 @@ import type {
   ShieldTelemetry,
   TelemetryDeltaBroadcast,
 } from '@kybernetes/protocol';
-import {
-  type CellularAtmosGrid,
-  createInitialAtmosGrid,
-  summarizeRoomAtmospheres,
-  tickCellularAtmos,
-} from './spatial/atmosGrid';
 import type { DockFrameOffset } from './spatial/deck';
 import { createInitialDoors } from './spatial/doors';
+import {
+  type AirSuction,
+  createInitialHulls,
+  roomO2HealthMap,
+  type ShipAirState,
+  summarizeShipAir,
+  tickShipAir,
+} from './spatial/shipAtmosphere';
 import { createInitialBoardingState, tickBoardingCombat } from './systems/boardingCombat';
 import { createInitialHull, createInitialShields, tickShields } from './systems/hull';
 import {
@@ -46,7 +49,7 @@ export interface VesselSimulationState {
   activeEvents: NavalDamageEvent[];
   activeFires: string[];
   boarding: BoardingTacticsTelemetry;
-  atmos: CellularAtmosGrid;
+  hulls: Record<string, ShipAirState>;
   roomAtmospheres?: Record<string, RoomAtmosphereSummary>;
 }
 
@@ -57,8 +60,8 @@ export function createInitialVesselState(): VesselSimulationState {
   const shields = createInitialShields();
   const defense = createInitialDefense();
   const boarding = createInitialBoardingState();
-  const atmos = createInitialAtmosGrid();
-  const roomAtmospheres = summarizeRoomAtmospheres(atmos);
+  const hulls = createInitialHulls(boarding.doors);
+  const roomAtmospheres = summarizeAllHulls(hulls, boarding.doors, []);
 
   return {
     shipName: 'CSS Hesperia',
@@ -86,9 +89,21 @@ export function createInitialVesselState(): VesselSimulationState {
     activeEvents: [],
     activeFires: [],
     boarding,
-    atmos,
+    hulls,
     roomAtmospheres,
   };
+}
+
+function summarizeAllHulls(
+  hulls: Record<string, ShipAirState>,
+  doors: DoorState[],
+  breaches: string[]
+): Record<string, RoomAtmosphereSummary> {
+  const merged: Record<string, RoomAtmosphereSummary> = {};
+  for (const air of Object.values(hulls)) {
+    Object.assign(merged, summarizeShipAir(air, doors, breaches));
+  }
+  return merged;
 }
 
 function processEventsTick(
@@ -166,7 +181,47 @@ export function tickVesselState(
   activeFires = eventRes.activeFires;
 
   let boarding = state.boarding || createInitialBoardingState();
-  const boardingRes = tickBoardingCombat(boarding, dtSeconds, undefined, offset, shipVelocity);
+  const doors = boarding.doors || createInitialDoors();
+
+  // Authoritative air tick: every hull simulates independently from hull-local
+  // doors, breaches, and fires. Breach/puncture portals are ordinary portals.
+  const hulls = state.hulls ?? createInitialHulls(doors);
+  const roomAtmospheres: Record<string, RoomAtmosphereSummary> = {};
+  const ventedRooms: string[] = [];
+  const roomO2: Record<string, number> = {};
+  const suctions: AirSuction[] = [];
+  let ecsDrain = 0;
+  let remainingFires: string[] = [];
+  for (const air of Object.values(hulls)) {
+    const res = tickShipAir(
+      air,
+      doors,
+      hull.breaches,
+      activeFires,
+      dtSeconds,
+      boarding.partitionHoles
+    );
+    Object.assign(roomAtmospheres, res.summaries);
+    ventedRooms.push(...res.ventedRooms);
+    Object.assign(roomO2, roomO2HealthMap(air));
+    suctions.push(...res.suctions);
+    ecsDrain = Number((ecsDrain + res.ecsDrainPercent).toFixed(4));
+    remainingFires = Array.from(new Set([...remainingFires, ...res.survivingFires]));
+  }
+  if (ecsDrain > 0) {
+    const nextO2 = Math.max(0, Number((lifeSupport.o2LevelPercent - ecsDrain).toFixed(2)));
+    lifeSupport = {
+      ...lifeSupport,
+      o2LevelPercent: nextO2,
+      status: calculateLifeSupportStatus(nextO2),
+    };
+  }
+
+  const boardingRes = tickBoardingCombat(boarding, dtSeconds, undefined, offset, shipVelocity, {
+    ventedRooms,
+    roomO2,
+    activeSuctions: suctions,
+  });
   boarding = boardingRes.nextState;
 
   if (boardingRes.sabotageDetonated || boardingRes.hullDamageInflicted > 0) {
@@ -185,35 +240,6 @@ export function tickVesselState(
       breaches: Array.from(new Set([...hull.breaches, ...boardingRes.newBreaches])),
     };
   }
-
-  // Cellular atmospheric tick
-  const doors = boarding.doors || createInitialDoors();
-  const atmos = tickCellularAtmos(
-    state.atmos || createInitialAtmosGrid(),
-    doors,
-    hull.breaches,
-    activeFires,
-    dtSeconds,
-    boarding.partitionHoles
-  );
-  if (atmos.ecsDrainPercent && atmos.ecsDrainPercent > 0) {
-    const nextO2 = Math.max(
-      0,
-      Number((lifeSupport.o2LevelPercent - atmos.ecsDrainPercent).toFixed(2))
-    );
-    lifeSupport = {
-      ...lifeSupport,
-      o2LevelPercent: nextO2,
-      status: calculateLifeSupportStatus(nextO2),
-    };
-  }
-  const roomAtmospheres = summarizeRoomAtmospheres(atmos, doors, hull.breaches);
-
-  // Filter extinguished fires (if cellular fire starved or smothered)
-  const remainingFires = activeFires.filter((fRoom) => {
-    const summary = roomAtmospheres[fRoom];
-    return summary && summary.activeFires > 0;
-  });
 
   // Closed loop macro supplies decay/morale
   const supplies = { ...state.supplies };
@@ -248,7 +274,7 @@ export function tickVesselState(
     activeEvents: eventRes.nextEvents,
     activeFires: remainingFires,
     boarding,
-    atmos,
+    hulls,
     roomAtmospheres,
   };
 }

@@ -16,6 +16,7 @@ import {
   createInitialPlayerVitals,
   createInitialVesselState,
   type DockFrameOffset,
+  doorsForHull,
   GameLoop,
   generateShiftChecklist,
   getBreachLocation,
@@ -30,6 +31,7 @@ import {
   repairHullPlating,
   resolveAtmosphereAt,
   resolveFramedMovement,
+  routeHullForWorld,
   STATION_BAY_SPAWN,
   sampleAirflowVelocityAt,
   stateToTelemetryBroadcast,
@@ -373,13 +375,23 @@ export class VesselServer {
 
   // fallow-ignore-next-line complexity
   private tickClientVitalsAndAtmosphere(session: VesselSession, dtSeconds: number): void {
-    const atmos = session.vesselState.atmos;
+    const hulls = session.vesselState.hulls;
     const offset = getShipDockingOffset(session.intro);
+    const doors = session.vesselState.boarding?.doors || [];
     for (const client of session.clients.values()) {
-      const cellAtmos = resolveAtmosphereAt(atmos, client.pawn.x, client.pawn.y, offset);
+      const cellAtmos = resolveAtmosphereAt(hulls, client.pawn.x, client.pawn.y, offset);
+      const routed = routeHullForWorld(hulls, client.pawn.x, client.pawn.y, offset);
       const aboard = isAboardShip(client.pawn.x, client.pawn.y, offset);
       const local = aboard ? toShipLocal(client.pawn.x, client.pawn.y, offset) : client.pawn;
-      const wind = aboard ? sampleAirflowVelocityAt(atmos, local.x, local.y) : { vx: 0, vy: 0 };
+      const wind =
+        routed && aboard
+          ? sampleAirflowVelocityAt(
+              routed.air,
+              routed.hullId === 'hesperia' ? local.x : client.pawn.x,
+              routed.hullId === 'hesperia' ? local.y : client.pawn.y,
+              doorsForHull(doors, routed.hullId)
+            )
+          : { vx: 0, vy: 0 };
       if (!client.pawn.isOperating && Math.hypot(wind.vx, wind.vy) > 20) {
         const targetX = client.pawn.x + wind.vx * dtSeconds * 0.5;
         const targetY = client.pawn.y + wind.vy * dtSeconds * 0.5;

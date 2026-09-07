@@ -34,7 +34,7 @@ void main() {
 }
 `;
 
-export const ATMOS_CELL_VS = `#version 300 es
+export const ATMOS_ROOM_VS = `#version 300 es
 precision highp float;
 in vec2 a_position;
 in vec4 a_color;
@@ -47,7 +47,7 @@ void main() {
 }
 `;
 
-export const ATMOS_CELL_FS = `#version 300 es
+export const ATMOS_ROOM_FS = `#version 300 es
 precision highp float;
 in vec4 v_color;
 out vec4 fragColor;

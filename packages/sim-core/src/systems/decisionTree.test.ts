@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { resolvePawnMovement } from '../spatial/collision';
 import { createInitialDoors, toggleDoor } from '../spatial/doors';
 import { findWaypointPath } from '../spatial/navigation';
-import { applySuctionToPosition, createInitialRoomO2, tickAirVenting } from './airVenting';
+import {
+  applySuctionToPosition,
+  createVesselAir,
+  suctionsFrom,
+  tickShipAir,
+} from '../spatial/shipAtmosphere';
 import {
   createInitialBoardingState,
   spawnBoardingEvent,
@@ -24,26 +29,29 @@ describe('Milestone 4 Overhaul: DecisionTreeAI, Realistic Venting & Gun Combat',
     expect(ids).toContain('eng_center');
   });
 
-  it('depletes O2 and equalizes across open interior doors when exterior airlock is opened', () => {
+  it('depletes pressure and equalizes across open interior doors when exterior airlock is opened', () => {
     const doors = createInitialDoors();
-    const initialO2 = createInitialRoomO2();
+    const air = createVesselAir(doors);
 
     // Open Engineering Emergency Purge Vent
     const openDoors = toggleDoor(doors, 'airlock_eng', true);
-    const result1 = tickAirVenting(initialO2, openDoors, 1.0);
+    let res = tickShipAir(air, openDoors, [], [], 0.1);
+    for (let i = 0; i < 30; i++) res = tickShipAir(air, openDoors, [], [], 0.1);
 
-    expect(result1.ventedRooms).toContain('engineering');
-    expect(result1.nextRoomO2.engineering).toBeLessThan(100);
+    expect(res.ventedRooms).toContain('engineering');
+    expect(res.summaries.engineering.pressureKpa).toBeLessThan(101.3);
 
     // Because Engineering door to corridor is also open, corridor also equalizes and vents!
-    expect(result1.ventedRooms).toContain('corridor');
-    expect(result1.nextRoomO2.corridor).toBeLessThan(100);
+    expect(res.ventedRooms).toContain('corridor');
+    expect(res.summaries.corridor.pressureKpa).toBeLessThan(101.3);
   });
 
   it('applies physical suction force pulling coordinates toward open airlock', () => {
     const doors = createInitialDoors();
+    const air = createVesselAir(doors);
     const openDoors = toggleDoor(doors, 'airlock_eng', true);
-    const ventingRes = tickAirVenting(createInitialRoomO2(), openDoors, 0.1);
+    for (let i = 0; i < 5; i++) tickShipAir(air, openDoors, [], [], 0.1);
+    const ventingRes = { activeSuctions: suctionsFrom(air, openDoors) };
 
     // Initial position inside engineering
     const initialX = 890;

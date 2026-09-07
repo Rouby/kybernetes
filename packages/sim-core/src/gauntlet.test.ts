@@ -1,7 +1,6 @@
 import type { WallSegment } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
 import { createInitialIntroState, getShipDockingOffset, tickIntroState } from './intro';
-import { createInitialAtmosGrid, resolveAtmosphereAt } from './spatial/atmosGrid';
 import { resolvePawnMovement, resolveWallCollision } from './spatial/collision';
 import {
   applyShipOffsetToWalls,
@@ -21,6 +20,7 @@ import {
   resolveFramedMovement,
   toggleDoor,
 } from './spatial/doors';
+import { createInitialHulls, resolveAtmosphereAt } from './spatial/shipAtmosphere';
 import {
   computeVisibilityPolygon,
   getOpaqueWallSegments,
@@ -126,16 +126,16 @@ describe('docking gauntlet', () => {
     expect(isAboardShip(600, 500, { x: 0, y: 0 })).toBe(true);
     expect(isAboardShip(600, 875, { x: 0, y: 0 })).toBe(false);
 
-    const grid = createInitialAtmosGrid();
-    const shipAtmos = resolveAtmosphereAt(grid, 600, 500, { x: 0, y: 0 });
+    const hulls = createInitialHulls();
+    const shipAtmos = resolveAtmosphereAt(hulls, 600, 500, { x: 0, y: 0 });
     expect(shipAtmos.pressureKpa).toBe(101.3);
     expect(shipAtmos.roomId).toBe('cargo');
 
-    const stationAtmos = resolveAtmosphereAt(grid, 500, 700, { x: 0, y: 0 });
+    const stationAtmos = resolveAtmosphereAt(hulls, 500, 700, { x: 0, y: 0 });
     expect(stationAtmos.pressureKpa).toBe(101.3);
     expect(stationAtmos.roomId).toBe('station_lobby');
 
-    const voidAtmos = resolveAtmosphereAt(grid, 600, 500, { x: -1400, y: 0 });
+    const voidAtmos = resolveAtmosphereAt(hulls, 600, 500, { x: -1400, y: 0 });
     expect(voidAtmos.pressureKpa).toBe(0);
     expect(voidAtmos.tempCelsius).toBe(-270.0);
     expect(voidAtmos.roomId).toBeNull();

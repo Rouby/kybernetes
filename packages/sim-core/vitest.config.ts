@@ -1,3 +1,4 @@
+import AtmosphereHtmlReporter from '@kybernetes/air-sim/test-recorder/atmosphere-reporter.ts';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -5,5 +6,6 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    reporters: ['default', new AtmosphereHtmlReporter()],
   },
 });

@@ -1,5 +1,6 @@
 import type { PlayerVitals } from '@kybernetes/protocol';
-import type { CellAtmosphere } from './spatial/atmosGrid';
+import type { CellAtmosphere } from './spatial/shipAtmosphere';
+import { STATION_AMBIENT_ATMOS } from './spatial/shipAtmosphere';
 
 export function createInitialPlayerVitals(): PlayerVitals {
   return {
@@ -151,30 +152,6 @@ function updateRespiration(
 
   return { suit, hypoxiaPercent: Number(hypoxia.toFixed(1)), envHealthDrain };
 }
-
-export const STATION_AMBIENT_ATMOS: CellAtmosphere = {
-  pressureKpa: 101.3,
-  o2Percent: 20.9,
-  co2Ppm: 400,
-  tempCelsius: 21.0,
-  toxicSmokePercent: 0,
-  velX: 0,
-  velY: 0,
-  roomId: 'station_lobby',
-  condensationPlume: 0,
-};
-
-export const SPACE_VACUUM_ATMOS: CellAtmosphere = {
-  pressureKpa: 0,
-  o2Percent: 0,
-  co2Ppm: 0,
-  tempCelsius: -270.0,
-  toxicSmokePercent: 0,
-  velX: 0,
-  velY: 0,
-  roomId: null,
-  condensationPlume: 0,
-};
 
 // fallow-ignore-next-line complexity
 export function updatePlayerVitals(
