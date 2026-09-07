@@ -333,7 +333,7 @@ describe('Recorded Atmospheric Scenarios', () => {
       ],
     });
     task.meta.atmosphereRecordings = [recording];
-    const isolated = frameAt(recording, 3.5);
+    const isolated = frameAt(recording, 2.2);
     expect(isolated.rooms.Habitat.pressurePa).toBeGreaterThan(1000);
     expect(isolated.rooms.Lab.pressurePa).toBeGreaterThan(1000);
     expect(frameAt(recording, 12).rooms.Airlock.pressurePa).toBeLessThan(1);

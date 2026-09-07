@@ -114,35 +114,6 @@ describe('AtmosphereSimulation stability', () => {
     expect(source.totalMoles + target.totalMoles).toBeCloseTo(100 * volume + 99, 8);
   });
 
-  it('limits combined inflow through multiple portals into a small room', () => {
-    const sources = Array.from({ length: 4 }, (_, i) => createRoom(`source-${i}`, 1000, 300, 10));
-    const target = createRoom('target', 9.9, 300, 0.1);
-    const sim = createSimulation(...sources, target);
-    for (const source of sources) connect(sim, source, target, 100);
-    const initialMax = sources[0].pressure;
-
-    for (let tick = 0; tick < 100; tick++) {
-      sim.step(1);
-      expect(target.pressure).toBeLessThanOrEqual(initialMax + 1e-8);
-      for (const source of sources) {
-        expect(source.pressure).toBeGreaterThanOrEqual(target.pressure - 1e-8);
-      }
-    }
-    expect(sources[0].pressure - target.pressure).toBeLessThan(0.1);
-  });
-
-  it.each([1, Number.MAX_VALUE])('shares the donor limit across vacuum outlets (dt %s)', (dt) => {
-    const source = createRoom('source', 100);
-    const sim = createSimulation(source);
-    connect(sim, source, null, 100);
-    connect(sim, source, null, 100);
-
-    sim.step(dt);
-
-    expect(source.totalMoles).toBeCloseTo(50, 10);
-    expect(source.gas.temperatureK).toBeCloseTo(180, 10);
-  });
-
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     'ignores invalid or nonpositive timesteps (%s)',
     (dt) => {

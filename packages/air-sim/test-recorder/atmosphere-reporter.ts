@@ -352,12 +352,13 @@ export default class AtmosphereHtmlReporter implements Reporter {
         group.append(svgElement('text', { x: rx + 8, y: ry + 20, 'font-family': 'monospace', 'font-size': 12, 'font-weight': 'bold', fill: '#fff' }, r.roomId));
         group.append(svgElement('text', { x: rx + 8, y: ry + 36, 'font-family': 'monospace', 'font-size': 11, fill: '#cbd5e1' }, (state.pressurePa / 1000).toFixed(1) + ' kPa'));
         group.append(svgElement('text', { x: rx + 8, y: ry + 52, 'font-family': 'monospace', 'font-size': 10, fill: '#38bdf8' }, 'O₂: ' + state.o2Pct.toFixed(0) + '%'));
+        group.append(svgElement('text', { x: rx + 8, y: ry + 68, 'font-family': 'monospace', 'font-size': 10, fill: '#e5f838ff' }, 'Temp: ' + (state.tempK - 273.15).toFixed(1) + ' C'));
         root.append(group);
         cards.append(metricCard(r.roomId, [
           ['Pressure:', (state.pressurePa / 1000).toFixed(1) + ' kPa'],
           ['Oxygen:', state.o2Pct.toFixed(1) + '%'],
           ['Moles:', state.totalMoles.toFixed(1) + ' mol'],
-          ['Temp:', state.tempK.toFixed(1) + ' K'],
+          ['Temp:', (state.tempK - 273.15).toFixed(1) + ' C'],
         ]));
       });
       roomMetrics.replaceChildren(cards);

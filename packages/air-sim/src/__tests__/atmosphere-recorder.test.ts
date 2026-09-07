@@ -17,7 +17,7 @@ function fixture(side: 'north' | 'south' | 'east' | 'west' = 'east') {
     roomA: room,
     roomB: null,
     width: 1,
-    height: 2,
+    height: 1,
     openRatio: 0,
     side,
     position: 0.5,
