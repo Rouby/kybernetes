@@ -126,7 +126,7 @@ function portalPosition(portal: Portal) {
   const horizontal = portal.side === 'north' || portal.side === 'south';
   const wallLength = horizontal ? width : depth;
   // Approximate a square aperture for drawing; never shrink a closed door to zero.
-  const length = Math.min(Math.sqrt(Math.max(0, portal.width)), wallLength);
+  const length = Math.min(Math.max(0, portal.width), wallLength);
   const offset = Math.max(
     0,
     Math.min(wallLength - length, wallLength * portal.position - length / 2)
@@ -376,6 +376,13 @@ export class AtmosphereSimulation {
 
         netWind.x += ux * localSpeed;
         netWind.y += uy * localSpeed;
+      } else {
+        // Entity is at portal location, distance = 0
+        const dirSign = isOutflow ? 1 : -1;
+        const ux = portal.side === 'east' ? 1 : portal.side === 'west' ? -1 : 0;
+        const uy = portal.side === 'south' ? 1 : portal.side === 'north' ? -1 : 0;
+        netWind.x += ux * localSpeed * dirSign;
+        netWind.y += uy * localSpeed * dirSign;
       }
     }
 
