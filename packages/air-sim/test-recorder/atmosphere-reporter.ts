@@ -391,7 +391,7 @@ export default class AtmosphereHtmlReporter implements Reporter {
         const card = metricCard(state.id, [
           ['Status:', setting.status],
           ['Opening:', (setting.ratio * 100).toFixed(1) + '%'],
-          ['Integrity:', ((state.structuralIntegrity ?? 1) * 100).toFixed(1) + '%'],
+          ['Velocity:', state.velocity.toFixed(1) + ' m/s'],
           ['Effective area:', state.effectiveArea.toFixed(3) + ' m²'],
           ['Maximum area:', state.maxArea.toFixed(3) + ' m²'],
           ['Pressure difference:', (state.pressureDifferencePa ?? state.flowMolS ?? 0).toFixed(1) + ' Pa'],

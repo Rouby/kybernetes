@@ -29,14 +29,15 @@ function addDoor(
   sim: AtmosphereSimulation,
   roomA: Room,
   roomB: Room | null,
-  options: Partial<Pick<PortalConfig, 'openRatio' | 'maxArea' | 'side'>> = {}
+  options: Partial<Pick<PortalConfig, 'openRatio' | 'width' | 'height' | 'side'>> = {}
 ) {
   const portal = new Portal({
     id: `${roomA.id}-${roomB?.id ?? 'Space'}`,
     type: PortalType.Door,
     roomA,
     roomB,
-    maxArea: 2,
+    width: 2,
+    height: 2,
     openRatio: 1,
     side: 'east',
     position: 0.5,
@@ -55,7 +56,7 @@ function recordScenario(
   }: { durationSeconds?: number; events?: ScheduledPortalEvent[] } = {}
 ) {
   const recorder = new SimulationRecorder(sim);
-  const dt = 0.05;
+  const dt = 0.01;
   recorder.runWithRecording(durationSeconds, dt, events);
   return recorder.getRecording(title, dt);
 }
@@ -112,7 +113,8 @@ describe('Recorded Atmospheric Scenarios', () => {
       type: PortalType.Door,
       roomA: bridge,
       roomB: corridor,
-      maxArea: 2.0,
+      width: 2.0,
+      height: 2.0,
       openRatio: 1.0,
       side: 'east',
       position: 0.5,
@@ -122,8 +124,9 @@ describe('Recorded Atmospheric Scenarios', () => {
       type: PortalType.Door,
       roomA: corridor,
       roomB: airlock,
-      maxArea: 2.0,
-      openRatio: 0.15, // Cracked seal
+      width: 2.0,
+      height: 2.0,
+      openRatio: 0.005, // Cracked seal
       side: 'east',
       position: 0.5,
     });
@@ -132,7 +135,8 @@ describe('Recorded Atmospheric Scenarios', () => {
       type: PortalType.Puncture,
       roomA: airlock,
       roomB: null, // Vent to space
-      maxArea: 0.25,
+      width: 0.5,
+      height: 0.5,
       openRatio: 1,
       side: 'east',
       position: 0.2,
@@ -234,9 +238,9 @@ describe('Recorded Atmospheric Scenarios', () => {
     const habitat = addCompartment(sim, 'Habitat', 0);
     const corridor = addCompartment(sim, 'Corridor', 4);
     const airlock = addCompartment(sim, 'Airlock', 8);
-    const habitatDoor = addDoor(sim, habitat, corridor, { openRatio: 0, maxArea: 0.35 });
-    const airlockDoor = addDoor(sim, corridor, airlock, { openRatio: 0, maxArea: 0.35 });
-    addDoor(sim, airlock, null, { maxArea: 1 });
+    const habitatDoor = addDoor(sim, habitat, corridor, { openRatio: 0, width: 0.35 });
+    const airlockDoor = addDoor(sim, corridor, airlock, { openRatio: 0, width: 0.35 });
+    addDoor(sim, airlock, null, { width: 1 });
 
     const recording = recordScenario(
       sim,
@@ -280,10 +284,10 @@ describe('Recorded Atmospheric Scenarios', () => {
     const corridor = addCompartment(sim, 'Corridor', 4);
     const airlock = addCompartment(sim, 'Airlock', 8);
     const lab = addCompartment(sim, 'Lab', 4, 3);
-    const habitatDoor = addDoor(sim, habitat, corridor, { maxArea: 0.35 });
-    addDoor(sim, corridor, airlock, { maxArea: 0.35 });
-    const labDoor = addDoor(sim, corridor, lab, { side: 'south', maxArea: 0.35 });
-    const outerDoor = addDoor(sim, airlock, null, { openRatio: 0, maxArea: 1 });
+    const habitatDoor = addDoor(sim, habitat, corridor, { width: 2 });
+    addDoor(sim, corridor, airlock, { width: 2 });
+    const labDoor = addDoor(sim, corridor, lab, { side: 'south', width: 2 });
+    const outerDoor = addDoor(sim, airlock, null, { openRatio: 0, width: 1 });
 
     const recording = recordScenario(sim, 'Bulkhead Isolation & Controlled Repressurization', {
       durationSeconds: 35,
@@ -295,32 +299,32 @@ describe('Recorded Atmospheric Scenarios', () => {
           label: 'Outer airlock opens to vacuum',
         },
         {
-          atSeconds: 3.5,
+          atSeconds: 2.2,
           portalId: habitatDoor.id,
           openRatio: 0,
           label: 'Emergency isolation: seal Habitat',
         },
         {
-          atSeconds: 3.5,
+          atSeconds: 2.2,
           portalId: labDoor.id,
           openRatio: 0,
           label: 'Emergency isolation: seal Lab',
         },
-        { atSeconds: 12, portalId: outerDoor.id, openRatio: 0, label: 'Seal the vacuum outlet' },
+        { atSeconds: 5, portalId: outerDoor.id, openRatio: 0, label: 'Seal the vacuum outlet' },
         {
-          atSeconds: 14,
+          atSeconds: 6,
           portalId: habitatDoor.id,
           openRatio: 0.15,
           label: 'Crack Habitat door to refill empty compartments',
         },
         {
-          atSeconds: 20,
+          atSeconds: 7,
           portalId: habitatDoor.id,
           openRatio: 1,
           label: 'Fully reopen Habitat door',
         },
         {
-          atSeconds: 22,
+          atSeconds: 8,
           portalId: labDoor.id,
           openRatio: 0.25,
           label: 'Crack Lab door for equalization',
@@ -411,21 +415,13 @@ describe('Recorded Atmospheric Scenarios', () => {
     addDoor(sim, cabin4, corridor1, { side: 'south' });
     addDoor(sim, cabin5, corridor1, { side: 'north' });
     addDoor(sim, airlock, corridor1, { side: 'north' });
-    const outdoor = addDoor(sim, airlock, null, { side: 'south', openRatio: 0, maxArea: 2 });
+    addDoor(sim, airlock, null, { side: 'south', openRatio: 1, width: 2 });
     addDoor(sim, cabin6, corridor1, { side: 'north' });
     addDoor(sim, cabin7, corridor1, { side: 'north' });
     addDoor(sim, cabin8, corridor1, { side: 'north' });
 
-    // A sealed 4:1 volume pair: the empty airlock fills while cabin pressure falls.
     const recording = recordScenario(sim, 'Big ship', {
-      events: [
-        {
-          atSeconds: 2,
-          portalId: outdoor.id,
-          openRatio: 1,
-          label: 'Airlock opens to vacuum',
-        },
-      ],
+      durationSeconds: 20,
     });
     task.meta.atmosphereRecordings = [recording];
   });

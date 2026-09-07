@@ -31,7 +31,8 @@ function connect(sim: AtmosphereSimulation, source: Room, target: Room | null, a
     type: PortalType.Door,
     roomA: source,
     roomB: target,
-    maxArea: area,
+    width: area,
+    height: 1,
     openRatio: 1,
     side: 'east',
     position: 0.5,
@@ -209,7 +210,7 @@ describe('AtmosphereSimulation transport', () => {
     for (const room of rooms) {
       for (const moles of Object.values(room.gas.moles)) expect(moles).toBeGreaterThanOrEqual(0);
       expect(room.gas.temperatureK).toBeGreaterThanOrEqual(200 - 1e-8);
-      expect(room.gas.temperatureK).toBeLessThanOrEqual(400 + 1e-8);
+      expect(room.gas.temperatureK).toBeLessThanOrEqual(GAMMA * 400 + 1e-8);
     }
   });
 

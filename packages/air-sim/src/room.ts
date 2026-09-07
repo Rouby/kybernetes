@@ -27,7 +27,7 @@ export class Room {
     this.volume = config.width * config.length * config.height;
     this.gas = initialGas ?? {
       moles: { [GasType.Oxygen]: 0, [GasType.Nitrogen]: 0, [GasType.CarbonDioxide]: 0 },
-      temperatureK: 293.15, // 20°C
+      temperatureK: 0,
     };
   }
 
@@ -38,6 +38,14 @@ export class Room {
   get pressure(): number {
     if (this.volume <= 0) return 0;
     return (this.totalMoles * R_GAS * this.gas.temperatureK) / this.volume;
+  }
+  predictPressure(addedMoles: number): number {
+    if (this.volume <= 0) return 0;
+    return ((this.totalMoles + addedMoles) * R_GAS * this.gas.temperatureK) / this.volume;
+  }
+  predictMoles(targetPressurePa: number): number {
+    if (this.volume <= 0) return 0;
+    return (targetPressurePa * this.volume) / (R_GAS * this.gas.temperatureK);
   }
 
   get averageMolarMass(): number {

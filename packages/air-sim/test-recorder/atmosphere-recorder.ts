@@ -36,7 +36,7 @@ export interface PortalFrameState {
   maxArea: number;
   effectiveArea: number;
   openRatio: number;
-  structuralIntegrity: number;
+  velocity: number;
   pressureDifferencePa: number;
 }
 
@@ -74,7 +74,7 @@ function portalPosition(portal: Portal): PortalPosition {
   const horizontal = portal.side === 'north' || portal.side === 'south';
   const wallLength = horizontal ? width : depth;
   // Approximate a square aperture for drawing; never shrink a closed door to zero.
-  const length = Math.min(Math.sqrt(Math.max(0, portal.maxArea)), wallLength);
+  const length = Math.min(Math.sqrt(Math.max(0, portal.width)), wallLength);
   const offset = Math.max(
     0,
     Math.min(wallLength - length, wallLength * portal.position - length / 2)
@@ -106,7 +106,7 @@ function portalFrame(portal: Portal): PortalFrameState {
     maxArea: portal.maxArea,
     effectiveArea: portal.effectiveArea,
     openRatio: portal.openRatio,
-    structuralIntegrity: portal.structuralIntegrity,
+    velocity: portal.velocity,
     pressureDifferencePa: Math.abs(portal.roomA.pressure - (portal.roomB?.pressure ?? 0)),
   };
 }

@@ -11,9 +11,9 @@ export interface PortalConfig {
   type: PortalType;
   roomA: Room;
   roomB: Room | null; // null = open space / vacuum
-  maxArea: number; // m^2
+  width: number;
+  height: number;
   openRatio?: number; // 0.0 (closed) to 1.0 (fully open)
-  structuralIntegrity?: number; // 0.0 (destroyed) to 1.0 (intact)
   side: 'north' | 'south' | 'east' | 'west';
   position: number; // 0.0 (leftmost) to 1.0 (rightmost)
 }
@@ -23,22 +23,30 @@ export class Portal {
   readonly type: PortalType;
   readonly roomA: Room;
   readonly roomB: Room | null;
+  readonly width: number;
   readonly maxArea: number;
+  readonly distance: number;
   openRatio: number;
-  structuralIntegrity: number;
   side: 'north' | 'south' | 'east' | 'west';
   position: number; // 0.0 (leftmost) to 1.0 (rightmost)
+  velocity = 0;
 
   constructor(config: PortalConfig) {
     this.id = config.id;
     this.type = config.type;
     this.roomA = config.roomA;
     this.roomB = config.roomB;
-    this.maxArea = config.maxArea;
+    this.width = config.width;
+    this.maxArea = config.width * config.height;
     this.openRatio = config.openRatio ?? (config.type === PortalType.Door ? 0 : 1);
-    this.structuralIntegrity = config.structuralIntegrity ?? 1.0;
     this.side = config.side;
     this.position = config.position;
+    this.distance = config.roomB
+      ? Math.sqrt(
+          (config.roomA.config.x - config.roomB?.config.x) ** 2 +
+            (config.roomA.config.y - config.roomB?.config.y) ** 2
+        )
+      : 10;
   }
 
   get dischargeCoefficient(): number {
@@ -54,7 +62,6 @@ export class Portal {
   }
 
   get effectiveArea(): number {
-    if (this.structuralIntegrity <= 0) return this.maxArea;
     return this.maxArea * Math.max(0, Math.min(1, this.openRatio));
   }
 }
