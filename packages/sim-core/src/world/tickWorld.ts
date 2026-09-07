@@ -1,9 +1,11 @@
 /**
  * tickWorld: the only tick. Small delegates, no god function.
  * M3: movement slice with server-side collision, frame-velocity carry,
- * room-hint tracking, and explored-memory. Air/survival/bots/combat/watch land in M4-M7.
+ * room-hint tracking, explored-memory, and air readings via the air authority.
+ * Survival/bots/combat/watch land in M5-M7.
  */
 
+import { type AirAuthorityState, refreshAtmos } from './airAuthority.js';
 import { advanceFrameOrigin } from './frames.js';
 import { unionRooms, visibleRooms } from './los.js';
 import {
@@ -24,12 +26,19 @@ export interface WorldInput {
   readonly sprint: boolean;
 }
 
-export function tickWorld(world: World, dtSeconds: number, inputs: readonly WorldInput[]): World {
+export function tickWorld(
+  world: World,
+  dtSeconds: number,
+  inputs: readonly WorldInput[],
+  air?: AirAuthorityState
+): World {
   const dt = normalizeDt(dtSeconds);
   if (dt === 0) return world;
   const moved = stepMovement(world, dt, inputs);
   const framed = stepFrames(moved, dt);
-  return { ...framed, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };
+  const ticked = { ...framed, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };
+  if (air === undefined) return ticked;
+  return { ...ticked, atmos: refreshAtmos(air, ticked, dt) };
 }
 
 function normalizeDt(dtSeconds: number): number {

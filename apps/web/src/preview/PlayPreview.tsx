@@ -6,13 +6,20 @@
  */
 
 import {
+  type AirAuthorityState,
+  addPuncture,
   assembleWorld,
+  bindAirFrame,
+  createAirAuthority,
   FIXED_DT,
   type HullSpec,
+  NOMINAL_PRESSURE_KPA,
   nearestPortal,
+  portalWind,
   spawnPawn,
   tickWorld,
   tryToggleDoor,
+  ventedRooms,
   visibleRooms,
   type World,
 } from '@kybernetes/sim-core';
@@ -29,6 +36,7 @@ const INTERACT_RADIUS = 90;
 export function PlayPreview({ specName }: { specName: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const worldRef = useRef<World | null>(null);
+  const airRef = useRef<AirAuthorityState | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
   const [stats, setStats] = useState('boot');
   const [notice, setNotice] = useState('');
@@ -36,7 +44,11 @@ export function PlayPreview({ specName }: { specName: string }) {
 
   useEffect(() => {
     if (entry === undefined) return;
-    worldRef.current = makePlayWorld(entry.spec);
+    const start = makePlayWorld(entry.spec);
+    worldRef.current = start;
+    const air = createAirAuthority();
+    bindAirFrame(air, FRAME_ID, Object.values(start.rooms), Object.values(start.portals));
+    airRef.current = air;
     const canvas = canvasRef.current;
     const ctx = canvas === null ? null : canvas.getContext('2d');
     const pressDoor = (): void => {
@@ -56,8 +68,18 @@ export function PlayPreview({ specName }: { specName: string }) {
       worldRef.current = { ...world, portals: { ...world.portals, [near.id]: result.portal } };
       setNotice(wantOpen ? 'door open' : 'door closed');
     };
+    const pressBreach = (): void => {
+      const world = worldRef.current;
+      const live = airRef.current;
+      if (world === null || live === null) return;
+      const pawn = world.pawns[HERO_ID];
+      if (pawn === undefined) return;
+      const id = addPuncture(live, FRAME_ID, pawn.roomHint, 1.5);
+      setNotice(id === undefined ? 'puncture failed' : `puncture ${shortId(pawn.roomHint)}`);
+    };
     const onDown = (event: KeyboardEvent): void => {
       if (event.key === 'e' || event.key === 'E') pressDoor();
+      else if (event.key === 'b' || event.key === 'B') pressBreach();
       else keysRef.current.add(event.key.toLowerCase());
     };
     const onUp = (event: KeyboardEvent): void => {
@@ -80,12 +102,12 @@ export function PlayPreview({ specName }: { specName: string }) {
             input === null
               ? []
               : [{ pawnId: HERO_ID, moveX: input.x, moveY: input.y, sprint: false }];
-          worldRef.current = tickWorld(world, FIXED_DT, intents);
+          worldRef.current = tickWorld(world, FIXED_DT, intents, airRef.current ?? undefined);
         }
         acc -= FIXED_DT;
       }
       const live = worldRef.current;
-      if (ctx !== null && live !== null) drawPlayWorld(ctx, live);
+      if (ctx !== null && live !== null) drawPlayWorld(ctx, live, airRef.current);
       statClock += FIXED_DT;
       if (statClock > 0.2 && live !== null) {
         statClock = 0;
@@ -177,14 +199,23 @@ function describeWorld(world: World): string {
     ? pawn.roomHint.slice(FRAME_ID.length + 1)
     : pawn.roomHint;
   const door = near === undefined ? 'none' : `${shortId(near.id)}:${near.state}`;
-  return `x:${Math.round(pawn.pos.x)} y:${Math.round(pawn.pos.y)} room:${room} explored:${explored} door:${door}`;
+  const view = world.atmos[pawn.roomHint];
+  const air =
+    view === undefined
+      ? 'p:? o2:? vent:0'
+      : `p:${view.pressureKpa.toFixed(1)} o2:${view.o2Percent.toFixed(1)} vent:${ventedRooms(world.atmos).length}`;
+  return `x:${Math.round(pawn.pos.x)} y:${Math.round(pawn.pos.y)} room:${room} explored:${explored} door:${door} ${air}`;
 }
 
 function shortId(id: string): string {
   return id.startsWith(`${FRAME_ID}.`) ? id.slice(FRAME_ID.length + 1) : id;
 }
 
-function drawPlayWorld(ctx: CanvasRenderingContext2D, world: World): void {
+function drawPlayWorld(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  air: AirAuthorityState | null
+): void {
   const rooms = Object.values(world.rooms).filter((room) => room.frameId === FRAME_ID);
   const walls = world.wallsByFrame[FRAME_ID] ?? [];
   const portals = Object.values(world.portals).filter((portal) =>
@@ -215,6 +246,18 @@ function drawPlayWorld(ctx: CanvasRenderingContext2D, world: World): void {
     const y = toY(room.rect.y);
     ctx.fillStyle = '#14161c';
     ctx.fillRect(x, y, toX(room.rect.x + room.rect.w) - x, toY(room.rect.y + room.rect.h) - y);
+    const view = world.atmos[room.id];
+    const deficit =
+      view === undefined
+        ? 0
+        : Math.min(
+            1,
+            Math.max(0, (NOMINAL_PRESSURE_KPA - view.pressureKpa) / NOMINAL_PRESSURE_KPA)
+          );
+    if (deficit > 0.02) {
+      ctx.fillStyle = `rgba(255, 60, 40, ${(deficit * 0.45).toFixed(2)})`;
+      ctx.fillRect(x, y, toX(room.rect.x + room.rect.w) - x, toY(room.rect.y + room.rect.h) - y);
+    }
     ctx.fillStyle = '#5b6b7f';
     ctx.fillText(shortId(room.id), x + 4, y + 14);
   }
@@ -238,6 +281,7 @@ function drawPlayWorld(ctx: CanvasRenderingContext2D, world: World): void {
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
+  drawWindArrows(ctx, air, portals, toX, toY);
   for (const room of rooms) {
     if (visible.has(room.id)) continue;
     const x = toX(room.rect.x);
@@ -245,11 +289,52 @@ function drawPlayWorld(ctx: CanvasRenderingContext2D, world: World): void {
     ctx.fillStyle = remembered.has(room.id) ? 'rgba(4, 6, 10, 0.55)' : 'rgba(2, 3, 6, 0.85)';
     ctx.fillRect(x, y, toX(room.rect.x + room.rect.w) - x, toY(room.rect.y + room.rect.h) - y);
   }
+  const vented = new Set(ventedRooms(world.atmos));
+  if (vented.size > 0) {
+    ctx.fillStyle = '#ff5040';
+    ctx.font = 'bold 12px monospace';
+    for (const room of rooms) {
+      if (vented.has(room.id)) ctx.fillText('VENT', toX(room.rect.x) + 4, toY(room.rect.y) + 28);
+    }
+  }
   const hero = world.pawns[HERO_ID];
   if (hero !== undefined) {
     ctx.fillStyle = hero.color;
     ctx.beginPath();
     ctx.arc(toX(hero.pos.x), toY(hero.pos.y), Math.max(hero.radius * scale, 4), 0, Math.PI * 2);
     ctx.fill();
+  }
+}
+
+function drawWindArrows(
+  ctx: CanvasRenderingContext2D,
+  air: AirAuthorityState | null,
+  portals: readonly { id: string; segment: { x1: number; y1: number; x2: number; y2: number } }[],
+  toX: (x: number) => number,
+  toY: (y: number) => number
+): void {
+  if (air === null) return;
+  ctx.strokeStyle = '#7df9ff';
+  ctx.lineWidth = 2;
+  for (const portal of portals) {
+    const wind = portalWind(air, FRAME_ID, portal.id);
+    if (wind === undefined) continue;
+    const speed = Math.hypot(wind.x, wind.y);
+    if (speed < 0.5) continue;
+    const mx = toX((portal.segment.x1 + portal.segment.x2) / 2);
+    const my = toY((portal.segment.y1 + portal.segment.y2) / 2);
+    const len = Math.min(speed * 2, 70);
+    const nx = wind.x / speed;
+    const ny = wind.y / speed;
+    const hx = mx + nx * len;
+    const hy = my + ny * len;
+    ctx.beginPath();
+    ctx.moveTo(mx, my);
+    ctx.lineTo(hx, hy);
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(hx - nx * 8 - ny * 4, hy - ny * 8 + nx * 4);
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(hx - nx * 8 + ny * 4, hy - ny * 8 - nx * 4);
+    ctx.stroke();
   }
 }

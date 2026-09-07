@@ -5,6 +5,7 @@
  */
 
 import type { WallSegment } from '@kybernetes/protocol';
+import type { AirRoomView } from './airAuthority.js';
 
 export type PortalKind = 'door' | 'hole' | 'open' | 'airlock' | 'window';
 
@@ -137,6 +138,8 @@ export interface World {
   readonly wallsByFrame: Readonly<Record<string, readonly WallSegment[]>>;
   /** Remembered fog-of-war: room ids ever visible per pawn id. */
   readonly memory: Readonly<Record<string, readonly string[]>>;
+  /** Latest air readings per namespaced room id; refreshed when the host steps air. */
+  readonly atmos: Readonly<Record<string, AirRoomView>>;
 }
 
 export const FIXED_DT = 1 / 20;
@@ -154,5 +157,6 @@ export function createEmptyWorld(timeMs = 0): World {
     projectiles: {},
     wallsByFrame: {},
     memory: {},
+    atmos: {},
   };
 }

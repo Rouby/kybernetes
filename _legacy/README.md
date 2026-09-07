@@ -27,3 +27,8 @@ so no import breaks mid-rework. Git history already preserves every file.
 
 M1: the wire mapping table is `packages/protocol/MIGRATION_V2.md`; v1 protocol
 modules carry `@deprecated` banners pointing at it.
+
+M4: `world/airAuthority.ts` (one air-sim sim per frame, portal-table areas,
+readings on the world) is the only air truth. `spatial/shipAtmosphere.ts` is
+deprecated and frozen; physical deletion lands with `state.ts` in M5 once the
+server host migrates off `VesselSimulationState`.

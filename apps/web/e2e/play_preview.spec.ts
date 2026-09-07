@@ -50,4 +50,17 @@ test.describe('Playable kernel slice (M3)', () => {
     await page.keyboard.up('w');
     await expect(page.getByTestId('play-stats')).toContainText('explored:2');
   });
+
+  test('station bay: hull puncture vents the room from authority telemetry', async ({ page }) => {
+    await page.goto('/?hull=station&play=1');
+    await expect(page.getByTestId('play-canvas')).toBeVisible();
+    await expect(page.getByTestId('play-stats')).toContainText('p:101.3');
+    await page.keyboard.press('b');
+    await expect(page.getByTestId('play-notice')).toContainText('puncture bay');
+    await expect(page.getByTestId('play-stats')).toContainText('vent:1', { timeout: 20000 });
+    const text = await page.getByTestId('play-stats').innerText();
+    const pressure = Number(/p:(\d+\.\d+)/.exec(text)?.[1] ?? Number.NaN);
+    expect(pressure).toBeLessThan(101);
+    await page.screenshot({ path: 'test-results/hull-vent.png' });
+  });
 });
