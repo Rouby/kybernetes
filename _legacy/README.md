@@ -22,5 +22,8 @@ protocol v2 / world kernel / SimHost shells land alongside them.
   -> `world/` kernel
 - `apps/server/src/server.ts`, `handlers/`, `broadcast/` -> `SimHost/sessions/snapshotter/routers`
 
-Physical move to `_legacy/` happens in M1 once the wire mapping table is documented,
-so no import breaks on `main` mid-scaffold. Git history already preserves every file.
+Physical move to `_legacy/` happens in M5 once server + web migrate off v1 imports,
+so no import breaks mid-rework. Git history already preserves every file.
+
+M1: the wire mapping table is `packages/protocol/MIGRATION_V2.md`; v1 protocol
+modules carry `@deprecated` banners pointing at it.

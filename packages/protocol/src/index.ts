@@ -5,6 +5,7 @@ export * from './content';
 export * from './envelope';
 export * from './intents';
 export * from './intro';
+export * from './seq';
 export * from './snapshots';
 export * from './spatial';
 export * from './subsystems';

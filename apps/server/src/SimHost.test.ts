@@ -11,7 +11,12 @@ import {
   restorePersistedPawn,
 } from './sessions.js';
 import { buildManifest, buildSnapshot, buildTelemetry, buildVitals } from './snapshotter.js';
-import { createRateState, parsePipeInput, validatePipePacket } from './validatePipe.js';
+import {
+  createRateState,
+  createSeqCursor,
+  parsePipeInput,
+  validatePipePacket,
+} from './validatePipe.js';
 
 describe('SimHost scaffold', () => {
   it('advances world on slice without timers', () => {
@@ -96,5 +101,45 @@ describe('SimHost scaffold', () => {
     const rates = createRateState(0);
     expect(parsePipeInput('not-json', 0, rates).kind).toBe('invalid');
     expect(validatePipePacket({ type: 'INPUT' }, 0, createRateState(0)).kind).toBe('invalid');
+  });
+
+  it('rejects stale protocol versions without reaching sim', () => {
+    const rates = createRateState(0);
+    const outcome = validatePipePacket({ v: 1, type: 'INPUT', seq: 1 }, 0, rates);
+    expect(outcome.kind).toBe('version-mismatch');
+    if (outcome.kind === 'version-mismatch') expect(outcome.received).toBe(1);
+  });
+
+  it('dedupes retried and reordered intents per sender', () => {
+    const cursor = createSeqCursor();
+    const input = (seq: number) => ({
+      type: 'INPUT' as const,
+      seq,
+      moveVec: { x: 0, y: 0 },
+      facing: 0,
+      sprint: false,
+      sealed: false,
+    });
+    expect(validatePipePacket(input(1), 0, createRateState(0), cursor).kind).toBe('ok');
+    expect(validatePipePacket(input(1), 0, createRateState(0), cursor).kind).toBe('duplicate');
+    expect(validatePipePacket(input(0), 0, createRateState(0), cursor).kind).toBe('duplicate');
+    expect(validatePipePacket(input(2), 0, createRateState(0), cursor).kind).toBe('ok');
+  });
+
+  it('rate-limits input floods and reopens the window', () => {
+    const rates = createRateState(0);
+    const input = (seq: number) => ({
+      type: 'INPUT' as const,
+      seq,
+      moveVec: { x: 0, y: 0 },
+      facing: 0,
+      sprint: false,
+      sealed: false,
+    });
+    for (let seq = 0; seq < 20; seq += 1) {
+      expect(validatePipePacket(input(seq), 0, rates).kind).toBe('ok');
+    }
+    expect(validatePipePacket(input(20), 0, rates).kind).toBe('rate-limited');
+    expect(validatePipePacket(input(21), 1001, rates).kind).toBe('ok');
   });
 });
