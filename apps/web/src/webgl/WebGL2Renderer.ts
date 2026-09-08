@@ -223,7 +223,7 @@ export class WebGL2Renderer {
     return this.fogOfWarPass.getLastPlayerLosPoly();
   }
 
-  // fallow-ignore-next-line unused-class-member -- click-to-interact arrives with the mouse-aim milestone
+  // fallow-ignore-next-line unused-class-member -- live: HarborViewport click path calls this (click-fire e2e); analyzer misses the session-indirected call
   public getHitTester(): HudHitTester {
     return this.hudRenderer.getHitTester();
   }

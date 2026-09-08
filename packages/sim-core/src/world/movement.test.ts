@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { assembleWorld } from './assemble.js';
 import { tryToggleDoor } from './doors.js';
 import type { HullSpec } from './hullCompiler.js';
-import { collidePawn, collidersForFrame, predictStep, withSnapshotStates } from './movement.js';
+import {
+  collidePawn,
+  collidersForFrame,
+  inputToAccel,
+  integratePawnVelocity,
+  predictStep,
+  predictVelocity,
+  withSnapshotStates,
+} from './movement.js';
 import type { World } from './types.js';
 
 const DOUBLE_SPEC: HullSpec = {
@@ -28,6 +36,19 @@ function boxWorld(): World {
 }
 
 describe('client prediction parity', () => {
+  it('shares the server accel/damping model for prediction velocity', () => {
+    const vel = { x: 40, y: -30 };
+    const moveVec = { x: 1, y: 0 };
+    const pawn = { vel } as Parameters<typeof integratePawnVelocity>[0];
+    expect(predictVelocity(vel, moveVec, 0.05)).toEqual(
+      integratePawnVelocity(pawn, inputToAccel({ moveVec, sprint: false }), 0.05)
+    );
+    expect(predictVelocity(vel, null, 0.05)).toEqual(
+      integratePawnVelocity(pawn, { x: 0, y: 0 }, 0.05)
+    );
+    expect(predictVelocity(vel, moveVec, 0)).toBe(vel);
+  });
+
   it('moves freely with no colliders', () => {
     expect(predictStep({ x: 30, y: 50 }, 12, { x: 40, y: 50 }, [])).toEqual({ x: 40, y: 50 });
   });

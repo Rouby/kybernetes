@@ -26,10 +26,25 @@ export function inputToAccel(input: MoveInput): Vec2 {
 
 export function integratePawnVelocity(pawn: PawnBody, accel: Vec2, dtSeconds: number): Vec2 {
   if (!(dtSeconds > 0)) return pawn.vel;
-  const cap = MAX_SPEED;
-  const nx = (pawn.vel.x + accel.x * dtSeconds) / (1 + DAMPING * dtSeconds);
-  const ny = (pawn.vel.y + accel.y * dtSeconds) / (1 + DAMPING * dtSeconds);
-  return { x: clamp(nx, -cap, cap), y: clamp(ny, -cap, cap) };
+  return dampVelocity(pawn.vel, accel, dtSeconds);
+}
+
+function dampVelocity(vel: Vec2, accel: Vec2, dtSeconds: number): Vec2 {
+  const nx = (vel.x + accel.x * dtSeconds) / (1 + DAMPING * dtSeconds);
+  const ny = (vel.y + accel.y * dtSeconds) / (1 + DAMPING * dtSeconds);
+  return { x: clamp(nx, -MAX_SPEED, MAX_SPEED), y: clamp(ny, -MAX_SPEED, MAX_SPEED) };
+}
+
+/**
+ * Client prediction velocity: the same accel/damping model as the server,
+ * pawn-free. Predictions using this stay glued to authority; the old
+ * constant-velocity guess overshot every turn and rubbed back on reconcile.
+ */
+export function predictVelocity(vel: Vec2, moveVec: Vec2 | null, dtSeconds: number): Vec2 {
+  if (!(dtSeconds > 0)) return vel;
+  const accel =
+    moveVec === null ? { x: 0, y: 0 } : { x: moveVec.x * BASE_ACCEL, y: moveVec.y * BASE_ACCEL };
+  return dampVelocity(vel, accel, dtSeconds);
 }
 
 export function integratePawnPosition(pawn: PawnBody, vel: Vec2, dtSeconds: number): Vec2 {

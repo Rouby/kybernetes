@@ -28,7 +28,14 @@ import { remotePawns } from './useHarborSocket';
 
 const VIEW_MIN_H = 480;
 const CAMERA_LERP = 0.12;
-const VIEW_ZOOM = 1.15;
+const VIEW_ZOOM = 1.3;
+const LOOKAHEAD_PX = 120;
+
+export interface HarborNoticed {
+  readonly severity: string;
+  readonly title: string;
+  readonly message: string;
+}
 
 export interface HarborViewportProps {
   snapshot: SnapshotBroadcast | null;
@@ -37,7 +44,16 @@ export interface HarborViewportProps {
   telemetry: TelemetryBroadcast | null;
   vitals: VitalsBroadcast | null;
   manifest: ManifestBroadcast | null;
+  notices: readonly HarborNoticed[];
   facingRef: RefObject<number>;
+  aimLockedRef: RefObject<boolean>;
+  onFire: () => void;
+}
+
+interface MuzzleFlash {
+  x: number;
+  y: number;
+  until: number;
 }
 
 type OverlayMode = 'off' | 'o2' | 'temp' | 'pressure';
@@ -48,7 +64,15 @@ interface ViewportSession {
   camera: { x: number; y: number };
   doors: DoorState[];
   lastAudioMs: number;
+  mouse: { x: number; y: number; moved: boolean };
+  flashes: MuzzleFlash[];
+  lastHeat: number;
+  notice: { text: string; until: number } | null;
+  lastNotice: string;
 }
+
+const FLASH_MS = 120;
+const NOTICE_MS = 4000;
 
 const AUDIO_MS = 500;
 
@@ -59,6 +83,11 @@ export function HarborViewport(props: HarborViewportProps) {
     camera: { x: 650, y: 200 },
     doors: createInitialDoors(),
     lastAudioMs: 0,
+    mouse: { x: 0, y: 0, moved: false },
+    flashes: [],
+    lastHeat: 0,
+    notice: null,
+    lastNotice: '',
   });
   const viewRef = useRef(props);
   viewRef.current = props;
@@ -103,6 +132,24 @@ export function HarborViewport(props: HarborViewportProps) {
         return;
       }
     }
+    const onMove = (event: MouseEvent): void => {
+      const rect = canvas.getBoundingClientRect();
+      session.mouse.x = (event.clientX - rect.left) * (canvas.width / Math.max(rect.width, 1));
+      session.mouse.y = (event.clientY - rect.top) * (canvas.height / Math.max(rect.height, 1));
+      session.mouse.moved = true;
+      viewRef.current.aimLockedRef.current = true;
+    };
+    const onClick = (): void => {
+      const renderer = session.renderer;
+      if (renderer !== null) {
+        const tester = renderer.getHitTester();
+        if (tester.handleClick(session.mouse.x, session.mouse.y, canvas.width, canvas.height))
+          return;
+      }
+      viewRef.current.onFire();
+    };
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('click', onClick);
     let raf = 0;
     const frame = (): void => {
       if (canvas.width > 0 && canvas.height > 0) {
@@ -114,6 +161,8 @@ export function HarborViewport(props: HarborViewportProps) {
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
+      canvas.removeEventListener('mousemove', onMove);
+      canvas.removeEventListener('click', onClick);
     };
   }, []);
 
@@ -141,14 +190,19 @@ function renderViewport(
   if (own === undefined) return;
   const origins = frameOrigins(snapshot);
   const at = pawnWorld(own, origins, view.predicted);
-  session.camera.x += (at.x - session.camera.x) * CAMERA_LERP;
-  session.camera.y += (at.y - session.camera.y) * CAMERA_LERP;
+  const now = performance.now();
+  const aim = aimWorld(session, canvas);
+  if (aim !== null) view.facingRef.current = Math.atan2(aim.y - at.y, aim.x - at.x);
+  const look = lookTarget(at, aim);
+  session.camera.x += (look.x - session.camera.x) * CAMERA_LERP;
+  session.camera.y += (look.y - session.camera.y) * CAMERA_LERP;
+  trackShots(session, view, at, now);
+  trackNotices(session, view, now);
   session.doors = syncDoors(session.doors, snapshot);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
   const roomAtmos = mapAtmos(view.telemetry);
   const delta = mapTelemetry(view, roomAtmos);
   const mappedVitals = mapVitals(view.vitals);
-  const now = performance.now();
   if (now - session.lastAudioMs >= AUDIO_MS) {
     session.lastAudioMs = now;
     ShipAudioEngine.getInstance().updateTelemetry(delta, mappedVitals, bareId(own.roomHint));
@@ -186,8 +240,14 @@ function renderViewport(
       overlayMode,
       camera: { ...session.camera },
       zoom: VIEW_ZOOM,
-      mouseWorld: { x: at.x + 50, y: at.y },
-      timeMs: performance.now(),
+      mouseWorld: aim ?? { x: at.x + 50, y: at.y },
+      muzzleFlashes: session.flashes.map((flash) => ({
+        x: flash.x,
+        y: flash.y,
+        weaponType: 'kinetic_carbine' as const,
+      })),
+      inGameNotice: session.notice?.text,
+      timeMs: now,
       shipOffset: origins.get('ship') ?? { ...SHIP_ORIGIN },
       screenWidth: canvas.clientWidth,
       screenHeight: canvas.clientHeight,
@@ -195,6 +255,63 @@ function renderViewport(
     canvas.width,
     canvas.height
   );
+}
+
+function screenToWorld(
+  sx: number,
+  sy: number,
+  canvas: HTMLCanvasElement,
+  camera: { x: number; y: number }
+): { x: number; y: number } {
+  return {
+    x: (sx - canvas.width / 2) / VIEW_ZOOM + camera.x,
+    y: (sy - canvas.height / 2) / VIEW_ZOOM + camera.y,
+  };
+}
+
+function aimWorld(
+  session: ViewportSession,
+  canvas: HTMLCanvasElement
+): { x: number; y: number } | null {
+  if (!session.mouse.moved) return null;
+  return screenToWorld(session.mouse.x, session.mouse.y, canvas, session.camera);
+}
+
+function lookTarget(
+  at: { x: number; y: number },
+  aim: { x: number; y: number } | null
+): { x: number; y: number } {
+  if (aim === null) return at;
+  const dx = aim.x - at.x;
+  const dy = aim.y - at.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist === 0) return at;
+  const pull = Math.min(dist, LOOKAHEAD_PX) * 0.35;
+  return { x: at.x + (dx / dist) * pull, y: at.y + (dy / dist) * pull };
+}
+
+function trackShots(
+  session: ViewportSession,
+  view: HarborViewportProps,
+  at: { x: number; y: number },
+  now: number
+): void {
+  const heat = view.vitals?.vitals.heat ?? 0;
+  if (heat > session.lastHeat) {
+    session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
+  }
+  session.lastHeat = heat;
+  session.flashes = session.flashes.filter((flash) => flash.until > now);
+}
+
+function trackNotices(session: ViewportSession, view: HarborViewportProps, now: number): void {
+  const latest = view.notices[view.notices.length - 1];
+  const key = latest === undefined ? '' : `${latest.title}:${latest.message}`;
+  if (key !== '' && key !== session.lastNotice) {
+    session.lastNotice = key;
+    session.notice = { text: key.slice(0, 72), until: now + NOTICE_MS };
+  }
+  if (session.notice !== null && session.notice.until <= now) session.notice = null;
 }
 
 function frameOrigins(snapshot: SnapshotBroadcast): Map<string, { x: number; y: number }> {

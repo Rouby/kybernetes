@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { getWorldStations, HESPERIA_STATIONS, HESPERIA_WALLS } from './deck';
 
 describe('station hub fixtures', () => {
-  it('defers interactables to a later milestone (no stations yet)', () => {
-    expect(HESPERIA_STATIONS).toEqual([]);
-    expect(getWorldStations({ x: 1400, y: 0 })).toEqual([]);
+  it('stages harbor fixtures with frame-aware world offsets', () => {
+    const board = HESPERIA_STATIONS.find((s) => s.id === 'lobby_job_board');
+    expect(board?.stationType).toBe('job_board');
+    expect(board?.deckId).toBe('station');
+    const helm = HESPERIA_STATIONS.find((s) => s.id === 'bridge_helm');
+    expect(helm?.stationType).toBe('bridge');
+    const world = getWorldStations({ x: 1400, y: 0 });
+    expect(world.find((s) => s.id === 'lobby_job_board')).toMatchObject({ x: 300, y: 200 });
+    expect(world.find((s) => s.id === 'bridge_helm')).toMatchObject({ x: 1580, y: 260 });
   });
 
   it('glazes the lobby with a sight-passing window wall', () => {

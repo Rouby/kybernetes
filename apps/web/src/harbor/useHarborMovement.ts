@@ -6,7 +6,8 @@
  */
 
 import type { ClientIntent, SnapshotPawn, WallSegment } from '@kybernetes/protocol';
-import { predictStep } from '@kybernetes/sim-core';
+import { predictStep, predictVelocity } from '@kybernetes/sim-core';
+import type { RefObject } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 
@@ -21,7 +22,6 @@ const KEY_DELTAS: Record<string, { x: number; y: number }> = {
   ArrowRight: { x: 1, y: 0 },
 };
 
-const PREDICT_SPEED = 200;
 const SNAP_DIST = 80;
 const FOOTSTEP_PX = 56;
 
@@ -51,7 +51,8 @@ const PREDICT_RADIUS = 12;
 export function useHarborMovement(
   authoritative: SnapshotPawn | undefined,
   sendIntent: (intent: ClientIntent) => void,
-  colliders: readonly WallSegment[] = []
+  colliders: readonly WallSegment[] = [],
+  mouseAimRef?: RefObject<boolean>
 ) {
   const [predicted, setPredicted] = useState<PredictedPawn | null>(null);
   const [sealed, setSealed] = useState(false);
@@ -64,6 +65,7 @@ export function useHarborMovement(
   const collidersRef = useRef(colliders);
   collidersRef.current = colliders;
   const footstepRef = useRef(0);
+  const velRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     const onDown = (event: KeyboardEvent): void => {
@@ -88,10 +90,21 @@ export function useHarborMovement(
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       const input = readMoveInput(keysRef.current);
-      if (input !== null) facingRef.current = Math.atan2(input.y, input.x);
+      if (input !== null && mouseAimRef?.current !== true) {
+        facingRef.current = Math.atan2(input.y, input.x);
+      }
       const prev = predictedRef.current;
       const base = prev ?? snapshotPose(authRef.current);
-      const next = advancePose(base, input, dt, facingRef.current, collidersRef.current);
+      const step = advancePose(
+        base,
+        input,
+        dt,
+        facingRef.current,
+        collidersRef.current,
+        velRef.current
+      );
+      velRef.current = step.vel;
+      const next = step.pose;
       if (next !== prev) {
         if (prev !== null && next !== null) {
           footstepRef.current += Math.hypot(next.x - prev.x, next.y - prev.y);
@@ -119,10 +132,12 @@ export function useHarborMovement(
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [sendIntent]);
+    // mouseAimRef flips once per session (first mouse move); restarting the loop is harmless
+  }, [sendIntent, mouseAimRef?.current]);
 
   useEffect(() => {
     if (authoritative === undefined) return;
+    velRef.current = { x: authoritative.vx, y: authoritative.vy };
     const prev = predictedRef.current;
     if (prev === null) {
       const snap: PredictedPawn = {
@@ -168,14 +183,15 @@ function advancePose(
   input: { x: number; y: number } | null,
   dt: number,
   facing: number,
-  colliders: readonly WallSegment[]
-): PredictedPawn | null {
-  if (base === null) return null;
-  if (input === null) return base.facing === facing ? base : { ...base, facing };
-  const target = {
-    x: base.x + input.x * PREDICT_SPEED * dt,
-    y: base.y + input.y * PREDICT_SPEED * dt,
-  };
+  colliders: readonly WallSegment[],
+  vel: { x: number; y: number }
+): { pose: PredictedPawn | null; vel: { x: number; y: number } } {
+  const nextVel = predictVelocity(vel, input, dt);
+  if (base === null) return { pose: null, vel: nextVel };
+  if (input === null) {
+    return { pose: base.facing === facing ? base : { ...base, facing }, vel: nextVel };
+  }
+  const target = { x: base.x + nextVel.x * dt, y: base.y + nextVel.y * dt };
   const stepped = predictStep(base, PREDICT_RADIUS, target, colliders);
-  return { ...stepped, facing };
+  return { pose: { ...stepped, facing }, vel: nextVel };
 }

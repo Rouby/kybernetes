@@ -12,7 +12,7 @@ import {
   withSnapshotStates,
 } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import { HarborViewport } from './HarborViewport';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
@@ -64,19 +64,32 @@ export function HarborApp() {
     () => collidersForFrame(predictionView, ownFrameId),
     [predictionView, ownFrameId]
   );
-  const movement = useHarborMovement(ownPawn, socket.sendIntent, colliders);
+  const aimLockedRef = useRef(false);
+  const movement = useHarborMovement(ownPawn, socket.sendIntent, colliders, aimLockedRef);
 
   const predictedRef = useRef(movement.predicted);
   predictedRef.current = movement.predicted;
+  const fire = useCallback((): void => {
+    const self = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
+    socket.sendIntent({
+      type: 'FIRE',
+      seq: 0,
+      originAngle: movement.facingRef.current,
+      weapon: 'kinetic_carbine',
+    });
+    if (self !== undefined) {
+      ShipAudioEngine.getInstance().playWeaponFire(self.x, self.y, 'kinetic_carbine');
+    }
+  }, [socket.snapshot, socket.pawnId, socket.sendIntent, movement.facingRef]);
   useActions(
     socket.sendIntent,
     staticWorld,
     socket.snapshot,
     socket.pawnId,
-    movement.facingRef,
     socket.offer,
     movement.toggleSeal,
-    predictedRef
+    predictedRef,
+    fire
   );
 
   return (
@@ -92,7 +105,10 @@ export function HarborApp() {
         telemetry={socket.telemetry}
         vitals={socket.vitals}
         manifest={socket.manifest}
+        notices={socket.notices}
         facingRef={movement.facingRef}
+        aimLockedRef={aimLockedRef}
+        onFire={fire}
       />
     </div>
   );
@@ -107,10 +123,10 @@ function useActions(
   statics: World,
   snapshot: Snapshot,
   pawnId: string | null,
-  facingRef: RefObject<number>,
   offer: Offer,
   toggleSeal: () => void,
-  predictedRef: RefObject<{ x: number; y: number; facing: number } | null>
+  predictedRef: RefObject<{ x: number; y: number; facing: number } | null>,
+  fire: () => void
 ): void {
   useEffect(() => {
     const onDown = (event: KeyboardEvent): void => {
@@ -123,21 +139,12 @@ function useActions(
       } else if (key === 't') {
         toggleSeal();
       } else if (key === 'f') {
-        sendIntent({
-          type: 'FIRE',
-          seq: 0,
-          originAngle: facingRef.current,
-          weapon: 'kinetic_carbine',
-        });
-        const self = snapshot?.pawns.find((pawn) => pawn.id === pawnId);
-        if (self !== undefined) {
-          ShipAudioEngine.getInstance().playWeaponFire(self.x, self.y, 'kinetic_carbine');
-        }
+        fire();
       }
     };
     window.addEventListener('keydown', onDown);
     return () => window.removeEventListener('keydown', onDown);
-  }, [sendIntent, statics, snapshot, pawnId, facingRef, offer, toggleSeal, predictedRef]);
+  }, [sendIntent, statics, snapshot, pawnId, offer, toggleSeal, predictedRef, fire]);
 }
 
 function pressDoor(
@@ -221,10 +228,11 @@ function HarborHud({ socket, predicted }: { socket: HarborSocket; predicted: Pre
 function HudStatus({ socket }: { socket: HarborSocket }) {
   const pawn = socket.snapshot?.pawns.find((entry) => entry.id === socket.pawnId);
   const room = pawn === undefined ? '-' : shortId(pawn.roomHint);
+  const face = pawn === undefined ? '?' : Math.round(((pawn.facing * 180) / Math.PI + 360) % 360);
   return (
     <div data-testid="harbor-status">
       {socket.connected
-        ? `tick:${socket.snapshot?.tick ?? '-'} room:${room} sx:${pawn === undefined ? '?' : Math.round(pawn.x)}`
+        ? `tick:${socket.snapshot?.tick ?? '-'} room:${room} sx:${pawn === undefined ? '?' : Math.round(pawn.x)} face:${face}`
         : 'offline'}
     </div>
   );

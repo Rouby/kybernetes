@@ -1,8 +1,9 @@
 /**
  * Render-data adapter. Every export keeps its legacy name and shape, but all
- * DATA is compiled from the harbor hull specs (station at origin, ship local
- * with world-space views baked at SHIP_ORIGIN). Frozen passes, audio, and
- * shared math consume this file untouched; the compiler guarantees door gaps.
+ * DATA is compiled from the harbor hull specs (station at origin, ship
+ * frame-LOCAL: frozen consumers add the ship offset themselves, so baking it
+ * here would double the offset). Frozen passes, audio, and shared math
+ * consume this file untouched; the compiler guarantees door gaps.
  *
  * ID conventions: rooms, lights, ambients, and breach locations use BARE ids
  * (legacy style, e.g. 'bridge', 'lobby') so existing color/type maps keep
@@ -93,10 +94,6 @@ const LOCAL_ROOMS: LocalRoom[] = [
 const STATION_WALLS: WallSegment[] = toLegacyWalls(stationHull);
 const SHIP_WALLS_LOCAL: WallSegment[] = toLegacyWalls(shipHull);
 
-function offsetWall(wall: WallSegment, dx: number, dy: number): WallSegment {
-  return { ...wall, x1: wall.x1 + dx, y1: wall.y1 + dy, x2: wall.x2 + dx, y2: wall.y2 + dy };
-}
-
 const SHIP_WALL_IDS = new Set(SHIP_WALLS_LOCAL.map((wall) => wall.id));
 
 export const HESPERIA_ROOMS: RoomDefinition[] = LOCAL_ROOMS.map((room) => ({
@@ -111,19 +108,127 @@ export const HESPERIA_ROOMS: RoomDefinition[] = LOCAL_ROOMS.map((room) => ({
 
 export const STATION_BAY_SPAWN = { x: 650, y: 200 };
 
-export const HESPERIA_WALLS: WallSegment[] = [
-  ...STATION_WALLS,
-  ...SHIP_WALLS_LOCAL.map((wall) => offsetWall(wall, SHIP_ORIGIN.x, SHIP_ORIGIN.y)),
-];
+/**
+ * Ship walls stay frame-LOCAL: every frozen consumer (renderer, DeckPass,
+ * visibility, framed movement) adds the ship offset itself. World-baking here
+ * would double the offset. Station walls sit at the origin either way.
+ */
+export const HESPERIA_WALLS: WallSegment[] = [...STATION_WALLS, ...SHIP_WALLS_LOCAL];
 
-export const HESPERIA_STATIONS: StationFixture[] = [];
+/**
+ * Fixtures compiled from harbor rooms (frame-LOCAL like walls/doors; the
+ * renderer offsets ship fixtures via getWorldStations). deckId tags the
+ * frame: 'station' fixtures stay fixed, everything else rides the ship.
+ */
+export const HESPERIA_STATIONS: StationFixture[] = [
+  {
+    id: 'bridge_helm',
+    deckId: 'ship',
+    name: 'Command Bridge Helm',
+    stationType: 'bridge',
+    x: 180,
+    y: 260,
+    radius: 28,
+    prompt: '[E] Access Navigation Helm',
+  },
+  {
+    id: 'avionics_terminal',
+    deckId: 'ship',
+    name: 'Avionics & Sensor Matrix',
+    stationType: 'avionics',
+    x: 340,
+    y: 260,
+    radius: 24,
+    prompt: '[E] Calibrate Sensor Array',
+  },
+  {
+    id: 'life_support_scrubber',
+    deckId: 'ship',
+    name: 'Life Support Scrubbers',
+    stationType: 'hydroponics',
+    x: 480,
+    y: 260,
+    radius: 28,
+    prompt: '[E] Calibrate Scrubbers',
+  },
+  {
+    id: 'berthing_pods',
+    deckId: 'ship',
+    name: 'Crew Berthing Pods',
+    stationType: 'bunk',
+    x: 640,
+    y: 260,
+    radius: 28,
+    prompt: '[E] Rest In Pod',
+  },
+  {
+    id: 'mess_galley_prep',
+    deckId: 'ship',
+    name: 'Mess Hall Galley',
+    stationType: 'mess',
+    x: 810,
+    y: 260,
+    radius: 28,
+    prompt: '[E] Prepare Meal',
+  },
+  {
+    id: 'armory_locker',
+    deckId: 'ship',
+    name: 'Armory Security Locker',
+    stationType: 'armory',
+    x: 170,
+    y: 450,
+    radius: 24,
+    prompt: '[E] Open Arms Locker',
+  },
+  {
+    id: 'cargo_winch',
+    deckId: 'ship',
+    name: 'Cargo Bay Winch',
+    stationType: 'cargo',
+    x: 400,
+    y: 450,
+    radius: 28,
+    prompt: '[E] Operate Winch',
+  },
+  {
+    id: 'engineering_reactor',
+    deckId: 'ship',
+    name: 'Reactor Core Monitor',
+    stationType: 'reactor',
+    x: 720,
+    y: 450,
+    radius: 28,
+    prompt: '[E] Access Reactor Console',
+  },
+  {
+    id: 'lobby_job_board',
+    deckId: 'station',
+    name: 'Station Job Board',
+    stationType: 'job_board',
+    x: 300,
+    y: 200,
+    radius: 30,
+    prompt: '[E] Browse Contracts',
+  },
+  {
+    id: 'bay_airlock_console',
+    deckId: 'station',
+    name: 'Bay Airlock Console',
+    stationType: 'airlock',
+    x: 750,
+    y: 200,
+    radius: 24,
+    prompt: '[E] Cycle Airlock',
+  },
+];
 
 export const HESPERIA_SPAWNS: Record<StartingRole, { x: number; y: number }> = {
   wiper: { x: 650, y: 200 },
   galley_hand: { x: 300, y: 200 },
-  security_private: { x: 1400 + 180, y: 260 },
-  hydro_tender: { x: 1400 + 480, y: 260 },
-  stevedore: { x: 1400 + 720, y: 470 },
+  security_private: { x: 180, y: 260 },
+  hydro_tender: { x: 480, y: 260 },
+  stevedore: { x: 720, y: 470 },
 };
 
 export const DEFAULT_DECK: DeckDefinition = {
@@ -224,8 +329,9 @@ function wallNormal(
 }
 
 export function normalizeBreachRoomId(breachId: string): string {
-  if (breachId.startsWith('puncture_')) {
-    const parts = breachId.split('_');
+  const bare = breachId.includes('.') ? (breachId.split('.').pop() ?? breachId) : breachId;
+  if (bare.startsWith('puncture_')) {
+    const parts = bare.split('_');
     if (parts.length >= 4) {
       const yStr = parts[parts.length - 1];
       const xStr = parts[parts.length - 2];
@@ -235,16 +341,17 @@ export function normalizeBreachRoomId(breachId: string): string {
         return clean === 'reactor' ? 'engineering' : clean;
       }
     }
-    const clean = breachId.replace('puncture_', '');
+    const clean = bare.replace('puncture_', '');
     return clean === 'reactor' ? 'engineering' : clean;
   }
-  return breachId === 'reactor' ? 'engineering' : breachId;
+  return bare === 'reactor' ? 'engineering' : bare;
 }
 
 export function getBreachLocation(breachId: string): BreachLocation | null {
   if (!breachId) return null;
-  if (breachId.startsWith('puncture_')) {
-    const parts = breachId.split('_');
+  const bare = breachId.includes('.') ? (breachId.split('.').pop() ?? breachId) : breachId;
+  if (bare.startsWith('puncture_')) {
+    const parts = bare.split('_');
     if (parts.length >= 4) {
       const y = Number.parseInt(parts[parts.length - 1], 10);
       const x = Number.parseInt(parts[parts.length - 2], 10);
@@ -272,9 +379,7 @@ export function getBreachLocation(breachId: string): BreachLocation | null {
 }
 
 function roomTopAnchor(room: LocalRoom): { x: number; y: number } {
-  const ox = room.frame === 'ship' ? SHIP_ORIGIN.x : 0;
-  const oy = room.frame === 'ship' ? SHIP_ORIGIN.y : 0;
-  return { x: room.x + room.width / 2 + ox, y: room.y + oy };
+  return { x: room.x + room.width / 2, y: room.y };
 }
 
 export const HESPERIA_BREACH_LOCATIONS: Record<string, BreachLocation> = Object.fromEntries(
@@ -495,8 +600,11 @@ export function getWorldRooms(offset: DockFrameOffset): RoomDefinition[] {
   });
 }
 
-export function getWorldStations(_offset: DockFrameOffset): StationFixture[] {
-  return HESPERIA_STATIONS;
+export function getWorldStations(offset: DockFrameOffset): StationFixture[] {
+  return HESPERIA_STATIONS.map((station) => {
+    if (station.deckId === 'station') return station;
+    return { ...station, x: station.x + offset.x, y: station.y + offset.y };
+  });
 }
 
 export function getWorldLights(offset: DockFrameOffset): LightDefinition[] {

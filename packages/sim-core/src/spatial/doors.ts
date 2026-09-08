@@ -9,7 +9,6 @@ import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
 import { StationHubSpec } from '../world/content/StationHub.hull.js';
 import { compileHull } from '../world/hullCompiler.js';
-import { SHIP_ORIGIN } from '../world/scenarios.js';
 import { closestPointOnSegment, resolvePawnMovement } from './collision';
 import {
   type DockFrameOffset,
@@ -71,17 +70,19 @@ function doorName(id: string, isAirlock: boolean): string {
 
 const DOOR_SEEDS = collectDoorSeeds();
 
+/**
+ * Door segments stay frame-LOCAL (like walls): frozen consumers offset ship
+ * doors themselves via getWorldDoors. IDs stay namespaced to join snapshots.
+ */
 export function createInitialDoors(): DoorState[] {
   return DOOR_SEEDS.map((seed) => {
-    const ox = seed.frame === 'ship' ? SHIP_ORIGIN.x : 0;
-    const oy = seed.frame === 'ship' ? SHIP_ORIGIN.y : 0;
     return {
       id: seed.id,
       name: doorName(seed.id, seed.kind === 'airlock'),
-      x1: seed.segment.x1 + ox,
-      y1: seed.segment.y1 + oy,
-      x2: seed.segment.x2 + ox,
-      y2: seed.segment.y2 + oy,
+      x1: seed.segment.x1,
+      y1: seed.segment.y1,
+      x2: seed.segment.x2,
+      y2: seed.segment.y2,
       isOpen: false,
       isAirlock: seed.kind === 'airlock',
       roomA: seed.roomA,

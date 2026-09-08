@@ -29,7 +29,7 @@ describe('Deck Layout & Geometry', () => {
     expect(deck.width).toBe(2400);
     expect(deck.height).toBe(800);
     expect(deck.walls.length).toBeGreaterThan(15);
-    expect(deck.stations).toEqual([]);
+    expect(deck.stations.length).toBe(10);
     expect(HESPERIA_ROOMS.length).toBe(12);
   });
 
@@ -161,21 +161,21 @@ describe('Spatial Collision & Sliding Math', () => {
 
   it('detects nearest door within range and filters by facing angle', () => {
     const doors = createInitialDoors();
-    // ship.door_bridge is at world x: 1560..1600, y: 320
-    // Pawn at (1580, 355) in the corridor just south of the door
-    const nearWithoutAngle = findNearestDoor(1580, 355, doors, 42);
+    // ship.door_bridge is at local x: 160..200, y: 320
+    // Pawn at (180, 355) in the corridor just south of the door
+    const nearWithoutAngle = findNearestDoor(180, 355, doors, 42);
     expect(nearWithoutAngle?.door.id).toBe('ship.door_bridge');
 
     // Looking North directly at the door (angle = -Math.PI / 2): returns door
-    const facingDoor = findNearestDoor(1580, 355, doors, 42, -Math.PI / 2);
+    const facingDoor = findNearestDoor(180, 355, doors, 42, -Math.PI / 2);
     expect(facingDoor?.door.id).toBe('ship.door_bridge');
 
     // Looking South away from door into corridor (angle = Math.PI / 2): returns null
-    const facingAway = findNearestDoor(1580, 355, doors, 42, Math.PI / 2);
+    const facingAway = findNearestDoor(180, 355, doors, 42, Math.PI / 2);
     expect(facingAway).toBeNull();
 
     // Looking East sideways (angle = 0): returns null
-    const facingSideways = findNearestDoor(1580, 355, doors, 42, 0);
+    const facingSideways = findNearestDoor(180, 355, doors, 42, 0);
     expect(facingSideways).toBeNull();
   });
 });
@@ -229,19 +229,19 @@ describe('2D Raycast Visibility & Lighting Cones', () => {
 
   it('occludes visibility polygon across blast doorway when door is closed', () => {
     const doors = createInitialDoors();
-    const lightOrigin = { x: 1580, y: 360 }; // In corridor below bridge door (y: 320)
+    const lightOrigin = { x: 180, y: 360 }; // In corridor below bridge door (y: 320)
 
     // With door open, rays should penetrate into Bridge (y < 320)
     const opened = toggleDoor(doors, 'ship.door_bridge', true);
     const openWalls = getOpaqueWallSegments(HESPERIA_WALLS, opened);
     const openPoly = computeVisibilityPolygon(lightOrigin, 150, openWalls);
-    const penetratesOpen = openPoly.some((pt) => pt.y < 317 && pt.x >= 1560 && pt.x <= 1600);
+    const penetratesOpen = openPoly.some((pt) => pt.y < 317 && pt.x >= 160 && pt.x <= 200);
     expect(penetratesOpen).toBe(true);
 
     // With door closed, rays must NOT penetrate past y: 320 into Bridge
     const closedWalls = getOpaqueWallSegments(HESPERIA_WALLS, doors);
     const closedPoly = computeVisibilityPolygon(lightOrigin, 150, closedWalls);
-    const penetratesClosed = closedPoly.some((pt) => pt.y < 317 && pt.x >= 1560 && pt.x <= 1600);
+    const penetratesClosed = closedPoly.some((pt) => pt.y < 317 && pt.x >= 160 && pt.x <= 200);
     expect(penetratesClosed).toBe(false);
   });
 
@@ -259,35 +259,35 @@ describe('2D Raycast Visibility & Lighting Cones', () => {
 describe('Impact Visibility & Door Proximity', () => {
   it('determines impact visibility based on distance and intervening bulkheads', () => {
     const doors = createInitialDoors();
-    const observer = { x: 1600, y: 260 }; // In Bridge (world)
+    const observer = { x: 200, y: 260 }; // In Bridge (frame-local)
 
     // 1. Point in same room (Bridge wall hit)
-    expect(isImpactVisible(observer, { x: 1650, y: 260 }, doors)).toBe(true);
+    expect(isImpactVisible(observer, { x: 250, y: 260 }, doors)).toBe(true);
 
     // 2. Point far away in Engineering behind multiple bulkheads & closed doors
-    expect(isImpactVisible(observer, { x: 2200, y: 470 }, doors)).toBe(false);
+    expect(isImpactVisible(observer, { x: 800, y: 470 }, doors)).toBe(false);
 
     // 3. Point right beside observer
-    expect(isImpactVisible(observer, { x: 1605, y: 265 }, doors)).toBe(true);
+    expect(isImpactVisible(observer, { x: 205, y: 265 }, doors)).toBe(true);
 
     // 4. Point beyond max distance (>400)
-    expect(isImpactVisible(observer, { x: 2100, y: 260 }, doors, HESPERIA_WALLS, 400)).toBe(false);
+    expect(isImpactVisible(observer, { x: 700, y: 260 }, doors, HESPERIA_WALLS, 400)).toBe(false);
   });
 
   it('detects nearest interactive door when standing directly in front', () => {
     const doors = createInitialDoors();
-    // ship.door_bridge is at world x: 1560..1600, y: 320
-    // Pawn directly in front of door in corridor (1580, 347)
-    const nearby = findNearestDoor(1580, 347, doors, 42);
+    // ship.door_bridge is at local x: 160..200, y: 320
+    // Pawn directly in front of door in corridor (180, 347)
+    const nearby = findNearestDoor(180, 347, doors, 42);
     expect(nearby).not.toBeNull();
     expect(nearby?.door.id).toBe('ship.door_bridge');
     expect(nearby?.distance).toBeCloseTo(27, 0);
 
-    // Pawn far away inside Bridge at helm (1580, 260)
-    const far = findNearestDoor(1580, 260, doors, 42);
+    // Pawn far away inside Bridge at helm (180, 260)
+    const far = findNearestDoor(180, 260, doors, 42);
     expect(far).toBeNull();
 
     // Empty doors array returns null
-    expect(findNearestDoor(1580, 347, [], 42)).toBeNull();
+    expect(findNearestDoor(180, 347, [], 42)).toBeNull();
   });
 });

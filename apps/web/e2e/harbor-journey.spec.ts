@@ -11,11 +11,22 @@ test.describe('Harbor acceptance journey (C2)', () => {
     await page.keyboard.down('d');
     await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 510, 20000);
     await page.keyboard.up('d');
-    await page.keyboard.press('e');
-    await expect(page.getByTestId('harbor-notices')).toContainText('DOOR_ok', { timeout: 10000 });
-    await page.keyboard.down('d');
-    await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 820, 20000);
-    await page.keyboard.up('d');
+    // The shared daemon may leave the lobby door open; toggle until the pawn
+    // actually gets past it instead of assuming a direction.
+    let crossed = false;
+    for (let attempt = 0; attempt < 3 && !crossed; attempt += 1) {
+      await page.keyboard.press('e');
+      await expect(page.getByTestId('harbor-notices')).toContainText('DOOR_ok', { timeout: 10000 });
+      await page.keyboard.down('d');
+      try {
+        await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 820, 6000);
+        crossed = true;
+      } catch {
+        crossed = false;
+      }
+      await page.keyboard.up('d');
+    }
+    expect(crossed).toBe(true);
     for (let tap = 0; tap < 40; tap += 1) {
       const seen = await page.getByTestId('harbor-status').innerText();
       if (statRoom(seen) === 'corridor' || statSX(seen) > 875) break;
@@ -45,7 +56,9 @@ test.describe('Harbor acceptance journey (C2)', () => {
     });
 
     await expect(page.getByTestId('harbor-watch')).toContainText('watch#', { timeout: 25000 });
-    await expect(page.getByTestId('harbor-watch')).toContainText(' S tasks:4/4', { timeout: 45000 });
+    await expect(page.getByTestId('harbor-watch')).toContainText(' S tasks:4/4', {
+      timeout: 45000,
+    });
     await expect(page.getByTestId('harbor-vitals')).toContainText('credits:200');
   });
 });

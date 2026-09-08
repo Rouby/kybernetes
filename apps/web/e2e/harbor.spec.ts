@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { harborBoard, statRoom, statX, waitForHarbor } from './helpers';
+import { angDiff, harborBoard, statFace, statRoom, statSX, statX, waitForHarbor } from './helpers';
 
 test.describe('Harbor client smoke (C2)', () => {
   test('connects, joins, and streams ticked snapshots', async ({ page }) => {
@@ -13,7 +13,7 @@ test.describe('Harbor client smoke (C2)', () => {
       page,
       'harbor-status',
       (t) => Number(/tick:(\d+)/.exec(t)?.[1] ?? 0) > firstTick,
-      10000,
+      10000
     );
     expect(Number(/tick:(\d+)/.exec(second)?.[1] ?? 0)).toBeGreaterThan(firstTick);
     await expect(page.getByTestId('harbor-vitals')).toContainText('hp:100');
@@ -34,6 +34,25 @@ test.describe('Harbor client smoke (C2)', () => {
     const moved = await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > before + 40, 15000);
     await page.keyboard.up('d');
     expect(statX(moved)).toBeGreaterThan(before);
+    await page.waitForTimeout(1500);
+    const pos = statX(await page.getByTestId('harbor-pos').innerText());
+    const server = statSX(await page.getByTestId('harbor-status').innerText());
+    expect(Math.abs(pos - server)).toBeLessThanOrEqual(30);
+  });
+
+  test('aims at the cursor and fires on click', async ({ page }) => {
+    await harborBoard(page, { callsign: 'Smoke-6' });
+    await page.mouse.move(1200, 400);
+    await waitForHarbor(page, 'harbor-status', (t) => angDiff(statFace(t), 0) < 35, 10000);
+    await page.mouse.move(100, 400);
+    await waitForHarbor(page, 'harbor-status', (t) => angDiff(statFace(t), 180) < 35, 10000);
+    await page.mouse.click(1100, 400);
+    await waitForHarbor(
+      page,
+      'harbor-vitals',
+      (t) => Number(/heat:(\d+)/.exec(t)?.[1] ?? 0) > 0,
+      10000
+    );
   });
 
   test('talks, hires, and starts a watch', async ({ page }) => {
