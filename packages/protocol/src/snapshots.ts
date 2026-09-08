@@ -104,6 +104,15 @@ export interface HireOfferBroadcast {
   readonly jobs: readonly Role[];
 }
 
+export interface JoinedBroadcast {
+  readonly type: 'JOINED';
+  readonly v: 2;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly pawnId: string;
+  readonly beacon: string;
+}
+
 export interface ManifestBroadcast {
   readonly type: 'MANIFEST';
   readonly v: 2;
@@ -144,6 +153,7 @@ export type ServerSnapshot =
   | VitalsBroadcast
   | NoticeBroadcast
   | HireOfferBroadcast
+  | JoinedBroadcast
   | ManifestBroadcast
   | WatchBroadcast;
 

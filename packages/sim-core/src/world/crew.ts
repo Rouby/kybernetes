@@ -111,7 +111,7 @@ export function talkToCaptain(
   }
   if (vessel.schedule !== 'docked') return { world, offer: undefined };
   const offer: HireOfferRecord = {
-    offerId: `offer_${vessel.id}_${world.tick}`,
+    offerId: `offer_${vessel.id}_${world.tick}_${Object.keys(world.offers).length}`,
     vesselId: vessel.id,
     jobs: pickTwoJobs(rng01),
     createdTick: world.tick,

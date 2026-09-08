@@ -176,5 +176,15 @@ describe('SimHost scaffold', () => {
     expect(shut.notice).toBe('DOOR_cooldown');
     const missing = routeIntent(world, 'p1', { ...door(true), portalId: 'station.nope' }, []);
     expect(missing.notice).toBe('DOOR_not-found');
+    const distant = spawnPawn(world, {
+      id: 'p2',
+      owner: 'u2',
+      frameId: 'station',
+      roomId: 'station.lobby',
+      x: 100,
+      y: 100,
+      color: '#fff',
+    });
+    expect(routeIntent(distant, 'p2', door(true), []).notice).toBe('DOOR_too-far');
   });
 });

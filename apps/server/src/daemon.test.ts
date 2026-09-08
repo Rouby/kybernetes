@@ -88,6 +88,9 @@ describe('HarborDaemon v2 transport', () => {
     const { port } = await startDaemon();
     const ws = await connectAndJoin(port, 'Rook', 'e2e-1');
     sockets.push(ws);
+    const joined = await waitForType(ws, 'JOINED');
+    expect(joined.pawnId).toBe('pawn:e2e-1');
+    expect(joined.beacon).toBe('HESP01');
     const snapshot = await waitForType(ws, 'SNAPSHOT');
     expect(snapshot.v).toBe(2);
     expect(typeof snapshot.tick).toBe('number');

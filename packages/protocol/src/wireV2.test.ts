@@ -3,7 +3,7 @@ import type { StartingRole } from './actions.js';
 import { isRole, LEGACY_ROLE_MAP, normalizeRole, ROLES } from './content.js';
 import { isV2Packet, makeHelloMismatch, PROTOCOL_VERSION, readPacketVersion } from './envelope.js';
 import { advanceSeq, isFreshSeq, isNewerTick, type SeqCursor } from './seq.js';
-import type { SnapshotBroadcast } from './snapshots.js';
+import type { JoinedBroadcast, ServerSnapshot, SnapshotBroadcast } from './snapshots.js';
 import { INTENT_RATE_LIMIT_PER_SECOND, validateClientIntent } from './validate.js';
 
 function roundTrip<T>(value: T): T {
@@ -141,5 +141,19 @@ describe('protocol v2 snapshot tick monotonicity', () => {
     expect(parsed.v).toBe(2);
     expect(isNewerTick(119, parsed.tick)).toBe(true);
     expect(isNewerTick(120, parsed.tick)).toBe(false);
+  });
+
+  it('identifies the joining pawn with a JOINED handshake', () => {
+    const joined: JoinedBroadcast = {
+      type: 'JOINED',
+      v: 2,
+      tick: 12,
+      serverTimeMs: 600,
+      pawnId: 'pawn:u1',
+      beacon: 'HESP01',
+    };
+    const parsed = roundTrip<ServerSnapshot>(joined);
+    expect(parsed.type).toBe('JOINED');
+    if (parsed.type === 'JOINED') expect(parsed.pawnId).toBe('pawn:u1');
   });
 });

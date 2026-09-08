@@ -324,9 +324,13 @@ function stationSpawnPoint(
   stationFrameId: string | undefined
 ): { frameId: string; roomId: string; x: number; y: number } | undefined {
   if (stationFrameId === undefined) return undefined;
-  const spawnId = Object.keys(world.spawns)
-    .filter((id) => id.startsWith(`${stationFrameId}.`))
-    .sort()[0];
+  const freshId = `${stationFrameId}.fresh_spawn`;
+  const spawnId =
+    world.spawns[freshId] === undefined
+      ? Object.keys(world.spawns)
+          .filter((id) => id.startsWith(`${stationFrameId}.`))
+          .sort()[0]
+      : freshId;
   if (spawnId !== undefined) {
     const spawn = world.spawns[spawnId];
     if (spawn !== undefined) {

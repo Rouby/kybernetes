@@ -113,24 +113,31 @@ describe('host loop sessions', () => {
   it('grades the full journey with credits through host slices', () => {
     const host = riggedHost();
     host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
-    host.handleIntent('c1', {
-      type: 'DOOR',
-      seq: 0,
-      portalId: 'station.lobby_bay',
-      wantOpen: true,
-    });
     const drive = driver(host);
-    for (let i = 0; i < 400; i += 1) {
-      if (host.currentWorld.pawns['pawn:u1']?.frameId === 'ship') break;
+    let seq = 0;
+    const pushEast = (): void => {
+      seq += 1;
       host.handleIntent('c1', {
         type: 'INPUT',
-        seq: i + 1,
+        seq,
         moveVec: { x: 1, y: 0 },
         facing: 0,
         sprint: false,
         sealed: false,
       });
       drive(0.05);
+    };
+    for (let i = 0; i < 200; i += 1) {
+      if ((host.currentWorld.pawns['pawn:u1']?.pos.x ?? 0) > 510) break;
+      pushEast();
+    }
+    expect(
+      host.handleIntent('c1', { type: 'DOOR', seq: 900, portalId: 'station.lobby_bay', wantOpen: true })
+        .notice
+    ).toBe('DOOR_ok');
+    for (let i = 0; i < 400; i += 1) {
+      if (host.currentWorld.pawns['pawn:u1']?.frameId === 'ship') break;
+      pushEast();
     }
     expect(host.currentWorld.pawns['pawn:u1']?.frameId).toBe('ship');
     const talk = host.handleIntent('c1', { type: 'TALK', seq: 500, npcId: 'captain:ship' });

@@ -138,6 +138,19 @@ export class HarborDaemon {
 
   private routeIntent(ws: WebSocket, clientId: string, intent: ClientIntent): void {
     const result = this.host.handleIntent(clientId, intent);
+    if (intent.type === 'JOIN_BEACON' && result.notice === undefined) {
+      const client = this.host.clientOf(clientId);
+      if (client !== undefined) {
+        this.send(ws, {
+          type: 'JOINED',
+          v: 2,
+          tick: this.host.currentWorld.tick,
+          serverTimeMs: Date.now(),
+          pawnId: client.pawnId,
+          beacon: intent.beacon,
+        });
+      }
+    }
     if (result.offer !== undefined) {
       this.send(ws, buildHireOffer(this.host.currentWorld.tick, Date.now(), result.offer));
     }

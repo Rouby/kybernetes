@@ -30,7 +30,7 @@ export function routeIntent(
     case 'INPUT':
       return routeInput(world, pawnId, intent, pending);
     case 'DOOR':
-      return routeDoor(world, intent, pending);
+      return routeDoor(world, pawnId, intent, pending);
     case 'SUIT':
       return {
         world: setSuitSealed(world, pawnId, intent.sealed),
@@ -72,6 +72,15 @@ function routeInput(
   return { world: suited, movement: [...pending, movement] };
 }
 
+function pawnInReach(world: World, pawnId: string, portalId: string): boolean {
+  const pawn = world.pawns[pawnId];
+  const portal = world.portals[portalId];
+  if (pawn === undefined || portal === undefined) return true;
+  const midX = (portal.segment.x1 + portal.segment.x2) / 2;
+  const midY = (portal.segment.y1 + portal.segment.y2) / 2;
+  return Math.hypot(pawn.pos.x - midX, pawn.pos.y - midY) <= DOOR_REACH_PX;
+}
+
 function routeFire(
   world: World,
   pawnId: string,
@@ -89,12 +98,18 @@ function fireNotice(result: ReturnType<typeof fireWeapon>['result']): string {
   return `FIRE_${result.kind}:${result.portalId}`;
 }
 
+const DOOR_REACH_PX = 150;
+
 /** Clearance is 0 until roles land in M5; spec portals require 0. */
 function routeDoor(
   world: World,
+  pawnId: string,
   intent: Extract<ClientIntent, { type: 'DOOR' }>,
   pending: readonly WorldInput[]
 ): RouteResult {
+  if (!pawnInReach(world, pawnId, intent.portalId)) {
+    return { world, movement: pending, notice: 'DOOR_too-far' };
+  }
   const result = tryToggleDoor(world, intent.portalId, intent.wantOpen, 0);
   if (!result.ok) return { world, movement: pending, notice: `DOOR_${result.reason}` };
   const portals = { ...world.portals, [result.portal.id]: result.portal };
