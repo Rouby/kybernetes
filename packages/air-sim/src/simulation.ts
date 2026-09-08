@@ -25,6 +25,56 @@ interface RoomUpdate {
   thermalContent: number; // n*T; common molar heat capacity cancels when mixing
 }
 
+/** One donor's share of a room's outflow within a tick. Debits are split
+ *  across these pro-rata so room energy is conserved exactly. */
+interface FlowDebit {
+  target: RoomUpdate | null;
+  moved: number;
+}
+
+/** Species leave in start-of-tick proportions, so portal order never matters. */
+function moveStartMix(
+  sourceUpdate: RoomUpdate,
+  targetUpdate: RoomUpdate | null,
+  source: Room,
+  fraction: number
+): void {
+  for (const [gas, moles] of Object.entries(source.gas.moles)) {
+    const gasType = gas as GasType;
+    const transfer = moles * fraction;
+    sourceUpdate.moles[gasType] = Math.max(0, sourceUpdate.moles[gasType] - transfer);
+    if (targetUpdate) targetUpdate.moles[gasType] = (targetUpdate.moles[gasType] ?? 0) + transfer;
+  }
+}
+
+function recordOutflow(
+  outflows: Map<Room, FlowDebit[]>,
+  source: Room,
+  target: RoomUpdate | null,
+  moved: number
+): void {
+  const list = outflows.get(source);
+  if (list === undefined) outflows.set(source, [{ target, moved }]);
+  else list.push({ target, moved });
+}
+
+/** Settle a room's outflow exactly along (1-F)^γ for its total outflow
+ *  fraction F, crediting each donor pro-rata. Exact for blowdown, exact
+ *  conservation, and identical for every portal order. */
+function settleOutflowEnergy(room: Room, update: RoomUpdate, list: readonly FlowDebit[]): void {
+  const startMoles = Math.max(1e-9, room.totalMoles);
+  const moved = list.reduce((sum, out) => sum + out.moved, 0);
+  const fallen = Math.min(1, moved / startMoles);
+  const startContent = startMoles * room.gas.temperatureK;
+  const debit = startContent * (1 - (1 - fallen) ** GAMMA);
+  // Subtract: the room may already hold credits as someone else's target.
+  update.thermalContent -= debit;
+  if (!(moved > 0)) return;
+  for (const out of list) {
+    if (out.target) out.target.thermalContent += (debit * out.moved) / moved;
+  }
+}
+
 export interface DragTarget {
   room: Room;
   position: { x: number; y: number };
@@ -281,15 +331,10 @@ export class AtmosphereSimulation {
     };
 
     const roomFlows = new Map<string, (ActiveFlow & { isOutflow: boolean })[]>();
+    const outflows = new Map<Room, FlowDebit[]>();
     for (const flow of flows) {
       const { source, target, molarRate } = flow;
       if (molarRate <= 0) continue;
-
-      const movedMoles = molarRate * dt;
-      const fraction = Math.min(1, movedMoles / Math.max(1e-6, source.totalMoles));
-
-      const sourceUpdate = getUpdate(source);
-      const targetUpdate = target ? getUpdate(target) : null;
 
       if (!roomFlows.has(source.id)) roomFlows.set(source.id, []);
       // biome-ignore lint/style/noNonNullAssertion: guaranteed by set
@@ -301,23 +346,14 @@ export class AtmosphereSimulation {
         roomFlows.get(target.id)!.push({ ...flow, isOutflow: false });
       }
 
-      // Species transfer
-      for (const [gas, moles] of Object.entries(source.gas.moles)) {
-        const gasType = gas as GasType;
-        const transfer = moles * fraction;
-        sourceUpdate.moles[gasType] = Math.max(0, sourceUpdate.moles[gasType] - transfer);
-        if (targetUpdate) {
-          targetUpdate.moles[gasType] = (targetUpdate.moles[gasType] ?? 0) + transfer;
-        }
-      }
-
-      // Enthalpy transfer (H = γ * T per mole)
-      const transferredEnthalpy = movedMoles * (GAMMA * source.gas.temperatureK);
-      sourceUpdate.thermalContent -= transferredEnthalpy;
-      if (targetUpdate) {
-        targetUpdate.thermalContent += transferredEnthalpy;
-      }
+      const sourceUpdate = getUpdate(source);
+      const targetUpdate = target ? getUpdate(target) : null;
+      const moved = molarRate * dt;
+      const fraction = Math.min(1, moved / Math.max(1e-6, source.totalMoles));
+      moveStartMix(sourceUpdate, targetUpdate, source, fraction);
+      recordOutflow(outflows, source, targetUpdate, moved);
     }
+    for (const [room, list] of outflows) settleOutflowEnergy(room, getUpdate(room), list);
 
     for (const entity of this.entities) {
       const flows = roomFlows.get(entity.room.id) ?? [];

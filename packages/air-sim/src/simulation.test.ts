@@ -139,6 +139,39 @@ describe('AtmosphereSimulation stability', () => {
   });
 });
 
+describe('AtmosphereSimulation vent cooling', () => {
+  const T0 = 294.15;
+
+  function ventToVacuum(volume: number, area: number): { sim: AtmosphereSimulation; room: Room } {
+    const total = (101300 * volume) / (R_GAS * T0);
+    const room = createRoom('cabin', total, T0, volume);
+    const sim = createSimulation(room);
+    connect(sim, room, null, area);
+    return { sim, room };
+  }
+
+  function adiabatic(room: Room, p0: number): number {
+    return T0 * (room.pressure / p0) ** ((GAMMA - 1) / GAMMA);
+  }
+
+  it('tracks the adiabatic curve through a small puncture', () => {
+    const { sim, room } = ventToVacuum(100, 0.05);
+    const p0 = room.pressure;
+    for (let i = 0; i < 300 && room.pressure / p0 > 0.45; i += 1) sim.step(0.05);
+    expect(room.pressure / p0).toBeLessThanOrEqual(0.45);
+    expect(room.gas.temperatureK).toBeCloseTo(adiabatic(room, p0), 0);
+  });
+
+  it('stays near the adiabatic curve when a large breach vents a small room', () => {
+    const { sim, room } = ventToVacuum(20, 1.5);
+    const p0 = room.pressure;
+    for (let i = 0; i < 100 && room.pressure / p0 > 0.2; i += 1) sim.step(0.05);
+    expect(room.pressure / p0).toBeLessThanOrEqual(0.2);
+    expect(room.gas.temperatureK).toBeGreaterThan(50);
+    expect(Math.abs(room.gas.temperatureK - adiabatic(room, p0))).toBeLessThan(3);
+  });
+});
+
 describe('AtmosphereSimulation transport', () => {
   function chain(reverse: boolean) {
     const rooms = [
@@ -195,8 +228,12 @@ describe('AtmosphereSimulation transport', () => {
 
     expect(moved).toBeGreaterThan(0);
     expect(target.gas.moles[GasType.Oxygen]).toBeCloseTo(moved, 10);
+    // Exact delivery: the source cools along (1-F)^γ as it drains, so the
+    // target receives the integrated debit, not γ·T_start per mole.
+    const fallen = moved / 100;
+    const delivered = 100 * 400 * (1 - (1 - fallen) ** GAMMA);
     expect(target.gas.temperatureK).toBeCloseTo(
-      (targetMoles * 200 + moved * GAMMA * 400) / (targetMoles + moved),
+      (targetMoles * 200 + delivered) / (targetMoles + moved),
       10
     );
     expect(source.gas.temperatureK).toBeLessThan(400);
