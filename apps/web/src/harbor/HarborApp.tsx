@@ -95,7 +95,7 @@ export function HarborApp() {
   return (
     <div style={{ background: '#07090d', width: '100vw', height: '100vh', color: '#cfd8e3' }}>
       {showDebug ? (
-        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10 }}>
+        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, pointerEvents: 'none' }}>
           <HarborHud socket={socket} predicted={movement.predicted} />
         </div>
       ) : null}
@@ -141,6 +141,9 @@ function useActions(
         toggleSeal();
       } else if (key === 'f') {
         fire();
+      } else if (key === 'r') {
+        sendIntent({ type: 'RELOAD', seq: 0 });
+        ShipAudioEngine.getInstance().playUiClick();
       }
     };
     window.addEventListener('keydown', onDown);
@@ -226,6 +229,10 @@ function HarborHud({ socket, predicted }: { socket: HarborSocket; predicted: Pre
   );
 }
 
+function ventCount(socket: HarborSocket): number {
+  return (socket.telemetry?.atmos ?? []).filter((room) => room.pressureKpa < 50).length;
+}
+
 function HudStatus({ socket }: { socket: HarborSocket }) {
   const pawn = socket.snapshot?.pawns.find((entry) => entry.id === socket.pawnId);
   const room = pawn === undefined ? '-' : shortId(pawn.roomHint);
@@ -233,7 +240,7 @@ function HudStatus({ socket }: { socket: HarborSocket }) {
   return (
     <div data-testid="harbor-status">
       {socket.connected
-        ? `tick:${socket.snapshot?.tick ?? '-'} room:${room} sx:${pawn === undefined ? '?' : Math.round(pawn.x)} face:${face}`
+        ? `tick:${socket.snapshot?.tick ?? '-'} room:${room} sx:${pawn === undefined ? '?' : Math.round(pawn.x)} face:${face} vent:${ventCount(socket)}`
         : 'offline'}
     </div>
   );
@@ -245,7 +252,7 @@ function HudVitals({ socket }: { socket: HarborSocket }) {
     <div data-testid="harbor-vitals">
       {vitals === undefined
         ? 'vitals:-'
-        : `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} heat:${Math.round(vitals.heat)} credits:${socket.vitals?.credits ?? 0}`}
+        : `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} heat:${Math.round(vitals.heat)} mag:${vitals.ammo}/${vitals.reserve}${vitals.reloading ? '(reloading)' : ''} credits:${socket.vitals?.credits ?? 0}`}
     </div>
   );
 }

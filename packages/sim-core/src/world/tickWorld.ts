@@ -7,7 +7,7 @@
 
 import { type AirAuthorityState, refreshAtmos } from './airAuthority.js';
 import { tickBots } from './bots.js';
-import { tickHeat } from './combat.js';
+import { tickHeat, tickImpacts, tickProjectiles } from './combat.js';
 import { advanceFrameOrigin } from './frames.js';
 import { unionRooms, visibleRooms } from './los.js';
 import {
@@ -45,7 +45,8 @@ export function tickWorld(
   const scheduled = tickSchedule(moved, dt);
   const watched = tickWatches(scheduled, dt);
   const survived = tickSurvival(watched, dt);
-  const cooled = tickHeat(survived, dt);
+  const shot = tickProjectiles(survived, dt);
+  const cooled = tickHeat(tickImpacts(shot), dt);
   const framed = stepFrames(cooled, dt);
   const ticked = { ...framed, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };
   if (air === undefined) return ticked;

@@ -17,6 +17,7 @@ import type {
   TelemetryBroadcast,
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
+  WeaponType,
 } from '@kybernetes/protocol';
 import { createInitialDoors, SHIP_ORIGIN } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
@@ -59,19 +60,11 @@ interface MuzzleFlash {
 type OverlayMode = 'off' | 'o2' | 'temp' | 'pressure';
 const OVERLAY_CYCLE: OverlayMode[] = ['off', 'o2', 'temp', 'pressure'];
 
-interface TracerRound {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  until: number;
-}
-
 interface ViewportSession {
   renderer: WebGL2Renderer | null;
   camera: { x: number; y: number };
   doors: DoorState[];
-  tracers: TracerRound[];
+  seenImpacts: Set<string>;
   lastFrameMs: number;
   lastAudioMs: number;
   mouse: { x: number; y: number; moved: boolean };
@@ -83,8 +76,6 @@ interface ViewportSession {
 
 const FLASH_MS = 120;
 const NOTICE_MS = 4000;
-const TRACER_MS = 250;
-const TRACER_SPEED = 900;
 
 const AUDIO_MS = 500;
 
@@ -94,7 +85,7 @@ export function HarborViewport(props: HarborViewportProps) {
     renderer: null,
     camera: { x: 650, y: 200 },
     doors: createInitialDoors(),
-    tracers: [],
+    seenImpacts: new Set<string>(),
     lastFrameMs: 0,
     lastAudioMs: 0,
     mouse: { x: 0, y: 0, moved: false },
@@ -210,10 +201,7 @@ function renderViewport(
   const look = lookTarget(at, aim);
   stepCamera(session, look);
   trackShots(session, view, at, now);
-  const dt =
-    session.lastFrameMs === 0 ? 1 / 60 : Math.min((now - session.lastFrameMs) / 1000, 0.05);
   session.lastFrameMs = now;
-  stepTracers(session, dt, now);
   trackNotices(session, view, now);
   session.doors = syncDoors(session.doors, snapshot);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
@@ -239,17 +227,17 @@ function renderViewport(
         lockedBulkheads: [],
         ventedRooms: ventedBareIds(view.telemetry),
         doors: session.doors,
-        projectiles: session.tracers.map((tracer, index) => ({
-          id: `tracer-${index}`,
-          x: tracer.x,
-          y: tracer.y,
-          vx: tracer.vx,
-          vy: tracer.vy,
+        projectiles: (snapshot.projectiles ?? []).map((shot) => ({
+          id: shot.id,
+          x: shot.x + (origins.get(shot.frameId)?.x ?? 0),
+          y: shot.y + (origins.get(shot.frameId)?.y ?? 0),
+          vx: shot.vx,
+          vy: shot.vy,
           damage: 0,
           color: '#ffd27f',
           fromPlayer: true,
           lifeSeconds: 1,
-          weaponType: 'kinetic_carbine' as const,
+          weaponType: (shot.weapon === 'arc_welder' ? 'arc_welder' : 'kinetic_carbine') as WeaponType,
         })),
         roomO2: roomO2(roomAtmos),
       },
@@ -266,6 +254,7 @@ function renderViewport(
               isOverheated: view.vitals.vitals.heat >= 100,
             },
       overlayMode,
+      impacts: freshImpacts(session, snapshot, origins),
       camera: { ...session.camera },
       zoom: VIEW_ZOOM,
       mouseWorld: aim ?? { x: at.x + 50, y: at.y },
@@ -334,29 +323,35 @@ function trackShots(
   const heat = view.vitals?.vitals.heat ?? 0;
   if (heat > session.lastHeat) {
     session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
-    const angle = view.facingRef.current;
-    session.tracers = [
-      ...session.tracers.slice(-5),
-      {
-        x: at.x,
-        y: at.y,
-        vx: Math.cos(angle) * TRACER_SPEED,
-        vy: Math.sin(angle) * TRACER_SPEED,
-        until: now + TRACER_MS,
-      },
-    ];
   }
   session.lastHeat = heat;
   session.flashes = session.flashes.filter((flash) => flash.until > now);
 }
 
-function stepTracers(session: ViewportSession, dt: number, now: number): void {
-  const kept: TracerRound[] = [];
-  for (const tracer of session.tracers) {
-    if (tracer.until <= now) continue;
-    kept.push({ ...tracer, x: tracer.x + tracer.vx * dt, y: tracer.y + tracer.vy * dt });
+function impactKey(frameId: string, x: number, y: number, kind: string): string {
+  return `${frameId}:${Math.round(x)}:${Math.round(y)}:${kind}`;
+}
+
+function freshImpacts(
+  session: ViewportSession,
+  snapshot: SnapshotBroadcast,
+  origins: Map<string, { x: number; y: number }>,
+): { x: number; y: number; type: 'kinetic' }[] {
+  const live = new Set<string>();
+  const fresh: { x: number; y: number; type: 'kinetic' }[] = [];
+  const impacts = Array.isArray(snapshot.impacts) ? snapshot.impacts : [];
+  for (const impact of impacts) {
+    const key = impactKey(impact.frameId, impact.x, impact.y, impact.kind);
+    live.add(key);
+    if (session.seenImpacts.has(key)) continue;
+    session.seenImpacts.add(key);
+    const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
+    fresh.push({ x: impact.x + origin.x, y: impact.y + origin.y, type: 'kinetic' });
   }
-  session.tracers = kept;
+  for (const key of [...session.seenImpacts]) {
+    if (!live.has(key)) session.seenImpacts.delete(key);
+  }
+  return fresh;
 }
 
 function trackNotices(session: ViewportSession, view: HarborViewportProps, now: number): void {

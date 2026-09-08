@@ -7,6 +7,7 @@ import {
   setSleeping,
   setSuitSealed,
   startBleeding,
+  startReload,
   tickSurvival,
 } from './survival.js';
 import { createEmptyWorld, type PawnBody, type World } from './types.js';
@@ -147,6 +148,37 @@ describe('survival vitals', () => {
     world = drive(world, 30);
     expect(world.vitals.p1?.fatigue ?? 80).toBeLessThan(80);
     expect(setSleeping(world, 'ghost', true)).toBe(world);
+  });
+
+  it('reloads the magazine from reserve over two seconds', () => {
+    let world = boxWorld();
+    expect(startReload(world, 'p1').result).toBe('full');
+    world = {
+      ...world,
+      vitals: { ...world.vitals, p1: { ...ensureVitals(world, 'p1'), ammo: 10, reserve: 50 } },
+    };
+    const started = startReload(world, 'p1');
+    expect(started.result).toBe('ok');
+    world = started.world;
+    expect(startReload(world, 'p1').result).toBe('busy');
+    world = drive(world, 1);
+    expect(world.vitals.p1?.ammo).toBe(10);
+    expect(world.vitals.p1?.reloadingS ?? 0).toBeGreaterThan(0);
+    world = drive(world, 2);
+    expect(world.vitals.p1?.ammo).toBe(30);
+    expect(world.vitals.p1?.reserve).toBe(30);
+    expect(world.vitals.p1?.reloadingS).toBe(0);
+    expect(startReload(world, 'p1').result).toBe('full');
+  });
+
+  it('refuses reloads with no reserve and unknown pawns safely', () => {
+    let world = boxWorld();
+    world = {
+      ...world,
+      vitals: { ...world.vitals, p1: { ...ensureVitals(world, 'p1'), ammo: 5, reserve: 0 } },
+    };
+    expect(startReload(world, 'p1').result).toBe('none');
+    expect(startReload(world, 'ghost').result).toBe('none');
   });
 
   it('ignores zero dt and unknown pawns safely', () => {

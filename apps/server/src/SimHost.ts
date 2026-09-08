@@ -161,6 +161,7 @@ export class SimHost {
       case 'CONSUME':
       case 'SLEEP':
       case 'FIRE':
+      case 'RELOAD':
         return this.handleKernelIntent(clientId, intent);
       case 'TALK':
         return this.handleTalk(intent.npcId);

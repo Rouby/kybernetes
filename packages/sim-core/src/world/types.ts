@@ -12,6 +12,14 @@ import type { DockLink, TransitState } from './schedule.js';
 import type { PawnVitals } from './survival.js';
 import type { WatchState } from './watch.js';
 
+export interface WorldImpact {
+  readonly frameId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly kind: 'pawn' | 'door' | 'breach' | 'miss';
+  readonly untilTick: number;
+}
+
 export type PortalKind = 'door' | 'hole' | 'open' | 'airlock' | 'window';
 
 export type PortalState = 'open' | 'closed' | 'destroyed' | 'sealed';
@@ -116,6 +124,9 @@ export interface ProjectileBody {
   readonly vel: Vec2;
   readonly damage: number;
   readonly fromPawnId: string;
+  readonly weapon: string;
+  readonly lifeTicks: number;
+  readonly graceTicks: number;
 }
 
 export type VesselSchedulePhase = 'docked' | 'departing' | 'in_transit' | 'inbound';
@@ -170,6 +181,8 @@ export interface World {
   readonly bots: Readonly<Record<string, BotSchedule>>;
   /** Weapon heat 0-100 by pawn id; cools over time. */
   readonly heat: Readonly<Record<string, number>>;
+  /** Recent shot impacts with expiry ticks; pruned every tick. */
+  readonly impacts: readonly WorldImpact[];
 }
 
 export const FIXED_DT = 1 / 20;
@@ -197,5 +210,6 @@ export function createEmptyWorld(timeMs = 0): World {
     vitals: {},
     bots: {},
     heat: {},
+    impacts: [],
   };
 }

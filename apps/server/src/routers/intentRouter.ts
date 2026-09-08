@@ -9,6 +9,7 @@ import {
   fireWeapon,
   setSleeping,
   setSuitSealed,
+  startReload,
   tryToggleDoor,
   type World,
   type WorldInput,
@@ -47,6 +48,8 @@ export function routeIntent(
       };
     case 'FIRE':
       return routeFire(world, pawnId, intent, pending);
+    case 'RELOAD':
+      return routeReload(world, pawnId, pending);
     case 'HELLO':
     case 'JOIN_BEACON':
       return { world, movement: pending, notice: intent.type };
@@ -94,8 +97,13 @@ function routeFire(
 function fireNotice(result: ReturnType<typeof fireWeapon>['result']): string {
   if (result.kind === 'miss') return 'FIRE_miss';
   if (result.kind === 'overheated') return 'FIRE_overheated';
-  if (result.kind === 'pawn') return `FIRE_pawn:${result.targetId}`;
-  return `FIRE_${result.kind}:${result.portalId}`;
+  if (result.kind === 'empty') return 'FIRE_empty';
+  return `FIRE_fired:${result.projectileId}`;
+}
+
+function routeReload(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
+  const reloaded = startReload(world, pawnId);
+  return { world: reloaded.world, movement: pending, notice: `RELOAD_${reloaded.result}` };
 }
 
 const DOOR_REACH_PX = 150;

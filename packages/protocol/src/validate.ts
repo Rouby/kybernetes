@@ -84,6 +84,8 @@ export function validateClientIntent(raw: unknown): ValidateResult {
       return validateSleep(raw);
     case 'FIRE':
       return validateFire(raw);
+    case 'RELOAD':
+      return validateReload(raw);
     default:
       return fail('unknown-type');
   }
@@ -201,6 +203,11 @@ function validateFire(raw: Record<string, unknown>): ValidateResult {
   };
 }
 
+function validateReload(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return { ok: true, intent: { type: 'RELOAD', seq: raw.seq } };
+}
+
 export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   HELLO: 2,
   JOIN_BEACON: 2,
@@ -213,4 +220,5 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   CONSUME: 4,
   SLEEP: 2,
   FIRE: 8,
+  RELOAD: 2,
 };

@@ -27,10 +27,19 @@ export interface SnapshotPortal {
 
 export interface SnapshotProjectile {
   readonly id: string;
+  readonly frameId: string;
   readonly x: number;
   readonly y: number;
   readonly vx: number;
   readonly vy: number;
+  readonly weapon: string;
+}
+
+export interface SnapshotImpact {
+  readonly frameId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly kind: 'pawn' | 'door' | 'breach' | 'miss';
 }
 
 export interface SnapshotFrame {
@@ -46,6 +55,7 @@ export interface SnapshotBroadcast {
   readonly tick: number;
   readonly serverTimeMs: number;
   readonly pawns: readonly SnapshotPawn[];
+  readonly impacts: readonly SnapshotImpact[];
   readonly portals: readonly SnapshotPortal[];
   readonly projectiles: readonly SnapshotProjectile[];
   readonly frames: readonly SnapshotFrame[];
@@ -80,6 +90,9 @@ export interface VitalsBroadcast {
     readonly hypoxia: number;
     readonly suitSealed: boolean;
     readonly heat: number;
+    readonly ammo: number;
+    readonly reserve: number;
+    readonly reloading: boolean;
   };
   readonly credits: number;
   readonly clearance: number;

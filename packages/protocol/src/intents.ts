@@ -81,6 +81,11 @@ export interface FireIntent {
   readonly weapon: string;
 }
 
+export interface ReloadIntent {
+  readonly type: 'RELOAD';
+  readonly seq: number;
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
@@ -92,7 +97,8 @@ export type ClientIntent =
   | SuitIntent
   | ConsumeIntent
   | SleepIntent
-  | FireIntent;
+  | FireIntent
+  | ReloadIntent;
 
 export type ClientIntentType = ClientIntent['type'];
 
@@ -108,4 +114,5 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'CONSUME',
   'SLEEP',
   'FIRE',
+  'RELOAD',
 ] as const;

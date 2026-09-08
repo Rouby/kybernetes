@@ -106,6 +106,13 @@ describe('protocol v2 role-enum unification', () => {
     expect(normalizeRole('admiral')).toBeUndefined();
   });
 
+  it('accepts RELOAD with seq only and rate-limits it', () => {
+    const result = validateClientIntent({ type: 'RELOAD', seq: 1 });
+    expect(result.ok).toBe(true);
+    expect(validateClientIntent({ type: 'RELOAD', seq: -1 }).ok).toBe(false);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.RELOAD).toBe(2);
+  });
+
   it('accepts HIRE for security, which v1 HireableJob lacked', () => {
     const result = validateClientIntent({
       type: 'HIRE',
@@ -133,6 +140,7 @@ describe('protocol v2 snapshot tick monotonicity', () => {
       tick: 120,
       serverTimeMs: 6000,
       pawns: [],
+      impacts: [{ x: 10, y: 20, kind: 'pawn' }],
       portals: [],
       projectiles: [],
       frames: [],

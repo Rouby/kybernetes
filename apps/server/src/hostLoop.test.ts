@@ -172,10 +172,14 @@ describe('host loop sessions', () => {
     expect(
       host.handleIntent('c1', { type: 'FIRE', seq: 4, originAngle: 0, weapon: 'kinetic_carbine' })
         .notice
-    ).toMatch(/^FIRE_(miss|pawn|door|breach)/);
+    ).toMatch(/^FIRE_(miss|fired|overheated|empty)/);
+    expect(host.handleIntent('c1', { type: 'RELOAD', seq: 5 }).notice).toBe('RELOAD_ok');
+    expect(host.handleIntent('c1', { type: 'RELOAD', seq: 6 }).notice).toBe('RELOAD_busy');
     const vitals = buildVitals(host.currentWorld, 0, 'pawn:u1', 0, 1);
     expect(vitals.vitals.suitSealed).toBe(true);
     expect(vitals.vitals.hunger).toBe(100);
+    expect(vitals.vitals.ammo).toBe(29);
+    expect(vitals.vitals.reloading).toBe(true);
     host.stop();
   });
 

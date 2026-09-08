@@ -18,6 +18,9 @@ export interface PawnVitals {
   readonly bodyTempC: number;
   readonly bleedoutS: number;
   readonly sleeping: boolean;
+  readonly ammo: number;
+  readonly reserve: number;
+  readonly reloadingS: number;
 }
 
 export const SUIT_O2_MAX = 600;
@@ -25,6 +28,9 @@ export const BLEEDOUT_S = 45;
 export const BLEED_RATE = 2;
 export const VACUUM_DRAIN = 8;
 export const REVIVE_HP = 30;
+export const MAG_SIZE = 30;
+export const RESERVE_MAX = 120;
+export const RELOAD_S = 2;
 
 export function defaultVitals(suitSealed: boolean): PawnVitals {
   return {
@@ -39,6 +45,9 @@ export function defaultVitals(suitSealed: boolean): PawnVitals {
     bodyTempC: 37,
     bleedoutS: 0,
     sleeping: false,
+    ammo: MAG_SIZE,
+    reserve: RESERVE_MAX,
+    reloadingS: 0,
   };
 }
 
@@ -88,6 +97,22 @@ export function setSleeping(world: World, pawnId: string, sleeping: boolean): Wo
   return { ...world, vitals: { ...world.vitals, [pawnId]: { ...vitals, sleeping } } };
 }
 
+export function startReload(world: World, pawnId: string): { world: World; result: 'ok' | 'full' | 'none' | 'busy' } {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return { world, result: 'none' };
+  const vitals = ensureVitals(world, pawnId);
+  if (vitals.reloadingS > 0) return { world, result: 'busy' };
+  if (vitals.ammo >= MAG_SIZE) return { world, result: 'full' };
+  if (vitals.reserve <= 0) return { world, result: 'none' };
+  return {
+    world: {
+      ...world,
+      vitals: { ...world.vitals, [pawnId]: { ...vitals, reloadingS: RELOAD_S } },
+    },
+    result: 'ok',
+  };
+}
+
 export function startBleeding(world: World, pawnId: string, seconds: number): World {
   const pawn = world.pawns[pawnId];
   if (pawn === undefined) return world;
@@ -106,8 +131,16 @@ export function tickSurvival(world: World, dtSeconds: number): World {
   return next;
 }
 
+function completeReload(vitals: PawnVitals, dt: number): PawnVitals {
+  if (vitals.reloadingS <= 0) return vitals;
+  const remaining = vitals.reloadingS - dt;
+  if (remaining > 0) return { ...vitals, reloadingS: remaining };
+  const take = Math.min(MAG_SIZE - vitals.ammo, vitals.reserve);
+  return { ...vitals, ammo: vitals.ammo + take, reserve: vitals.reserve - take, reloadingS: 0 };
+}
+
 function tickPawnVitals(world: World, pawn: PawnBody, dt: number): World {
-  const vitals = ensureVitals(world, pawn.id);
+  const vitals = completeReload(ensureVitals(world, pawn.id), dt);
   const air = world.atmos[pawn.roomHint];
   const pressureKpa = air?.pressureKpa ?? 101.3;
   const o2Percent = air?.o2Percent ?? 20.9;
