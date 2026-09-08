@@ -47,6 +47,46 @@ function moveStartMix(
   }
 }
 
+/**
+ * Moles transferable before source and target pressures cross, accounting
+ * for the thermal kick: the source cools along (1-F)^γ while the target
+ * absorbs the same debit, so mole-only equalization overshoots once heat
+ * is applied. Solved by bisection with the exact outflow-energy formulas
+ * settleOutflowEnergy applies, so the stability clamp and the transfer
+ * agree by construction. Vacuum targets cannot overshoot and stay uncapped.
+ */
+function crossingTransferCap(source: Room, target: Room | null): number {
+  if (target === null || target.volume <= 0 || source.volume <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const startMoles = source.totalMoles;
+  if (!(startMoles > 0)) return 0;
+  const startTemp = source.gas.temperatureK;
+  const startContent = startMoles * startTemp;
+  const targetContent = target.totalMoles * target.gas.temperatureK;
+  const stiffSource = R_GAS / source.volume;
+  const stiffTarget = R_GAS / target.volume;
+  const gap = (moved: number): number => {
+    const fallen = Math.min(1, moved / startMoles);
+    const sourcePressure =
+      stiffSource * (startMoles - moved) * startTemp * (1 - fallen) ** (GAMMA - 1);
+    const targetPressure =
+      stiffTarget * (targetContent + startContent * (1 - (1 - fallen) ** GAMMA));
+    return sourcePressure - targetPressure;
+  };
+  if (gap(0) <= 0) return 0;
+  const ceiling = startMoles * (1 - 1e-9);
+  if (gap(ceiling) > 0) return ceiling;
+  let lo = 0;
+  let hi = ceiling;
+  for (let i = 0; i < 32; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (gap(mid) > 0) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
 function recordOutflow(
   outflows: Map<Room, FlowDebit[]>,
   source: Room,
@@ -171,6 +211,158 @@ function applyUpdates(updates: Map<Room, RoomUpdate>): void {
   }
 }
 
+function roomStiffness(room: Room | null): number {
+  if (!room || room.volume <= 0) return 0;
+  return (R_GAS * room.gas.temperatureK) / room.volume; // Pa per mole
+}
+
+/** Stage 1: baseline physical flow per portal; non-positive rates are dropped. */
+function proposeFlows(portals: readonly Portal[], dt: number): ActiveFlow[] {
+  const flows: ActiveFlow[] = [];
+  for (const portal of portals) {
+    const flow = proposeFlow(portal, dt);
+    if (flow && flow.molarRate > 0) {
+      flows.push({ ...flow, portal, initialRate: flow.molarRate });
+    }
+  }
+  return flows;
+}
+
+/**
+ * Stage A: pairwise capacity clamp. No single portal may overshoot the
+ * two-body equilibrium (mole bound tightened by the thermal crossing cap)
+ * within one tick.
+ */
+function clampPairwiseCapacity(flows: ActiveFlow[], dt: number): void {
+  for (const flow of flows) {
+    const pTarget = flow.target?.pressure ?? 0;
+    const deltaP = flow.source.pressure - pTarget;
+    if (deltaP <= 0) {
+      flow.molarRate = 0;
+      continue;
+    }
+    const moleCap = deltaP / (roomStiffness(flow.source) + roomStiffness(flow.target));
+    const maxPairMoles = Math.min(moleCap, crossingTransferCap(flow.source, flow.target));
+    const maxPairRate = (maxPairMoles * 0.9) / dt; // 0.9 to stay strictly below overshoot
+    flow.molarRate = Math.min(flow.molarRate, maxPairRate);
+  }
+}
+
+/** Stage B: no room with multiple exits loses more than 85% of its mass. */
+function limitOutflowDepletion(flows: ActiveFlow[], rooms: Iterable<Room>, dt: number): void {
+  for (const room of rooms) {
+    const roomOutflows = flows.filter((f) => f.source.id === room.id && f.molarRate > 0);
+    const totalOutMoles = roomOutflows.reduce((sum, f) => sum + f.molarRate * dt, 0);
+    const maxOutMoles = room.totalMoles * 0.85;
+    if (totalOutMoles > maxOutMoles && totalOutMoles > 0) {
+      const scale = maxOutMoles / totalOutMoles;
+      for (const f of roomOutflows) f.molarRate *= scale;
+    }
+  }
+}
+
+/** One relaxation pass: trim inflows that would push a target above a donor. */
+function relaxInflowsOnce(
+  flows: ActiveFlow[],
+  rooms: Iterable<Room>,
+  netMoles: Map<string, number>,
+  dt: number
+): void {
+  for (const room of rooms) {
+    const incoming = flows.filter((f) => f.target?.id === room.id && f.molarRate > 0);
+    if (incoming.length === 0) continue;
+    const stiffTarget = roomStiffness(room);
+    const targetPredicted = room.pressure + stiffTarget * (netMoles.get(room.id) ?? 0);
+    for (const f of incoming) {
+      const sourcePredicted =
+        f.source.pressure + roomStiffness(f.source) * (netMoles.get(f.source.id) ?? 0);
+      if (targetPredicted > sourcePredicted) {
+        // Target rose above this donor: subtract only the exact excess moles.
+        const excessMoles =
+          (targetPredicted - sourcePredicted) / (stiffTarget + roomStiffness(f.source));
+        f.molarRate = Math.max(0, f.molarRate - excessMoles / dt);
+      }
+    }
+  }
+}
+
+/**
+ * Stage C: multi-inflow excess relaxation. Recomputes net transfers a few
+ * times so shared targets settle instead of overshooting one donor.
+ */
+function relaxMultiInflow(flows: ActiveFlow[], rooms: Iterable<Room>, dt: number): void {
+  for (let pass = 0; pass < 3; pass += 1) {
+    const netMoles = new Map<string, number>();
+    for (const room of rooms) netMoles.set(room.id, 0);
+    for (const f of flows) {
+      if (f.molarRate <= 0) continue;
+      const moles = f.molarRate * dt;
+      netMoles.set(f.source.id, (netMoles.get(f.source.id) ?? 0) - moles);
+      if (f.target) netMoles.set(f.target.id, (netMoles.get(f.target.id) ?? 0) + moles);
+    }
+    relaxInflowsOnce(flows, rooms, netMoles, dt);
+  }
+}
+
+/** Stage 5: scale tracked portal momentum down to the clamped flow. */
+function reconcilePortalMomentum(flows: ActiveFlow[]): void {
+  for (const flow of flows) {
+    if (flow.initialRate > 0) {
+      const ratio = Math.max(0, Math.min(1, flow.molarRate / flow.initialRate));
+      flow.portal.velocity *= ratio;
+    } else {
+      flow.portal.velocity = 0;
+    }
+  }
+}
+
+interface TransferMaps {
+  roomFlows: Map<string, (ActiveFlow & { isOutflow: boolean })[]>;
+  updates: Map<Room, RoomUpdate>;
+}
+
+/**
+ * Stage 6: move species in start-of-tick proportions and settle outflow
+ * energy exactly. Returns staged updates plus the per-room flow lists the
+ * drag probes read; the caller applies updates after probing.
+ */
+function stageTransfers(flows: readonly ActiveFlow[], dt: number): TransferMaps {
+  const updates = new Map<Room, RoomUpdate>();
+  const getUpdate = (room: Room): RoomUpdate => {
+    let staged = updates.get(room);
+    if (!staged) {
+      staged = {
+        moles: { ...room.gas.moles },
+        thermalContent: room.totalMoles * room.gas.temperatureK,
+      };
+      updates.set(room, staged);
+    }
+    return staged;
+  };
+  const roomFlows = new Map<string, (ActiveFlow & { isOutflow: boolean })[]>();
+  const outflows = new Map<Room, FlowDebit[]>();
+  for (const flow of flows) {
+    const { source, target, molarRate } = flow;
+    if (molarRate <= 0) continue;
+    if (!roomFlows.has(source.id)) roomFlows.set(source.id, []);
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by set
+    roomFlows.get(source.id)!.push({ ...flow, isOutflow: true });
+    if (target) {
+      if (!roomFlows.has(target.id)) roomFlows.set(target.id, []);
+      // biome-ignore lint/style/noNonNullAssertion: guaranteed by set
+      roomFlows.get(target.id)!.push({ ...flow, isOutflow: false });
+    }
+    const sourceUpdate = getUpdate(source);
+    const targetUpdate = target ? getUpdate(target) : null;
+    const moved = molarRate * dt;
+    const fraction = Math.min(1, moved / Math.max(1e-6, source.totalMoles));
+    moveStartMix(sourceUpdate, targetUpdate, source, fraction);
+    recordOutflow(outflows, source, targetUpdate, moved);
+  }
+  for (const [room, list] of outflows) settleOutflowEnergy(room, getUpdate(room), list);
+  return { roomFlows, updates };
+}
+
 function portalPosition(portal: Portal) {
   const { x, y, width, length: depth } = portal.roomA.config;
   const horizontal = portal.side === 'north' || portal.side === 'south';
@@ -206,163 +398,21 @@ export class AtmosphereSimulation {
     this.entities.push(entity);
   }
 
-  private getStiffness(room: Room | null): number {
-    if (!room || room.volume <= 0) return 0;
-    return (R_GAS * room.gas.temperatureK) / room.volume; // Pa per mole
-  }
-
   step(dt: number): void {
     if (!Number.isFinite(dt) || dt <= 0) return;
-
-    // 1. Propose baseline physical flows
-    const flows: ActiveFlow[] = [];
-    for (const portal of this.portals) {
-      const flow = proposeFlow(portal, dt);
-      if (flow && flow.molarRate > 0) {
-        flows.push({
-          ...flow,
-          portal,
-          initialRate: flow.molarRate,
-        });
-      }
-    }
-
+    const flows = proposeFlows(this.portals, dt);
     if (flows.length === 0) return;
-
-    // 2. Stage A: Analytical Pairwise Capacity Clamping
-    // Prevents any single portal from overshooting two-body equilibrium in one tick
-    for (const flow of flows) {
-      const sSource = this.getStiffness(flow.source);
-      const sTarget = this.getStiffness(flow.target);
-      const pTarget = flow.target?.pressure ?? 0;
-      const deltaP = flow.source.pressure - pTarget;
-
-      if (deltaP <= 0) {
-        flow.molarRate = 0;
-        continue;
-      }
-
-      // Maximum moles transferable before source and target equalize
-      const maxPairMoles = deltaP / (sSource + sTarget);
-      const maxPairRate = (maxPairMoles * 0.9) / dt; // 0.9 to stay strictly below overshoot
-
-      flow.molarRate = Math.min(flow.molarRate, maxPairRate);
-    }
-
-    // 3. Stage B: Outflow Mass Depletion Limiter
-    // Prevents a room with multiple exits from losing > 85% of its mass
-    for (const room of this.rooms.values()) {
-      const roomOutflows = flows.filter((f) => f.source.id === room.id && f.molarRate > 0);
-      const totalOutMoles = roomOutflows.reduce((sum, f) => sum + f.molarRate * dt, 0);
-      const maxOutMoles = room.totalMoles * 0.85;
-
-      if (totalOutMoles > maxOutMoles && totalOutMoles > 0) {
-        const scale = maxOutMoles / totalOutMoles;
-        for (const f of roomOutflows) {
-          f.molarRate *= scale;
-        }
-      }
-    }
-
-    // 4. Stage C: Multi-Inflow Excess Relaxation
-    // When multiple donors vent into one room, subtract only the exact excess moles
-    // that would push the target above that specific donor.
-    const PASSES = 3;
-    for (let pass = 0; pass < PASSES; pass++) {
-      const netMoles = new Map<string, number>();
-      for (const room of this.rooms.values()) {
-        netMoles.set(room.id, 0);
-      }
-
-      for (const f of flows) {
-        if (f.molarRate <= 0) continue;
-        const moles = f.molarRate * dt;
-        netMoles.set(f.source.id, (netMoles.get(f.source.id) ?? 0) - moles);
-        if (f.target) {
-          netMoles.set(f.target.id, (netMoles.get(f.target.id) ?? 0) + moles);
-        }
-      }
-
-      for (const room of this.rooms.values()) {
-        const incoming = flows.filter((f) => f.target?.id === room.id && f.molarRate > 0);
-        if (incoming.length === 0) continue;
-
-        const sTarget = this.getStiffness(room);
-        const pTargetPred = room.pressure + sTarget * (netMoles.get(room.id) ?? 0);
-
-        for (const f of incoming) {
-          const sSource = this.getStiffness(f.source);
-          const pSourcePred = f.source.pressure + sSource * (netMoles.get(f.source.id) ?? 0);
-
-          if (pTargetPred > pSourcePred) {
-            // Target rose above this donor: calculate excess moles and reduce this flow
-            const overshootP = pTargetPred - pSourcePred;
-            const combinedStiffness = sTarget + sSource;
-            const excessMoles = overshootP / combinedStiffness;
-
-            f.molarRate = Math.max(0, f.molarRate - excessMoles / dt);
-          }
-        }
-      }
-    }
-
-    // 5. Reconcile momentum tracking with actual clamped flows
-    for (const flow of flows) {
-      if (flow.initialRate > 0) {
-        const ratio = Math.max(0, Math.min(1, flow.molarRate / flow.initialRate));
-        flow.portal.velocity *= ratio;
-      } else {
-        flow.portal.velocity = 0;
-      }
-    }
-
-    // 6. Enthalpy & Species Transfer
-    const updates = new Map<Room, RoomUpdate>();
-    const getUpdate = (room: Room): RoomUpdate => {
-      let u = updates.get(room);
-      if (!u) {
-        u = {
-          moles: { ...room.gas.moles },
-          thermalContent: room.totalMoles * room.gas.temperatureK,
-        };
-        updates.set(room, u);
-      }
-      return u;
-    };
-
-    const roomFlows = new Map<string, (ActiveFlow & { isOutflow: boolean })[]>();
-    const outflows = new Map<Room, FlowDebit[]>();
-    for (const flow of flows) {
-      const { source, target, molarRate } = flow;
-      if (molarRate <= 0) continue;
-
-      if (!roomFlows.has(source.id)) roomFlows.set(source.id, []);
-      // biome-ignore lint/style/noNonNullAssertion: guaranteed by set
-      roomFlows.get(source.id)!.push({ ...flow, isOutflow: true });
-
-      if (target) {
-        if (!roomFlows.has(target.id)) roomFlows.set(target.id, []);
-        // biome-ignore lint/style/noNonNullAssertion: guaranteed by set
-        roomFlows.get(target.id)!.push({ ...flow, isOutflow: false });
-      }
-
-      const sourceUpdate = getUpdate(source);
-      const targetUpdate = target ? getUpdate(target) : null;
-      const moved = molarRate * dt;
-      const fraction = Math.min(1, moved / Math.max(1e-6, source.totalMoles));
-      moveStartMix(sourceUpdate, targetUpdate, source, fraction);
-      recordOutflow(outflows, source, targetUpdate, moved);
-    }
-    for (const [room, list] of outflows) settleOutflowEnergy(room, getUpdate(room), list);
-
+    clampPairwiseCapacity(flows, dt);
+    limitOutflowDepletion(flows, this.rooms.values(), dt);
+    relaxMultiInflow(flows, this.rooms.values(), dt);
+    reconcilePortalMomentum(flows);
+    const { roomFlows, updates } = stageTransfers(flows, dt);
     for (const entity of this.entities) {
-      const flows = roomFlows.get(entity.room.id) ?? [];
-      const drag = this.calculateRoomDragForce(entity, flows);
+      const drag = this.calculateRoomDragForce(entity, roomFlows.get(entity.room.id) ?? []);
       if (drag && entity.applyDrag) {
         entity.applyDrag(drag);
       }
     }
-
     applyUpdates(updates);
   }
 

@@ -39,14 +39,6 @@ export class Room {
     if (this.volume <= 0) return 0;
     return (this.totalMoles * R_GAS * this.gas.temperatureK) / this.volume;
   }
-  predictPressure(addedMoles: number): number {
-    if (this.volume <= 0) return 0;
-    return ((this.totalMoles + addedMoles) * R_GAS * this.gas.temperatureK) / this.volume;
-  }
-  predictMoles(targetPressurePa: number): number {
-    if (this.volume <= 0) return 0;
-    return (targetPressurePa * this.volume) / (R_GAS * this.gas.temperatureK);
-  }
 
   get averageMolarMass(): number {
     const total = this.totalMoles;
