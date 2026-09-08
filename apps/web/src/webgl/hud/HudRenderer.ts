@@ -769,22 +769,8 @@ export class HudRenderer {
     );
 
     const mode = state.overlayMode ?? 'off';
-    const modeLabel =
-      mode === 'o2'
-        ? 'SENSOR: O2'
-        : mode === 'temp'
-          ? 'SENSOR: TEMP'
-          : mode === 'pressure'
-            ? 'SENSOR: ATM'
-            : 'SENSOR [V]';
-    const modeColor =
-      mode === 'o2'
-        ? '#00e5ff'
-        : mode === 'temp'
-          ? '#ffaa00'
-          : mode === 'pressure'
-            ? '#00b4ff'
-            : '#7090b0';
+    const modeLabel = mode === 'o2' ? 'SENSOR: O2' : 'SENSOR [V]';
+    const modeColor = mode === 'o2' ? '#00e5ff' : '#7090b0';
 
     this.addButton(
       'btn_sensor',

@@ -76,8 +76,8 @@ interface MuzzleFlash {
   until: number;
 }
 
-type OverlayMode = 'off' | 'o2' | 'temp' | 'pressure';
-const OVERLAY_CYCLE: OverlayMode[] = ['off', 'o2', 'temp', 'pressure'];
+type OverlayMode = 'off' | 'o2';
+const OVERLAY_CYCLE: OverlayMode[] = ['off', 'o2'];
 
 interface ViewportSession {
   renderer: WebGL2Renderer | null;
@@ -127,7 +127,7 @@ export function HarborViewport(props: HarborViewportProps) {
   });
   const viewRef = useRef(props);
   viewRef.current = props;
-  const [overlayMode, setOverlayMode] = useState<OverlayMode>('pressure');
+  const [overlayMode, setOverlayMode] = useState<OverlayMode>('o2');
   const overlayRef = useRef(overlayMode);
   overlayRef.current = overlayMode;
 

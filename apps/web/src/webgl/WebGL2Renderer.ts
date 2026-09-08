@@ -829,14 +829,10 @@ export class WebGL2Renderer {
     );
     this.atmosOverlayPass.render(
       matrix,
-      state.boarding?.doors,
-      state.breaches,
-      state.telemetry?.activeFires,
       state.telemetry?.roomAtmospheres,
       state.overlayMode ?? 'off',
       timeSec,
-      frameOffset.x,
-      state.breachFlows
+      frameOffset.x
     );
     this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
     this.deckPass.renderBulkheads(

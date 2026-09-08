@@ -1,17 +1,7 @@
-import type {
-  AirFlow,
-  AtmosOverlayMode,
-  DoorState,
-  RoomAtmosphereSummary,
-} from '@kybernetes/protocol';
-import type { BreachRenderModel } from '@kybernetes/sim-core';
+import type { AtmosOverlayMode, RoomAtmosphereSummary } from '@kybernetes/protocol';
 import { createProgram } from '../glUtils';
 import { ATMOS_ROOM_FS, ATMOS_ROOM_VS } from '../shaders';
-import {
-  buildBreachArrowVertices,
-  buildOverlayVertices,
-  overlayRoomRects,
-} from './atmosOverlayGeometry';
+import { buildOverlayVertices, overlayRoomRects } from './atmosOverlayGeometry';
 
 const MAX_ROOM_QUADS = 64;
 const FLOATS_PER_VERTEX = 6;
@@ -54,22 +44,15 @@ export class AtmosOverlayPass {
 
   public render(
     matrix: Float32Array,
-    _doors: DoorState[] | undefined,
-    breaches: readonly BreachRenderModel[] | undefined,
-    _activeFires: string[] | undefined,
     roomAtmospheres: Record<string, RoomAtmosphereSummary> | undefined,
     mode: AtmosOverlayMode,
     time: number,
-    shipDx = 0,
-    flows: readonly AirFlow[] | undefined = undefined
+    shipDx = 0
   ): void {
     if (mode === 'off') return;
 
     const pulse = 0.9 + 0.1 * Math.sin(time * 2.5);
     const verts = buildOverlayVertices(this.rects, roomAtmospheres, mode, pulse, shipDx);
-    if (breaches !== undefined && breaches.length > 0) {
-      verts.push(...buildBreachArrowVertices(breaches, flows, pulse, shipDx));
-    }
     const floats = Math.min(verts.length, MAX_ROOM_QUADS * FLOATS_PER_QUAD);
     const vertexCount = Math.floor(floats / FLOATS_PER_VERTEX);
     if (vertexCount === 0) return;

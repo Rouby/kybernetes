@@ -26,32 +26,6 @@ export function getSensorOverlayConfig(mode: AtmosOverlayMode): SensorOverlayCon
       ],
     };
   }
-  if (mode === 'temp') {
-    return {
-      title: 'TACTICAL SENSOR // THERMAL DISTRIBUTION (TEMP)',
-      badgeLabel: 'THERMAL',
-      badgeColor: '#ffaa00',
-      scaleEntries: [
-        { label: '<0 C CRYO', color: [0.1, 0.6, 1.0] },
-        { label: '0-16 C COOL', color: [0.1, 0.8, 0.9] },
-        { label: '18-24 C NOMINAL', color: [0.1, 0.85, 0.4] },
-        { label: '25-45 C WARM', color: [0.95, 0.65, 0.1] },
-        { label: '>45 C HAZARD', color: [1.0, 0.2, 0.1] },
-      ],
-    };
-  }
-  if (mode === 'pressure') {
-    return {
-      title: 'TACTICAL SENSOR // BAROMETRIC PRESSURE (ATM)',
-      badgeLabel: 'PRESSURE',
-      badgeColor: '#00b4ff',
-      scaleEntries: [
-        { label: '<20 kPa VACUUM', color: [0.35, 0.15, 0.55] },
-        { label: '20-75 kPa THIN', color: [0.1, 0.5, 0.85] },
-        { label: '95-103 kPa 1.0 ATM', color: [0.0, 0.85, 0.7] },
-        { label: '>105 kPa HYPERBARIC', color: [0.8, 0.2, 0.9] },
-      ],
-    };
-  }
+  // The renderer has no temp/pressure sensor view: those modes show no legend.
   return null;
 }

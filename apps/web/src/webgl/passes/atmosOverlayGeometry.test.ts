@@ -1,13 +1,6 @@
 import type { RoomAtmosphereSummary } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
-import {
-  ARROW_MIN_WIND,
-  BREACH_ARROW_MIN_MPS,
-  buildBreachArrowVertices,
-  buildOverlayVertices,
-  getRoomColor,
-  overlayRoomRects,
-} from './atmosOverlayGeometry';
+import { buildOverlayVertices, getRoomColor, overlayRoomRects } from './atmosOverlayGeometry';
 
 function summary(over: Partial<RoomAtmosphereSummary> = {}): RoomAtmosphereSummary {
   return {
@@ -46,35 +39,21 @@ describe('atmos overlay geometry', () => {
     expect(verts.length / 6).toBe(rects.length * 6);
   });
 
-  it('emits a drag arrow pointing along room wind', () => {
+  it('emits no wind arrows even for strong room wind', () => {
     const rects = overlayRoomRects();
     const summaries = Object.fromEntries(rects.map((r) => [r.id, summary({ roomId: r.id })]));
     summaries.engineering = summary({ roomId: 'engineering', windX: 100, windY: 0 });
-    const verts = buildOverlayVertices(rects, summaries, 'pressure', 1.0);
-    // One extra shaft quad (6) plus head triangle (3) for the windy room.
-    expect(verts.length / 6).toBe(rects.length * 6 + 9);
-
-    const eng = rects.find((r) => r.id === 'engineering') ?? { x: 0, w: 0 };
-    const cx = eng.x + eng.w / 2;
-    const arrowTipX = cx + Math.min(70, Math.max(14, 100 * 0.35)) / 2;
-    let maxArrowX = -Infinity;
-    for (let i = 0; i < verts.length; i += 6) {
-      const [x, _y, r, g, b] = [verts[i], verts[i + 1], verts[i + 2], verts[i + 3], verts[i + 4]];
-      void _y;
-      if (Math.abs(r - 0.75) < 1e-9 && Math.abs(g - 0.97) < 1e-9 && Math.abs(b - 1.0) < 1e-9) {
-        maxArrowX = Math.max(maxArrowX, x);
-      }
-    }
-    expect(maxArrowX).toBeCloseTo(arrowTipX, 6);
-    expect(maxArrowX).toBeGreaterThan(cx);
-  });
-
-  it('emits no arrow below the wind threshold', () => {
-    const rects = overlayRoomRects();
-    const summaries = Object.fromEntries(rects.map((r) => [r.id, summary({ roomId: r.id })]));
-    summaries.cargo = summary({ roomId: 'cargo', windX: ARROW_MIN_WIND - 1, windY: 0 });
     const verts = buildOverlayVertices(rects, summaries, 'o2', 1.0);
     expect(verts.length / 6).toBe(rects.length * 6);
+  });
+
+  it('renders pressure and temp modes transparent', () => {
+    expect(getRoomColor('pressure', summary())).toEqual([0, 0, 0, 0]);
+    expect(getRoomColor('temp', summary())).toEqual([0, 0, 0, 0]);
+    const rects = overlayRoomRects();
+    const summaries = Object.fromEntries(rects.map((r) => [r.id, summary({ roomId: r.id })]));
+    expect(buildOverlayVertices(rects, summaries, 'pressure', 1.0)).toEqual([]);
+    expect(buildOverlayVertices(rects, summaries, 'temp', 1.0)).toEqual([]);
   });
 
   it('offsets ship rooms with the hull while station rooms stay fixed', () => {
@@ -104,57 +83,12 @@ describe('atmos overlay geometry', () => {
     const venting = Object.fromEntries(
       rects.map((r) => [r.id, summary({ roomId: r.id, isVenting: true })])
     );
-    const plain = buildOverlayVertices(rects, calm, 'pressure', 1.0);
-    const lit = buildOverlayVertices(rects, venting, 'pressure', 1.0);
+    const plain = buildOverlayVertices(rects, calm, 'o2', 1.0);
+    const lit = buildOverlayVertices(rects, venting, 'o2', 1.0);
     let calmAlpha = 0;
     let litAlpha = 0;
     for (let i = 0; i < plain.length; i += 6) calmAlpha = Math.max(calmAlpha, plain[i + 5] ?? 0);
     for (let i = 0; i < lit.length; i += 6) litAlpha = Math.max(litAlpha, lit[i + 5] ?? 0);
     expect(litAlpha).toBeGreaterThan(calmAlpha);
-  });
-
-  it('draws throat arrows for rushing breaches only', () => {
-    const breach = {
-      id: 'breach.ship.bridge.1.0',
-      frameId: 'ship',
-      roomA: 'ship.bridge',
-      roomB: 'space',
-      areaM2: 1.2,
-      bornTick: 1,
-      ageTicks: 5,
-      x1: 100,
-      y1: 200,
-      x2: 124,
-      y2: 200,
-      cx: 112,
-      cy: 200,
-      nx: 0,
-      ny: -1,
-      lenPx: 24,
-      isHull: true,
-      sizeClass: 'breach' as const,
-    };
-    expect(buildBreachArrowVertices([breach], [], 1.0)).toEqual([]);
-    expect(
-      buildBreachArrowVertices(
-        [breach],
-        [{ portalId: breach.id, velocityMps: BREACH_ARROW_MIN_MPS - 0.5 }],
-        1.0
-      )
-    ).toEqual([]);
-    const rushing = buildBreachArrowVertices(
-      [breach],
-      [{ portalId: breach.id, velocityMps: 20 }],
-      1.0,
-      1400
-    );
-    // Shaft quad (6 verts) plus head triangle (3 verts), ship-offset downstream.
-    expect(rushing.length / 6).toBe(9);
-    let minY = Infinity;
-    for (let i = 0; i < rushing.length; i += 6) minY = Math.min(minY, rushing[i + 1] ?? 0);
-    expect(minY).toBeLessThan(200);
-    let maxX = -Infinity;
-    for (let i = 0; i < rushing.length; i += 6) maxX = Math.max(maxX, rushing[i] ?? 0);
-    expect(maxX).toBeGreaterThan(1400);
   });
 });
