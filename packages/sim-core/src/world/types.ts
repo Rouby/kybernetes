@@ -179,8 +179,8 @@ export interface World {
   readonly vitals: Readonly<Record<string, PawnVitals>>;
   /** Bot schedules by pawn id; only scheduled pawns move on their own. */
   readonly bots: Readonly<Record<string, BotSchedule>>;
-  /** Weapon heat 0-100 by pawn id; cools over time. */
-  readonly heat: Readonly<Record<string, number>>;
+  /** Aim bloom in radians by pawn id; grows per shot, decays when not firing. */
+  readonly spread: Readonly<Record<string, number>>;
   /** Recent shot impacts with expiry ticks; pruned every tick. */
   readonly impacts: readonly WorldImpact[];
 }
@@ -209,7 +209,7 @@ export function createEmptyWorld(timeMs = 0): World {
     docks: {},
     vitals: {},
     bots: {},
-    heat: {},
+    spread: {},
     impacts: [],
   };
 }

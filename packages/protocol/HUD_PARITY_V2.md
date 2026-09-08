@@ -16,7 +16,7 @@ from live world state with no mock data.
 | Subsystem gauges | `TELEMETRY.subsystems` | hull (breach-derived), atmos (mean pressure %), watch (task progress %), crew (aboard count) |
 | Atmos + ECS REPRESSURIZING | `TELEMETRY.atmos` | per-room pressure/temp/O2/CO2 plus the repressurizing flag |
 | Checklist + projected grade + timer | `WATCH` | checklist items, live-projected or final grade, remainingS |
-| Weapon heat | `VITALS` | heat 0-100 per pawn; overheat refuses fire |
+| Weapon ammo | `VITALS` | ammo/reserve/mags per pawn; empty mag refuses fire until reload |
 | Progress ring | `WATCH` | derived client-side from checklist done/total |
 | Notices | `NOTICE` | severity/title/message |
 | Bot voice lines | `SNAPSHOT` pawns | `say` present while the line is live |
@@ -35,7 +35,7 @@ from live world state with no mock data.
 
 | Visor element | Status |
 | --- | --- |
-| Weapon ammo/charge | No magazine model in the M6 slice; heat is the modeled axis. Follow-up milestone. |
+| Weapon bloom/shake | Composed client-side: sustained fire widens sim-side aim bloom and trauma-scaled camera shake; neither blocks the trigger. |
 | Dual/collab cards | Deleted concept: two-player watch tasks subsume them if revived. |
 | Reactor-as-gauge numbers | No reactor sim in the new kernel; hull/atmos/watch/crew gauges stand in until reactor returns as a watch-task subsystem. |
 

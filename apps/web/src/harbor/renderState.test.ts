@@ -90,7 +90,6 @@ function vitals(over: Partial<VitalsBroadcast['vitals']> = {}): VitalsBroadcast 
       health: 100,
       hypoxia: 0,
       suitSealed: false,
-      heat: 0,
       ammo: 30,
       reserve: 120,
       mags: [30, 30, 30, 30],

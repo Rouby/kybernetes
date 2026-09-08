@@ -19,7 +19,9 @@ import {
   OWNER_GRACE_TICKS,
   PROJECTILE_LIFE_TICKS,
   PROJECTILE_SPEED,
-  tickHeat,
+  SPREAD_MAX,
+  SPREAD_PER_SHOT,
+  tickSpread,
   weaponDamage,
 } from './combat.js';
 import { isPortalConnecting } from './doors.js';
@@ -136,10 +138,12 @@ describe('simulated projectiles', () => {
     expect(shot?.weapon).toBe('kinetic_carbine');
     expect(shot?.lifeTicks).toBe(PROJECTILE_LIFE_TICKS);
     expect(shot?.graceTicks).toBe(OWNER_GRACE_TICKS);
-    expect(shot?.vel).toEqual({ x: PROJECTILE_SPEED, y: 0 });
+    // First shot leaves with one increment of bloom off the aim axis.
+    expect(shot?.vel.x ?? 0).toBeCloseTo(Math.cos(SPREAD_PER_SHOT) * PROJECTILE_SPEED, 6);
+    expect(shot?.vel.y ?? 0).toBeCloseTo(Math.sin(SPREAD_PER_SHOT) * PROJECTILE_SPEED, 6);
     expect(fired.world.vitals.p1?.mags?.[0]).toBe(29);
     expect(fired.world.vitals.p1?.mags).toHaveLength(5);
-    expect(fired.world.heat.p1).toBe(20);
+    expect(fired.world.spread.p1).toBeCloseTo(SPREAD_PER_SHOT, 10);
   });
 
   it('wounds pawns on contact with hp-only resolution and bleeding', () => {
@@ -268,10 +272,9 @@ describe('simulated projectiles', () => {
   });
 
   it('shares one gate between server enforcement and client mirrors', () => {
-    const ready = { heat: 0, mags: [30, 30], reloadingS: 0, down: false };
+    const ready = { mags: [30, 30], reloadingS: 0, down: false };
     expect(fireBlock(ready)).toBeNull();
     expect(fireBlock({ ...ready, down: true })).toBe('down');
-    expect(fireBlock({ ...ready, heat: 100 })).toBe('overheated');
     expect(fireBlock({ ...ready, reloadingS: 1 })).toBe('reloading');
     expect(fireBlock({ ...ready, mags: [0] })).toBe('empty');
   });
@@ -306,7 +309,7 @@ describe('simulated projectiles', () => {
     const dry = fireWeapon(world, 'p1', 0, 'rifle');
     expect(dry.result).toEqual({ kind: 'empty' });
     expect(Object.keys(dry.world.projectiles)).toHaveLength(0);
-    expect(dry.world.heat.p1 ?? 0).toBe(0);
+    expect(dry.world.spread.p1 ?? 0).toBe(0);
     const busy = {
       ...world,
       vitals: {
@@ -318,22 +321,27 @@ describe('simulated projectiles', () => {
     expect(Object.keys(busy.projectiles)).toHaveLength(0);
   });
 
-  it('overheats after five shots and cools back to ready', () => {
-    let world = spawnAt(
-      assembleWorld([{ frameId: 'box', hull: DOUBLE_SPEC }]),
-      'p1',
-      'box',
-      'box.a',
-      30,
-      50
-    );
+  it('fires a full magazine with no heat gate, refusing only when dry', () => {
+    let world = boxDuel();
+    for (let i = 0; i < 30; i += 1) {
+      const fired = fireWeapon(world, 'p1', 0, 'rifle');
+      expect(fired.result.kind).toBe('fired');
+      world = fired.world;
+    }
+    expect(world.vitals.p1?.mags?.[0]).toBe(0);
+    expect(world.spread.p1).toBeCloseTo(SPREAD_MAX, 10);
+    expect(fireWeapon(world, 'p1', 0, 'rifle').result).toEqual({ kind: 'empty' });
+  });
+
+  it('widens aim bloom with sustained fire and bleeds it off over time', () => {
+    let world = boxDuel();
     for (let i = 0; i < 5; i += 1) world = fireWeapon(world, 'p1', 0, 'rifle').world;
-    expect(world.heat.p1).toBe(100);
-    expect(fireWeapon(world, 'p1', 0, 'rifle').result).toEqual({ kind: 'overheated' });
-    world = tickHeat(world, 2);
-    expect(world.heat.p1 ?? 0).toBeLessThan(100);
-    world = tickHeat(world, 4);
-    expect(world.heat.p1).toBeUndefined();
+    expect(world.spread.p1).toBeCloseTo(5 * SPREAD_PER_SHOT, 10);
+    world = tickSpread(world, 0.1);
+    expect(world.spread.p1 ?? 0).toBeLessThan(5 * SPREAD_PER_SHOT);
+    expect(world.spread.p1 ?? 0).toBeGreaterThan(0);
+    world = tickSpread(world, 10);
+    expect(world.spread.p1).toBeUndefined();
   });
 
   it('vents exterior rooms through shot walls once air reconciles', () => {

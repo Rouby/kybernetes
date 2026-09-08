@@ -70,7 +70,7 @@ test.describe('Harbor client smoke (C2)', () => {
     await waitForHarbor(
       page,
       'harbor-vitals',
-      (t) => Number(/heat:(\d+)/.exec(t)?.[1] ?? 0) > 0,
+      (t) => Number(/mag:(\d+)\//.exec(t)?.[1] ?? 30) < 30,
       10000
     );
   });
@@ -81,7 +81,6 @@ test.describe('Harbor client smoke (C2)', () => {
     await page.waitForTimeout(1000);
     await page.keyboard.up('f');
     const text = await page.getByTestId('harbor-vitals').innerText();
-    expect(Number(/heat:(\d+)/.exec(text)?.[1] ?? 0)).toBeGreaterThan(50);
     expect(Number(/mag:(\d+)\//.exec(text)?.[1] ?? 30)).toBeLessThan(28);
   });
 
@@ -146,7 +145,7 @@ test.describe('Harbor client smoke (C2)', () => {
     await waitForHarbor(
       page,
       'harbor-vitals',
-      (t) => Number(/heat:(\d+)/.exec(t)?.[1] ?? 0) > 0,
+      (t) => Number(/mag:(\d+)\//.exec(t)?.[1] ?? 30) < 30,
       10000
     );
   });

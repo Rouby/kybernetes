@@ -219,7 +219,7 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   SUIT: 8,
   CONSUME: 4,
   SLEEP: 2,
-  // FIRE is spam-guarded only; weapon heat is the real fire-rate limiter.
+  // FIRE is spam-guarded only; magazine depth is the real fire limiter.
   FIRE: 30,
   RELOAD: 2,
 };

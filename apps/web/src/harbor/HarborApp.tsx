@@ -141,7 +141,7 @@ export function HarborApp() {
     const latest = socket.notices[socket.notices.length - 1];
     if (latest === undefined || latest.id === refusedRef.current) return;
     refusedRef.current = latest.id;
-    if (/^FIRE_(overheated|empty|down|miss)/.test(latest.message)) {
+    if (/^FIRE_(empty|down|miss)/.test(latest.message)) {
       shotsRef.current = dropYoungShots(shotsRef.current, performance.now(), 600);
     }
   }, [socket.notices]);
@@ -357,7 +357,7 @@ function HudVitals({ socket }: { socket: HarborSocket }) {
     <div data-testid="harbor-vitals">
       {vitals === undefined
         ? 'vitals:-'
-        : `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} heat:${Math.round(vitals.heat)} mag:${vitals.ammo}/${vitals.reserve} spares:[${vitals.mags.join(',')}]${vitals.reloading ? '(reloading)' : ''} credits:${socket.vitals?.credits ?? 0}`}
+        : `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} mag:${vitals.ammo}/${vitals.reserve} spares:[${vitals.mags.join(',')}]${vitals.reloading ? '(reloading)' : ''} credits:${socket.vitals?.credits ?? 0}`}
     </div>
   );
 }

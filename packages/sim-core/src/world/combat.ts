@@ -23,9 +23,12 @@ export const BULLET_BREACH_M2 = 0.05;
 export const BREACH_GROWTH_M2 = 0.1;
 export const COMBAT_BLEED_S = 20;
 export const IMPACT_TTL_TICKS = 6;
-export const HEAT_PER_SHOT = 20;
-export const HEAT_COOLDOWN_PER_S = 25;
-export const OVERHEAT_AT = 100;
+/** Aim bloom added per shot in radians; sustained fire walks rounds off aim. */
+export const SPREAD_PER_SHOT = 0.03;
+/** Bloom ceiling in radians; the only sustained-fire cost now that heat is gone. */
+export const SPREAD_MAX = 0.2;
+/** Bloom bled off per second when not firing. */
+export const SPREAD_DECAY_PER_S = 0.4;
 
 export const PROJECTILE_SPEED = 600;
 export const PROJECTILE_LIFE_TICKS = 20;
@@ -38,28 +41,27 @@ export const BREACH_MERGE_PX = 24;
 
 export type FireResult =
   | { readonly kind: 'miss' }
-  | { readonly kind: 'overheated' }
   | { readonly kind: 'empty' }
   | { readonly kind: 'down' }
   | { readonly kind: 'fired'; readonly projectileId: string; readonly point: Vec2 };
 
 export interface FireGateInput {
-  readonly heat: number;
   readonly mags: readonly number[];
   readonly reloadingS: number;
   readonly down: boolean;
 }
 
-export type FireBlock = 'down' | 'overheated' | 'empty' | 'reloading';
+export type FireBlock = 'down' | 'empty' | 'reloading';
 
 /**
  * Shared fire gate: the server enforces it, the client mirrors it from
  * VITALS snapshots so refused shots never play sound, flash, or intents.
  * Mirror staleness is bounded by one VITALS tick; the server stays truth.
+ * Free to fire until the magazine runs dry: bloom and shake are the only
+ * sustained-fire costs, and neither blocks the trigger.
  */
 export function fireBlock(input: FireGateInput): FireBlock | null {
   if (input.down) return 'down';
-  if (input.heat >= OVERHEAT_AT) return 'overheated';
   if (input.reloadingS > 0) return 'reloading';
   if ((input.mags[0] ?? 0) <= 0) return 'empty';
   return null;
@@ -80,26 +82,28 @@ export function fireWeapon(
     return { world, result: { kind: 'miss' } };
   const vitals = ensureVitals(world, pawnId);
   const blocked = fireBlock({
-    heat: world.heat[pawnId] ?? 0,
     mags: vitals.mags,
     reloadingS: vitals.reloadingS,
     down: shooter.health.incapacitated,
   });
   if (blocked === 'down') return { world, result: { kind: 'down' } };
-  if (blocked === 'overheated') return { world, result: { kind: 'overheated' } };
   if (blocked !== null) return { world, result: { kind: 'empty' } };
   const [loaded = 0, ...spares] = vitals.mags;
-  const heated: World = {
+  const bloom = Math.min(SPREAD_MAX, (world.spread[pawnId] ?? 0) + SPREAD_PER_SHOT);
+  const spent: World = {
     ...world,
-    heat: { ...world.heat, [pawnId]: (world.heat[pawnId] ?? 0) + HEAT_PER_SHOT },
+    spread: { ...world.spread, [pawnId]: bloom },
     vitals: { ...world.vitals, [pawnId]: { ...vitals, mags: [loaded - 1, ...spares] } },
   };
-  const dir = { x: Math.cos(originAngle), y: Math.sin(originAngle) };
+  // Alternating sides around aim keeps bursts centered while widening the
+  // group; tick parity is deterministic so prediction and replays agree.
+  const side = world.tick % 2 === 0 ? 1 : -1;
+  const dir = { x: Math.cos(originAngle + side * bloom), y: Math.sin(originAngle + side * bloom) };
   const muzzle = {
     x: shooter.pos.x + dir.x * (shooter.radius + 4),
     y: shooter.pos.y + dir.y * (shooter.radius + 4),
   };
-  const id = `shot.${pawnId}.${world.tick}.${Object.keys(heated.projectiles).length}`;
+  const id = `shot.${pawnId}.${world.tick}.${Object.keys(spent.projectiles).length}`;
   const projectile: ProjectileBody = {
     id,
     frameId: shooter.frameId,
@@ -112,7 +116,7 @@ export function fireWeapon(
     graceTicks: OWNER_GRACE_TICKS,
   };
   return {
-    world: { ...heated, projectiles: { ...heated.projectiles, [id]: projectile } },
+    world: { ...spent, projectiles: { ...spent.projectiles, [id]: projectile } },
     result: { kind: 'fired', projectileId: id, point: muzzle },
   };
 }
@@ -231,17 +235,17 @@ export function applyDamage(pawn: PawnBody, event: DamageEvent): PawnBody {
   return { ...pawn, health: { ...pawn.health, hp } };
 }
 
-export function tickHeat(world: World, dtSeconds: number): World {
+export function tickSpread(world: World, dtSeconds: number): World {
   if (!(dtSeconds > 0)) return world;
-  const ids = Object.keys(world.heat);
+  const ids = Object.keys(world.spread);
   if (ids.length === 0) return world;
-  const heat = { ...world.heat };
+  const spread = { ...world.spread };
   for (const id of ids) {
-    const next = (heat[id] ?? 0) - HEAT_COOLDOWN_PER_S * dtSeconds;
-    if (next <= 0) delete heat[id];
-    else heat[id] = next;
+    const next = (spread[id] ?? 0) - SPREAD_DECAY_PER_S * dtSeconds;
+    if (next <= 0) delete spread[id];
+    else spread[id] = next;
   }
-  return { ...world, heat };
+  return { ...world, spread };
 }
 
 export function strikePawn(world: World, targetId: string, damage: number, point: Vec2): World {

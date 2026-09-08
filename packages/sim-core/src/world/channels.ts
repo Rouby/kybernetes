@@ -338,7 +338,6 @@ export function buildVitals(
       health: q1(pawn?.health.hp ?? 100),
       hypoxia: q1(vitals?.hypoxia ?? 0),
       suitSealed: vitals?.suitSealed ?? pawn?.health.suitSealed ?? false,
-      heat: q1(world.heat[pawnId] ?? 0),
       ammo: vitals?.mags[0] ?? 30,
       reserve: vitals === undefined ? 120 : spareRounds(vitals),
       mags: vitals === undefined ? [30, 30, 30, 30] : [...vitals.mags.slice(1)],

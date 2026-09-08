@@ -15,7 +15,6 @@ function vitals(over: Partial<VitalsBroadcast['vitals']>): VitalsBroadcast {
       health: 100,
       hypoxia: 0,
       suitSealed: false,
-      heat: 0,
       ammo: 30,
       reserve: 120,
       mags: [30, 30, 30, 30],
@@ -28,7 +27,7 @@ function vitals(over: Partial<VitalsBroadcast['vitals']>): VitalsBroadcast {
 }
 
 describe('client fire mirror', () => {
-  it('fires when hot, loaded, and standing', () => {
+  it('fires when loaded and standing', () => {
     expect(shouldFireShot(vitals({}), true)).toBe(true);
   });
 
@@ -39,10 +38,9 @@ describe('client fire mirror', () => {
   });
 
   it('mirrors every server gate', () => {
-    expect(shouldFireShot(vitals({ heat: 100 }), true)).toBe(false);
     expect(shouldFireShot(vitals({ ammo: 0, mags: [] }), true)).toBe(false);
     expect(shouldFireShot(vitals({ reloading: true }), true)).toBe(false);
     expect(shouldFireShot(vitals({ health: 0 }), true)).toBe(false);
-    expect(shouldFireShot(vitals({ heat: 99, ammo: 1 }), true)).toBe(true);
+    expect(shouldFireShot(vitals({ ammo: 1 }), true)).toBe(true);
   });
 });

@@ -16,7 +16,6 @@ export function shouldFireShot(
   if (v === undefined) return false;
   return (
     fireBlock({
-      heat: v.heat,
       mags: [v.ammo, ...v.mags],
       reloadingS: v.reloading ? 1 : 0,
       down: v.health <= 0,

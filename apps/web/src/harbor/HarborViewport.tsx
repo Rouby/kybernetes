@@ -88,7 +88,8 @@ interface ViewportSession {
   lastAudioMs: number;
   mouse: { x: number; y: number; moved: boolean };
   flashes: MuzzleFlash[];
-  lastHeat: number;
+  trauma: number;
+  lastTraumaMs: number;
   notice: { text: string; until: number } | null;
   lastNotice: string;
   lastSignal: number;
@@ -115,7 +116,8 @@ export function HarborViewport(props: HarborViewportProps) {
     lastAudioMs: 0,
     mouse: { x: 0, y: 0, moved: false },
     flashes: [],
-    lastHeat: 0,
+    trauma: 0,
+    lastTraumaMs: 0,
     notice: null,
     lastNotice: '',
     lastSignal: 0,
@@ -312,13 +314,6 @@ function renderViewport(
       beaconCode: view.manifest?.beacon,
       crewCount: view.manifest?.crew.length,
       currentRoomId: bareId(own.roomHint),
-      welderThermal:
-        view.vitals === null
-          ? undefined
-          : {
-              heat: view.vitals.vitals.heat,
-              isOverheated: view.vitals.vitals.heat >= 100,
-            },
       kineticAmmo:
         view.vitals === null
           ? undefined
@@ -434,27 +429,38 @@ function trackShots(
   at: { x: number; y: number },
   now: number
 ): void {
-  const heat = view.vitals?.vitals.heat ?? 0;
-  if (heat > session.lastHeat) {
-    session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
-  }
+  decayTrauma(session, now);
   if (view.fireSignalRef.current !== session.lastSignal) {
     session.lastSignal = view.fireSignalRef.current;
     session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
+    session.trauma = Math.min(1, session.trauma + TRAUMA_PER_SHOT);
     session.shakeUntil = now + SHAKE_MS;
   }
-  session.lastHeat = heat;
   session.flashes = session.flashes.filter((flash) => flash.until > now);
 }
 
-const SHAKE_MS = 120;
-const SHAKE_PX = 3;
+const SHAKE_MS = 170;
+const SHAKE_BASE_PX = 5;
+const SHAKE_BLOOM_PX = 7;
+const TRAUMA_PER_SHOT = 0.25;
+const TRAUMA_DECAY_PER_S = 1.1;
 
-/** Slight kick on firing that decays to zero; visual only, never sim state. */
+/** Trauma from recent shots, decayed by wall clock; visual only, never sim state. */
+function decayTrauma(session: ViewportSession, now: number): void {
+  if (session.lastTraumaMs <= 0) {
+    session.lastTraumaMs = now;
+    return;
+  }
+  const dt = Math.max(0, (now - session.lastTraumaMs) / 1000);
+  session.lastTraumaMs = now;
+  session.trauma = Math.max(0, session.trauma - TRAUMA_DECAY_PER_S * dt);
+}
+
+/** Kick on firing that grows with accumulated trauma and decays to zero; visual only. */
 function shakenCamera(session: ViewportSession, now: number): { x: number; y: number } {
   const remaining = session.shakeUntil - now;
   if (remaining <= 0) return { ...session.camera };
-  const mag = SHAKE_PX * (remaining / SHAKE_MS);
+  const mag = (SHAKE_BASE_PX + SHAKE_BLOOM_PX * session.trauma) * (remaining / SHAKE_MS);
   return {
     x: session.camera.x + (Math.random() * 2 - 1) * mag,
     y: session.camera.y + (Math.random() * 2 - 1) * mag,

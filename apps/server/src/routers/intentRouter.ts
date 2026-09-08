@@ -96,7 +96,6 @@ function routeFire(
 
 function fireNotice(result: ReturnType<typeof fireWeapon>['result']): string {
   if (result.kind === 'miss') return 'FIRE_miss';
-  if (result.kind === 'overheated') return 'FIRE_overheated';
   if (result.kind === 'empty') return 'FIRE_empty';
   if (result.kind === 'down') return 'FIRE_down';
   return `FIRE_fired:${result.projectileId}`;

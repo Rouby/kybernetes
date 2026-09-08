@@ -144,7 +144,6 @@ export interface VitalsBroadcast {
     readonly health: number;
     readonly hypoxia: number;
     readonly suitSealed: boolean;
-    readonly heat: number;
     readonly ammo: number;
     readonly reserve: number;
     readonly mags: readonly number[];
