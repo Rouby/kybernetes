@@ -1,5 +1,15 @@
 # _legacy cut line (M0 scaffold)
 
+C4: default route serves the v2 harbor client (WebGL viewport + diegetic HUD
+fed by v2 snapshots through a harbor-side adapter; frozen renderer/passes/
+audio consumed untouched). Deleted: old App/components/hooks, preview
+scaffolding + its specs, sim-core legacy (state, gameLoop, bots, quests,
+duties, roles, legacy survival, systems/*) and their tests. KEPT pinned by
+the frozen stack: sim-core intro (kinematics), shipAtmosphere (airflow +
+breaches), acoustics, fogOfWar, navigation, collision/deck/doors/visibility,
+and protocol v1 render types (actions/board/spatial/subsystems/survival/
+broadcasts). Deleting those means remounting the viewport first.
+
 C3: `spatial/deck.ts` + `spatial/doors.ts` rebacked on compiled harbor hulls
 (same export names/shapes, new data; doors start shut, stations deferred).
 Adapter tests (`spatial.test.ts`, `spatial/deck.test.ts`) updated to harbor

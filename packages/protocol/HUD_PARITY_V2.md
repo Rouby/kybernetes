@@ -41,7 +41,8 @@ from live world state with no mock data.
 
 ## Transport note
 
-The live game socket still serves v1. Cutting the daemon and the web client over
-to these channels (socket transport, prediction/reconcile, visor data binding)
-is the follow-up epic after this rework; the preview harness (`?hull=&play=`)
-proves every channel end to end in the meantime.
+Cutover C4 serves these channels on the default route: the harbor daemon is
+the live socket and HarborViewport feeds the frozen WebGL visor from them
+(pawns/doors/atmos/vitals/watch/manifest plus audio ambience). The preview
+harness (`?hull=&play=`) is deleted; the harbor journey specs prove every
+channel end to end.

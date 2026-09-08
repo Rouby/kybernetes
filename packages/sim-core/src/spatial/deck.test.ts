@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { getDutiesForStation } from '../duties';
 import { getWorldStations, HESPERIA_STATIONS, HESPERIA_WALLS } from './deck';
 
 describe('station hub fixtures', () => {
@@ -23,10 +22,5 @@ describe('station hub fixtures', () => {
   it('keeps station ids unique', () => {
     const ids = HESPERIA_STATIONS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it('assigns no duties to hub decor fixtures', () => {
-    expect(getDutiesForStation('job_board')).toEqual([]);
-    expect(getDutiesForStation('viewport_window')).toEqual([]);
   });
 });

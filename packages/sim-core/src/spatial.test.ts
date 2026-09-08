@@ -1,12 +1,5 @@
+import type { StartingRole } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
-import {
-  calculateDutyRewards,
-  getDutiesForStation,
-  getDutyById,
-  startDuty,
-  tickActiveDuty,
-} from './duties';
-import { getAllRoles, getRoleDefinition } from './roles';
 import {
   closestPointOnSegment,
   distanceToSegment,
@@ -29,7 +22,6 @@ import {
   isImpactVisible,
   isPointInFlashlightCone,
 } from './spatial/visibility';
-import { createInitialPlayerVitals } from './survival';
 
 describe('Deck Layout & Geometry', () => {
   it('initializes default CSS Hesperia deck layout', () => {
@@ -42,11 +34,17 @@ describe('Deck Layout & Geometry', () => {
   });
 
   it('defines valid spawn points for all 5 starting roles', () => {
-    const roles = getAllRoles();
+    const roles: StartingRole[] = [
+      'wiper',
+      'galley_hand',
+      'security_private',
+      'hydro_tender',
+      'stevedore',
+    ];
     expect(roles).toHaveLength(5);
 
-    for (const roleDef of roles) {
-      const spawn = HESPERIA_SPAWNS[roleDef.role];
+    for (const role of roles) {
+      const spawn = HESPERIA_SPAWNS[role];
       expect(spawn).toBeDefined();
       expect(spawn.x).toBeGreaterThan(0);
       expect(spawn.x).toBeLessThan(2400);
@@ -258,61 +256,7 @@ describe('2D Raycast Visibility & Lighting Cones', () => {
   });
 });
 
-describe('Role Definitions & Duty Progression', () => {
-  it('returns valid definitions for Wiper and Stevedore', () => {
-    const wiper = getRoleDefinition('wiper');
-    expect(wiper.name).toBe('Maintenance Wiper');
-    expect(wiper.department).toBe('Engineering');
-    expect(wiper.duties.length).toBeGreaterThan(0);
-
-    const stevedore = getRoleDefinition('stevedore');
-    expect(stevedore.name).toBe('Cargo Stevedore');
-    expect(stevedore.badge).toBe('HLD-3');
-  });
-
-  it('ticks active duty and awards credits upon completion', () => {
-    const wiperDuties = getDutiesForStation('reactor');
-    expect(wiperDuties.length).toBeGreaterThan(0);
-
-    const activeDuty = startDuty(wiperDuties[0].id, 'reactor_primary_console');
-    expect(activeDuty).not.toBeNull();
-    if (!activeDuty) return;
-
-    const vitals = createInitialPlayerVitals();
-
-    // Tick 5 seconds
-    const tick1 = tickActiveDuty(activeDuty, 5, 'wiper', vitals);
-    expect(tick1.completed).toBe(false);
-    expect(tick1.nextDuty.progressSeconds).toBeGreaterThan(0);
-    expect(tick1.staminaCost).toBeGreaterThan(0);
-
-    // Tick to completion
-    const tick2 = tickActiveDuty(tick1.nextDuty, 15, 'wiper', vitals);
-    expect(tick2.completed).toBe(true);
-    expect(tick2.nextDuty.isCompleted).toBe(true);
-
-    const rewards = calculateDutyRewards(wiperDuties[0].id, 'wiper');
-    expect(rewards.credits).toBeGreaterThan(0);
-    expect(rewards.xp).toBeGreaterThan(0);
-  });
-
-  it('halves duty speed when player is starving or dehydrated', () => {
-    const dutyDef = getDutyById('scrub_plasma');
-    expect(dutyDef).toBeDefined();
-
-    const activeDuty = startDuty('scrub_plasma', 'reactor_primary_console');
-    expect(activeDuty).toBeDefined();
-    if (!activeDuty) return;
-
-    const normalVitals = createInitialPlayerVitals();
-    const starvingVitals = { ...normalVitals, hunger: 10 };
-
-    const tickNormal = tickActiveDuty(activeDuty, 2, 'wiper', normalVitals);
-    const tickStarving = tickActiveDuty(activeDuty, 2, 'wiper', starvingVitals);
-
-    expect(tickStarving.nextDuty.progressSeconds).toBeLessThan(tickNormal.nextDuty.progressSeconds);
-  });
-
+describe('Impact Visibility & Door Proximity', () => {
   it('determines impact visibility based on distance and intervening bulkheads', () => {
     const doors = createInitialDoors();
     const observer = { x: 1600, y: 260 }; // In Bridge (world)

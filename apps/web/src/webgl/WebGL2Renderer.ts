@@ -223,6 +223,7 @@ export class WebGL2Renderer {
     return this.fogOfWarPass.getLastPlayerLosPoly();
   }
 
+  // fallow-ignore-next-line unused-class-member -- click-to-interact arrives with the mouse-aim milestone
   public getHitTester(): HudHitTester {
     return this.hudRenderer.getHitTester();
   }

@@ -175,6 +175,29 @@ interface SnapshotSetters {
   setNotices: Dispatch<SetStateAction<HarborNotice[]>>;
 }
 
+type ChannelHandler = (msg: Record<string, unknown>, setters: SnapshotSetters) => void;
+
+const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
+  SNAPSHOT: (msg, setters) => setters.setSnapshot(msg as unknown as SnapshotBroadcast),
+  TELEMETRY: (msg, setters) => setters.setTelemetry(msg as unknown as TelemetryBroadcast),
+  VITALS: (msg, setters) => setters.setVitals(msg as unknown as VitalsBroadcast),
+  WATCH: (msg, setters) => setters.setWatch(msg as unknown as WatchBroadcast),
+  MANIFEST: (msg, setters) => setters.setManifest(msg as unknown as ManifestBroadcast),
+  HIRE_OFFER: (msg, setters) => setters.setOffer(msg as unknown as HireOfferBroadcast),
+  JOINED: (msg, setters) => {
+    setters.setPawnId((msg as { pawnId?: string }).pawnId ?? '');
+    setters.setOffer(null);
+  },
+  NOTICE: (msg, setters) => {
+    const notice = msg as unknown as NoticeBroadcast;
+    pushNotice(setters.setNotices, notice.severity, notice.title, notice.message);
+  },
+  HELLO_MISMATCH: (msg, setters) => {
+    const notice = msg as unknown as { message?: string };
+    pushNotice(setters.setNotices, 'critical', 'Version', notice.message ?? 'Client outdated');
+  },
+};
+
 function handleMessage(data: string, setters: SnapshotSetters): void {
   let msg: Record<string, unknown>;
   try {
@@ -182,42 +205,8 @@ function handleMessage(data: string, setters: SnapshotSetters): void {
   } catch {
     return;
   }
-  switch (msg.type) {
-    case 'SNAPSHOT':
-      setters.setSnapshot(msg as unknown as SnapshotBroadcast);
-      break;
-    case 'TELEMETRY':
-      setters.setTelemetry(msg as unknown as TelemetryBroadcast);
-      break;
-    case 'VITALS':
-      setters.setVitals(msg as unknown as VitalsBroadcast);
-      break;
-    case 'WATCH':
-      setters.setWatch(msg as unknown as WatchBroadcast);
-      break;
-    case 'MANIFEST':
-      setters.setManifest(msg as unknown as ManifestBroadcast);
-      break;
-    case 'HIRE_OFFER':
-      setters.setOffer(msg as unknown as HireOfferBroadcast);
-      break;
-    case 'JOINED':
-      setters.setPawnId((msg as { pawnId?: string }).pawnId ?? '');
-      setters.setOffer(null);
-      break;
-    case 'NOTICE': {
-      const notice = msg as unknown as NoticeBroadcast;
-      pushNotice(setters.setNotices, notice.severity, notice.title, notice.message);
-      break;
-    }
-    case 'HELLO_MISMATCH': {
-      const notice = msg as unknown as { message?: string };
-      pushNotice(setters.setNotices, 'critical', 'Version', notice.message ?? 'Client outdated');
-      break;
-    }
-    default:
-      break;
-  }
+  const handler = typeof msg.type === 'string' ? CHANNEL_HANDLERS[msg.type] : undefined;
+  handler?.(msg, setters);
 }
 
 export function remotePawns(

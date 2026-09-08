@@ -8,6 +8,7 @@
 import type { ClientIntent, SnapshotPawn, WallSegment } from '@kybernetes/protocol';
 import { predictStep } from '@kybernetes/sim-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 
 const KEY_DELTAS: Record<string, { x: number; y: number }> = {
   KeyW: { x: 0, y: -1 },
@@ -22,6 +23,7 @@ const KEY_DELTAS: Record<string, { x: number; y: number }> = {
 
 const PREDICT_SPEED = 200;
 const SNAP_DIST = 80;
+const FOOTSTEP_PX = 56;
 
 export interface PredictedPawn {
   readonly x: number;
@@ -61,6 +63,7 @@ export function useHarborMovement(
   authRef.current = authoritative;
   const collidersRef = useRef(colliders);
   collidersRef.current = colliders;
+  const footstepRef = useRef(0);
 
   useEffect(() => {
     const onDown = (event: KeyboardEvent): void => {
@@ -90,6 +93,13 @@ export function useHarborMovement(
       const base = prev ?? snapshotPose(authRef.current);
       const next = advancePose(base, input, dt, facingRef.current, collidersRef.current);
       if (next !== prev) {
+        if (prev !== null && next !== null) {
+          footstepRef.current += Math.hypot(next.x - prev.x, next.y - prev.y);
+          if (footstepRef.current >= FOOTSTEP_PX) {
+            footstepRef.current = 0;
+            ShipAudioEngine.getInstance().playLocalFootstep();
+          }
+        }
         predictedRef.current = next;
         setPredicted(next);
       }
@@ -142,6 +152,7 @@ export function useHarborMovement(
     sealedRef.current = nextSealed;
     setSealed(nextSealed);
     sendIntent({ type: 'SUIT', seq: 0, sealed: nextSealed });
+    ShipAudioEngine.getInstance().playVisorToggle(nextSealed);
   }, [sendIntent]);
 
   return { predicted, sealed, facingRef, toggleSeal };

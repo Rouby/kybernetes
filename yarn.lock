@@ -2,7 +2,7 @@
 # Manual changes might be lost - proceed with caution!
 
 __metadata:
-  version: 8
+  version: 10
   cacheKey: 10c0
 
 "@babel/code-frame@npm:^7.29.7":
@@ -883,7 +883,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@kybernetes/ui-tokens@workspace:*, @kybernetes/ui-tokens@workspace:packages/ui-tokens":
+"@kybernetes/ui-tokens@workspace:packages/ui-tokens":
   version: 0.0.0-use.local
   resolution: "@kybernetes/ui-tokens@workspace:packages/ui-tokens"
   dependencies:
@@ -900,13 +900,11 @@ __metadata:
     "@kybernetes/protocol": "workspace:*"
     "@kybernetes/sim-core": "workspace:*"
     "@kybernetes/tsconfig": "workspace:*"
-    "@kybernetes/ui-tokens": "workspace:*"
     "@playwright/test": "npm:^1.62.1"
     "@stylexjs/stylex": "npm:^0.19.0"
     "@types/react": "npm:^19.0.0"
     "@types/react-dom": "npm:^19.0.0"
     "@vitejs/plugin-react": "npm:^4.3.4"
-    lucide-react: "npm:^1.39.0"
     react: "npm:^19.0.0"
     react-dom: "npm:^19.0.0"
     typescript: "npm:^7.0.2"
@@ -2162,15 +2160,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lucide-react@npm:^1.39.0":
-  version: 1.39.0
-  resolution: "lucide-react@npm:1.39.0"
-  peerDependencies:
-    react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/2e3cb76fd707a96dadeafedc0806816620fa90450c96c9ad8f71e9253d655341a6770f4fe31b0da1e82a5dbdfcb3ac5240eba130c25d04898d8380a9365896a0
-  languageName: node
-  linkType: hard
-
 "magic-string@npm:^1.2.3":
   version: 1.2.3
   resolution: "magic-string@npm:1.2.3"
@@ -2755,7 +2744,7 @@ __metadata:
 
 "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Alocator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>":
   version: 7.0.2
-  resolution: "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Aversion=7.0.2&hash=f858d2&locator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>::version=7.0.2&hash=5786d5"
+  resolution: "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Aversion=7.0.2&hash=f858d2&locator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>::version=7.0.2&hash=3bafbf"
   dependencies:
     "@typescript/typescript-aix-ppc64": "npm:7.0.2"
     "@typescript/typescript-darwin-arm64": "npm:7.0.2"
