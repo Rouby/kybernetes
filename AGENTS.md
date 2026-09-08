@@ -28,11 +28,18 @@ When implementing any feature, bug fix, or milestone task, follow this exact rou
 graph TD
     A["1. Define Wire Types (@kybernetes/protocol)"] --> B["2. Implement & Unit Test Core Math (@kybernetes/sim-core)"]
     B --> C["3. Wire Authoritative Server Daemon (apps/server)"]
-    C --> D["4. Build 2D Canvas & StyleX HUD (apps/web)"]
-    D --> E["5. E2E Browser Testing with Playwright"]
+    C --> D["4. Build WebGL Viewport Slice (apps/web)"]
+    D --> E["5. Cover With Vitest (unit + integration)"]
     E --> F["6. Run 5-Gate Quality Pipeline"]
     F --> G["7. Generate Changeset (yarn changeset)"]
 ```
+
+Playwright e2e is NOT an agent gate: it is slow, stateful, and flaky by
+nature. Agents prove behavior with Vitest (pure unit plus host/daemon
+integration that runs the real tick loop and sockets). Playwright exists to
+produce screenshots and videos for HUMAN verification — run it on demand
+(`yarn --cwd apps/web playwright test harbor-scenes.spec.ts`), never as a
+commit gate. CI keeps running the browser suite as the human signal.
 
 ### Step 1: Protocol First (`packages/protocol`)
 * Add or update client action intents (`ClientAction`) and server broadcasts (`ServerBroadcast`).
@@ -43,23 +50,24 @@ graph TD
 * Write parallel Vitest unit tests in `src/*.test.ts`. Test boundary cases (e.g., zero oxygen, starving vitals, reactor overheat).
 
 ### Step 3: Authoritative Server Handler (`apps/server`)
-* Ingest client actions in `VesselServer.handleClientAction()`.
-* Ensure state updates are replicated in the 10Hz/20Hz delta broadcasts.
+* Ingest validated intents in `SimHost.handleIntent()` via the intent router.
+* Ensure state updates are replicated in the ticked v2 channels (SNAPSHOT 10Hz, TELEMETRY 2Hz, VITALS 5Hz).
+* Cover the loop with host/daemon integration tests (real ticks, real sockets); see `apps/server/src/*test.ts`.
 * Maintain clean process lifecycle: ensure `stop()` terminates open client sockets and closes `WebSocketServer`.
 
-### Step 4: Web Rendering & Viewport (`apps/web`)
-* Render game elements to the HTML5 2D Canvas (`VesselCanvas`).
-* Build or update diegetic HUD components with `@stylexjs/stylex`.
-* Import tokens directly from `@kybernetes/ui-tokens/tokens.stylex`.
+### Step 4: Web Viewport Slice (`apps/web`)
+* Drive the frozen WebGL renderer from v2 snapshots through `harbor/` adapters; never edit frozen files.
+* Keep all translation logic pure and unit-tested (see `harbor/renderState.ts`).
 
-### Step 5: Playwright Verification (`apps/web/e2e/`)
-* Add browser tests in `e2e/*.spec.ts` testing user journeys, keyboard locomotion, console docking, and survival interactions.
+### Step 5: Cover With Vitest (unit + integration)
+* Prove behavior where it lives: kernel math in `packages/sim-core`, host/daemon loops in `apps/server`, pure adapters in `apps/web/src`.
+* Do NOT add Playwright assertions as the primary proof for logic that Vitest can cover.
 
 ### Step 6: 5-Gate Quality Pipeline (Mandatory before committing)
 Run the following verification suite:
 ```bash
-# 1. Formatting and linting (Biome)
-yarn lint
+# 1. Formatting and linting (Biome, touched files)
+yarn biome check <touched files>
 
 # 2. Dead code, clones, and structural health (Fallow)
 yarn quality
@@ -67,16 +75,20 @@ yarn quality
 # 3. TypeScript 7 strict compiler check
 yarn typecheck
 
-# 4. Vitest unit tests
+# 4. Vitest unit + integration tests
 yarn test
 
 # 5. Turborepo production build
 yarn build
-
-# 6. Playwright browser suite (smoke on PRs for speed, full on main)
-yarn test:e2e:smoke # PR fast-feedback: smoke.spec.ts only
-# yarn test:e2e # main branch: full viewport suite
 ```
+
+Playwright is not a gate. To produce human-verification artifacts on demand:
+```bash
+yarn --cwd apps/web build
+
+yarn --cwd apps/web playwright test harbor-scenes.spec.ts # screenshots
+```
+Screenshots land in `apps/web/test-results/` (gitignored); failure videos are retained automatically (see `playwright.config.ts`).
 
 ### Step 7: Changeset
 If you touched any packages (`@kybernetes/*`), generate a changeset entry:
