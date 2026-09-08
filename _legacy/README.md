@@ -40,6 +40,10 @@ M5: `world/crew.ts` (hire loop), `world/watch.ts` (watch rotation + grades),
 `bots/botManager.ts`, `intro.ts`, and the server v1 `handlers/actionRouter.ts`.
 Physical deletion once the server and web migrate off v1 (M7 at the latest).
 
+C1: the v1 vessel server, action/intro routers, delta broadcaster, session
+types, and their tests are DELETED (replaced by the HarborDaemon + SimHost).
+Legacy sim-core and protocol v1 modules stay until the web client migrates.
+
 M7: snapshot builders move to `world/channels.ts` beside the kernel (vessel
 identity, derived gauges, voice lines, heat, notices); HUD parity matrix is
 `packages/protocol/HUD_PARITY_V2.md`. The live v1 socket is untouched, so
