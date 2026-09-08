@@ -34,6 +34,7 @@ function addFrame(world: World, frame: FrameSpec): World {
     rooms: addRooms(world, compiled.rooms, frame.frameId, prefix),
     portals: addPortals(world, compiled.portals, prefix),
     wallsByFrame: { ...world.wallsByFrame, [frame.frameId]: toLegacyWalls(compiled) },
+    spawns: addSpawns(world, compiled.spawns, frame.frameId),
   };
 }
 
@@ -86,6 +87,18 @@ function addPortals(
   return table;
 }
 
+function addSpawns(
+  world: World,
+  spawns: Readonly<Record<string, { x: number; y: number }>>,
+  frameId: string
+): World['spawns'] {
+  const table = { ...world.spawns };
+  for (const [id, point] of Object.entries(spawns)) {
+    table[`${frameId}.${id}`] = { frameId, x: point.x, y: point.y };
+  }
+  return table;
+}
+
 export interface SpawnRequest {
   readonly id: string;
   readonly owner: string;
@@ -109,6 +122,7 @@ export function spawnPawn(world: World, request: SpawnRequest): World {
     speed: 200,
     health: { hp: 100, maxHp: 100, suitSealed: false, incapacitated: false },
     color: request.color,
+    transferCooldownUntilTick: 0,
   };
   return { ...world, pawns: { ...world.pawns, [pawn.id]: pawn } };
 }

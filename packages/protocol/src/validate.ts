@@ -110,7 +110,15 @@ function validateHello(raw: Record<string, unknown>): ValidateResult {
 function validateJoinBeacon(raw: Record<string, unknown>): ValidateResult {
   if (!isShortId(raw.beacon)) return fail('bad-field', 'beacon');
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
-  return { ok: true, intent: { type: 'JOIN_BEACON', beacon: raw.beacon, seq: raw.seq } };
+  if (raw.userId !== undefined && !isShortId(raw.userId)) return fail('bad-field', 'userId');
+  const userId = typeof raw.userId === 'string' ? raw.userId : undefined;
+  return {
+    ok: true,
+    intent:
+      userId === undefined
+        ? { type: 'JOIN_BEACON', beacon: raw.beacon, seq: raw.seq }
+        : { type: 'JOIN_BEACON', beacon: raw.beacon, seq: raw.seq, userId },
+  };
 }
 
 function validateInput(raw: Record<string, unknown>): ValidateResult {

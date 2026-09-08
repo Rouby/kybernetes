@@ -32,3 +32,10 @@ M4: `world/airAuthority.ts` (one air-sim sim per frame, portal-table areas,
 readings on the world) is the only air truth. `spatial/shipAtmosphere.ts` is
 deprecated and frozen; physical deletion lands with `state.ts` in M5 once the
 server host migrates off `VesselSimulationState`.
+
+M5: `world/crew.ts` (hire loop), `world/watch.ts` (watch rotation + grades),
+`world/schedule.ts` (vessel schedule + dock transfer), and `world/scenarios.ts`
+(harbor stage) are the core loop. Deprecated and frozen: `duties.ts`, `roles.ts`,
+`quests/shiftChecklist.ts`, `systems/multiplayer.ts` (Dual/Collab),
+`bots/botManager.ts`, `intro.ts`, and the server v1 `handlers/actionRouter.ts`.
+Physical deletion once the server and web migrate off v1 (M7 at the latest).

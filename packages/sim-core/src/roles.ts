@@ -1,3 +1,4 @@
+/** @deprecated Legacy role table — frozen. The unified Role enum (protocol/content.ts) plus world crew records replace it from M5 on. */
 import type { DutyDefinition, StartingRole } from '@kybernetes/protocol';
 
 export interface RoleDefinition {

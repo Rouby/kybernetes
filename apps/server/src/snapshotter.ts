@@ -5,12 +5,15 @@
  */
 
 import type {
+  HireOfferBroadcast,
   ManifestBroadcast,
+  Role,
   SnapshotBroadcast,
   TelemetryBroadcast,
   VitalsBroadcast,
+  WatchBroadcast,
 } from '@kybernetes/protocol';
-import type { World } from '@kybernetes/sim-core';
+import { projectGrade, type World } from '@kybernetes/sim-core';
 
 export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {
   return {
@@ -97,4 +100,41 @@ export function buildManifest(
   crew: ManifestBroadcast['crew']
 ): ManifestBroadcast {
   return { type: 'MANIFEST', v: 2, tick: world.tick, serverTimeMs: nowMs, crew };
+}
+
+export function buildWatch(
+  world: World,
+  vesselId: string,
+  nowMs: number
+): WatchBroadcast | undefined {
+  const watch = world.watches[vesselId];
+  const vessel = world.vessels[vesselId];
+  if (watch === undefined || vessel === undefined) return undefined;
+  return {
+    type: 'WATCH',
+    v: 2,
+    tick: world.tick,
+    serverTimeMs: nowMs,
+    watchNo: watch.watchNo,
+    section: watch.section,
+    phase: vessel.schedule === 'in_transit' ? 'active_watch' : 'off_duty',
+    remainingS: Math.max(0, Math.round(watch.remainingS)),
+    checklist: watch.tasks.map((task) => ({ id: task.id, label: task.label, done: task.done })),
+    grade: watch.grade === '' ? projectGrade(watch.tasks) : watch.grade,
+  };
+}
+
+export function buildHireOffer(
+  tick: number,
+  nowMs: number,
+  offer: { offerId: string; jobs: readonly Role[] }
+): HireOfferBroadcast {
+  return {
+    type: 'HIRE_OFFER',
+    v: 2,
+    tick,
+    serverTimeMs: nowMs,
+    offerId: offer.offerId,
+    jobs: [...offer.jobs],
+  };
 }

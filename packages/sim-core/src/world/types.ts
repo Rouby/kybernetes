@@ -6,6 +6,9 @@
 
 import type { WallSegment } from '@kybernetes/protocol';
 import type { AirRoomView } from './airAuthority.js';
+import type { CrewRecord, HireOfferRecord } from './crew.js';
+import type { DockLink, TransitState } from './schedule.js';
+import type { WatchState } from './watch.js';
 
 export type PortalKind = 'door' | 'hole' | 'open' | 'airlock' | 'window';
 
@@ -95,6 +98,8 @@ export interface PawnBody {
   readonly speed: number;
   readonly health: HealthSummary;
   readonly color: string;
+  /** Tick before which dock transfer volumes ignore this pawn (anti-bounce). */
+  readonly transferCooldownUntilTick: number;
 }
 
 export interface ProjectileBody {
@@ -140,6 +145,18 @@ export interface World {
   readonly memory: Readonly<Record<string, readonly string[]>>;
   /** Latest air readings per namespaced room id; refreshed when the host steps air. */
   readonly atmos: Readonly<Record<string, AirRoomView>>;
+  /** Hired crew (plus captains) by pawn id; fresh pawns have no record until hired. */
+  readonly crew: Readonly<Record<string, CrewRecord>>;
+  /** One watch record per vessel id, replaced every leg. */
+  readonly watches: Readonly<Record<string, WatchState>>;
+  /** Transit timers and legs per vessel id; phase mirrors VesselFrame.schedule. */
+  readonly transit: Readonly<Record<string, TransitState>>;
+  /** Open hire offers by offer id; consumed by HIRE. */
+  readonly offers: Readonly<Record<string, HireOfferRecord>>;
+  /** Named spawn points by namespaced id. */
+  readonly spawns: Readonly<Record<string, { frameId: string; x: number; y: number }>>;
+  /** Station-to-vessel dock links by id. */
+  readonly docks: Readonly<Record<string, DockLink>>;
 }
 
 export const FIXED_DT = 1 / 20;
@@ -158,5 +175,11 @@ export function createEmptyWorld(timeMs = 0): World {
     wallsByFrame: {},
     memory: {},
     atmos: {},
+    crew: {},
+    watches: {},
+    transit: {},
+    offers: {},
+    spawns: {},
+    docks: {},
   };
 }

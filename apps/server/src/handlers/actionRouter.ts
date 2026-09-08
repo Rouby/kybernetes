@@ -1,3 +1,4 @@
+/** @deprecated v1 action router — frozen. SimHost.handleIntent plus routers/intentRouter serve protocol v2 from M5 on. Deletion with server.ts. */
 import type {
   ClientAction,
   CollabShiftUpdateBroadcast,

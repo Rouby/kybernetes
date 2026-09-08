@@ -51,6 +51,12 @@ export function sealPortal(portal: PortalEdge, tick: number): PortalEdge {
   return { ...portal, state: 'sealed', cooldownUntilTick: tick };
 }
 
+/** Returns a sealed dock portal to a shut edge. Docked transfer volumes move pawns
+ * while the edge stays vacuum-safe; only explicit toggles or damage reopen it. */
+export function unsealPortal(portal: PortalEdge, tick: number): PortalEdge {
+  return { ...portal, state: 'closed', cooldownUntilTick: tick };
+}
+
 /** Nearest portal to a pawn within maxDist of its segment midpoint. */
 export function nearestPortal(
   world: World,

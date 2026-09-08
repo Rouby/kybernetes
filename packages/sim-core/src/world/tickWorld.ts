@@ -17,7 +17,9 @@ import {
   integratePawnVelocity,
   updateRoomHint,
 } from './movement.js';
+import { tickSchedule } from './schedule.js';
 import { FIXED_DT, type PawnBody, type World } from './types.js';
+import { tickWatches } from './watch.js';
 
 export interface WorldInput {
   readonly pawnId: string;
@@ -35,7 +37,9 @@ export function tickWorld(
   const dt = normalizeDt(dtSeconds);
   if (dt === 0) return world;
   const moved = stepMovement(world, dt, inputs);
-  const framed = stepFrames(moved, dt);
+  const scheduled = tickSchedule(moved, dt);
+  const watched = tickWatches(scheduled, dt);
+  const framed = stepFrames(watched, dt);
   const ticked = { ...framed, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };
   if (air === undefined) return ticked;
   return { ...ticked, atmos: refreshAtmos(air, ticked, dt) };

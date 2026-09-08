@@ -1,3 +1,4 @@
+/** @deprecated DualProtocol/CollabShift mini-games — frozen. Two-player watch tasks (if kept) subsume them from M5 on. Deletion with state.ts. */
 import type { PawnState, StartingRole } from '@kybernetes/protocol';
 
 export interface PersistedCrewMember {

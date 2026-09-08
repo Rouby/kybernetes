@@ -10,13 +10,20 @@ import {
   addPuncture,
   assembleWorld,
   bindAirFrame,
+  bindWorldAir,
+  buildHarborWorld,
+  captainIdFor,
   createAirAuthority,
   FIXED_DT,
+  type HireOfferRecord,
   type HullSpec,
+  hireAboard,
   NOMINAL_PRESSURE_KPA,
   nearestPortal,
   portalWind,
+  roomContainingPoint,
   spawnPawn,
+  talkToCaptain,
   tickWorld,
   tryToggleDoor,
   ventedRooms,
@@ -37,17 +44,25 @@ export function PlayPreview({ specName }: { specName: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const worldRef = useRef<World | null>(null);
   const airRef = useRef<AirAuthorityState | null>(null);
+  const offerRef = useRef<HireOfferRecord | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
   const [stats, setStats] = useState('boot');
   const [notice, setNotice] = useState('');
-  const entry = SPECS[specName];
+  const isHarbor = specName === 'harbor';
+  const entry = isHarbor ? undefined : SPECS[specName];
 
   useEffect(() => {
-    if (entry === undefined) return;
-    const start = makePlayWorld(entry.spec);
+    if (!isHarbor && entry === undefined) return;
+    const start = isHarbor
+      ? makeHarborPlayWorld()
+      : entry === undefined
+        ? null
+        : makePlayWorld(entry.spec);
+    if (start === null) return;
     worldRef.current = start;
     const air = createAirAuthority();
-    bindAirFrame(air, FRAME_ID, Object.values(start.rooms), Object.values(start.portals));
+    if (isHarbor) bindWorldAir(air, start);
+    else bindAirFrame(air, FRAME_ID, Object.values(start.rooms), Object.values(start.portals));
     airRef.current = air;
     const canvas = canvasRef.current;
     const ctx = canvas === null ? null : canvas.getContext('2d');
@@ -77,9 +92,47 @@ export function PlayPreview({ specName }: { specName: string }) {
       const id = addPuncture(live, FRAME_ID, pawn.roomHint, 1.5);
       setNotice(id === undefined ? 'puncture failed' : `puncture ${shortId(pawn.roomHint)}`);
     };
+    const pressTalk = (): void => {
+      const world = worldRef.current;
+      if (world === null) return;
+      const captain = Object.values(world.pawns).find((pawn) => pawn.id === captainIdFor('ship'));
+      const talked = talkToCaptain(world, captain?.id ?? 'captain:ship', Math.random);
+      worldRef.current = talked.world;
+      offerRef.current = talked.offer ?? null;
+      setNotice(
+        talked.offer === undefined
+          ? 'no captain aboard a docked ship'
+          : `offer: ${talked.offer.jobs.join('/')}`
+      );
+    };
+    const pressHire = (): void => {
+      const world = worldRef.current;
+      const offer = offerRef.current;
+      if (world === null || offer === null) {
+        setNotice('talk to the captain first');
+        return;
+      }
+      const job = offer.jobs[0];
+      if (job === undefined) {
+        setNotice('empty offer');
+        return;
+      }
+      const { world: hired, hired: ok } = hireAboard(
+        world,
+        offer.vesselId,
+        HERO_ID,
+        job,
+        offer.offerId
+      );
+      worldRef.current = hired;
+      offerRef.current = null;
+      setNotice(ok ? `hired ${job}, departing` : 'hire refused');
+    };
     const onDown = (event: KeyboardEvent): void => {
       if (event.key === 'e' || event.key === 'E') pressDoor();
       else if (event.key === 'b' || event.key === 'B') pressBreach();
+      else if (event.key === 'h' || event.key === 'H') pressTalk();
+      else if (event.key === 'j' || event.key === 'J') pressHire();
       else keysRef.current.add(event.key.toLowerCase());
     };
     const onUp = (event: KeyboardEvent): void => {
@@ -121,15 +174,15 @@ export function PlayPreview({ specName }: { specName: string }) {
       window.removeEventListener('keydown', onDown);
       window.removeEventListener('keyup', onUp);
     };
-  }, [entry]);
+  }, [entry, isHarbor]);
 
-  if (entry === undefined) {
+  if (!isHarbor && entry === undefined) {
     return <div data-testid="play-error">unknown hull: {specName}</div>;
   }
   return (
     <div style={{ background: '#07090d', minHeight: '100vh', padding: 16, color: '#cfd8e3' }}>
       <h1 style={{ fontSize: 16, margin: '0 0 8px' }}>
-        Play slice: {entry.label} (WASD move, E door)
+        Play slice: {isHarbor ? 'Harbor Loop' : entry?.label} (WASD move, E door, H talk, J hire)
       </h1>
       <div data-testid="play-stats">{stats}</div>
       <div data-testid="play-notice">{notice}</div>
@@ -142,6 +195,23 @@ export function PlayPreview({ specName }: { specName: string }) {
       />
     </div>
   );
+}
+
+function makeHarborPlayWorld(): World {
+  const harbor = buildHarborWorld();
+  const spawn = harbor.spawns['station.fresh_spawn'];
+  const x = spawn?.x ?? 300;
+  const y = spawn?.y ?? 200;
+  const roomId = roomContainingPoint(harbor, 'station', x, y) ?? 'station.lobby';
+  return spawnPawn(harbor, {
+    id: HERO_ID,
+    owner: 'hero',
+    frameId: 'station',
+    roomId,
+    x,
+    y,
+    color: '#ffd166',
+  });
 }
 
 function makePlayWorld(spec: HullSpec): World {
@@ -195,20 +265,23 @@ function describeWorld(world: World): string {
   if (pawn === undefined) return 'missing hero';
   const near = nearestPortal(world, HERO_ID, INTERACT_RADIUS);
   const explored = world.memory[HERO_ID]?.length ?? 0;
-  const room = pawn.roomHint.startsWith(`${FRAME_ID}.`)
-    ? pawn.roomHint.slice(FRAME_ID.length + 1)
-    : pawn.roomHint;
+  const room = shortId(pawn.roomHint);
   const door = near === undefined ? 'none' : `${shortId(near.id)}:${near.state}`;
+  const record = world.crew[HERO_ID];
+  const watch = Object.values(world.watches)[0];
+  const vessel = watch === undefined ? undefined : world.vessels[watch.vesselId];
+  const loop = `role:${record?.role ?? 'none'} watch:${watch === undefined ? 'none' : `#${watch.watchNo} ${Math.max(0, Math.round(watch.remainingS))}s`} grade:${watch?.grade === '' || watch?.grade === undefined ? '-' : watch.grade} credits:${record?.credits ?? 0} sched:${vessel?.schedule ?? 'none'}`;
   const view = world.atmos[pawn.roomHint];
   const air =
     view === undefined
       ? 'p:? o2:? vent:0'
       : `p:${view.pressureKpa.toFixed(1)} o2:${view.o2Percent.toFixed(1)} vent:${ventedRooms(world.atmos).length}`;
-  return `x:${Math.round(pawn.pos.x)} y:${Math.round(pawn.pos.y)} room:${room} explored:${explored} door:${door} ${air}`;
+  return `x:${Math.round(pawn.pos.x)} y:${Math.round(pawn.pos.y)} room:${room} explored:${explored} door:${door} ${air} ${loop}`;
 }
 
 function shortId(id: string): string {
-  return id.startsWith(`${FRAME_ID}.`) ? id.slice(FRAME_ID.length + 1) : id;
+  const dot = id.indexOf('.');
+  return dot < 0 ? id : id.slice(dot + 1);
 }
 
 function drawPlayWorld(
@@ -216,20 +289,21 @@ function drawPlayWorld(
   world: World,
   air: AirAuthorityState | null
 ): void {
-  const rooms = Object.values(world.rooms).filter((room) => room.frameId === FRAME_ID);
-  const walls = world.wallsByFrame[FRAME_ID] ?? [];
-  const portals = Object.values(world.portals).filter((portal) =>
-    portal.id.startsWith(`${FRAME_ID}.`)
-  );
+  const rooms = Object.values(world.rooms);
+  const walls = Object.entries(world.wallsByFrame);
+  const portals = Object.values(world.portals);
+  const originOf = (frameId: string): { x: number; y: number } =>
+    world.vessels[frameId]?.origin ?? world.stations[frameId]?.origin ?? { x: 0, y: 0 };
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
   for (const room of rooms) {
-    minX = Math.min(minX, room.rect.x);
-    minY = Math.min(minY, room.rect.y);
-    maxX = Math.max(maxX, room.rect.x + room.rect.w);
-    maxY = Math.max(maxY, room.rect.y + room.rect.h);
+    const origin = originOf(room.frameId);
+    minX = Math.min(minX, room.rect.x + origin.x);
+    minY = Math.min(minY, room.rect.y + origin.y);
+    maxX = Math.max(maxX, room.rect.x + room.rect.w + origin.x);
+    maxY = Math.max(maxY, room.rect.y + room.rect.h + origin.y);
   }
   const spanW = Math.max(maxX - minX, 1);
   const spanH = Math.max(maxY - minY, 1);
@@ -242,10 +316,13 @@ function drawPlayWorld(
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
   ctx.font = '11px monospace';
   for (const room of rooms) {
-    const x = toX(room.rect.x);
-    const y = toY(room.rect.y);
+    const origin = originOf(room.frameId);
+    const rx = room.rect.x + origin.x;
+    const ry = room.rect.y + origin.y;
+    const x = toX(rx);
+    const y = toY(ry);
     ctx.fillStyle = '#14161c';
-    ctx.fillRect(x, y, toX(room.rect.x + room.rect.w) - x, toY(room.rect.y + room.rect.h) - y);
+    ctx.fillRect(x, y, toX(rx + room.rect.w) - x, toY(ry + room.rect.h) - y);
     const view = world.atmos[room.id];
     const deficit =
       view === undefined
@@ -256,52 +333,83 @@ function drawPlayWorld(
           );
     if (deficit > 0.02) {
       ctx.fillStyle = `rgba(255, 60, 40, ${(deficit * 0.45).toFixed(2)})`;
-      ctx.fillRect(x, y, toX(room.rect.x + room.rect.w) - x, toY(room.rect.y + room.rect.h) - y);
+      ctx.fillRect(x, y, toX(rx + room.rect.w) - x, toY(ry + room.rect.h) - y);
     }
     ctx.fillStyle = '#5b6b7f';
     ctx.fillText(shortId(room.id), x + 4, y + 14);
   }
   ctx.lineWidth = 3;
-  for (const wall of walls) {
-    ctx.strokeStyle = wall.isOpaque === false ? '#00e5ff' : '#9fb4c8';
-    ctx.beginPath();
-    ctx.moveTo(toX(wall.x1), toY(wall.y1));
-    ctx.lineTo(toX(wall.x2), toY(wall.y2));
-    ctx.stroke();
+  for (const [frameId, frameWalls] of walls) {
+    const origin = originOf(frameId);
+    for (const wall of frameWalls) {
+      ctx.strokeStyle = wall.isOpaque === false ? '#00e5ff' : '#9fb4c8';
+      ctx.beginPath();
+      ctx.moveTo(toX(wall.x1 + origin.x), toY(wall.y1 + origin.y));
+      ctx.lineTo(toX(wall.x2 + origin.x), toY(wall.y2 + origin.y));
+      ctx.stroke();
+    }
   }
   ctx.lineWidth = 5;
   ctx.globalAlpha = 0.85;
+  const windPortals: {
+    id: string;
+    frameId: string;
+    segment: { x1: number; y1: number; x2: number; y2: number };
+  }[] = [];
   for (const portal of portals) {
+    const room = world.rooms[portal.roomA];
+    const origin = originOf(room?.frameId ?? '');
+    const segment = {
+      x1: portal.segment.x1 + origin.x,
+      y1: portal.segment.y1 + origin.y,
+      x2: portal.segment.x2 + origin.x,
+      y2: portal.segment.y2 + origin.y,
+    };
+    windPortals.push({ id: portal.id, frameId: room?.frameId ?? '', segment });
     if (portal.kind === 'window') ctx.strokeStyle = '#00e5ff';
     else if (portal.kind === 'airlock') ctx.strokeStyle = '#c77dff';
     else ctx.strokeStyle = '#ffb000';
     ctx.beginPath();
-    ctx.moveTo(toX(portal.segment.x1), toY(portal.segment.y1));
-    ctx.lineTo(toX(portal.segment.x2), toY(portal.segment.y2));
+    ctx.moveTo(toX(segment.x1), toY(segment.y1));
+    ctx.lineTo(toX(segment.x2), toY(segment.y2));
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  drawWindArrows(ctx, air, portals, toX, toY);
+  drawWindArrows(ctx, air, windPortals, toX, toY);
   for (const room of rooms) {
     if (visible.has(room.id)) continue;
-    const x = toX(room.rect.x);
-    const y = toY(room.rect.y);
+    const origin = originOf(room.frameId);
+    const x = toX(room.rect.x + origin.x);
+    const y = toY(room.rect.y + origin.y);
     ctx.fillStyle = remembered.has(room.id) ? 'rgba(4, 6, 10, 0.55)' : 'rgba(2, 3, 6, 0.85)';
-    ctx.fillRect(x, y, toX(room.rect.x + room.rect.w) - x, toY(room.rect.y + room.rect.h) - y);
+    ctx.fillRect(
+      x,
+      y,
+      toX(room.rect.x + room.rect.w + origin.x) - x,
+      toY(room.rect.y + room.rect.h + origin.y) - y
+    );
   }
   const vented = new Set(ventedRooms(world.atmos));
   if (vented.size > 0) {
     ctx.fillStyle = '#ff5040';
     ctx.font = 'bold 12px monospace';
     for (const room of rooms) {
-      if (vented.has(room.id)) ctx.fillText('VENT', toX(room.rect.x) + 4, toY(room.rect.y) + 28);
+      if (!vented.has(room.id)) continue;
+      const origin = originOf(room.frameId);
+      ctx.fillText('VENT', toX(room.rect.x + origin.x) + 4, toY(room.rect.y + origin.y) + 28);
     }
   }
-  const hero = world.pawns[HERO_ID];
-  if (hero !== undefined) {
-    ctx.fillStyle = hero.color;
+  for (const pawn of Object.values(world.pawns)) {
+    const origin = originOf(pawn.frameId);
+    ctx.fillStyle = pawn.id === HERO_ID ? pawn.color : '#8fa3b8';
     ctx.beginPath();
-    ctx.arc(toX(hero.pos.x), toY(hero.pos.y), Math.max(hero.radius * scale, 4), 0, Math.PI * 2);
+    ctx.arc(
+      toX(pawn.pos.x + origin.x),
+      toY(pawn.pos.y + origin.y),
+      Math.max(pawn.radius * scale, 4),
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
   }
 }
@@ -309,7 +417,11 @@ function drawPlayWorld(
 function drawWindArrows(
   ctx: CanvasRenderingContext2D,
   air: AirAuthorityState | null,
-  portals: readonly { id: string; segment: { x1: number; y1: number; x2: number; y2: number } }[],
+  portals: readonly {
+    id: string;
+    frameId: string;
+    segment: { x1: number; y1: number; x2: number; y2: number };
+  }[],
   toX: (x: number) => number,
   toY: (y: number) => number
 ): void {
@@ -317,7 +429,7 @@ function drawWindArrows(
   ctx.strokeStyle = '#7df9ff';
   ctx.lineWidth = 2;
   for (const portal of portals) {
-    const wind = portalWind(air, FRAME_ID, portal.id);
+    const wind = portalWind(air, portal.frameId, portal.id);
     if (wind === undefined) continue;
     const speed = Math.hypot(wind.x, wind.y);
     if (speed < 0.5) continue;

@@ -1,3 +1,4 @@
+/** @deprecated Shift checklist grading — frozen. Watch grades (world/watch.ts) subsume it from M5 on. Deletion with state.ts. */
 import type {
   PlayerVitals,
   ShiftChecklistState,

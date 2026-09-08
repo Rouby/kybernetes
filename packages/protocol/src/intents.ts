@@ -17,6 +17,7 @@ export interface JoinBeaconIntent {
   readonly type: 'JOIN_BEACON';
   readonly beacon: string;
   readonly seq: number;
+  readonly userId?: string;
 }
 
 export interface InputIntent {

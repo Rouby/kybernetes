@@ -1,3 +1,4 @@
+/** @deprecated Legacy bot manager — frozen. NPC crew fill-ins (world/crew.ts) cover the hire loop from M5 on; schedule automatons land in M7. */
 import type { DoorState, PawnState, StartingRole } from '@kybernetes/protocol';
 import { HESPERIA_ROOMS, HESPERIA_SPAWNS, HESPERIA_STATIONS } from '../spatial/deck';
 import { findNavigationPath, getRoomAt, type NavigationWaypoint } from '../spatial/navigation';

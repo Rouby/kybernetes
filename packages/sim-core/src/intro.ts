@@ -1,3 +1,4 @@
+/** @deprecated Single-ship intro script — frozen. The vessel schedule plus harbor scenario (world/schedule.ts, world/scenarios.ts) replace it from M5 on. */
 import {
   type CaptainJobOfferBroadcast,
   type DockingPhase,

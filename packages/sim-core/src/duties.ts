@@ -1,3 +1,4 @@
+/** @deprecated Legacy duty board — frozen. The watch rotation (world/watch.ts) is the single loop from M5 on. Deletion with state.ts once the server migrates. */
 import type { DutyDefinition, PlayerVitals, StartingRole } from '@kybernetes/protocol';
 import { ROLE_DEFINITIONS } from './roles';
 import type { VesselSimulationState } from './state';

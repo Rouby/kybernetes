@@ -1,0 +1,141 @@
+import { buildHarborWorld, HARBOR_BEACON } from '@kybernetes/sim-core';
+import { describe, expect, it } from 'vitest';
+import { SimHost } from './SimHost.js';
+import { buildHireOffer, buildManifest, buildWatch } from './snapshotter.js';
+
+function riggedHost(): SimHost {
+  return new SimHost(buildHarborWorld(), undefined, null, {
+    stationFrameId: 'station',
+    rng01: () => 0.1,
+  });
+}
+
+function driver(host: SimHost): (seconds: number) => void {
+  let nowMs = 0;
+  return (seconds: number) => {
+    const ticks = Math.round(seconds / 0.05);
+    for (let i = 0; i < ticks; i += 1) {
+      nowMs += 50;
+      host.slice(nowMs, 50);
+    }
+  };
+}
+
+describe('host loop sessions', () => {
+  it('spawns fresh crew at the station and resumes them by userId', () => {
+    const host = riggedHost();
+    const first = host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    expect(first?.resumed).toBe(false);
+    expect(host.currentWorld.pawns[first?.pawnId ?? '']?.frameId).toBe('station');
+    host.leaveClient('c1');
+    const second = host.joinBeacon('c1b', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    expect(second?.resumed).toBe(true);
+    expect(second?.pawnId).toBe(first?.pawnId);
+    host.stop();
+  });
+
+  it('rejects unknown beacons without spawning', () => {
+    const host = riggedHost();
+    expect(host.joinBeacon('c9', 'NOPE', 'Rook', '#fff', 'u9')).toBeUndefined();
+    host.stop();
+  });
+
+  it('shares one vessel between co-op crew with manifest roles', () => {
+    const host = riggedHost();
+    host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    host.joinBeacon('c2', HARBOR_BEACON, 'Sable', '#000', 'u2');
+    const manifest = host.manifestFor();
+    expect(manifest).toHaveLength(2);
+    expect(buildManifest(host.currentWorld, 0, manifest).crew).toHaveLength(2);
+    host.stop();
+  });
+
+  it('runs talk to hire to departure through validated intents', () => {
+    const host = riggedHost();
+    host.handleIntent('c1', { type: 'HELLO', callsign: 'Rook', color: '#fff', clientVersion: 2 });
+    host.handleIntent('c1', { type: 'JOIN_BEACON', beacon: HARBOR_BEACON, seq: 0, userId: 'u1' });
+    const talk = host.handleIntent('c1', { type: 'TALK', seq: 1, npcId: 'captain:ship' });
+    expect(talk.offer?.jobs).toEqual(['engineer', 'deckhand']);
+    if (talk.offer === undefined) throw new Error('no offer');
+    expect(buildHireOffer(0, 0, talk.offer).jobs).toHaveLength(2);
+    const hire = host.handleIntent('c1', {
+      type: 'HIRE',
+      seq: 2,
+      offerId: talk.offer.offerId,
+      job: 'engineer',
+    });
+    expect(hire.notice).toBeUndefined();
+    expect(host.currentWorld.vessels.ship?.schedule).toBe('departing');
+    expect(host.clientOf('c1')?.pawnId).toBe('pawn:u1');
+    host.stop();
+  });
+
+  it('refuses hire and talk outside the loop rules', () => {
+    const host = riggedHost();
+    expect(
+      host.handleIntent('ghost', {
+        type: 'INPUT',
+        seq: 0,
+        moveVec: { x: 0, y: 0 },
+        facing: 0,
+        sprint: false,
+        sealed: false,
+      }).notice
+    ).toBe('not-joined');
+    host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    expect(host.handleIntent('c1', { type: 'TALK', seq: 1, npcId: 'nobody' }).notice).toBe(
+      'no-offer'
+    );
+    expect(
+      host.handleIntent('c1', { type: 'HIRE', seq: 2, offerId: 'offer_bogus', job: 'cook' }).notice
+    ).toBe('hire-refused');
+    host.stop();
+  });
+
+  it('builds an empty watch broadcast before the first leg', () => {
+    const host = riggedHost();
+    expect(buildWatch(host.currentWorld, 'ship', 0)).toBeUndefined();
+    expect(buildWatch(host.currentWorld, 'nope', 0)).toBeUndefined();
+    host.stop();
+  });
+
+  it('grades the full journey with credits through host slices', () => {
+    const host = riggedHost();
+    host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    host.handleIntent('c1', {
+      type: 'DOOR',
+      seq: 0,
+      portalId: 'station.lobby_bay',
+      wantOpen: true,
+    });
+    const drive = driver(host);
+    for (let i = 0; i < 400; i += 1) {
+      if (host.currentWorld.pawns['pawn:u1']?.frameId === 'ship') break;
+      host.handleIntent('c1', {
+        type: 'INPUT',
+        seq: i + 1,
+        moveVec: { x: 1, y: 0 },
+        facing: 0,
+        sprint: false,
+        sealed: false,
+      });
+      drive(0.05);
+    }
+    expect(host.currentWorld.pawns['pawn:u1']?.frameId).toBe('ship');
+    const talk = host.handleIntent('c1', { type: 'TALK', seq: 500, npcId: 'captain:ship' });
+    if (talk.offer === undefined) throw new Error('no offer');
+    host.handleIntent('c1', {
+      type: 'HIRE',
+      seq: 501,
+      offerId: talk.offer.offerId,
+      job: 'deckhand',
+    });
+    drive(3.5 + 20.5);
+    const watch = buildWatch(host.currentWorld, 'ship', 1000);
+    expect(watch?.grade).toBe('S');
+    expect(watch?.checklist.length).toBe(4);
+    expect(host.vitalsFor('pawn:u1').credits).toBe(200);
+    expect(host.manifestFor().find((entry) => entry.id === 'pawn:u1')?.role).toBe('deckhand');
+    host.stop();
+  });
+});
