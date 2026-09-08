@@ -40,6 +40,7 @@ export async function harborBoard(
   await waitForHarborSocket(page);
   await waitForHarbor(page, 'harbor-pawn', (t) => t !== '' && t !== '-', 20000);
   await waitForHarbor(page, 'harbor-status', (t) => t.includes('room:'), 20000);
+  await waitForHarbor(page, 'harbor-vitals', (t) => t.includes('hp:'), 20000);
   return canvas;
 }
 

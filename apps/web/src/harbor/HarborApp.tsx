@@ -14,6 +14,7 @@ import {
 import type { RefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import { shouldFireShot } from './fireGate';
 import { HarborViewport } from './HarborViewport';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
 import { useHarborSocket } from './useHarborSocket';
@@ -71,6 +72,7 @@ export function HarborApp() {
   predictedRef.current = movement.predicted;
   const fire = useCallback((): void => {
     const self = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
+    if (self === undefined || !shouldFireShot(socket.vitals, true)) return;
     socket.sendIntent({
       type: 'FIRE',
       seq: 0,
@@ -78,10 +80,8 @@ export function HarborApp() {
       weapon: 'kinetic_carbine',
     });
     fireSignalRef.current += 1;
-    if (self !== undefined) {
-      ShipAudioEngine.getInstance().playWeaponFire(self.x, self.y, 'kinetic_carbine');
-    }
-  }, [socket.snapshot, socket.pawnId, socket.sendIntent, movement.facingRef]);
+    ShipAudioEngine.getInstance().playWeaponFire(self.x, self.y, 'kinetic_carbine');
+  }, [socket.snapshot, socket.pawnId, socket.vitals, socket.sendIntent, movement.facingRef]);
   const fireRef = useRef(fire);
   fireRef.current = fire;
   const fireSignalRef = useRef(0);
@@ -94,10 +94,21 @@ export function HarborApp() {
     fireHeldRef.current = false;
   }, []);
   useEffect(() => {
-    const pump = setInterval(() => {
-      if (fireHeldRef.current) fireRef.current();
-    }, 160);
-    return () => clearInterval(pump);
+    let raf = 0;
+    let last = performance.now();
+    let acc = 0;
+    const frame = (now: number): void => {
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      acc += dt;
+      if (acc >= 0.16) {
+        acc = 0;
+        if (fireHeldRef.current) fireRef.current();
+      }
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
   }, []);
   useActions(
     socket.sendIntent,

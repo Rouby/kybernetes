@@ -17,8 +17,8 @@ import type {
   WatchBroadcast,
 } from '@kybernetes/protocol';
 import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
-import type { World } from './types.js';
 import { spareRounds } from './survival.js';
+import type { World } from './types.js';
 import { projectGrade, type WatchState } from './watch.js';
 
 export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {

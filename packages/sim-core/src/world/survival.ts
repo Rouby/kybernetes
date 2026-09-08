@@ -103,7 +103,10 @@ export function setSleeping(world: World, pawnId: string, sleeping: boolean): Wo
   return { ...world, vitals: { ...world.vitals, [pawnId]: { ...vitals, sleeping } } };
 }
 
-export function startReload(world: World, pawnId: string): { world: World; result: 'ok' | 'full' | 'none' | 'busy' } {
+export function startReload(
+  world: World,
+  pawnId: string
+): { world: World; result: 'ok' | 'full' | 'none' | 'busy' } {
   const pawn = world.pawns[pawnId];
   if (pawn === undefined) return { world, result: 'none' };
   const vitals = ensureVitals(world, pawnId);

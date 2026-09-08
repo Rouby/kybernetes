@@ -236,20 +236,24 @@ function renderViewport(
         lockedBulkheads: [],
         ventedRooms: ventedBareIds(view.telemetry),
         doors: session.doors,
-        projectiles: (snapshot.projectiles ?? []).map((shot) => ({
-          id: shot.id,
-          x: shot.x + (origins.get(shot.frameId)?.x ?? 0),
-          y: shot.y + (origins.get(shot.frameId)?.y ?? 0),
-          vx: shot.vx,
-          vy: shot.vy,
-          damage: 0,
-          color: '#ffd27f',
-          fromPlayer: true,
-          lifeSeconds: 1,
-          weaponType: (shot.weapon === 'arc_welder'
-            ? 'arc_welder'
-            : 'kinetic_carbine') as WeaponType,
-        })),
+        projectiles: (snapshot.projectiles ?? []).map((shot) => {
+          const age = Math.min(Math.max((now - snapshot.serverTimeMs) / 1000, 0), 0.15);
+          const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
+          return {
+            id: shot.id,
+            x: shot.x + origin.x + shot.vx * age,
+            y: shot.y + origin.y + shot.vy * age,
+            vx: shot.vx,
+            vy: shot.vy,
+            damage: 0,
+            color: '#ffd27f',
+            fromPlayer: true,
+            lifeSeconds: 1,
+            weaponType: (shot.weapon === 'arc_welder'
+              ? 'arc_welder'
+              : 'kinetic_carbine') as WeaponType,
+          };
+        }),
         roomO2: roomO2(roomAtmos),
       },
       credits: view.vitals?.credits,

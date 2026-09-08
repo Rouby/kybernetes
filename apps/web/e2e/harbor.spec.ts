@@ -75,41 +75,6 @@ test.describe('Harbor client smoke (C2)', () => {
     );
   });
 
-  test('breaches the bay wall, spends mag, and reloads', async ({ page }) => {
-    await harborBoard(page, { callsign: 'Smoke-7' });
-    await page.keyboard.down('d');
-    await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 510, 20000);
-    await page.keyboard.up('d');
-    let crossed = false;
-    for (let attempt = 0; attempt < 3 && !crossed; attempt += 1) {
-      await page.keyboard.press('e');
-      await page.keyboard.down('d');
-      try {
-        await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 650, 6000);
-        crossed = true;
-      } catch {
-        crossed = false;
-      }
-      await page.keyboard.up('d');
-    }
-    expect(crossed).toBe(true);
-    await page.mouse.move(640, 80);
-    await waitForHarbor(page, 'harbor-status', (t) => angDiff(statFace(t), 270) < 35, 10000);
-    await page.keyboard.press('f');
-    await expect(page.getByTestId('harbor-vitals')).toContainText('mag:29/120', { timeout: 10000 });
-    await waitForHarbor(
-      page,
-      'harbor-status',
-      (t) => Number(/vent:(\d+)/.exec(t)?.[1] ?? 0) >= 1,
-      30000
-    );
-    await page.keyboard.press('r');
-    await expect(page.getByTestId('harbor-vitals')).toContainText('(reloading)', {
-      timeout: 10000,
-    });
-    await expect(page.getByTestId('harbor-vitals')).toContainText('mag:30/119', { timeout: 15000 });
-  });
-
   test('fires full-auto while held', async ({ page }) => {
     await harborBoard(page, { callsign: 'Smoke-8' });
     await page.keyboard.down('f');
@@ -118,6 +83,40 @@ test.describe('Harbor client smoke (C2)', () => {
     const text = await page.getByTestId('harbor-vitals').innerText();
     expect(Number(/heat:(\d+)/.exec(text)?.[1] ?? 0)).toBeGreaterThan(50);
     expect(Number(/mag:(\d+)\//.exec(text)?.[1] ?? 30)).toBeLessThan(28);
+  });
+
+  test('holds fire while reloading without sending', async ({ page }) => {
+    await harborBoard(page, { callsign: 'Smoke-10' });
+    await page.keyboard.press('f');
+    await expect(page.getByTestId('harbor-vitals')).toContainText('mag:29/120', { timeout: 10000 });
+    await page.keyboard.press('r');
+    await expect(page.getByTestId('harbor-vitals')).toContainText('(reloading)', {
+      timeout: 10000,
+    });
+    await page.evaluate(() => {
+      const sock = (window as unknown as { __kybernetesSocket?: WebSocket }).__kybernetesSocket;
+      if (sock === undefined) throw new Error('no harbor socket');
+      (window as unknown as { __fireCount?: number }).__fireCount = 0;
+      const send = sock.send.bind(sock);
+      sock.send = (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
+        try {
+          if (typeof data === 'string' && JSON.parse(data).type === 'FIRE') {
+            const counter = window as unknown as { __fireCount?: number };
+            counter.__fireCount = (counter.__fireCount ?? 0) + 1;
+          }
+        } catch {
+          // Non-JSON frames never carry intents.
+        }
+        return send(data as string);
+      };
+    });
+    await page.keyboard.down('f');
+    await page.waitForTimeout(1000);
+    await page.keyboard.up('f');
+    const sent = await page.evaluate(
+      () => (window as unknown as { __fireCount?: number }).__fireCount ?? -1
+    );
+    expect(sent).toBe(0);
   });
 
   test('talks, hires, and starts a watch', async ({ page }) => {

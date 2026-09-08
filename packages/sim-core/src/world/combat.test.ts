@@ -9,6 +9,7 @@ import {
 import { assembleWorld, spawnPawn } from './assemble.js';
 import {
   applyDamage,
+  fireBlock,
   fireWeapon,
   OWNER_GRACE_TICKS,
   PROJECTILE_LIFE_TICKS,
@@ -228,6 +229,32 @@ describe('simulated projectiles', () => {
     expect(world.impacts).toEqual([]);
   });
 
+  it('shares one gate between server enforcement and client mirrors', () => {
+    const ready = { heat: 0, mags: [30, 30], reloadingS: 0, down: false };
+    expect(fireBlock(ready)).toBeNull();
+    expect(fireBlock({ ...ready, down: true })).toBe('down');
+    expect(fireBlock({ ...ready, heat: 100 })).toBe('overheated');
+    expect(fireBlock({ ...ready, reloadingS: 1 })).toBe('reloading');
+    expect(fireBlock({ ...ready, mags: [0] })).toBe('empty');
+  });
+
+  it('refuses downed pawns without spawning or spending', () => {
+    let world = boxDuel();
+    const pawn = world.pawns.p1;
+    if (pawn === undefined) throw new Error('missing shooter');
+    world = {
+      ...world,
+      pawns: {
+        ...world.pawns,
+        p1: { ...pawn, health: { ...pawn.health, hp: 0, incapacitated: true } },
+      },
+    };
+    const downed = fireWeapon(world, 'p1', 0, 'rifle');
+    expect(downed.result).toEqual({ kind: 'down' });
+    expect(Object.keys(downed.world.projectiles)).toHaveLength(0);
+    expect(downed.world.vitals.p1?.mags?.[0] ?? 30).toBe(30);
+  });
+
   it('refuses fire while reloading or dry', () => {
     let world = boxDuel();
     if (world.pawns.p1 === undefined) throw new Error('missing shooter');
@@ -242,6 +269,15 @@ describe('simulated projectiles', () => {
     expect(dry.result).toEqual({ kind: 'empty' });
     expect(Object.keys(dry.world.projectiles)).toHaveLength(0);
     expect(dry.world.heat.p1 ?? 0).toBe(0);
+    const busy = {
+      ...world,
+      vitals: {
+        ...world.vitals,
+        p1: { ...defaultVitals(false), mags: [10, 10], reloadingS: 1 },
+      },
+    };
+    expect(fireWeapon(busy, 'p1', 0, 'rifle').result).toEqual({ kind: 'empty' });
+    expect(Object.keys(busy.projectiles)).toHaveLength(0);
   });
 
   it('overheats after five shots and cools back to ready', () => {

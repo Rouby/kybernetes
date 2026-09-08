@@ -9,7 +9,7 @@ import { closestPointOnSegment, segmentsIntersect } from '../spatial/collision.j
 import { roomContainingPoint } from './crew.js';
 import { destroyPortal } from './doors.js';
 import { carryByFrame, collidersForFrame } from './movement.js';
-import { ensureVitals, loadedAmmo, startBleeding } from './survival.js';
+import { ensureVitals, startBleeding } from './survival.js';
 import type { DamageEvent, PawnBody, PortalEdge, ProjectileBody, Vec2, World } from './types.js';
 
 export const RIFLE_DAMAGE = 25;
@@ -30,7 +30,30 @@ export type FireResult =
   | { readonly kind: 'miss' }
   | { readonly kind: 'overheated' }
   | { readonly kind: 'empty' }
+  | { readonly kind: 'down' }
   | { readonly kind: 'fired'; readonly projectileId: string; readonly point: Vec2 };
+
+export interface FireGateInput {
+  readonly heat: number;
+  readonly mags: readonly number[];
+  readonly reloadingS: number;
+  readonly down: boolean;
+}
+
+export type FireBlock = 'down' | 'overheated' | 'empty' | 'reloading';
+
+/**
+ * Shared fire gate: the server enforces it, the client mirrors it from
+ * VITALS snapshots so refused shots never play sound, flash, or intents.
+ * Mirror staleness is bounded by one VITALS tick; the server stays truth.
+ */
+export function fireBlock(input: FireGateInput): FireBlock | null {
+  if (input.down) return 'down';
+  if (input.heat >= OVERHEAT_AT) return 'overheated';
+  if (input.reloadingS > 0) return 'reloading';
+  if ((input.mags[0] ?? 0) <= 0) return 'empty';
+  return null;
+}
 
 export function weaponDamage(weapon: string): number {
   return weapon === 'arc_welder' ? WELDER_DAMAGE : RIFLE_DAMAGE;
@@ -45,11 +68,16 @@ export function fireWeapon(
   const shooter = world.pawns[pawnId];
   if (shooter === undefined || !Number.isFinite(originAngle))
     return { world, result: { kind: 'miss' } };
-  if ((world.heat[pawnId] ?? 0) >= OVERHEAT_AT) return { world, result: { kind: 'overheated' } };
   const vitals = ensureVitals(world, pawnId);
-  if (vitals.reloadingS > 0 || loadedAmmo(vitals) <= 0) {
-    return { world, result: { kind: 'empty' } };
-  }
+  const blocked = fireBlock({
+    heat: world.heat[pawnId] ?? 0,
+    mags: vitals.mags,
+    reloadingS: vitals.reloadingS,
+    down: shooter.health.incapacitated,
+  });
+  if (blocked === 'down') return { world, result: { kind: 'down' } };
+  if (blocked === 'overheated') return { world, result: { kind: 'overheated' } };
+  if (blocked !== null) return { world, result: { kind: 'empty' } };
   const [loaded = 0, ...spares] = vitals.mags;
   const heated: World = {
     ...world,
