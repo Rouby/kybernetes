@@ -9,7 +9,7 @@ import { closestPointOnSegment, segmentsIntersect } from '../spatial/collision.j
 import { roomContainingPoint } from './crew.js';
 import { destroyPortal } from './doors.js';
 import { carryByFrame, collidersForFrame } from './movement.js';
-import { ensureVitals, startBleeding } from './survival.js';
+import { ensureVitals, loadedAmmo, startBleeding } from './survival.js';
 import type { DamageEvent, PawnBody, PortalEdge, ProjectileBody, Vec2, World } from './types.js';
 
 export const RIFLE_DAMAGE = 25;
@@ -17,8 +17,8 @@ export const WELDER_DAMAGE = 15;
 export const BREACH_AREA_M2 = 1.5;
 export const COMBAT_BLEED_S = 20;
 export const IMPACT_TTL_TICKS = 6;
-export const HEAT_PER_SHOT = 25;
-export const HEAT_COOLDOWN_PER_S = 10;
+export const HEAT_PER_SHOT = 20;
+export const HEAT_COOLDOWN_PER_S = 25;
 export const OVERHEAT_AT = 100;
 
 export const PROJECTILE_SPEED = 600;
@@ -47,13 +47,14 @@ export function fireWeapon(
     return { world, result: { kind: 'miss' } };
   if ((world.heat[pawnId] ?? 0) >= OVERHEAT_AT) return { world, result: { kind: 'overheated' } };
   const vitals = ensureVitals(world, pawnId);
-  if (vitals.reloadingS > 0 || vitals.ammo <= 0) {
+  if (vitals.reloadingS > 0 || loadedAmmo(vitals) <= 0) {
     return { world, result: { kind: 'empty' } };
   }
+  const [loaded = 0, ...spares] = vitals.mags;
   const heated: World = {
     ...world,
     heat: { ...world.heat, [pawnId]: (world.heat[pawnId] ?? 0) + HEAT_PER_SHOT },
-    vitals: { ...world.vitals, [pawnId]: { ...vitals, ammo: vitals.ammo - 1 } },
+    vitals: { ...world.vitals, [pawnId]: { ...vitals, mags: [loaded - 1, ...spares] } },
   };
   const dir = { x: Math.cos(originAngle), y: Math.sin(originAngle) };
   const muzzle = {

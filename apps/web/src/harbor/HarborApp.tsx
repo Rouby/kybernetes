@@ -77,10 +77,28 @@ export function HarborApp() {
       originAngle: movement.facingRef.current,
       weapon: 'kinetic_carbine',
     });
+    fireSignalRef.current += 1;
     if (self !== undefined) {
       ShipAudioEngine.getInstance().playWeaponFire(self.x, self.y, 'kinetic_carbine');
     }
   }, [socket.snapshot, socket.pawnId, socket.sendIntent, movement.facingRef]);
+  const fireRef = useRef(fire);
+  fireRef.current = fire;
+  const fireSignalRef = useRef(0);
+  const fireHeldRef = useRef(false);
+  const pressFireStart = useCallback((): void => {
+    fireHeldRef.current = true;
+    fireRef.current();
+  }, []);
+  const pressFireEnd = useCallback((): void => {
+    fireHeldRef.current = false;
+  }, []);
+  useEffect(() => {
+    const pump = setInterval(() => {
+      if (fireHeldRef.current) fireRef.current();
+    }, 160);
+    return () => clearInterval(pump);
+  }, []);
   useActions(
     socket.sendIntent,
     staticWorld,
@@ -89,7 +107,8 @@ export function HarborApp() {
     socket.offer,
     movement.toggleSeal,
     predictedRef,
-    fire
+    pressFireStart,
+    pressFireEnd
   );
 
   return (
@@ -109,7 +128,9 @@ export function HarborApp() {
         notices={socket.notices}
         facingRef={movement.facingRef}
         aimLockedRef={aimLockedRef}
-        onFire={fire}
+        fireSignalRef={fireSignalRef}
+        onFireDown={pressFireStart}
+        onFireUp={pressFireEnd}
       />
     </div>
   );
@@ -127,10 +148,12 @@ function useActions(
   offer: Offer,
   toggleSeal: () => void,
   predictedRef: RefObject<{ x: number; y: number; facing: number } | null>,
-  fire: () => void
+  pressFireStart: () => void,
+  pressFireEnd: () => void
 ): void {
   useEffect(() => {
     const onDown = (event: KeyboardEvent): void => {
+      if (event.repeat) return;
       const key = event.key.toLowerCase();
       if (key === 'e') pressDoor(sendIntent, statics, snapshot, pawnId, predictedRef.current);
       else if (key === 'h') pressTalk(sendIntent, snapshot);
@@ -140,15 +163,32 @@ function useActions(
       } else if (key === 't') {
         toggleSeal();
       } else if (key === 'f') {
-        fire();
+        pressFireStart();
       } else if (key === 'r') {
         sendIntent({ type: 'RELOAD', seq: 0 });
         ShipAudioEngine.getInstance().playUiClick();
       }
     };
+    const onUp = (event: KeyboardEvent): void => {
+      if (event.key.toLowerCase() === 'f') pressFireEnd();
+    };
     window.addEventListener('keydown', onDown);
-    return () => window.removeEventListener('keydown', onDown);
-  }, [sendIntent, statics, snapshot, pawnId, offer, toggleSeal, predictedRef, fire]);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+    };
+  }, [
+    sendIntent,
+    statics,
+    snapshot,
+    pawnId,
+    offer,
+    toggleSeal,
+    predictedRef,
+    pressFireStart,
+    pressFireEnd,
+  ]);
 }
 
 function pressDoor(
@@ -252,7 +292,7 @@ function HudVitals({ socket }: { socket: HarborSocket }) {
     <div data-testid="harbor-vitals">
       {vitals === undefined
         ? 'vitals:-'
-        : `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} heat:${Math.round(vitals.heat)} mag:${vitals.ammo}/${vitals.reserve}${vitals.reloading ? '(reloading)' : ''} credits:${socket.vitals?.credits ?? 0}`}
+        : `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} heat:${Math.round(vitals.heat)} mag:${vitals.ammo}/${vitals.reserve} spares:[${vitals.mags.join(',')}]${vitals.reloading ? '(reloading)' : ''} credits:${socket.vitals?.credits ?? 0}`}
     </div>
   );
 }

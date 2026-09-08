@@ -18,8 +18,7 @@ export interface PawnVitals {
   readonly bodyTempC: number;
   readonly bleedoutS: number;
   readonly sleeping: boolean;
-  readonly ammo: number;
-  readonly reserve: number;
+  readonly mags: readonly number[];
   readonly reloadingS: number;
 }
 
@@ -29,8 +28,16 @@ export const BLEED_RATE = 2;
 export const VACUUM_DRAIN = 8;
 export const REVIVE_HP = 30;
 export const MAG_SIZE = 30;
-export const RESERVE_MAX = 120;
+export const MAG_COUNT = 5;
 export const RELOAD_S = 2;
+
+export function loadedAmmo(vitals: PawnVitals): number {
+  return vitals.mags[0] ?? 0;
+}
+
+export function spareRounds(vitals: PawnVitals): number {
+  return vitals.mags.slice(1).reduce((sum, rounds) => sum + rounds, 0);
+}
 
 export function defaultVitals(suitSealed: boolean): PawnVitals {
   return {
@@ -45,8 +52,7 @@ export function defaultVitals(suitSealed: boolean): PawnVitals {
     bodyTempC: 37,
     bleedoutS: 0,
     sleeping: false,
-    ammo: MAG_SIZE,
-    reserve: RESERVE_MAX,
+    mags: Array.from({ length: MAG_COUNT }, () => MAG_SIZE),
     reloadingS: 0,
   };
 }
@@ -102,8 +108,8 @@ export function startReload(world: World, pawnId: string): { world: World; resul
   if (pawn === undefined) return { world, result: 'none' };
   const vitals = ensureVitals(world, pawnId);
   if (vitals.reloadingS > 0) return { world, result: 'busy' };
-  if (vitals.ammo >= MAG_SIZE) return { world, result: 'full' };
-  if (vitals.reserve <= 0) return { world, result: 'none' };
+  if (loadedAmmo(vitals) >= MAG_SIZE) return { world, result: 'full' };
+  if (vitals.mags.length < 2) return { world, result: 'none' };
   return {
     world: {
       ...world,
@@ -135,8 +141,13 @@ function completeReload(vitals: PawnVitals, dt: number): PawnVitals {
   if (vitals.reloadingS <= 0) return vitals;
   const remaining = vitals.reloadingS - dt;
   if (remaining > 0) return { ...vitals, reloadingS: remaining };
-  const take = Math.min(MAG_SIZE - vitals.ammo, vitals.reserve);
-  return { ...vitals, ammo: vitals.ammo + take, reserve: vitals.reserve - take, reloadingS: 0 };
+  const [spent, ...spares] = vitals.mags;
+  if (spares.length === 0) return { ...vitals, reloadingS: 0 };
+  const best = Math.max(...spares);
+  const bestIndex = spares.indexOf(best);
+  const rest = spares.filter((_, index) => index !== bestIndex);
+  const retained = spent !== undefined && spent > 0 ? [...rest, spent] : rest;
+  return { ...vitals, mags: [best, ...retained], reloadingS: 0 };
 }
 
 function tickPawnVitals(world: World, pawn: PawnBody, dt: number): World {

@@ -101,11 +101,23 @@ test.describe('Harbor client smoke (C2)', () => {
       page,
       'harbor-status',
       (t) => Number(/vent:(\d+)/.exec(t)?.[1] ?? 0) >= 1,
-      30000,
+      30000
     );
     await page.keyboard.press('r');
-    await expect(page.getByTestId('harbor-vitals')).toContainText('(reloading)', { timeout: 10000 });
+    await expect(page.getByTestId('harbor-vitals')).toContainText('(reloading)', {
+      timeout: 10000,
+    });
     await expect(page.getByTestId('harbor-vitals')).toContainText('mag:30/119', { timeout: 15000 });
+  });
+
+  test('fires full-auto while held', async ({ page }) => {
+    await harborBoard(page, { callsign: 'Smoke-8' });
+    await page.keyboard.down('f');
+    await page.waitForTimeout(1000);
+    await page.keyboard.up('f');
+    const text = await page.getByTestId('harbor-vitals').innerText();
+    expect(Number(/heat:(\d+)/.exec(text)?.[1] ?? 0)).toBeGreaterThan(50);
+    expect(Number(/mag:(\d+)\//.exec(text)?.[1] ?? 30)).toBeLessThan(28);
   });
 
   test('talks, hires, and starts a watch', async ({ page }) => {

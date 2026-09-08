@@ -92,6 +92,7 @@ export interface VitalsBroadcast {
     readonly heat: number;
     readonly ammo: number;
     readonly reserve: number;
+    readonly mags: readonly number[];
     readonly reloading: boolean;
   };
   readonly credits: number;

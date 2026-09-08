@@ -18,6 +18,7 @@ import type {
 } from '@kybernetes/protocol';
 import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
 import type { World } from './types.js';
+import { spareRounds } from './survival.js';
 import { projectGrade, type WatchState } from './watch.js';
 
 export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {
@@ -140,8 +141,9 @@ export function buildVitals(
       hypoxia: vitals?.hypoxia ?? 0,
       suitSealed: vitals?.suitSealed ?? pawn?.health.suitSealed ?? false,
       heat: world.heat[pawnId] ?? 0,
-      ammo: vitals?.ammo ?? 30,
-      reserve: vitals?.reserve ?? 120,
+      ammo: vitals?.mags[0] ?? 30,
+      reserve: vitals === undefined ? 120 : spareRounds(vitals),
+      mags: vitals === undefined ? [30, 30, 30, 30] : [...vitals.mags.slice(1)],
       reloading: (vitals?.reloadingS ?? 0) > 0,
     },
     credits,

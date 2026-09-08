@@ -150,35 +150,42 @@ describe('survival vitals', () => {
     expect(setSleeping(world, 'ghost', true)).toBe(world);
   });
 
-  it('reloads the magazine from reserve over two seconds', () => {
+  it('reloads by swapping in the fullest spare and retaining partials', () => {
     let world = boxWorld();
     expect(startReload(world, 'p1').result).toBe('full');
     world = {
       ...world,
-      vitals: { ...world.vitals, p1: { ...ensureVitals(world, 'p1'), ammo: 10, reserve: 50 } },
+      vitals: { ...world.vitals, p1: { ...ensureVitals(world, 'p1'), mags: [10, 30, 5] } },
     };
     const started = startReload(world, 'p1');
     expect(started.result).toBe('ok');
     world = started.world;
     expect(startReload(world, 'p1').result).toBe('busy');
     world = drive(world, 1);
-    expect(world.vitals.p1?.ammo).toBe(10);
+    expect(world.vitals.p1?.mags?.[0]).toBe(10);
     expect(world.vitals.p1?.reloadingS ?? 0).toBeGreaterThan(0);
     world = drive(world, 2);
-    expect(world.vitals.p1?.ammo).toBe(30);
-    expect(world.vitals.p1?.reserve).toBe(30);
+    expect(world.vitals.p1?.mags).toEqual([30, 5, 10]);
     expect(world.vitals.p1?.reloadingS).toBe(0);
     expect(startReload(world, 'p1').result).toBe('full');
   });
 
-  it('refuses reloads with no reserve and unknown pawns safely', () => {
+  it('discards dry mags and refuses reloads with no spares', () => {
     let world = boxWorld();
     world = {
       ...world,
-      vitals: { ...world.vitals, p1: { ...ensureVitals(world, 'p1'), ammo: 5, reserve: 0 } },
+      vitals: { ...world.vitals, p1: { ...ensureVitals(world, 'p1'), mags: [0, 12] } },
     };
-    expect(startReload(world, 'p1').result).toBe('none');
-    expect(startReload(world, 'ghost').result).toBe('none');
+    const started = startReload(world, 'p1');
+    expect(started.result).toBe('ok');
+    expect(drive(started.world, 3).vitals.p1?.mags).toEqual([12]);
+    let solo = boxWorld();
+    solo = {
+      ...solo,
+      vitals: { ...solo.vitals, p1: { ...ensureVitals(solo, 'p1'), mags: [5] } },
+    };
+    expect(startReload(solo, 'p1').result).toBe('none');
+    expect(startReload(solo, 'ghost').result).toBe('none');
   });
 
   it('ignores zero dt and unknown pawns safely', () => {

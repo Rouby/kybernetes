@@ -19,7 +19,7 @@ import type {
   VitalsBroadcast,
   WeaponType,
 } from '@kybernetes/protocol';
-import { createInitialDoors, SHIP_ORIGIN } from '@kybernetes/sim-core';
+import { createInitialDoors, MAG_SIZE, SHIP_ORIGIN } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
@@ -48,7 +48,9 @@ export interface HarborViewportProps {
   notices: readonly HarborNoticed[];
   facingRef: RefObject<number>;
   aimLockedRef: RefObject<boolean>;
-  onFire: () => void;
+  fireSignalRef: RefObject<number>;
+  onFireDown: () => void;
+  onFireUp: () => void;
 }
 
 interface MuzzleFlash {
@@ -72,6 +74,7 @@ interface ViewportSession {
   lastHeat: number;
   notice: { text: string; until: number } | null;
   lastNotice: string;
+  lastSignal: number;
 }
 
 const FLASH_MS = 120;
@@ -93,6 +96,7 @@ export function HarborViewport(props: HarborViewportProps) {
     lastHeat: 0,
     notice: null,
     lastNotice: '',
+    lastSignal: 0,
   });
   const viewRef = useRef(props);
   viewRef.current = props;
@@ -144,17 +148,21 @@ export function HarborViewport(props: HarborViewportProps) {
       session.mouse.moved = true;
       viewRef.current.aimLockedRef.current = true;
     };
-    const onClick = (): void => {
+    const onDown = (): void => {
       const renderer = session.renderer;
       if (renderer !== null) {
         const tester = renderer.getHitTester();
         if (tester.handleClick(session.mouse.x, session.mouse.y, canvas.width, canvas.height))
           return;
       }
-      viewRef.current.onFire();
+      viewRef.current.onFireDown();
+    };
+    const onUp = (): void => {
+      viewRef.current.onFireUp();
     };
     canvas.addEventListener('mousemove', onMove);
-    canvas.addEventListener('click', onClick);
+    canvas.addEventListener('mousedown', onDown);
+    window.addEventListener('mouseup', onUp);
     let raf = 0;
     const frame = (): void => {
       if (canvas.width > 0 && canvas.height > 0) {
@@ -167,7 +175,8 @@ export function HarborViewport(props: HarborViewportProps) {
       cancelAnimationFrame(raf);
       observer.disconnect();
       canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('click', onClick);
+      canvas.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mouseup', onUp);
     };
   }, []);
 
@@ -237,7 +246,9 @@ function renderViewport(
           color: '#ffd27f',
           fromPlayer: true,
           lifeSeconds: 1,
-          weaponType: (shot.weapon === 'arc_welder' ? 'arc_welder' : 'kinetic_carbine') as WeaponType,
+          weaponType: (shot.weapon === 'arc_welder'
+            ? 'arc_welder'
+            : 'kinetic_carbine') as WeaponType,
         })),
         roomO2: roomO2(roomAtmos),
       },
@@ -252,6 +263,15 @@ function renderViewport(
           : {
               heat: view.vitals.vitals.heat,
               isOverheated: view.vitals.vitals.heat >= 100,
+            },
+      kineticAmmo:
+        view.vitals === null
+          ? undefined
+          : {
+              current: view.vitals.vitals.ammo,
+              max: MAG_SIZE,
+              reserve: view.vitals.vitals.reserve,
+              isReloading: view.vitals.vitals.reloading,
             },
       overlayMode,
       impacts: freshImpacts(session, snapshot, origins),
@@ -324,6 +344,10 @@ function trackShots(
   if (heat > session.lastHeat) {
     session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
   }
+  if (view.fireSignalRef.current !== session.lastSignal) {
+    session.lastSignal = view.fireSignalRef.current;
+    session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
+  }
   session.lastHeat = heat;
   session.flashes = session.flashes.filter((flash) => flash.until > now);
 }
@@ -335,7 +359,7 @@ function impactKey(frameId: string, x: number, y: number, kind: string): string 
 function freshImpacts(
   session: ViewportSession,
   snapshot: SnapshotBroadcast,
-  origins: Map<string, { x: number; y: number }>,
+  origins: Map<string, { x: number; y: number }>
 ): { x: number; y: number; type: 'kinetic' }[] {
   const live = new Set<string>();
   const fresh: { x: number; y: number; type: 'kinetic' }[] = [];

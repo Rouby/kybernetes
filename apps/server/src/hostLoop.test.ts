@@ -132,8 +132,12 @@ describe('host loop sessions', () => {
       pushEast();
     }
     expect(
-      host.handleIntent('c1', { type: 'DOOR', seq: 900, portalId: 'station.lobby_bay', wantOpen: true })
-        .notice
+      host.handleIntent('c1', {
+        type: 'DOOR',
+        seq: 900,
+        portalId: 'station.lobby_bay',
+        wantOpen: true,
+      }).notice
     ).toBe('DOOR_ok');
     for (let i = 0; i < 400; i += 1) {
       if (host.currentWorld.pawns['pawn:u1']?.frameId === 'ship') break;

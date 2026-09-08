@@ -98,8 +98,9 @@ describe('simulated projectiles', () => {
     expect(shot?.lifeTicks).toBe(PROJECTILE_LIFE_TICKS);
     expect(shot?.graceTicks).toBe(OWNER_GRACE_TICKS);
     expect(shot?.vel).toEqual({ x: PROJECTILE_SPEED, y: 0 });
-    expect(fired.world.vitals.p1?.ammo).toBe(29);
-    expect(fired.world.heat.p1).toBe(25);
+    expect(fired.world.vitals.p1?.mags?.[0]).toBe(29);
+    expect(fired.world.vitals.p1?.mags).toHaveLength(5);
+    expect(fired.world.heat.p1).toBe(20);
   });
 
   it('wounds pawns on contact with hp-only resolution and bleeding', () => {
@@ -171,7 +172,7 @@ describe('simulated projectiles', () => {
       expect(fired.result.kind).toBe('fired');
       world = fired.world;
     }
-    expect(world.vitals.p1?.ammo).toBe(26);
+    expect(world.vitals.p1?.mags?.[0]).toBe(26);
     for (let i = 0; i < 4; i += 1) world = tickWorld(world, 0.05, []);
     const portal = world.portals['box.door_ab'];
     expect(portal?.kind).toBe('hole');
@@ -234,7 +235,7 @@ describe('simulated projectiles', () => {
       ...world,
       vitals: {
         ...world.vitals,
-        p1: { ...defaultVitals(false), ammo: 0, reserve: 10, reloadingS: 0 },
+        p1: { ...defaultVitals(false), mags: [0, 10, 10] },
       },
     };
     const dry = fireWeapon(world, 'p1', 0, 'rifle');
@@ -243,7 +244,7 @@ describe('simulated projectiles', () => {
     expect(dry.world.heat.p1 ?? 0).toBe(0);
   });
 
-  it('overheats after four shots and cools back to ready', () => {
+  it('overheats after five shots and cools back to ready', () => {
     let world = spawnAt(
       assembleWorld([{ frameId: 'box', hull: DOUBLE_SPEC }]),
       'p1',
@@ -252,12 +253,12 @@ describe('simulated projectiles', () => {
       30,
       50
     );
-    for (let i = 0; i < 4; i += 1) world = fireWeapon(world, 'p1', 0, 'rifle').world;
+    for (let i = 0; i < 5; i += 1) world = fireWeapon(world, 'p1', 0, 'rifle').world;
     expect(world.heat.p1).toBe(100);
     expect(fireWeapon(world, 'p1', 0, 'rifle').result).toEqual({ kind: 'overheated' });
-    world = tickHeat(world, 5);
+    world = tickHeat(world, 2);
     expect(world.heat.p1 ?? 0).toBeLessThan(100);
-    world = tickHeat(world, 10);
+    world = tickHeat(world, 4);
     expect(world.heat.p1).toBeUndefined();
   });
 
