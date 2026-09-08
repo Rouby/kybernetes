@@ -6,9 +6,25 @@ import {
   buildManifest,
   buildNotice,
   buildSnapshot,
+  buildSnapshotDelta,
   buildTelemetry,
   buildVitals,
   buildWatch,
+  diffAtmos,
+  diffFrames,
+  diffPortals,
+  frameRevOf,
+  manifestRevOf,
+  mergeAtmos,
+  mergeFrames,
+  mergePortals,
+  portalRevOf,
+  quantizeAirFlow,
+  quantizeAtmosRoom,
+  significantFlows,
+  snapshotFramesOf,
+  snapshotPortalsOf,
+  watchRevOf,
 } from './channels.js';
 import { hireAboard, talkToCaptain } from './crew.js';
 import { bindWorldAir, buildHarborWorld } from './scenarios.js';
@@ -99,5 +115,108 @@ describe('channel coverage', () => {
     expect(watch?.checklist.length).toBe(4);
     expect(['S', 'A', 'B', 'C']).toContain(watch?.grade);
     expect(buildWatch(world, 'void', 1000)).toBeUndefined();
+  });
+});
+
+describe('snapshot deltas and quantization', () => {
+  it('quantizes positions so idle snapshots are byte-stable', () => {
+    const { world } = liveWorld();
+    const first = JSON.stringify(buildSnapshot(world, 1000));
+    expect(JSON.stringify(buildSnapshot(world, 1000))).toBe(first);
+    const parsed = JSON.parse(first) as { pawns: { x: number }[] };
+    for (const pawn of parsed.pawns) {
+      expect(pawn.x).toBe(Math.round(pawn.x * 100) / 100);
+    }
+  });
+
+  it('emits empty portal/frame deltas while nothing changes', () => {
+    const { world } = liveWorld();
+    const portals = snapshotPortalsOf(world);
+    const frames = snapshotFramesOf(world);
+    const delta = buildSnapshotDelta(portals, frames, world.tick, world, 1000);
+    expect(delta.type).toBe('SNAPSHOT_DELTA');
+    expect(delta.portals).toEqual([]);
+    expect(delta.removedPortalIds).toEqual([]);
+    expect(delta.frames).toEqual([]);
+    expect(delta.pawns.length).toBeGreaterThan(0);
+  });
+
+  it('carries door toggles and merges back onto the full table', () => {
+    const { world } = liveWorld();
+    const before = snapshotPortalsOf(world);
+    const target = before[0];
+    if (target === undefined) throw new Error('no portals');
+    const flipped = before.map((portal) =>
+      portal.id === target.id ? { ...portal, open: !portal.open, state: 'open' as const } : portal
+    );
+    const diff = diffPortals(before, flipped);
+    expect(diff.changed).toHaveLength(1);
+    expect(diff.removed).toEqual([]);
+    expect(portalRevOf(flipped)).not.toBe(portalRevOf(before));
+    const merged = mergePortals(before, diff.changed, diff.removed);
+    expect(merged.find((portal) => portal.id === target.id)?.open).toBe(!target.open);
+    expect(mergeFrames(snapshotFramesOf(world), diffFrames([], []))).toEqual(
+      snapshotFramesOf(world)
+    );
+    expect(frameRevOf(snapshotFramesOf(world))).toBe(frameRevOf(snapshotFramesOf(world)));
+  });
+
+  it('diffs atmos rooms on quantized values only', () => {
+    const rooms = [
+      {
+        roomId: 'ship.bridge',
+        pressureKpa: 101.3,
+        tempCelsius: 21,
+        o2Percent: 20.9,
+        co2Ppm: 600,
+        repressurizing: false,
+      },
+    ];
+    const prev = rooms.map(quantizeAtmosRoom);
+    expect(diffAtmos(prev, rooms)).toEqual([]);
+    const firstRoom = rooms[0];
+    if (firstRoom === undefined) throw new Error('expected a room');
+    const vented = [{ ...firstRoom, pressureKpa: 12.5 }];
+    expect(diffAtmos(prev, vented)).toHaveLength(1);
+    expect(mergeAtmos(prev, diffAtmos(prev, vented))).toHaveLength(1);
+  });
+
+  it('revs manifests and watches on content, not countdowns', () => {
+    const { world } = liveWorld();
+    const crew = [{ id: 'hero', callsign: 'Rook', role: 'engineer' as const, frameId: 'ship' }];
+    const first = buildManifest(world, 'ship', 1000, crew);
+    expect(first.rev).toBe(manifestRevOf(crew, first.beacon, first.shipName));
+    expect(buildManifest(world, 'ship', 2000, crew).rev).toBe(first.rev);
+    const watch = Object.values(world.watches)[0];
+    if (watch !== undefined) {
+      const phase = 'active_watch' as const;
+      expect(watchRevOf({ ...watch, remainingS: 20 }, phase)).toBe(
+        watchRevOf({ ...watch, remainingS: 5 }, phase)
+      );
+    }
+  });
+
+  it('quantizes portal wind and drops still air for byte-stable telemetry', () => {
+    expect(quantizeAirFlow({ portalId: 'a', velocityMps: 12.345 })).toEqual({
+      portalId: 'a',
+      velocityMps: 12.3,
+    });
+    expect(
+      significantFlows([
+        { portalId: 'a', velocityMps: 0.02 },
+        { portalId: 'b', velocityMps: 3.34 },
+      ])
+    ).toEqual([{ portalId: 'b', velocityMps: 3.3 }]);
+  });
+
+  it('carries debug flows on telemetry without breaking old callers', () => {
+    const { world } = liveWorld();
+    const plain = buildTelemetry(world, 1000, []);
+    expect(plain.flows).toEqual([]);
+    const windy = buildTelemetry(world, 1000, [], true, [
+      { portalId: 'station.lobby_bay', velocityMps: 8.66 },
+      { portalId: 'station.bay_gauntlet', velocityMps: 0 },
+    ]);
+    expect(windy.flows).toEqual([{ portalId: 'station.lobby_bay', velocityMps: 8.7 }]);
   });
 });

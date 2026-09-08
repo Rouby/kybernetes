@@ -5,6 +5,7 @@
  * portals the air authority picks up. Clients never send hit results.
  */
 
+import type { WallSegment } from '@kybernetes/protocol';
 import { closestPointOnSegment, segmentsIntersect } from '../spatial/collision.js';
 import { roomContainingPoint } from './crew.js';
 import { destroyPortal } from './doors.js';
@@ -14,7 +15,12 @@ import type { DamageEvent, PawnBody, PortalEdge, ProjectileBody, Vec2, World } f
 
 export const RIFLE_DAMAGE = 25;
 export const WELDER_DAMAGE = 15;
+/** A fully shredded wall section; widening never exceeds this. */
 export const BREACH_AREA_M2 = 1.5;
+/** What one round punches through a wall: a survivable puncture, not a doorway. */
+export const BULLET_BREACH_M2 = 0.05;
+/** Extra area per round landing on a live breach; sustained fire still tears walls open. */
+export const BREACH_GROWTH_M2 = 0.1;
 export const COMBAT_BLEED_S = 20;
 export const IMPACT_TTL_TICKS = 6;
 export const HEAT_PER_SHOT = 20;
@@ -25,6 +31,10 @@ export const PROJECTILE_SPEED = 600;
 export const PROJECTILE_LIFE_TICKS = 20;
 export const OWNER_GRACE_TICKS = 1;
 export const PROJECTILE_STEP = 8;
+/** Breach portals never decay, so cap them: beyond this, wall shots spark but hold. */
+export const MAX_BREACH_PORTALS = 24;
+/** A wall hit this close to a live breach joins it instead of cutting a new one. */
+export const BREACH_MERGE_PX = 24;
 
 export type FireResult =
   | { readonly kind: 'miss' }
@@ -111,14 +121,39 @@ export function tickProjectiles(world: World, dtSeconds: number): World {
   const ids = Object.keys(world.projectiles);
   if (ids.length === 0) return world;
   if (!(dtSeconds > 0)) return world;
+  return stepAllShots(world, ids, dtSeconds);
+}
+
+/** One collider build per frame per tick; rebuilt only when portals change. */
+function stepAllShots(world: World, ids: readonly string[], dt: number): World {
   let next = world;
+  let cached: World | null = null;
+  let colliders = new Map<string, WallSegment[]>();
   for (const id of ids) {
-    next = stepProjectile(next, id, dtSeconds);
+    if (cached === null || cached.portals !== next.portals) {
+      colliders = collidersByFrame(next);
+      cached = next;
+    }
+    next = stepProjectile(next, id, dt, colliders);
   }
   return next;
 }
 
-function stepProjectile(world: World, id: string, dt: number): World {
+function collidersByFrame(world: World): Map<string, WallSegment[]> {
+  const frames = new Set<string>();
+  for (const shot of Object.values(world.projectiles)) frames.add(shot.frameId);
+  for (const pawn of Object.values(world.pawns)) frames.add(pawn.frameId);
+  const table = new Map<string, WallSegment[]>();
+  for (const frameId of frames) table.set(frameId, collidersForFrame(world, frameId));
+  return table;
+}
+
+function stepProjectile(
+  world: World,
+  id: string,
+  dt: number,
+  colliders: Map<string, WallSegment[]>
+): World {
   const shot = world.projectiles[id];
   if (shot === undefined) return world;
   const lifeTicks = shot.lifeTicks - 1;
@@ -138,7 +173,7 @@ function stepProjectile(world: World, id: string, dt: number): World {
       x: shot.pos.x + (travel.x * i) / steps,
       y: shot.pos.y + (travel.y * i) / steps,
     };
-    const hit = collideShot(aged, { ...shot, pos: point }, prev);
+    const hit = collideShot(aged, { ...shot, pos: point }, prev, colliders);
     if (hit !== undefined) return hit;
     prev = point;
   }
@@ -152,7 +187,12 @@ function stepProjectile(world: World, id: string, dt: number): World {
   };
 }
 
-function collideShot(world: World, shot: ProjectileBody, prev: Vec2): World | undefined {
+function collideShot(
+  world: World,
+  shot: ProjectileBody,
+  prev: Vec2,
+  colliders: Map<string, WallSegment[]>
+): World | undefined {
   for (const target of Object.values(world.pawns)) {
     if (target.frameId !== shot.frameId) continue;
     if (target.id === shot.fromPawnId && shot.graceTicks > 0) continue;
@@ -162,7 +202,7 @@ function collideShot(world: World, shot: ProjectileBody, prev: Vec2): World | un
     const struck = strikePawn(dropProjectile(world, shot.id), target.id, shot.damage, shot.pos);
     return recordImpact(struck, shot.pos, 'pawn', shot.frameId);
   }
-  for (const wall of collidersForFrame(world, shot.frameId)) {
+  for (const wall of colliders.get(shot.frameId) ?? []) {
     const a = { x: wall.x1, y: wall.y1 };
     const b = { x: wall.x2, y: wall.y2 };
     if (!segmentsIntersect(prev, shot.pos, a, b)) continue;
@@ -236,6 +276,9 @@ function breachWall(
 ): { world: World } {
   const roomA = roomContainingPoint(world, frameId, point.x, point.y);
   if (roomA === undefined) return { world };
+  const joined = nearbyBreach(world, frameId, point);
+  if (joined !== undefined) return { world: widenBreach(world, joined) };
+  if (breachList(world).length >= MAX_BREACH_PORTALS) return { world };
   const roomB = roomBeyondWall(world, frameId, roomA, wall, point);
   const id = `breach.${roomA}.${world.tick}.${Object.keys(world.portals).length}`;
   const hole: PortalEdge = {
@@ -245,12 +288,33 @@ function breachWall(
     kind: 'hole',
     state: 'destroyed',
     cooldownUntilTick: world.tick,
-    areaM2: BREACH_AREA_M2,
+    areaM2: BULLET_BREACH_M2,
     segment: breachSegment(wall, point),
     clearance: 0,
     integrity: 0,
   };
   return { world: { ...world, portals: { ...world.portals, [id]: hole } } };
+}
+
+function breachList(world: World): PortalEdge[] {
+  return Object.values(world.portals).filter((portal) => portal.id.startsWith('breach.'));
+}
+
+function nearbyBreach(world: World, frameId: string, point: Vec2): PortalEdge | undefined {
+  return breachList(world).find((portal) => breachNear(world, portal, frameId, point));
+}
+
+function widenBreach(world: World, portal: PortalEdge): World {
+  const areaM2 = Math.min(BREACH_AREA_M2, portal.areaM2 + BREACH_GROWTH_M2);
+  if (areaM2 === portal.areaM2) return world;
+  return { ...world, portals: { ...world.portals, [portal.id]: { ...portal, areaM2 } } };
+}
+
+function breachNear(world: World, portal: PortalEdge, frameId: string, point: Vec2): boolean {
+  if (world.rooms[portal.roomA]?.frameId !== frameId) return false;
+  const midX = (portal.segment.x1 + portal.segment.x2) / 2;
+  const midY = (portal.segment.y1 + portal.segment.y2) / 2;
+  return Math.hypot(point.x - midX, point.y - midY) <= BREACH_MERGE_PX;
 }
 
 function recordImpact(

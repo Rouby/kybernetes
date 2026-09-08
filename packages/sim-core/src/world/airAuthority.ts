@@ -297,6 +297,24 @@ export function refreshAtmos(
   return readAllAir(auth);
 }
 
+export interface AirFlowReading {
+  readonly portalId: string;
+  readonly velocityMps: number;
+}
+
+/** Complete portal wind table for the debug view (raw m/s, signed on the A->B axis). */
+export function readAirFlows(auth: AirAuthorityState): AirFlowReading[] {
+  const flows: AirFlowReading[] = [];
+  for (const frame of auth.sims.values()) {
+    for (const [portalId, airPortal] of frame.portals) {
+      if (!Number.isFinite(airPortal.velocity)) continue;
+      flows.push({ portalId, velocityMps: airPortal.velocity });
+    }
+  }
+  flows.sort((a, b) => (a.portalId < b.portalId ? -1 : a.portalId > b.portalId ? 1 : 0));
+  return flows;
+}
+
 export function portalWind(
   auth: AirAuthorityState,
   frameId: string,

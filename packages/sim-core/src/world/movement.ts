@@ -13,9 +13,9 @@ export interface MoveInput {
   readonly sprint: boolean;
 }
 
-const BASE_ACCEL = 900;
+const BASE_ACCEL = 1300;
 const SPRINT_MULT = 1.6;
-const DAMPING = 6;
+const DAMPING = 7;
 const MAX_SPEED = 220;
 const SPRINT_MAX = 340;
 

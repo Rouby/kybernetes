@@ -71,7 +71,7 @@ function doorName(id: string, isAirlock: boolean): string {
 const DOOR_SEEDS = collectDoorSeeds();
 
 /**
- * Door segments stay frame-LOCAL (like walls): frozen consumers offset ship
+ * Door segments stay frame-LOCAL (like walls): consumers offset ship
  * doors themselves via getWorldDoors. IDs stay namespaced to join snapshots.
  */
 export function createInitialDoors(): DoorState[] {

@@ -1,9 +1,9 @@
 /**
  * Render-data adapter. Every export keeps its legacy name and shape, but all
  * DATA is compiled from the harbor hull specs (station at origin, ship
- * frame-LOCAL: frozen consumers add the ship offset themselves, so baking it
- * here would double the offset). Frozen passes, audio, and shared math
- * consume this file untouched; the compiler guarantees door gaps.
+ * frame-LOCAL: consumers add the ship offset themselves, so baking it
+ * here would double the offset). Passes, audio, and shared math
+ * consume this file; the compiler guarantees door gaps.
  *
  * ID conventions: rooms, lights, ambients, and breach locations use BARE ids
  * (legacy style, e.g. 'bridge', 'lobby') so existing color/type maps keep
@@ -109,7 +109,7 @@ export const HESPERIA_ROOMS: RoomDefinition[] = LOCAL_ROOMS.map((room) => ({
 export const STATION_BAY_SPAWN = { x: 650, y: 200 };
 
 /**
- * Ship walls stay frame-LOCAL: every frozen consumer (renderer, DeckPass,
+ * Ship walls stay frame-LOCAL: every consumer (renderer, DeckPass,
  * visibility, framed movement) adds the ship offset itself. World-baking here
  * would double the offset. Station walls sit at the origin either way.
  */

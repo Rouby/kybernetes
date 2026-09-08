@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addPuncture,
   bindAirFrame,
   createAirAuthority,
   readAllAir,
@@ -9,8 +10,12 @@ import {
 import { assembleWorld, spawnPawn } from './assemble.js';
 import {
   applyDamage,
+  BREACH_AREA_M2,
+  BREACH_GROWTH_M2,
+  BULLET_BREACH_M2,
   fireBlock,
   fireWeapon,
+  MAX_BREACH_PORTALS,
   OWNER_GRACE_TICKS,
   PROJECTILE_LIFE_TICKS,
   PROJECTILE_SPEED,
@@ -69,6 +74,39 @@ function boxDuel(): World {
   );
   world = spawnAt(world, 'p2', 'box', 'box.a', 60, 50);
   return world;
+}
+
+/** One round straight up; 22 ticks land it and cool the barrel for the next. */
+function shootNorthWall(world?: World): World {
+  const unpacked =
+    world ??
+    spawnAt(
+      assembleWorld([{ frameId: 'solo', hull: SOLO_SPEC }]),
+      'p1',
+      'solo',
+      'solo.cabin',
+      50,
+      50
+    );
+  const fired = fireWeapon(unpacked, 'p1', -Math.PI / 2, 'kinetic_carbine');
+  if (fired.result.kind !== 'fired') return unpacked;
+  let next = fired.world;
+  for (let i = 0; i < 22; i += 1) next = tickWorld(next, 0.05, []);
+  return next;
+}
+
+function soloAir(): { auth: ReturnType<typeof createAirAuthority>; world: World } {
+  const world = spawnAt(
+    assembleWorld([{ frameId: 'solo', hull: SOLO_SPEC }]),
+    'p1',
+    'solo',
+    'solo.cabin',
+    50,
+    50
+  );
+  const auth = createAirAuthority();
+  bindAirFrame(auth, 'solo', Object.values(world.rooms), Object.values(world.portals));
+  return { auth, world };
 }
 
 describe('simulated projectiles', () => {
@@ -299,23 +337,86 @@ describe('simulated projectiles', () => {
   });
 
   it('vents exterior rooms through shot walls once air reconciles', () => {
-    let world = spawnAt(
-      assembleWorld([{ frameId: 'solo', hull: SOLO_SPEC }]),
-      'p1',
-      'solo',
-      'solo.cabin',
-      50,
-      50
-    );
-    const fired = fireWeapon(world, 'p1', -Math.PI / 2, 'kinetic_carbine');
-    expect(fired.result.kind).toBe('fired');
-    world = fired.world;
-    for (let i = 0; i < 4; i += 1) world = tickWorld(world, 0.05, []);
-    const hole = Object.values(world.portals).find((portal) => portal.kind === 'hole');
-    expect(hole?.roomB).toBe('space');
+    let world = shootNorthWall();
+    for (let shot = 0; shot < 25; shot += 1) world = shootNorthWall(world);
+    const holes = Object.values(world.portals).filter((portal) => portal.kind === 'hole');
+    expect(holes).toHaveLength(1);
+    expect(holes[0]?.roomB).toBe('space');
+    expect(holes[0]?.areaM2).toBe(BREACH_AREA_M2);
     const auth = createAirAuthority();
     bindAirFrame(auth, 'solo', Object.values(world.rooms), Object.values(world.portals));
     for (let i = 0; i < 60; i += 1) stepAirAuthority(auth, world, 0.05);
     expect(ventedRooms(readAllAir(auth))).toContain('solo.cabin');
+  });
+
+  it('cuts a small puncture on the first wall hit, not a full breach', () => {
+    const world = shootNorthWall();
+    const holes = Object.values(world.portals).filter((portal) => portal.kind === 'hole');
+    expect(holes).toHaveLength(1);
+    expect(holes[0]?.roomB).toBe('space');
+    expect(holes[0]?.areaM2).toBe(BULLET_BREACH_M2);
+  });
+
+  it('widens a live breach instead of cutting a second hole nearby', () => {
+    const world = shootNorthWall(shootNorthWall());
+    const holes = Object.values(world.portals).filter((portal) => portal.kind === 'hole');
+    expect(holes).toHaveLength(1);
+    expect(holes[0]?.areaM2).toBeCloseTo(BULLET_BREACH_M2 + BREACH_GROWTH_M2, 10);
+  });
+
+  it('leaks slowly through one round but blows out through a full breach', () => {
+    const bullet = shootNorthWall();
+    const bulletAuth = createAirAuthority();
+    bindAirFrame(bulletAuth, 'solo', Object.values(bullet.rooms), Object.values(bullet.portals));
+    let slow = bullet;
+    for (let i = 0; i < 100; i += 1) slow = tickWorld(slow, 0.05, [], bulletAuth);
+    const slowKpa = slow.atmos['solo.cabin']?.pressureKpa ?? 0;
+    expect(slowKpa).toBeLessThan(101.3);
+    expect(slowKpa).toBeGreaterThan(50);
+
+    const { auth: tornAuth, world: tornWorld } = soloAir();
+    addPuncture(tornAuth, 'solo', 'solo.cabin', BREACH_AREA_M2);
+    let torn = tornWorld;
+    for (let i = 0; i < 100; i += 1) torn = tickWorld(torn, 0.05, [], tornAuth);
+    expect(torn.atmos['solo.cabin']?.pressureKpa ?? 101.3).toBeLessThan(10);
+  });
+
+  it('caps wall breaches so sustained fire cannot bloat the portal table', () => {
+    const bigSpec: HullSpec = {
+      frameId: 'hall',
+      rooms: [{ id: 'atrium', rect: { x: 0, y: 0, w: 400, h: 400 }, volumeM3: 400 }],
+      portals: [],
+    };
+    let world = spawnAt(
+      assembleWorld([{ frameId: 'hall', hull: bigSpec }]),
+      'p1',
+      'hall',
+      'hall.atrium',
+      200,
+      200
+    );
+    for (let shot = 0; shot < 40; shot += 1) {
+      const angle = (shot / 40) * Math.PI * 2;
+      const fired = fireWeapon(world, 'p1', angle, 'kinetic_carbine');
+      if (fired.result.kind !== 'fired') continue;
+      world = fired.world;
+      for (let i = 0; i < 22; i += 1) world = tickWorld(world, 0.05, []);
+    }
+    const breaches = Object.values(world.portals).filter((portal) =>
+      portal.id.startsWith('breach.')
+    );
+    expect(breaches.length).toBe(MAX_BREACH_PORTALS);
+    expect(world.tick).toBeGreaterThan(0);
+  });
+
+  it('resolves simultaneous rounds in one tick from the shared collider build', () => {
+    let world = boxDuel();
+    const first = fireWeapon(world, 'p1', 0, 'kinetic_carbine');
+    expect(first.result.kind).toBe('fired');
+    const second = fireWeapon(first.world, 'p1', 0, 'kinetic_carbine');
+    expect(second.result.kind).toBe('fired');
+    world = tickWorld(second.world, 0.05, []);
+    expect(world.pawns.p2?.health.hp).toBeLessThan(100);
+    expect(world.impacts.length).toBeGreaterThan(0);
   });
 });

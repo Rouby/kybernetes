@@ -7,6 +7,7 @@ import {
   dragForceNewtons,
   NOMINAL_PRESSURE_KPA,
   portalWind,
+  readAirFlows,
   readAirRooms,
   readAllAir,
   refreshAtmos,
@@ -187,5 +188,28 @@ describe('air authority repressurizing', () => {
     const next = tickWorld(assembled, 0.05, [], auth);
     expect(next.atmos['station.lobby']?.pressureKpa).toBeCloseTo(NOMINAL_PRESSURE_KPA, 1);
     expect(refreshAtmos(auth, next, 0)).toBeDefined();
+  });
+});
+
+describe('air authority debug flows', () => {
+  it('lists every portal with a finite velocity in id order', () => {
+    const { auth } = stationSetup();
+    const flows = readAirFlows(auth);
+    expect(flows.length).toBeGreaterThan(0);
+    const ids = flows.map((flow) => flow.portalId);
+    expect([...ids].sort()).toEqual(ids);
+    for (const flow of flows) expect(Number.isFinite(flow.velocityMps)).toBe(true);
+  });
+
+  it('reports wind on the breach path after venting', () => {
+    const { auth, world } = stationSetup();
+    addPuncture(auth, 'station', 'bay', 1.5);
+    let current = stepBoth(auth, world, 3);
+    current = setEdge(current, 'lobby_bay', { state: 'open' });
+    stepBoth(auth, current, 0.5);
+    const flows = readAirFlows(auth);
+    const door = flows.find((flow) => flow.portalId === 'lobby_bay');
+    expect(door).toBeDefined();
+    expect(Math.abs(door?.velocityMps ?? 0)).toBeGreaterThan(0);
   });
 });

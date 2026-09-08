@@ -1,11 +1,7 @@
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
+import { type BreachSegment, carveWallsAtBreachSegments } from '../world/breachView.js';
 import { type Point2D, segmentsIntersect } from './collision';
-import {
-  applyShipOffsetToWalls,
-  carveBreachedWallSegments,
-  type DockFrameOffset,
-  HESPERIA_WALLS,
-} from './deck';
+import { applyShipOffsetToWalls, type DockFrameOffset, HESPERIA_WALLS } from './deck';
 import { getWorldDoors } from './doors';
 
 export interface VisibilityRayHit {
@@ -18,10 +14,12 @@ export interface VisibilityRayHit {
 export function getOpaqueWallSegments(
   walls: WallSegment[],
   doors?: DoorState[],
-  breaches?: string[]
+  breachSegments?: readonly BreachSegment[]
 ): WallSegment[] {
   const carvedWalls =
-    breaches && breaches.length > 0 ? carveBreachedWallSegments(walls, breaches) : walls;
+    breachSegments !== undefined && breachSegments.length > 0
+      ? carveWallsAtBreachSegments(walls, breachSegments)
+      : walls;
   const opaqueWalls = carvedWalls.filter((w) => w.isOpaque !== false);
   if (!doors) return opaqueWalls;
 
@@ -45,11 +43,13 @@ export function getOpaqueWallSegments(
 export function getWorldOpaqueWalls(
   walls: WallSegment[],
   doors: DoorState[] | undefined,
-  breaches: string[] | undefined,
+  breachSegments: readonly BreachSegment[] | undefined,
   offset: DockFrameOffset
 ): WallSegment[] {
   const carved =
-    breaches && breaches.length > 0 ? carveBreachedWallSegments(walls, breaches) : walls;
+    breachSegments !== undefined && breachSegments.length > 0
+      ? carveWallsAtBreachSegments(walls, breachSegments)
+      : walls;
   const shifted = applyShipOffsetToWalls(carved, offset);
   if (!doors) return shifted.filter((w) => w.isOpaque !== false);
   const result = shifted.filter((w) => w.isOpaque !== false);

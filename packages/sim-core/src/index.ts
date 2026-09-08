@@ -10,6 +10,7 @@ export * from './spatial/visibility';
 export * from './world/airAuthority';
 export * from './world/assemble';
 export * from './world/bots';
+export * from './world/breachView';
 export * from './world/channels';
 export * from './world/combat';
 export * from './world/content/HesperiaV2.hull';

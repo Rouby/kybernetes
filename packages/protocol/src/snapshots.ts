@@ -1,7 +1,11 @@
 /**
  * Protocol v2 server snapshots (ticked). Replaces broadcasts.ts god objects.
- * Channels: SNAPSHOT 10Hz, TELEMETRY 2Hz, VITALS 5Hz per-player, plus
- * NOTICE / HIRE_OFFER / MANIFEST / WATCH event channels.
+ * Channels: SNAPSHOT full 1Hz + SNAPSHOT_DELTA 10Hz, TELEMETRY 2Hz
+ * (full every 5th, changed rooms otherwise), VITALS 5Hz per-player
+ * (suppressed while unchanged), plus NOTICE / HIRE_OFFER event channels and
+ * MANIFEST / WATCH event+heartbeat channels (rev-guarded, not ticked).
+ * Delta/merge helpers live in sim-core channels and web renderState; the
+ * merged SNAPSHOT shape below is unchanged so old consumers keep working.
  */
 
 import type { Role } from './content.js';
@@ -23,6 +27,17 @@ export interface SnapshotPortal {
   readonly id: string;
   readonly open: boolean;
   readonly state: 'open' | 'closed' | 'destroyed' | 'sealed';
+  /** Breach size in m2 (q2). Present only on destroyed hole portals. */
+  readonly areaM2?: number;
+  /** World tick the breach was cut (PortalEdge.cooldownUntilTick). */
+  readonly bornTick?: number;
+  /** Breach segment midpoint room on the A side (namespaced room id). */
+  readonly roomA?: string;
+  /** Breach segment in frame-local px (q1). Present with areaM2. */
+  readonly x1?: number;
+  readonly y1?: number;
+  readonly x2?: number;
+  readonly y2?: number;
 }
 
 export interface SnapshotProjectile {
@@ -59,6 +74,42 @@ export interface SnapshotBroadcast {
   readonly portals: readonly SnapshotPortal[];
   readonly projectiles: readonly SnapshotProjectile[];
   readonly frames: readonly SnapshotFrame[];
+  /** True when portals/frames are complete. Absent on pre-delta senders. */
+  readonly full?: boolean;
+  /** FNV-1a digest of portal id+state; clients memoize colliders on it. */
+  readonly portalRev?: number;
+  /** FNV-1a digest of frame origins; clients memoize origins on it. */
+  readonly frameRev?: number;
+}
+
+/**
+ * SNAPSHOT_DELTA: pawns/projectiles/impacts are complete and quantized every
+ * tick (they move); portals/frames carry changed entries only and
+ * removedPortalIds carries deletions (breach table never shrinks today, but
+ * the field keeps the merge total). Clients merge onto the last full
+ * SNAPSHOT; full:true forces replace and resyncs baseTick.
+ */
+export interface SnapshotDeltaBroadcast {
+  readonly type: 'SNAPSHOT_DELTA';
+  readonly v: 2;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly baseTick: number;
+  readonly full: boolean;
+  readonly portalRev: number;
+  readonly frameRev: number;
+  readonly pawns: readonly SnapshotPawn[];
+  readonly impacts: readonly SnapshotImpact[];
+  readonly portals: readonly SnapshotPortal[];
+  readonly removedPortalIds: readonly string[];
+  readonly projectiles: readonly SnapshotProjectile[];
+  readonly frames: readonly SnapshotFrame[];
+}
+
+export interface AirFlow {
+  readonly portalId: string;
+  /** Signed portal throat velocity in m/s (+ = roomA to roomB axis). */
+  readonly velocityMps: number;
 }
 
 export interface TelemetryBroadcast {
@@ -67,6 +118,8 @@ export interface TelemetryBroadcast {
   readonly tick: number;
   readonly serverTimeMs: number;
   readonly subsystems: Record<string, number>;
+  /** False when atmos carries changed rooms only; clients merge by roomId. */
+  readonly full?: boolean;
   readonly atmos: readonly {
     readonly roomId: string;
     readonly pressureKpa: number;
@@ -75,6 +128,8 @@ export interface TelemetryBroadcast {
     readonly co2Ppm: number;
     readonly repressurizing: boolean;
   }[];
+  /** Complete portal wind table (q1 m/s). Absent on pre-flow senders; clients keep last. */
+  readonly flows?: readonly AirFlow[];
 }
 
 export interface VitalsBroadcast {
@@ -134,6 +189,8 @@ export interface ManifestBroadcast {
   readonly serverTimeMs: number;
   readonly beacon: string;
   readonly shipName: string;
+  /** Content digest of crew id+callsign+role+frame; clients ignore stale revs. */
+  readonly rev?: number;
   readonly crew: readonly {
     readonly id: string;
     readonly callsign: string;
@@ -159,10 +216,13 @@ export interface WatchBroadcast {
   readonly remainingS: number;
   readonly checklist: readonly WatchChecklistItem[];
   readonly grade: string;
+  /** Content digest excluding remainingS; the 1s heartbeat carries countdowns. */
+  readonly rev?: number;
 }
 
 export type ServerSnapshot =
   | SnapshotBroadcast
+  | SnapshotDeltaBroadcast
   | TelemetryBroadcast
   | VitalsBroadcast
   | NoticeBroadcast
