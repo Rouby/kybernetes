@@ -287,7 +287,7 @@ export class ShipAudioEngine {
     this.ballisticsSynth.playWeaponFire(channel.input, weaponType, chargeRatio, 0.85);
   }
 
-  // fallow-ignore-next-line complexity
+  // fallow-ignore-next-line complexity, unused-class-member -- hitscan combat has no impact points yet; kept for the tracer milestone
   public playImpact(x: number, y: number, type: 'kinetic' | 'laser' | 'welder'): void {
     if (!this.busManager || !this.spatializer || !this.ballisticsSynth) return;
     const params = this.spatializer.calculate(
@@ -326,6 +326,7 @@ export class ShipAudioEngine {
     this.uiSynth.playPromptChirp(this.busManager.uiGain);
   }
 
+  // fallow-ignore-next-line unused-class-member -- no debrief flow on the v2 client yet
   public playDebriefStamp(): void {
     if (!this.busManager || !this.uiSynth) return;
     this.uiSynth.playDebriefStamp(this.busManager.uiGain);
@@ -336,6 +337,7 @@ export class ShipAudioEngine {
     this.uiSynth.playClick(this.busManager.uiGain);
   }
 
+  // fallow-ignore-next-line unused-class-member -- no blast events on the v2 client yet
   public playExplosionShockwave(): void {
     if (!this.busManager || !this.vitalsSynth) return;
     this.vitalsSynth.playTinnitusRing(this.busManager.crisisGain, 3.5, 0.7);

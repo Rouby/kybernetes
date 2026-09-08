@@ -1,3 +1,4 @@
+/** @deprecated Protocol v1 — frozen. See MIGRATION_V2.md; deletion in M5. Use snapshots VITALS instead. */
 export interface SuitTelemetry {
   isSealed: boolean;
   o2RemainingSeconds: number; // 0 - 600s

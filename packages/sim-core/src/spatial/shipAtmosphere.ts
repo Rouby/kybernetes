@@ -1,3 +1,6 @@
+/** @deprecated Legacy compartment air model — frozen. The world air authority
+ * (world/airAuthority.ts, one air-sim sim per frame bound to the portal table)
+ * is the only air truth from M4 on. Deletion with state.ts in M5. */
 import {
   AtmosphereSimulation,
   type DragResult,

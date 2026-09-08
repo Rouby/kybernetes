@@ -1,3 +1,4 @@
+/** @deprecated Protocol v1 — frozen. See MIGRATION_V2.md; deletion in M5. Use snapshots instead. */
 import type { BoardingTacticsTelemetry } from './boarding';
 import type {
   CaptainJobOfferBroadcast,

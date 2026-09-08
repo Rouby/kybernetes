@@ -15,7 +15,9 @@ export default defineConfig({
   // starves every vessel's broadcasts until the 60s test cap. File-level
   // parallelism keeps the proven-green serial semantics per file.
   fullyParallel: false,
-  workers: 2,
+  // Single shared harbor daemon with one vessel: files run serially so hires,
+  // departures, and watches never interleave across tests.
+  workers: 1,
   retries: isCI ? 2 : 1,
   timeout: 60_000,
   expect: {

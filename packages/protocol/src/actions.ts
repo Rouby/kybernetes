@@ -1,3 +1,4 @@
+/** @deprecated Protocol v1 — frozen. See MIGRATION_V2.md; deletion in M5. Use envelope/intents/content/validate instead. */
 import type { WeaponType } from './boarding';
 import type { AcceptJobOfferAction, TalkToCaptainAction } from './intro';
 import type { NavalDamageEventType } from './subsystems';

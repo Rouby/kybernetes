@@ -9,16 +9,14 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:e2e:smoke": "playwright test smoke.spec.ts",
+    "test:e2e:smoke": "playwright test harbor.spec.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check ."
   },
   "dependencies": {
     "@kybernetes/protocol": "workspace:*",
     "@kybernetes/sim-core": "workspace:*",
-    "@kybernetes/ui-tokens": "workspace:*",
     "@stylexjs/stylex": "^0.19.0",
-    "lucide-react": "^1.39.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

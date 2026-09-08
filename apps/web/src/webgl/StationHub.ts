@@ -33,6 +33,7 @@ export function resolveClientShipOffset(
   return getShipDockingOffset(buildClientIntroState(phase, etaSeconds, legIndex));
 }
 
+// fallow-ignore-next-line unused-export -- v1 docking-phase feed retired with the old client; kept for the kinematics follower milestone
 export function resolveClientShipKinematics(
   phase: DockingPhase | undefined,
   etaSeconds: number | undefined,

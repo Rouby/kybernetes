@@ -1,4 +1,15 @@
+/**
+ * Legacy door view rebacked on compiled harbor portals. DoorStates carry
+ * world-space segments with namespaced ids ('station.lobby_bay') so live
+ * snapshot portals join directly. Pure helpers (toggle/find/collide) keep
+ * their semantics; the data now comes from the compiler, not hand lists.
+ */
+
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
+import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
+import { StationHubSpec } from '../world/content/StationHub.hull.js';
+import { compileHull } from '../world/hullCompiler.js';
+import { SHIP_ORIGIN } from '../world/scenarios.js';
 import { closestPointOnSegment, resolvePawnMovement } from './collision';
 import {
   type DockFrameOffset,
@@ -7,242 +18,82 @@ import {
   isAboardShip,
 } from './deck';
 
+interface CompiledDoorSeed {
+  id: string;
+  roomA: string;
+  roomB: string;
+  kind: string;
+  segment: { x1: number; y1: number; x2: number; y2: number };
+  frame: 'station' | 'ship';
+}
+
+function collectDoorSeeds(): CompiledDoorSeed[] {
+  const seeds: CompiledDoorSeed[] = [];
+  const station = compileHull({ ...StationHubSpec, frameId: 'station' });
+  const ship = compileHull({ ...HesperiaV2Spec, frameId: 'ship' });
+  for (const portal of station.portals) {
+    if (portal.kind !== 'door' && portal.kind !== 'airlock') continue;
+    seeds.push({
+      id: `station.${portal.id}`,
+      roomA: `station.${portal.roomA}`,
+      roomB:
+        portal.roomB === 'space' || portal.roomB === 'vacuum'
+          ? 'vacuum'
+          : `station.${portal.roomB}`,
+      kind: portal.kind,
+      segment: { ...portal.segment },
+      frame: 'station',
+    });
+  }
+  for (const portal of ship.portals) {
+    if (portal.kind !== 'door' && portal.kind !== 'airlock') continue;
+    seeds.push({
+      id: `ship.${portal.id}`,
+      roomA: `ship.${portal.roomA}`,
+      roomB:
+        portal.roomB === 'space' || portal.roomB === 'vacuum' ? 'vacuum' : `ship.${portal.roomB}`,
+      kind: portal.kind,
+      segment: { ...portal.segment },
+      frame: 'ship',
+    });
+  }
+  return seeds;
+}
+
+function doorName(id: string, isAirlock: boolean): string {
+  const bare = id.includes('.') ? (id.split('.').pop() ?? id) : id;
+  const titled = bare
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+  return isAirlock ? `${titled} Airlock` : `${titled} Hatch`;
+}
+
+const DOOR_SEEDS = collectDoorSeeds();
+
 export function createInitialDoors(): DoorState[] {
-  return [
-    // Upper Compartment Blast Doors (Connect rooms to central catwalk spine at y=368)
-    {
-      id: 'door_bridge',
-      name: 'Bridge Blast Gate',
-      x1: 200,
-      y1: 368,
-      x2: 240,
-      y2: 368,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'bridge',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'door_avionics',
-      name: 'Avionics Access Hatch',
-      x1: 360,
-      y1: 368,
-      x2: 400,
-      y2: 368,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'avionics',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'door_life_support',
-      name: 'Life Support Pressure Hatch',
-      x1: 500,
-      y1: 368,
-      x2: 540,
-      y2: 368,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'life_support',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'door_quarters',
-      name: 'Berthing Pods Blast Gate',
-      x1: 660,
-      y1: 368,
-      x2: 700,
-      y2: 368,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'quarters',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'door_mess',
-      name: 'Mess Hall Pressure Door',
-      x1: 820,
-      y1: 368,
-      x2: 860,
-      y2: 368,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'mess',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'airlock_stbd_inner',
-      name: 'Starboard Airlock Inner Hatch',
-      x1: 950,
-      y1: 368,
-      x2: 990,
-      y2: 368,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'airlock_stbd',
-      roomB: 'corridor',
-      health: 100,
-    },
-
-    // Lower Compartment Blast Doors (Connect rooms to central catwalk spine at y=432)
-    {
-      id: 'door_armory',
-      name: 'Armory Security Blast Gate',
-      x1: 200,
-      y1: 432,
-      x2: 240,
-      y2: 432,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'armory',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'airlock_port_inner',
-      name: 'Port Airlock Inner Hatch',
-      x1: 360,
-      y1: 432,
-      x2: 400,
-      y2: 432,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'airlock_port',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'door_cargo',
-      name: 'Cargo Bay Heavy Roller Gate',
-      x1: 580,
-      y1: 432,
-      x2: 620,
-      y2: 432,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'cargo',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'door_eng',
-      name: 'Engineering Radiation Gate',
-      x1: 870,
-      y1: 432,
-      x2: 910,
-      y2: 432,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'engineering',
-      roomB: 'corridor',
-      health: 100,
-    },
-
-    // Catwalk Spine Pressure Bulkhead Gates (Vertical dividers along catwalk)
-    {
-      id: 'door_spine_fwd',
-      name: 'Forward Spine Bulkhead Gate',
-      x1: 440,
-      y1: 368,
-      x2: 440,
-      y2: 432,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'corridor',
-      roomB: 'corridor',
-      health: 100,
-    },
-    {
-      id: 'door_spine_aft',
-      name: 'Aft Spine Bulkhead Gate',
-      x1: 760,
-      y1: 368,
-      x2: 760,
-      y2: 432,
-      isOpen: true,
-      isAirlock: false,
-      roomA: 'corridor',
-      roomB: 'corridor',
-      health: 100,
-    },
-
-    // Exterior Outer Hull Hatches (Open directly to vacuum)
-    {
-      id: 'airlock_stbd_outer',
-      name: 'Starboard Outer Hull EVA Hatch',
-      x1: 950,
-      y1: 228,
-      x2: 990,
-      y2: 228,
+  return DOOR_SEEDS.map((seed) => {
+    const ox = seed.frame === 'ship' ? SHIP_ORIGIN.x : 0;
+    const oy = seed.frame === 'ship' ? SHIP_ORIGIN.y : 0;
+    return {
+      id: seed.id,
+      name: doorName(seed.id, seed.kind === 'airlock'),
+      x1: seed.segment.x1 + ox,
+      y1: seed.segment.y1 + oy,
+      x2: seed.segment.x2 + ox,
+      y2: seed.segment.y2 + oy,
       isOpen: false,
-      isAirlock: true,
-      roomA: 'airlock_stbd',
-      roomB: 'vacuum',
-    },
-    {
-      id: 'airlock_port_outer',
-      name: 'Port Outer Hull EVA Hatch',
-      x1: 360,
-      y1: 572,
-      x2: 400,
-      y2: 572,
-      isOpen: false,
-      isAirlock: true,
-      roomA: 'airlock_port',
-      roomB: 'vacuum',
-    },
-    // Docking gauntlet hatches (driven by the docking cycle, sealed unless docked)
-    {
-      id: 'gauntlet_ship_door',
-      name: 'Gauntlet Ship-Side Hatch',
-      x1: 580,
-      y1: 572,
-      x2: 620,
-      y2: 572,
-      isOpen: false,
-      isSealed: true,
-      isAirlock: false,
-      roomA: 'cargo',
-      roomB: 'gauntlet',
+      isAirlock: seed.kind === 'airlock',
+      roomA: seed.roomA,
+      roomB: seed.roomB,
       health: 100,
-    },
-    {
-      id: 'gauntlet_station_door',
-      name: 'Gauntlet Station-Side Hatch',
-      x1: 580,
-      y1: 650,
-      x2: 620,
-      y2: 650,
-      isOpen: false,
-      isSealed: true,
-      isAirlock: false,
-      roomA: 'gauntlet',
-      roomB: 'station_lobby',
-      health: 100,
-    },
-    {
-      id: 'airlock_eng',
-      name: 'Aft Engineering Emergency Purge Vent',
-      x1: 1020,
-      y1: 480,
-      x2: 1020,
-      y2: 520,
-      isOpen: false,
-      isAirlock: true,
-      roomA: 'engineering',
-      roomB: 'vacuum',
-    },
-  ];
+    };
+  });
 }
 
 export const GAUNTLET_DOOR_IDS: readonly string[] = [
-  'gauntlet_ship_door',
-  'gauntlet_station_door',
+  'station.bay_gauntlet',
+  'ship.ship_mouth',
 ] as const;
 
 export function isGauntletDoorId(doorId: string): boolean {
@@ -250,8 +101,7 @@ export function isGauntletDoorId(doorId: string): boolean {
 }
 
 export function isStationSideDoor(door: DoorState): boolean {
-  const stationSide = (roomId: string): boolean =>
-    roomId === 'gauntlet' || roomId.startsWith('station_');
+  const stationSide = (roomId: string): boolean => roomId.startsWith('station.');
   return stationSide(door.roomA) && stationSide(door.roomB);
 }
 

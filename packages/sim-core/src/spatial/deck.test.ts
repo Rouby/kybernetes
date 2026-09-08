@@ -1,40 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { getDutiesForStation } from '../duties';
-import { HESPERIA_STATIONS, HESPERIA_WALLS } from './deck';
+import { getWorldStations, HESPERIA_STATIONS, HESPERIA_WALLS } from './deck';
 
 describe('station hub fixtures', () => {
-  it('exposes a job board in the station lobby', () => {
-    const board = HESPERIA_STATIONS.find((s) => s.id === 'lobby_job_board');
-    expect(board).toBeDefined();
-    expect(board?.stationType).toBe('job_board');
-    expect(board?.deckId).toBe('station');
+  it('defers interactables to a later milestone (no stations yet)', () => {
+    expect(HESPERIA_STATIONS).toEqual([]);
+    expect(getWorldStations({ x: 1400, y: 0 })).toEqual([]);
   });
 
-  it('flanks the dock with transparent window walls', () => {
+  it('glazes the lobby with a sight-passing window wall', () => {
     const wins = HESPERIA_WALLS.filter((w) => w.isWindow);
-    expect(wins.map((w) => w.id).sort()).toEqual([
-      'hull_win_cargo_east',
-      'hull_win_cargo_west',
-      'st_win_dock_east',
-      'st_win_dock_west',
-      'st_win_east_alpha',
-      'st_win_east_beta',
-      'st_win_west_alpha',
-      'st_win_west_beta',
-    ]);
+    expect(wins.map((w) => w.id).sort()).toEqual(['portal.lobby_window']);
     for (const w of wins) {
       expect(w.isOpaque).toBe(false);
       expect(w.isTraversable).toBe(false);
     }
+    const pane = wins[0];
+    expect(pane).toBeDefined();
+    expect([pane?.x1, pane?.y1, pane?.x2, pane?.y2]).toEqual([100, 0, 500, 0]);
   });
 
   it('keeps station ids unique', () => {
     const ids = HESPERIA_STATIONS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it('assigns no duties to hub decor fixtures', () => {
-    expect(getDutiesForStation('job_board')).toEqual([]);
-    expect(getDutiesForStation('viewport_window')).toEqual([]);
   });
 });

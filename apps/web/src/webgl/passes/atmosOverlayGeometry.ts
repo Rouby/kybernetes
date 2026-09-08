@@ -13,7 +13,7 @@ export interface OverlayRoomRect {
 export const ARROW_MIN_WIND = 8;
 const ARROW_COLOR: [number, number, number, number] = [0.75, 0.97, 1.0, 0.9];
 
-const STATION_RECT_IDS = new Set(['gauntlet', 'station_lobby', 'station_bay']);
+const STATION_RECT_IDS = new Set(['gauntlet', 'lobby', 'bay']);
 
 function rectSide(id: string): 'ship' | 'station' {
   return STATION_RECT_IDS.has(id) ? 'station' : 'ship';
@@ -23,9 +23,9 @@ export function overlayRoomRects(): OverlayRoomRect[] {
   const rects: OverlayRoomRect[] = [];
   for (const r of HESPERIA_ROOMS) {
     if (r.id === 'corridor') {
-      rects.push({ id: 'corridor_fwd', x: 120, y: 368, w: 320, h: 64, side: 'ship' });
-      rects.push({ id: 'corridor_mid', x: 440, y: 368, w: 320, h: 64, side: 'ship' });
-      rects.push({ id: 'corridor_aft', x: 760, y: 368, w: 260, h: 64, side: 'ship' });
+      rects.push({ id: 'corridor_fwd', x: 100, y: 320, w: 260, h: 80, side: 'ship' });
+      rects.push({ id: 'corridor_mid', x: 360, y: 320, w: 260, h: 80, side: 'ship' });
+      rects.push({ id: 'corridor_aft', x: 620, y: 320, w: 260, h: 80, side: 'ship' });
       continue;
     }
     rects.push({ id: r.id, x: r.x, y: r.y, w: r.width, h: r.height, side: rectSide(r.id) });
