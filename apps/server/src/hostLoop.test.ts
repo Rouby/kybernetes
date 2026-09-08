@@ -7,7 +7,7 @@ import {
   HARBOR_BEACON,
 } from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
-import { SimHost } from './SimHost.js';
+import { INPUT_LATCH_MS, SimHost } from './SimHost.js';
 
 function riggedHost(): SimHost {
   return new SimHost(buildHarborWorld(), undefined, null, {
@@ -216,6 +216,78 @@ describe('host loop sessions', () => {
       pawnId: 'pawn:cap8',
       resumed: false,
     });
+    host.stop();
+  });
+
+  it('holds latched movement across slices until released', () => {
+    const host = riggedHost();
+    host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    const drive = driver(host);
+    let seq = 0;
+    const sendMove = (x: number): void => {
+      seq += 1;
+      host.handleIntent('c1', {
+        type: 'INPUT',
+        seq,
+        moveVec: { x, y: 0 },
+        facing: 0,
+        sprint: false,
+        sealed: false,
+      });
+    };
+    const velX = (): number => host.currentWorld.pawns['pawn:u1']?.vel.x ?? Number.NaN;
+    sendMove(1);
+    drive(1.0);
+    expect(velX()).toBeGreaterThan(100);
+    sendMove(0);
+    drive(2.0);
+    expect(Math.abs(velX())).toBeLessThan(5);
+    host.stop();
+  });
+
+  it('expires stale latched input without a heartbeat', () => {
+    const host = riggedHost();
+    host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    const drive = driver(host);
+    host.handleIntent('c1', {
+      type: 'INPUT',
+      seq: 1,
+      moveVec: { x: 1, y: 0 },
+      facing: 0,
+      sprint: false,
+      sealed: false,
+    });
+    drive(0.5);
+    expect(host.currentWorld.pawns['pawn:u1']?.vel.x ?? 0).toBeGreaterThan(100);
+    drive(2.0);
+    expect(Math.abs(host.currentWorld.pawns['pawn:u1']?.vel.x ?? 999)).toBeLessThan(5);
+    host.stop();
+  });
+
+  it('keeps the latch window above the client heartbeat', () => {
+    // The web client re-sends held input every 500ms; the latch must outlive
+    // that interval or walking stutters between heartbeats.
+    expect(INPUT_LATCH_MS).toBeGreaterThan(500);
+  });
+
+  it('keeps walking on heartbeat refreshes alone', () => {
+    const host = riggedHost();
+    host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    const drive = driver(host);
+    let seq = 0;
+    for (let i = 0; i < 6; i += 1) {
+      seq += 1;
+      host.handleIntent('c1', {
+        type: 'INPUT',
+        seq,
+        moveVec: { x: 1, y: 0 },
+        facing: 0,
+        sprint: false,
+        sealed: false,
+      });
+      drive(0.5);
+    }
+    expect(host.currentWorld.pawns['pawn:u1']?.vel.x ?? 0).toBeGreaterThan(100);
     host.stop();
   });
 });

@@ -4,6 +4,9 @@
  * (SNAPSHOT 10Hz, TELEMETRY 2Hz, VITALS 5Hz), and the client session registry
  * (beacon join, resume by userId, hire flow). Transport-agnostic: validated
  * intents go in, snapshot payloads come out through callbacks and getters.
+ * Movement inputs latch per pawn (1s expiry on the slice clock) so held keys
+ * survive the 500ms client heartbeat and packet jitter; a zero moveVec
+ * releases the latch and the pawn coasts to a stop through damping.
  */
 
 import type { ClientIntent, ManifestBroadcast, Role } from '@kybernetes/protocol';
@@ -67,6 +70,9 @@ export interface HostIntentResult {
   offer?: HireOfferRecord;
 }
 
+/** How long a held INPUT keeps driving its pawn without a refresh. */
+export const INPUT_LATCH_MS = 1000;
+
 export class SimHost {
   private world: World;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -79,6 +85,7 @@ export class SimHost {
   private lastVitalsMs = 0;
   private readonly clients = new Map<string, HostClient>();
   private readonly beacons = new Map<string, BeaconEntry>();
+  private readonly latched = new Map<string, { input: WorldInput; atMs: number }>();
 
   constructor(
     initialWorld: World,
@@ -145,6 +152,7 @@ export class SimHost {
     if (client !== undefined) {
       const entry = this.beacons.get(client.beacon);
       if (entry !== undefined) this.beacons.set(client.beacon, leaveBeacon(entry, client.userId));
+      this.latched.delete(client.pawnId);
     }
     this.clients.delete(clientId);
   }
@@ -205,6 +213,7 @@ export class SimHost {
       this.timer = null;
     }
     this.pending = [];
+    this.latched.clear();
     this.accumulatorMs = 0;
   }
 
@@ -215,7 +224,7 @@ export class SimHost {
   slice(nowMs: number, sliceMs: number): void {
     this.accumulatorMs += Math.min(Math.max(nowMs - this.lastTickMs, 0), sliceMs * 4);
     this.lastTickMs = nowMs;
-    this.drainSteps();
+    this.drainSteps(nowMs);
     this.fireClocks(nowMs);
   }
 
@@ -254,7 +263,15 @@ export class SimHost {
     const routed = routeIntent(this.world, client.pawnId, intent, this.pending);
     this.world = routed.world;
     this.pending = [...routed.movement];
+    this.latchInput(client.pawnId, intent, routed.movement);
     return routed.notice === undefined ? {} : { notice: routed.notice };
+  }
+
+  private latchInput(pawnId: string, intent: ClientIntent, movement: readonly WorldInput[]): void {
+    if (intent.type !== 'INPUT') return;
+    const latest = movement[movement.length - 1];
+    if (latest === undefined) return;
+    this.latched.set(pawnId, { input: latest, atMs: this.lastTickMs });
   }
 
   private handleTalk(npcId: string): HostIntentResult {
@@ -273,7 +290,7 @@ export class SimHost {
     return hired ? {} : { notice: 'hire-refused' };
   }
 
-  private drainSteps(): void {
+  private drainSteps(nowMs: number): void {
     const stepMs = FIXED_DT * 1000;
     let steps = 0;
     while (this.accumulatorMs >= stepMs) {
@@ -282,16 +299,28 @@ export class SimHost {
         this.accumulatorMs = 0;
         return;
       }
-      this.stepOnce();
+      this.stepOnce(nowMs);
       this.accumulatorMs -= stepMs;
       steps += 1;
     }
   }
 
-  private stepOnce(): void {
-    const inputs = this.pending;
+  private stepOnce(nowMs: number): void {
+    const inputs = [...this.heldInputs(nowMs), ...this.pending];
     this.pending = [];
     this.world = tickWorld(this.world, FIXED_DT, inputs, this.options.air);
+  }
+
+  private heldInputs(nowMs: number): WorldInput[] {
+    const held: WorldInput[] = [];
+    for (const [pawnId, entry] of this.latched) {
+      if (nowMs - entry.atMs > INPUT_LATCH_MS) {
+        this.latched.delete(pawnId);
+        continue;
+      }
+      held.push(entry.input);
+    }
+    return held;
   }
 
   private fireClocks(nowMs: number): void {
