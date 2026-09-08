@@ -14,6 +14,7 @@ import {
   roomAirDensity,
   sampleRoomWind,
   stepAirAuthority,
+  syncAirAreas,
   ventedRooms,
 } from './airAuthority.js';
 import { assembleWorld } from './assemble.js';
@@ -77,6 +78,31 @@ describe('air authority venting', () => {
     expect(ventedRooms(views)).toContain('bay');
     expect(views.lobby?.pressureKpa ?? 0).toBeGreaterThan(100);
     expect(vented.atmos.bay?.pressureKpa ?? 0).toBeLessThan(90);
+  });
+
+  it('follows combat breach widening instead of venting at birth size', () => {
+    const { auth, world } = stationSetup();
+    const hole: PortalEdge = {
+      id: 'breach.bay.1.0',
+      roomA: 'bay',
+      roomB: 'space',
+      kind: 'hole',
+      state: 'destroyed',
+      cooldownUntilTick: 1,
+      areaM2: 0.05,
+      segment: { x1: 700, y1: 100, x2: 708, y2: 100 },
+      clearance: 0,
+      integrity: 0,
+    };
+    const holed: World = { ...world, portals: { ...world.portals, [hole.id]: hole } };
+    stepBoth(auth, holed, 1);
+    const linked = auth.sims.get('station')?.portals.get(hole.id);
+    expect(linked?.effectiveArea).toBeCloseTo(0.05, 6);
+    // Sustained fire widens the same hole in place; the linked throat must
+    // follow or every widened breach keeps venting like a fresh puncture.
+    const widened = setEdge(holed, hole.id, { areaM2: 1.0 });
+    syncAirAreas(auth, widened);
+    expect(auth.sims.get('station')?.portals.get(hole.id)?.effectiveArea).toBeCloseTo(1.0, 6);
   });
 
   it('keeps sealed ships and stations isolated', () => {

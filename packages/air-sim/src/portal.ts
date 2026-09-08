@@ -24,6 +24,7 @@ export class Portal {
   readonly roomA: Room;
   readonly roomB: Room | null;
   readonly width: number;
+  readonly height: number;
   readonly maxArea: number;
   readonly distance: number;
   openRatio: number;
@@ -37,6 +38,7 @@ export class Portal {
     this.roomA = config.roomA;
     this.roomB = config.roomB;
     this.width = config.width;
+    this.height = config.height;
     this.maxArea = config.width * config.height;
     this.openRatio = config.openRatio ?? (config.type === PortalType.Door ? 0 : 1);
     this.side = config.side;
@@ -63,5 +65,16 @@ export class Portal {
 
   get effectiveArea(): number {
     return this.maxArea * Math.max(0, Math.min(1, this.openRatio));
+  }
+
+  /**
+   * Resize the throat while preserving the configured height (combat
+   * breaches widen after linking). Readonly fields mutate only here so
+   * the solver-facing shape stays immutable everywhere else.
+   */
+  resizeThroat(widthM2: number): void {
+    const width = Math.max(0, widthM2);
+    (this as { width: number }).width = width;
+    (this as { maxArea: number }).maxArea = width * this.height;
   }
 }

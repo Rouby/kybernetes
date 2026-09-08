@@ -191,6 +191,9 @@ export function syncAirAreas(auth: AirAuthorityState, world: World): void {
       if (frame.lockedOpen.has(edgeId)) continue;
       const edge = world.portals[edgeId];
       airPortal.openRatio = edge === undefined ? 0 : portalOpenRatio(edge);
+      // Widened breaches keep venting at their birth size unless the throat
+      // follows the edge: combat widens areaM2 in place after linking.
+      if (edge?.kind === 'hole') airPortal.resizeThroat(Math.max(edge.areaM2, 0.05));
     }
   }
 }

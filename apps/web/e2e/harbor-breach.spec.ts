@@ -21,6 +21,7 @@ test.describe('Harbor structural damage (own daemon: venting is permanent)', () 
   });
 
   test('breaches the bay wall, spends mag, and reloads', async ({ page }) => {
+    test.setTimeout(180000);
     await harborBoard(page, { callsign: 'Breach-1' });
     await page.keyboard.down('d');
     await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 510, 20000);
@@ -38,20 +39,36 @@ test.describe('Harbor structural damage (own daemon: venting is permanent)', () 
       await page.keyboard.up('d');
     }
     expect(crossed).toBe(true);
+    // Seal up: the vent wait outlasts open-suit hypoxia once the room drains.
+    await page.keyboard.press('t');
+    await waitForHarbor(page, 'harbor-vitals', (t) => t.includes('suit:sealed'), 10000);
+    // Fire from mid-room on purpose: pinned against the wall, the muzzle
+    // spawns past the collider and rounds never touch it. At ~100px range
+    // bloom still lands inside merge distance of the first puncture.
     await page.mouse.move(640, 80);
     await waitForHarbor(page, 'harbor-status', (t) => angDiff(statFace(t), 270) < 35, 10000);
-    await page.keyboard.press('f');
-    await expect(page.getByTestId('harbor-vitals')).toContainText('mag:29/120', { timeout: 10000 });
+    // One puncture (0.05m2) cannot vent the bay+lobby complex on any sane
+    // timeout: walk a short full-auto burst so repeat hits widen it into a
+    // real breach via merge, then the rooms vent faster than they refill.
+    await page.keyboard.down('f');
+    await waitForHarbor(
+      page,
+      'harbor-vitals',
+      (t) => Number(/mag:(\d+)\//.exec(t)?.[1] ?? 30) <= 20,
+      15000
+    );
+    await page.keyboard.up('f');
     await waitForHarbor(
       page,
       'harbor-status',
       (t) => Number(/vent:(\d+)/.exec(t)?.[1] ?? 0) >= 1,
-      30000
+      90000
     );
     await page.keyboard.press('r');
     await expect(page.getByTestId('harbor-vitals')).toContainText('(reloading)', {
       timeout: 10000,
     });
-    await expect(page.getByTestId('harbor-vitals')).toContainText('mag:30/119', { timeout: 15000 });
+    await expect(page.getByTestId('harbor-vitals')).toContainText('mag:30/', { timeout: 15000 });
+    await expect(page.getByTestId('harbor-vitals')).not.toContainText('(reloading)');
   });
 });
