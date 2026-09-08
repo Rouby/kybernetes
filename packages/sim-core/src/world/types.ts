@@ -6,6 +6,7 @@
 
 import type { WallSegment } from '@kybernetes/protocol';
 import type { AirRoomView } from './airAuthority.js';
+import type { BotSchedule } from './bots.js';
 import type { CrewRecord, HireOfferRecord } from './crew.js';
 import type { DockLink, TransitState } from './schedule.js';
 import type { PawnVitals } from './survival.js';
@@ -103,6 +104,9 @@ export interface PawnBody {
   readonly color: string;
   /** Tick before which dock transfer volumes ignore this pawn (anti-bounce). */
   readonly transferCooldownUntilTick: number;
+  /** Spoken line cleared after sayUntilTick; empty means silent. */
+  readonly say: string;
+  readonly sayUntilTick: number;
 }
 
 export interface ProjectileBody {
@@ -162,6 +166,10 @@ export interface World {
   readonly docks: Readonly<Record<string, DockLink>>;
   /** Survival vitals by pawn id; created on first tick. */
   readonly vitals: Readonly<Record<string, PawnVitals>>;
+  /** Bot schedules by pawn id; only scheduled pawns move on their own. */
+  readonly bots: Readonly<Record<string, BotSchedule>>;
+  /** Weapon heat 0-100 by pawn id; cools over time. */
+  readonly heat: Readonly<Record<string, number>>;
 }
 
 export const FIXED_DT = 1 / 20;
@@ -187,5 +195,7 @@ export function createEmptyWorld(timeMs = 0): World {
     spawns: {},
     docks: {},
     vitals: {},
+    bots: {},
+    heat: {},
   };
 }

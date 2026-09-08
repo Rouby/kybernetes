@@ -1,7 +1,13 @@
-import { buildHarborWorld, HARBOR_BEACON } from '@kybernetes/sim-core';
+import {
+  buildHarborWorld,
+  buildHireOffer,
+  buildManifest,
+  buildVitals,
+  buildWatch,
+  HARBOR_BEACON,
+} from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
 import { SimHost } from './SimHost.js';
-import { buildHireOffer, buildManifest, buildVitals, buildWatch } from './snapshotter.js';
 
 function riggedHost(): SimHost {
   return new SimHost(buildHarborWorld(), undefined, null, {
@@ -36,7 +42,9 @@ describe('host loop sessions', () => {
 
   it('rejects unknown beacons without spawning', () => {
     const host = riggedHost();
-    expect(host.joinBeacon('c9', 'NOPE', 'Rook', '#fff', 'u9')).toBeUndefined();
+    expect(host.joinBeacon('c9', 'NOPE', 'Rook', '#fff', 'u9')).toEqual({
+      denied: 'unknown-beacon',
+    });
     host.stop();
   });
 
@@ -46,7 +54,10 @@ describe('host loop sessions', () => {
     host.joinBeacon('c2', HARBOR_BEACON, 'Sable', '#000', 'u2');
     const manifest = host.manifestFor();
     expect(manifest).toHaveLength(2);
-    expect(buildManifest(host.currentWorld, 0, manifest).crew).toHaveLength(2);
+    const manifestSent = buildManifest(host.currentWorld, 'ship', 0, manifest);
+    expect(manifestSent.crew).toHaveLength(2);
+    expect(manifestSent.beacon).toBe(HARBOR_BEACON);
+    expect(manifestSent.shipName).toBe('CSS Hesperia');
     host.stop();
   });
 
@@ -158,6 +169,38 @@ describe('host loop sessions', () => {
     const vitals = buildVitals(host.currentWorld, 0, 'pawn:u1', 0, 1);
     expect(vitals.vitals.suitSealed).toBe(true);
     expect(vitals.vitals.hunger).toBe(100);
+    host.stop();
+  });
+
+  it('shares one vessel across a four-client co-op crew', () => {
+    const host = riggedHost();
+    const ids = ['u1', 'u2', 'u3', 'u4'];
+    for (const [i, user] of ids.entries()) {
+      const joined = host.joinBeacon(`c${i}`, HARBOR_BEACON, `Crew${i}`, '#fff', user, i);
+      expect(joined).toEqual({ pawnId: `pawn:${user}`, resumed: false });
+    }
+    expect(host.manifestFor()).toHaveLength(4);
+    const frames = new Set(ids.map((user) => host.currentWorld.pawns[`pawn:${user}`]?.frameId));
+    expect(frames).toEqual(new Set(['station']));
+    host.stop();
+  });
+
+  it('caps beacon membership and releases slots on leave', () => {
+    const host = riggedHost();
+    for (let i = 0; i < 8; i += 1) {
+      expect(host.joinBeacon(`c${i}`, HARBOR_BEACON, `Crew${i}`, '#fff', `cap${i}`, 0)).toEqual({
+        pawnId: `pawn:cap${i}`,
+        resumed: false,
+      });
+    }
+    expect(host.joinBeacon('c8', HARBOR_BEACON, 'Extra', '#fff', 'cap8', 1)).toEqual({
+      denied: 'beacon-full',
+    });
+    host.leaveClient('c0');
+    expect(host.joinBeacon('c8', HARBOR_BEACON, 'Extra', '#fff', 'cap8', 2)).toEqual({
+      pawnId: 'pawn:cap8',
+      resumed: false,
+    });
     host.stop();
   });
 });

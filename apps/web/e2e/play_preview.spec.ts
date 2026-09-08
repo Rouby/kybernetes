@@ -112,6 +112,11 @@ test.describe('Playable kernel slice (M3)', () => {
     await expect(page.getByTestId('play-stats')).toContainText('grade:S', { timeout: 45000 });
     await expect(page.getByTestId('play-stats')).toContainText('credits:200');
     await expect(page.getByTestId('play-stats')).toContainText('sched:docked', { timeout: 20000 });
+    await expect(page.getByTestId('play-hud')).toContainText('crew:4');
+    await expect(page.getByTestId('play-hud')).toContainText('beacon:HESP01');
+    await expect(page.getByTestId('play-hud')).toContainText('hull:100');
+    await expect(page.getByTestId('play-hud')).toContainText('heat:0');
+    await expect(page.getByTestId('play-hud')).toContainText('say:', { timeout: 20000 });
   });
 
   test('station bay: hull puncture vents the room from authority telemetry', async ({ page }) => {

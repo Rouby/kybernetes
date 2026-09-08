@@ -7,7 +7,7 @@ import {
   ventedRooms,
 } from './airAuthority.js';
 import { assembleWorld, spawnPawn } from './assemble.js';
-import { applyDamage, fireWeapon, weaponDamage } from './combat.js';
+import { applyDamage, fireWeapon, tickHeat, weaponDamage } from './combat.js';
 import { isPortalConnecting } from './doors.js';
 import type { HullSpec } from './hullCompiler.js';
 import type { World } from './types.js';
@@ -146,6 +146,24 @@ describe('combat fire', () => {
     expect(hole?.roomA).toBe('box.a');
     expect(hole?.roomB).toBe('box.b');
     if (hole !== undefined) expect(isPortalConnecting(hole)).toBe(true);
+  });
+
+  it('overheats after four shots and cools back to ready', () => {
+    let world = spawnAt(
+      assembleWorld([{ frameId: 'box', hull: DOUBLE_SPEC }]),
+      'p1',
+      'box',
+      'box.a',
+      30,
+      50
+    );
+    for (let i = 0; i < 4; i += 1) world = fireWeapon(world, 'p1', 0, 'rifle').world;
+    expect(world.heat.p1).toBe(100);
+    expect(fireWeapon(world, 'p1', 0, 'rifle').result).toEqual({ kind: 'overheated' });
+    world = tickHeat(world, 5);
+    expect(world.heat.p1 ?? 0).toBeLessThan(100);
+    world = tickHeat(world, 10);
+    expect(world.heat.p1).toBeUndefined();
   });
 
   it('vents exterior rooms through shot walls once air reconciles', () => {

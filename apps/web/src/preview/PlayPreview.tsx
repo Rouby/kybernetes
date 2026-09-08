@@ -12,6 +12,11 @@ import {
   bindAirFrame,
   bindWorldAir,
   buildHarborWorld,
+  buildManifest,
+  buildSnapshot,
+  buildTelemetry,
+  buildVitals,
+  buildWatch,
   captainIdFor,
   createAirAuthority,
   FIXED_DT,
@@ -52,6 +57,7 @@ export function PlayPreview({ specName }: { specName: string }) {
   const keysRef = useRef<Set<string>>(new Set());
   const [stats, setStats] = useState('boot');
   const [notice, setNotice] = useState('');
+  const [hud, setHud] = useState('boot');
   const isHarbor = specName === 'harbor';
   const entry = isHarbor ? undefined : SPECS[specName];
 
@@ -194,6 +200,7 @@ export function PlayPreview({ specName }: { specName: string }) {
       if (statClock > 0.2 && live !== null) {
         statClock = 0;
         setStats(describeWorld(live));
+        setHud(describeHud(live));
       }
       raf = requestAnimationFrame(frame);
     };
@@ -216,6 +223,7 @@ export function PlayPreview({ specName }: { specName: string }) {
       </h1>
       <div data-testid="play-stats">{stats}</div>
       <div data-testid="play-notice">{notice}</div>
+      <div data-testid="play-hud">{hud}</div>
       <canvas
         ref={canvasRef}
         data-testid="play-canvas"
@@ -313,8 +321,36 @@ function describeWorld(world: World): string {
 
 function fireNotice(result: FireResult): string {
   if (result.kind === 'miss') return 'fire clean miss';
+  if (result.kind === 'overheated') return 'fire overheated';
   if (result.kind === 'pawn') return `fire hit pawn ${shortId(result.targetId)}`;
   return `fire ${result.kind} ${shortId(result.portalId)}`;
+}
+
+function describeHud(world: World): string {
+  const nowMs = world.tick * 50;
+  const snap = buildSnapshot(world, nowMs);
+  const tele = buildTelemetry(world, nowMs, []);
+  const vitals = buildVitals(world, nowMs, HERO_ID, 0, 1);
+  const vesselId = Object.keys(world.vessels)[0];
+  const entries = Object.values(world.crew).flatMap((record) =>
+    record.role === 'captain'
+      ? []
+      : [
+          {
+            id: record.pawnId,
+            callsign: record.pawnId,
+            role: record.role,
+            frameId: world.pawns[record.pawnId]?.frameId ?? '',
+          },
+        ]
+  );
+  const manifest =
+    vesselId === undefined ? undefined : buildManifest(world, vesselId, nowMs, entries);
+  const watch = vesselId === undefined ? undefined : buildWatch(world, vesselId, nowMs);
+  const say = snap.pawns.find((pawn) => pawn.say !== undefined)?.say ?? '-';
+  const watchText =
+    watch === undefined ? 'none' : `#${watch.watchNo} ${watch.remainingS}s ${watch.grade}`;
+  return `hud pawns:${snap.pawns.length} portals:${snap.portals.length} crew:${manifest?.crew.length ?? 0} beacon:${manifest?.beacon ?? '-'} hp:${vitals.vitals.health} hyp:${vitals.vitals.hypoxia} suit:${vitals.vitals.suitSealed ? 'sealed' : 'open'} hull:${tele.subsystems.hull} atmos:${tele.subsystems.atmos} watch:${watchText} heat:${world.heat[HERO_ID] ?? 0} say:${say}`;
 }
 
 function shortId(id: string): string {
@@ -449,6 +485,11 @@ function drawPlayWorld(
       Math.PI * 2
     );
     ctx.fill();
+    if (pawn.say !== '' && world.tick <= pawn.sayUntilTick) {
+      ctx.fillStyle = '#ffe08a';
+      ctx.font = '11px monospace';
+      ctx.fillText(pawn.say, toX(pawn.pos.x + origin.x) + 10, toY(pawn.pos.y + origin.y) - 10);
+    }
   }
 }
 

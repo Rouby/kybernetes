@@ -16,9 +16,13 @@ export const RIFLE_DAMAGE = 25;
 export const WELDER_DAMAGE = 15;
 export const BREACH_AREA_M2 = 1.5;
 export const COMBAT_BLEED_S = 20;
+export const HEAT_PER_SHOT = 25;
+export const HEAT_COOLDOWN_PER_S = 10;
+export const OVERHEAT_AT = 100;
 
 export type FireResult =
   | { readonly kind: 'miss' }
+  | { readonly kind: 'overheated' }
   | { readonly kind: 'pawn'; readonly targetId: string }
   | { readonly kind: 'door'; readonly portalId: string }
   | { readonly kind: 'breach'; readonly portalId: string };
@@ -36,19 +40,24 @@ export function fireWeapon(
   const shooter = world.pawns[pawnId];
   if (shooter === undefined || !Number.isFinite(originAngle))
     return { world, result: { kind: 'miss' } };
+  if ((world.heat[pawnId] ?? 0) >= OVERHEAT_AT) return { world, result: { kind: 'overheated' } };
+  const heated: World = {
+    ...world,
+    heat: { ...world.heat, [pawnId]: (world.heat[pawnId] ?? 0) + HEAT_PER_SHOT },
+  };
   const dir = { x: Math.cos(originAngle), y: Math.sin(originAngle) };
-  const hit = castRay(world, shooter, dir);
-  if (hit === undefined) return { world, result: { kind: 'miss' } };
+  const hit = castRay(heated, shooter, dir);
+  if (hit === undefined) return { world: heated, result: { kind: 'miss' } };
   if (hit.kind === 'pawn') {
     return {
-      world: strikePawn(world, hit.targetId, weaponDamage(weapon), hit.point),
+      world: strikePawn(heated, hit.targetId, weaponDamage(weapon), hit.point),
       result: { kind: 'pawn', targetId: hit.targetId },
     };
   }
   if (hit.kind === 'door') {
-    return damageDoor(world, hit.portalId, weaponDamage(weapon));
+    return damageDoor(heated, hit.portalId, weaponDamage(weapon));
   }
-  return breachWall(world, shooter.frameId, hit.wall, hit.point);
+  return breachWall(heated, shooter.frameId, hit.wall, hit.point);
 }
 
 interface RayHit {
@@ -120,6 +129,19 @@ function wallAtPoint(
 export function applyDamage(pawn: PawnBody, event: DamageEvent): PawnBody {
   const hp = Math.min(pawn.health.maxHp, Math.max(0, pawn.health.hp - Math.max(0, event.force)));
   return { ...pawn, health: { ...pawn.health, hp } };
+}
+
+export function tickHeat(world: World, dtSeconds: number): World {
+  if (!(dtSeconds > 0)) return world;
+  const ids = Object.keys(world.heat);
+  if (ids.length === 0) return world;
+  const heat = { ...world.heat };
+  for (const id of ids) {
+    const next = (heat[id] ?? 0) - HEAT_COOLDOWN_PER_S * dtSeconds;
+    if (next <= 0) delete heat[id];
+    else heat[id] = next;
+  }
+  return { ...world, heat };
 }
 
 export function strikePawn(world: World, targetId: string, damage: number, point: Vec2): World {

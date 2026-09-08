@@ -1,4 +1,13 @@
-import { assembleWorld, createEmptyWorld, StationHubSpec, spawnPawn } from '@kybernetes/sim-core';
+import {
+  assembleWorld,
+  buildManifest,
+  buildSnapshot,
+  buildTelemetry,
+  buildVitals,
+  createEmptyWorld,
+  StationHubSpec,
+  spawnPawn,
+} from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
 import { routeIntent } from './routers/intentRouter.js';
 import { DEFAULT_CLOCKS, SimHost } from './SimHost.js';
@@ -10,7 +19,6 @@ import {
   persistPawn,
   restorePersistedPawn,
 } from './sessions.js';
-import { buildManifest, buildSnapshot, buildTelemetry, buildVitals } from './snapshotter.js';
 import {
   createRateState,
   createSeqCursor,
@@ -58,7 +66,8 @@ describe('SimHost scaffold', () => {
     expect(snapshot.portals).toEqual([]);
     expect(buildTelemetry(world, 123, []).type).toBe('TELEMETRY');
     expect(buildVitals(world, 123, 'nobody', 10, 1).credits).toBe(10);
-    expect(buildManifest(world, 123, []).crew).toEqual([]);
+    expect(buildManifest(world, 'ship', 123, []).crew).toEqual([]);
+    expect(buildManifest(world, 'ship', 123, []).beacon).toBe('UNKNOWN');
   });
 
   it('routes input intents into movement', () => {

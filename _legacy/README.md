@@ -39,3 +39,8 @@ M5: `world/crew.ts` (hire loop), `world/watch.ts` (watch rotation + grades),
 `quests/shiftChecklist.ts`, `systems/multiplayer.ts` (Dual/Collab),
 `bots/botManager.ts`, `intro.ts`, and the server v1 `handlers/actionRouter.ts`.
 Physical deletion once the server and web migrate off v1 (M7 at the latest).
+
+M7: snapshot builders move to `world/channels.ts` beside the kernel (vessel
+identity, derived gauges, voice lines, heat, notices); HUD parity matrix is
+`packages/protocol/HUD_PARITY_V2.md`. The live v1 socket is untouched, so
+physical deletion of the deprecated paths moves to the transport-cutover epic.

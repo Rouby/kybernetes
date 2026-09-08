@@ -25,6 +25,8 @@ function mkPawn(id: string, room: string): PawnBody {
     health: { hp: 100, maxHp: 100, suitSealed: false, incapacitated: false },
     color: '#fff',
     transferCooldownUntilTick: 0,
+    say: '',
+    sayUntilTick: 0,
   };
 }
 

@@ -84,6 +84,7 @@ function routeFire(
 
 function fireNotice(result: ReturnType<typeof fireWeapon>['result']): string {
   if (result.kind === 'miss') return 'FIRE_miss';
+  if (result.kind === 'overheated') return 'FIRE_overheated';
   if (result.kind === 'pawn') return `FIRE_pawn:${result.targetId}`;
   return `FIRE_${result.kind}:${result.portalId}`;
 }

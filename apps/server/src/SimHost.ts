@@ -20,6 +20,13 @@ import {
   type WorldInput,
 } from '@kybernetes/sim-core';
 import { routeIntent } from './routers/intentRouter.js';
+import {
+  joinBeacon as admitToBeacon,
+  type BeaconEntry,
+  canJoinBeacon,
+  createBeaconEntry,
+  leaveBeacon,
+} from './sessions.js';
 
 export interface HostBroadcastClocks {
   snapshotEveryMs: number;
@@ -50,7 +57,10 @@ export interface HostClient {
   pawnId: string;
   callsign: string;
   color: string;
+  beacon: string;
 }
+
+export type JoinDenied = 'unknown-beacon' | 'beacon-full' | 'join-cooldown' | 'no-spawn';
 
 export interface HostIntentResult {
   notice?: string;
@@ -68,6 +78,7 @@ export class SimHost {
   private lastTelemetryMs = 0;
   private lastVitalsMs = 0;
   private readonly clients = new Map<string, HostClient>();
+  private readonly beacons = new Map<string, BeaconEntry>();
 
   constructor(
     initialWorld: World,
@@ -99,16 +110,24 @@ export class SimHost {
     beacon: string,
     callsign: string,
     color: string,
-    userId?: string
-  ): { pawnId: string; resumed: boolean } | undefined {
+    userId?: string,
+    nowMs: number = Date.now()
+  ): { pawnId: string; resumed: boolean } | { denied: JoinDenied } {
     const vessel = Object.values(this.world.vessels).find((entry) => entry.beacon === beacon);
-    if (vessel === undefined) return undefined;
+    if (vessel === undefined) return { denied: 'unknown-beacon' };
     const id = userId ?? clientId;
     const pawnId = `pawn:${id}`;
-    this.clients.set(clientId, { userId: id, pawnId, callsign, color });
+    this.clients.set(clientId, { userId: id, pawnId, callsign, color, beacon });
     if (this.world.pawns[pawnId] !== undefined) return { pawnId, resumed: true };
+    const entry = this.beacons.get(beacon) ?? createBeaconEntry(beacon, vessel.id);
+    if (!canJoinBeacon(entry, id, nowMs)) {
+      return entry.members.size >= entry.cap
+        ? { denied: 'beacon-full' }
+        : { denied: 'join-cooldown' };
+    }
+    this.beacons.set(beacon, admitToBeacon(entry, id, nowMs));
     const point = stationSpawnPoint(this.world, this.stationFrame());
-    if (point === undefined) return undefined;
+    if (point === undefined) return { denied: 'no-spawn' };
     this.world = spawnPawn(this.world, {
       id: pawnId,
       owner: id,
@@ -122,6 +141,11 @@ export class SimHost {
   }
 
   leaveClient(clientId: string): void {
+    const client = this.clients.get(clientId);
+    if (client !== undefined) {
+      const entry = this.beacons.get(client.beacon);
+      if (entry !== undefined) this.beacons.set(client.beacon, leaveBeacon(entry, client.userId));
+    }
     this.clients.delete(clientId);
   }
 
@@ -207,7 +231,7 @@ export class SimHost {
     const prior = this.clients.get(clientId);
     const userId = prior?.userId ?? clientId;
     const pawnId = prior?.pawnId ?? `pawn:${userId}`;
-    this.clients.set(clientId, { userId, pawnId, callsign, color });
+    this.clients.set(clientId, { userId, pawnId, callsign, color, beacon: prior?.beacon ?? '' });
     return {};
   }
 
@@ -220,7 +244,7 @@ export class SimHost {
       prior?.color ?? '#ffffff',
       userId ?? prior?.userId
     );
-    return joined === undefined ? { notice: 'unknown-beacon' } : {};
+    return 'denied' in joined ? { notice: joined.denied } : {};
   }
 
   private handleKernelIntent(clientId: string, intent: ClientIntent): HostIntentResult {

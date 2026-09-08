@@ -1,19 +1,24 @@
 /**
- * Snapshotter: builds the three v2 channels from kernel views.
- * No sim mutation during broadcast. One consumer per channel:
- * SNAPSHOT -> viewport/LOS, TELEMETRY -> gauges/atmos, VITALS -> visor vitals.
+ * Channel builders: every v2 server snapshot derived from kernel views.
+ * No sim mutation during broadcast. One consumer per channel: SNAPSHOT to
+ * viewport/LOS, TELEMETRY to gauges/atmos, VITALS to visor vitals, NOTICE to
+ * the notice feed, HIRE_OFFER to the hire modal, MANIFEST to the crew card,
+ * WATCH to the checklist/grade/timer cluster.
  */
 
 import type {
   HireOfferBroadcast,
   ManifestBroadcast,
+  NoticeBroadcast,
   Role,
   SnapshotBroadcast,
   TelemetryBroadcast,
   VitalsBroadcast,
   WatchBroadcast,
 } from '@kybernetes/protocol';
-import { projectGrade, type World } from '@kybernetes/sim-core';
+import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
+import type { World } from './types.js';
+import { projectGrade, type WatchState } from './watch.js';
 
 export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {
   return {
@@ -31,6 +36,7 @@ export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {
       frameId: pawn.frameId,
       roomHint: pawn.roomHint,
       color: pawn.color,
+      ...(pawn.say !== '' && world.tick <= pawn.sayUntilTick ? { say: pawn.say } : {}),
     })),
     portals: Object.values(world.portals).map((portal) => ({
       id: portal.id,
@@ -63,9 +69,45 @@ export function buildTelemetry(
     v: 2,
     tick: world.tick,
     serverTimeMs: nowMs,
-    subsystems: {},
+    subsystems: {
+      hull: hullGauge(world),
+      atmos: atmosGauge(world),
+      watch: watchGauge(world),
+      crew: crewGauge(world),
+    },
     atmos,
   };
+}
+
+function hullGauge(world: World): number {
+  const destroyed = Object.values(world.portals).filter(
+    (portal) => portal.state === 'destroyed'
+  ).length;
+  return Math.max(0, 100 - destroyed * 5);
+}
+
+function atmosGauge(world: World): number {
+  const rooms = Object.values(world.atmos);
+  if (rooms.length === 0) return 100;
+  const mean = rooms.reduce((sum, room) => sum + room.pressureKpa, 0) / rooms.length;
+  return Math.round((mean / NOMINAL_PRESSURE_KPA) * 100);
+}
+
+function watchGauge(world: World): number {
+  const watches = Object.values(world.watches);
+  if (watches.length === 0) return 100;
+  const mean = watches.reduce((sum, watch) => sum + watchProgress(watch), 0) / watches.length;
+  return Math.round(mean * 100);
+}
+
+function watchProgress(watch: WatchState): number {
+  if (watch.tasks.length === 0) return 1;
+  return watch.tasks.filter((task) => task.done).length / watch.tasks.length;
+}
+
+function crewGauge(world: World): number {
+  return Object.values(world.pawns).filter((pawn) => world.vessels[pawn.frameId] !== undefined)
+    .length;
 }
 
 export function buildVitals(
@@ -89,18 +131,39 @@ export function buildVitals(
       health: pawn?.health.hp ?? 100,
       hypoxia: vitals?.hypoxia ?? 0,
       suitSealed: vitals?.suitSealed ?? pawn?.health.suitSealed ?? false,
+      heat: world.heat[pawnId] ?? 0,
     },
     credits,
     clearance,
   };
 }
 
+export function buildNotice(
+  tick: number,
+  nowMs: number,
+  severity: NoticeBroadcast['severity'],
+  title: string,
+  message: string
+): NoticeBroadcast {
+  return { type: 'NOTICE', v: 2, tick, serverTimeMs: nowMs, severity, title, message };
+}
+
 export function buildManifest(
   world: World,
+  vesselId: string,
   nowMs: number,
   crew: ManifestBroadcast['crew']
 ): ManifestBroadcast {
-  return { type: 'MANIFEST', v: 2, tick: world.tick, serverTimeMs: nowMs, crew };
+  const vessel = world.vessels[vesselId];
+  return {
+    type: 'MANIFEST',
+    v: 2,
+    tick: world.tick,
+    serverTimeMs: nowMs,
+    beacon: vessel?.beacon ?? 'UNKNOWN',
+    shipName: vessel?.name ?? 'Unknown Vessel',
+    crew,
+  };
 }
 
 export function buildWatch(

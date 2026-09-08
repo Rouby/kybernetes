@@ -6,6 +6,7 @@
 
 import type { Role } from '@kybernetes/protocol';
 import { spawnPawn } from './assemble.js';
+import { ensureBot } from './bots.js';
 import { departVessel } from './schedule.js';
 import type { World } from './types.js';
 
@@ -44,13 +45,14 @@ export function ensureCaptain(world: World, vesselId: string): World {
     y: point.y,
     color: '#ffd166',
   });
-  return {
+  const crewed: World = {
     ...withPawn,
     crew: {
       ...withPawn.crew,
       [captainId]: { pawnId: captainId, role: 'captain', credits: 0, clearance: 3, xp: 0 },
     },
   };
+  return ensureBot(crewed, captainId);
 }
 
 export function vesselSpawnPoint(
@@ -178,6 +180,7 @@ function fillCrew(world: World, vesselId: string, taken: Role): World {
       ...next,
       crew: { ...next.crew, [id]: { pawnId: id, role, credits: 0, clearance: 1, xp: 0 } },
     };
+    next = ensureBot(next, id);
   }
   return next;
 }

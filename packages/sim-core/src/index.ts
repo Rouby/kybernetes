@@ -23,6 +23,8 @@ export * from './systems/projectiles';
 export * from './systems/reactor';
 export * from './world/airAuthority';
 export * from './world/assemble';
+export * from './world/bots';
+export * from './world/channels';
 export * from './world/combat';
 export * from './world/content/HesperiaV2.hull';
 export * from './world/content/StationHub.hull';

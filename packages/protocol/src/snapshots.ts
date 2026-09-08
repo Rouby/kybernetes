@@ -16,6 +16,7 @@ export interface SnapshotPawn {
   readonly frameId: string;
   readonly roomHint: string;
   readonly color: string;
+  readonly say?: string;
 }
 
 export interface SnapshotPortal {
@@ -78,6 +79,7 @@ export interface VitalsBroadcast {
     readonly health: number;
     readonly hypoxia: number;
     readonly suitSealed: boolean;
+    readonly heat: number;
   };
   readonly credits: number;
   readonly clearance: number;
@@ -107,6 +109,8 @@ export interface ManifestBroadcast {
   readonly v: 2;
   readonly tick: number;
   readonly serverTimeMs: number;
+  readonly beacon: string;
+  readonly shipName: string;
   readonly crew: readonly {
     readonly id: string;
     readonly callsign: string;
