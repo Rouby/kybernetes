@@ -59,10 +59,20 @@ interface MuzzleFlash {
 type OverlayMode = 'off' | 'o2' | 'temp' | 'pressure';
 const OVERLAY_CYCLE: OverlayMode[] = ['off', 'o2', 'temp', 'pressure'];
 
+interface TracerRound {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  until: number;
+}
+
 interface ViewportSession {
   renderer: WebGL2Renderer | null;
   camera: { x: number; y: number };
   doors: DoorState[];
+  tracers: TracerRound[];
+  lastFrameMs: number;
   lastAudioMs: number;
   mouse: { x: number; y: number; moved: boolean };
   flashes: MuzzleFlash[];
@@ -73,6 +83,8 @@ interface ViewportSession {
 
 const FLASH_MS = 120;
 const NOTICE_MS = 4000;
+const TRACER_MS = 250;
+const TRACER_SPEED = 900;
 
 const AUDIO_MS = 500;
 
@@ -82,6 +94,8 @@ export function HarborViewport(props: HarborViewportProps) {
     renderer: null,
     camera: { x: 650, y: 200 },
     doors: createInitialDoors(),
+    tracers: [],
+    lastFrameMs: 0,
     lastAudioMs: 0,
     mouse: { x: 0, y: 0, moved: false },
     flashes: [],
@@ -167,11 +181,11 @@ export function HarborViewport(props: HarborViewportProps) {
   }, []);
 
   return (
-    <div style={{ width: '100%', height: 'calc(100vh - 250px)', minHeight: VIEW_MIN_H }}>
+    <div style={{ width: '100vw', height: '100vh' }}>
       <canvas
         ref={canvasRef}
         data-testid="harbor-canvas"
-        style={{ border: '1px solid #2a3340', marginTop: 8, width: '100%', height: '100%' }}
+        style={{ width: '100%', height: '100%', display: 'block' }}
       />
     </div>
   );
@@ -194,9 +208,12 @@ function renderViewport(
   const aim = aimWorld(session, canvas);
   if (aim !== null) view.facingRef.current = Math.atan2(aim.y - at.y, aim.x - at.x);
   const look = lookTarget(at, aim);
-  session.camera.x += (look.x - session.camera.x) * CAMERA_LERP;
-  session.camera.y += (look.y - session.camera.y) * CAMERA_LERP;
+  stepCamera(session, look);
   trackShots(session, view, at, now);
+  const dt =
+    session.lastFrameMs === 0 ? 1 / 60 : Math.min((now - session.lastFrameMs) / 1000, 0.05);
+  session.lastFrameMs = now;
+  stepTracers(session, dt, now);
   trackNotices(session, view, now);
   session.doors = syncDoors(session.doors, snapshot);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
@@ -222,7 +239,18 @@ function renderViewport(
         lockedBulkheads: [],
         ventedRooms: ventedBareIds(view.telemetry),
         doors: session.doors,
-        projectiles: [],
+        projectiles: session.tracers.map((tracer, index) => ({
+          id: `tracer-${index}`,
+          x: tracer.x,
+          y: tracer.y,
+          vx: tracer.vx,
+          vy: tracer.vy,
+          damage: 0,
+          color: '#ffd27f',
+          fromPlayer: true,
+          lifeSeconds: 1,
+          weaponType: 'kinetic_carbine' as const,
+        })),
         roomO2: roomO2(roomAtmos),
       },
       credits: view.vitals?.credits,
@@ -290,6 +318,13 @@ function lookTarget(
   return { x: at.x + (dx / dist) * pull, y: at.y + (dy / dist) * pull };
 }
 
+function stepCamera(session: ViewportSession, look: { x: number; y: number }): void {
+  const dist = Math.hypot(look.x - session.camera.x, look.y - session.camera.y);
+  const rate = dist > 200 ? CAMERA_LERP : 0.25;
+  session.camera.x += (look.x - session.camera.x) * rate;
+  session.camera.y += (look.y - session.camera.y) * rate;
+}
+
 function trackShots(
   session: ViewportSession,
   view: HarborViewportProps,
@@ -299,9 +334,29 @@ function trackShots(
   const heat = view.vitals?.vitals.heat ?? 0;
   if (heat > session.lastHeat) {
     session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
+    const angle = view.facingRef.current;
+    session.tracers = [
+      ...session.tracers.slice(-5),
+      {
+        x: at.x,
+        y: at.y,
+        vx: Math.cos(angle) * TRACER_SPEED,
+        vy: Math.sin(angle) * TRACER_SPEED,
+        until: now + TRACER_MS,
+      },
+    ];
   }
   session.lastHeat = heat;
   session.flashes = session.flashes.filter((flash) => flash.until > now);
+}
+
+function stepTracers(session: ViewportSession, dt: number, now: number): void {
+  const kept: TracerRound[] = [];
+  for (const tracer of session.tracers) {
+    if (tracer.until <= now) continue;
+    kept.push({ ...tracer, x: tracer.x + tracer.vx * dt, y: tracer.y + tracer.vy * dt });
+  }
+  session.tracers = kept;
 }
 
 function trackNotices(session: ViewportSession, view: HarborViewportProps, now: number): void {

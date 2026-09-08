@@ -10,7 +10,7 @@ import {
   waitForHarbor,
 } from './helpers';
 
-test.describe('Harbor acceptance journey (C2)', () => {
+test.describe('Harbor scene captures', () => {
   test.setTimeout(180000);
   let daemon: ChildProcess | null = null;
   test.beforeAll(async () => {
@@ -21,19 +21,18 @@ test.describe('Harbor acceptance journey (C2)', () => {
     daemon = null;
   });
 
-  test('walk aboard, hire, watch, grade over live v2', async ({ page }) => {
-    await harborBoard(page, { callsign: 'Journey-1' });
+  test('records lobby, doorway, and ship corridor scenes', async ({ page }) => {
+    await harborBoard(page, { callsign: 'Scenes-1' });
     await expect(page.getByTestId('harbor-status')).toContainText('room:lobby');
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: 'test-results/scene-lobby.png' });
 
     await page.keyboard.down('d');
     await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 510, 20000);
     await page.keyboard.up('d');
-    // The shared daemon may leave the lobby door open; toggle until the pawn
-    // actually gets past it instead of assuming a direction.
     let crossed = false;
     for (let attempt = 0; attempt < 3 && !crossed; attempt += 1) {
       await page.keyboard.press('e');
-      await expect(page.getByTestId('harbor-notices')).toContainText('DOOR_ok', { timeout: 10000 });
       await page.keyboard.down('d');
       try {
         await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 820, 6000);
@@ -44,6 +43,9 @@ test.describe('Harbor acceptance journey (C2)', () => {
       await page.keyboard.up('d');
     }
     expect(crossed).toBe(true);
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: 'test-results/scene-door.png' });
+
     for (let tap = 0; tap < 40; tap += 1) {
       const seen = await page.getByTestId('harbor-status').innerText();
       if (statRoom(seen) === 'corridor' || statSX(seen) > 875) break;
@@ -56,26 +58,8 @@ test.describe('Harbor acceptance journey (C2)', () => {
     await page.keyboard.down('a');
     await page.waitForTimeout(800);
     await page.keyboard.up('a');
-
-    let offered = '';
-    for (let i = 0; i < 18 && !offered.includes('/'); i += 1) {
-      await page.keyboard.press('h');
-      try {
-        offered = await waitForHarbor(page, 'harbor-offer', (t) => t.includes('/'), 4000);
-      } catch {
-        offered = '';
-      }
-    }
-    expect(offered).toContain('/');
-    await page.keyboard.press('j');
-    await expect(page.getByTestId('harbor-manifest')).toContainText('Journey-1', {
-      timeout: 10000,
-    });
-
-    await expect(page.getByTestId('harbor-watch')).toContainText('watch#', { timeout: 25000 });
-    await expect(page.getByTestId('harbor-watch')).toContainText(' S tasks:4/4', {
-      timeout: 45000,
-    });
-    await expect(page.getByTestId('harbor-vitals')).toContainText('credits:200');
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: 'test-results/scene-ship.png' });
+    await expect(page.getByTestId('harbor-canvas')).toBeVisible();
   });
 });

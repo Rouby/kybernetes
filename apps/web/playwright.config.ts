@@ -15,8 +15,8 @@ export default defineConfig({
   // starves every vessel's broadcasts until the 60s test cap. File-level
   // parallelism keeps the proven-green serial semantics per file.
   fullyParallel: false,
-  // Single shared harbor daemon with one vessel: files run serially so hires,
-  // departures, and watches never interleave across tests.
+  // One private daemon per file (see helpers startDaemon): files run serially
+  // so daemon restarts never overlap on the port.
   workers: 1,
   retries: isCI ? 2 : 1,
   timeout: 60_000,
@@ -38,12 +38,9 @@ export default defineConfig({
   webServer: [
     {
       // Production artifact (dist/), not tsx watch: Gate 5 output is what ships.
-      command: 'yarn --cwd ../server start',
-      port: 3001,
-      reuseExistingServer: true,
-      timeout: 120000,
-    },
-    {
+      // The harbor daemon is NOT managed here: each spec file starts its own
+      // private daemon in beforeAll (see e2e/helpers startDaemon) so world
+      // state never leaks across files.
       command: 'yarn preview --port 3000 --strictPort',
       url: 'http://localhost:3000',
       reuseExistingServer: true,

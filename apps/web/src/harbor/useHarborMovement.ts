@@ -150,8 +150,9 @@ export function useHarborMovement(
       return;
     }
     const error = Math.hypot(authoritative.x - prev.x, authoritative.y - prev.y);
+    // Snap on teleport and on sub-pixel drift (kills the stop-trail); lerp the middle.
     const next: PredictedPawn =
-      error > SNAP_DIST
+      error > SNAP_DIST || error < 6
         ? { x: authoritative.x, y: authoritative.y, facing: authoritative.facing }
         : {
             x: prev.x + (authoritative.x - prev.x) * 0.25,

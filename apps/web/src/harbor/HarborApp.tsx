@@ -93,11 +93,12 @@ export function HarborApp() {
   );
 
   return (
-    <div style={{ background: '#07090d', minHeight: '100vh', padding: 16, color: '#cfd8e3' }}>
-      <h1 style={{ fontSize: 16, margin: '0 0 8px' }}>
-        Harbor Loop (WASD move, E door, H talk, J hire, T suit, F fire, O overlay)
-      </h1>
-      {showDebug ? <HarborHud socket={socket} predicted={movement.predicted} /> : null}
+    <div style={{ background: '#07090d', width: '100vw', height: '100vh', color: '#cfd8e3' }}>
+      {showDebug ? (
+        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10 }}>
+          <HarborHud socket={socket} predicted={movement.predicted} />
+        </div>
+      ) : null}
       <HarborViewport
         snapshot={socket.snapshot}
         pawnId={socket.pawnId}

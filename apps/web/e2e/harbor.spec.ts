@@ -1,7 +1,27 @@
+import type { ChildProcess } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import { angDiff, harborBoard, statFace, statRoom, statSX, statX, waitForHarbor } from './helpers';
+import {
+  angDiff,
+  harborBoard,
+  startDaemon,
+  statFace,
+  statRoom,
+  statSX,
+  statX,
+  stopDaemon,
+  waitForHarbor,
+} from './helpers';
 
 test.describe('Harbor client smoke (C2)', () => {
+  let daemon: ChildProcess | null = null;
+  test.beforeAll(async () => {
+    daemon = await startDaemon();
+  });
+  test.afterAll(async () => {
+    await stopDaemon(daemon);
+    daemon = null;
+  });
+
   test('connects, joins, and streams ticked snapshots', async ({ page }) => {
     const canvas = await harborBoard(page, { callsign: 'Smoke-1' });
     const box = await canvas.boundingBox();
