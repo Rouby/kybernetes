@@ -1,8 +1,11 @@
 /**
  * Harbor socket: protocol v2 client transport. Input-only intents out with
- * auto-incremented seq; ticked snapshots in (SNAPSHOT 10Hz, TELEMETRY 2Hz,
- * VITALS 5Hz, plus WATCH/MANIFEST/HIRE_OFFER/NOTICE/JOINED). Reconnects with
- * backoff and resumes the same pawn via the stored userId.
+ * auto-incremented seq; ticked snapshots in (SNAPSHOT full 1Hz plus
+ * SNAPSHOT_DELTA 10Hz, TELEMETRY 2Hz full/delta, VITALS 5Hz suppressed while
+ * unchanged, plus WATCH/MANIFEST event+heartbeat, HIRE_OFFER/NOTICE/JOINED).
+ * Deltas merge onto cached full tables so downstream renders keep reading
+ * plain SNAPSHOT/TELEMETRY; stale ticks and same-rev manifests never
+ * re-render. Reconnects with backoff and resumes the same pawn via userId.
  */
 
 import type {
@@ -11,14 +14,16 @@ import type {
   ManifestBroadcast,
   NoticeBroadcast,
   SnapshotBroadcast,
+  SnapshotDeltaBroadcast,
   SnapshotPawn,
   TelemetryBroadcast,
   VitalsBroadcast,
   WatchBroadcast,
 } from '@kybernetes/protocol';
-import { PROTOCOL_VERSION } from '@kybernetes/protocol';
+import { isNewerTick, PROTOCOL_VERSION } from '@kybernetes/protocol';
 import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { mergeSnapshotDelta, mergeTelemetry } from './renderState';
 
 interface HarborNotice {
   readonly id: number;
@@ -53,6 +58,29 @@ function pushNotice(
   setNotices((prev) => [...prev.slice(-4), { id, severity, title, message }]);
 }
 
+/** Merge caches; plain {current} shapes so unit tests can drive handleMessage. */
+export interface HarborCaches {
+  readonly snapshot: { current: SnapshotBroadcast | null };
+  readonly telemetry: { current: TelemetryBroadcast | null };
+  readonly vitalsTick: { current: number };
+  readonly manifestRev: { current: number | undefined };
+  readonly manifestSeen: { current: boolean };
+  readonly watchRev: { current: number | undefined };
+  readonly watchRemaining: { current: number | undefined };
+}
+
+export function createHarborCaches(): HarborCaches {
+  return {
+    snapshot: { current: null },
+    telemetry: { current: null },
+    vitalsTick: { current: -1 },
+    manifestRev: { current: undefined },
+    manifestSeen: { current: false },
+    watchRev: { current: undefined },
+    watchRemaining: { current: undefined },
+  };
+}
+
 export function useHarborSocket(identity: HarborIdentity) {
   const [connected, setConnected] = useState(false);
   const [pawnId, setPawnId] = useState<string | null>(null);
@@ -67,6 +95,8 @@ export function useHarborSocket(identity: HarborIdentity) {
   const seqRef = useRef(0);
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  const cachesRef = useRef<HarborCaches | null>(null);
+  if (cachesRef.current === null) cachesRef.current = createHarborCaches();
 
   const sendIntent = useCallback((intent: ClientIntent) => {
     seqRef.current += 1;
@@ -79,6 +109,8 @@ export function useHarborSocket(identity: HarborIdentity) {
     let isDisposed = false;
     let ws: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    const caches = cachesRef.current ?? createHarborCaches();
+    cachesRef.current = caches;
 
     const connect = (): void => {
       if (isDisposed) return;
@@ -87,6 +119,10 @@ export function useHarborSocket(identity: HarborIdentity) {
       wsRef.current = socket;
       window.__kybernetesSocket = socket;
       seqRef.current = 0;
+      caches.snapshot.current = null;
+      caches.telemetry.current = null;
+      caches.vitalsTick.current = -1;
+      caches.manifestSeen.current = false;
       socket.onopen = () => {
         if (isDisposed) return;
         setConnected(true);
@@ -112,7 +148,7 @@ export function useHarborSocket(identity: HarborIdentity) {
       };
       socket.onmessage = (event) => {
         if (isDisposed) return;
-        handleMessage(event.data, {
+        handleMessage(event.data, caches, {
           setSnapshot,
           setTelemetry,
           setVitals,
@@ -175,30 +211,108 @@ interface SnapshotSetters {
   setNotices: Dispatch<SetStateAction<HarborNotice[]>>;
 }
 
-type ChannelHandler = (msg: Record<string, unknown>, setters: SnapshotSetters) => void;
+type ChannelHandler = (
+  msg: Record<string, unknown>,
+  caches: HarborCaches,
+  setters: SnapshotSetters
+) => void;
 
 const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
-  SNAPSHOT: (msg, setters) => setters.setSnapshot(msg as unknown as SnapshotBroadcast),
-  TELEMETRY: (msg, setters) => setters.setTelemetry(msg as unknown as TelemetryBroadcast),
-  VITALS: (msg, setters) => setters.setVitals(msg as unknown as VitalsBroadcast),
-  WATCH: (msg, setters) => setters.setWatch(msg as unknown as WatchBroadcast),
-  MANIFEST: (msg, setters) => setters.setManifest(msg as unknown as ManifestBroadcast),
-  HIRE_OFFER: (msg, setters) => setters.setOffer(msg as unknown as HireOfferBroadcast),
-  JOINED: (msg, setters) => {
+  SNAPSHOT: (msg, caches, setters) => {
+    const next = msg as unknown as SnapshotBroadcast;
+    const prev = caches.snapshot.current;
+    if (prev !== null && !isNewerTick(prev.tick, next.tick)) return;
+    caches.snapshot.current = next;
+    setters.setSnapshot(next);
+  },
+  SNAPSHOT_DELTA: (msg, caches, setters) => {
+    const delta = msg as unknown as SnapshotDeltaBroadcast;
+    const prev = caches.snapshot.current;
+    if (prev === null) {
+      if (!delta.full) return;
+      applyDelta(emptySnapshot(delta), delta, caches, setters);
+      return;
+    }
+    if (!isNewerTick(prev.tick, delta.tick)) return;
+    applyDelta(prev, delta, caches, setters);
+  },
+  TELEMETRY: (msg, caches, setters) => {
+    const next = msg as unknown as TelemetryBroadcast;
+    const prev = caches.telemetry.current;
+    if (prev !== null && !isNewerTick(prev.tick, next.tick)) return;
+    const merged = mergeTelemetry(prev, next);
+    caches.telemetry.current = merged;
+    setters.setTelemetry(merged);
+  },
+  VITALS: (msg, caches, setters) => {
+    const next = msg as unknown as VitalsBroadcast;
+    if (caches.vitalsTick.current >= 0 && !isNewerTick(caches.vitalsTick.current, next.tick))
+      return;
+    caches.vitalsTick.current = next.tick;
+    setters.setVitals(next);
+  },
+  WATCH: (msg, caches, setters) => {
+    const next = msg as unknown as WatchBroadcast;
+    const sameRev = caches.watchRev.current !== undefined && caches.watchRev.current === next.rev;
+    const sameClock = caches.watchRemaining.current === next.remainingS;
+    if (sameRev && sameClock) return;
+    caches.watchRev.current = next.rev;
+    caches.watchRemaining.current = next.remainingS;
+    setters.setWatch(next);
+  },
+  MANIFEST: (msg, caches, setters) => {
+    const next = msg as unknown as ManifestBroadcast;
+    if (
+      next.rev !== undefined &&
+      caches.manifestSeen.current &&
+      caches.manifestRev.current === next.rev
+    )
+      return;
+    caches.manifestRev.current = next.rev;
+    caches.manifestSeen.current = true;
+    setters.setManifest(next);
+  },
+  HIRE_OFFER: (msg, _caches, setters) => setters.setOffer(msg as unknown as HireOfferBroadcast),
+  JOINED: (msg, _caches, setters) => {
     setters.setPawnId((msg as { pawnId?: string }).pawnId ?? '');
     setters.setOffer(null);
   },
-  NOTICE: (msg, setters) => {
+  NOTICE: (msg, _caches, setters) => {
     const notice = msg as unknown as NoticeBroadcast;
     pushNotice(setters.setNotices, notice.severity, notice.title, notice.message);
   },
-  HELLO_MISMATCH: (msg, setters) => {
+  HELLO_MISMATCH: (msg, _caches, setters) => {
     const notice = msg as unknown as { message?: string };
     pushNotice(setters.setNotices, 'critical', 'Version', notice.message ?? 'Client outdated');
   },
 };
 
-function handleMessage(data: string, setters: SnapshotSetters): void {
+function applyDelta(
+  base: SnapshotBroadcast,
+  delta: SnapshotDeltaBroadcast,
+  caches: HarborCaches,
+  setters: SnapshotSetters
+): void {
+  const merged = mergeSnapshotDelta(base, delta);
+  caches.snapshot.current = merged;
+  setters.setSnapshot(merged);
+}
+
+function emptySnapshot(delta: SnapshotDeltaBroadcast): SnapshotBroadcast {
+  return {
+    type: 'SNAPSHOT',
+    v: 2,
+    tick: delta.baseTick,
+    serverTimeMs: delta.serverTimeMs,
+    pawns: [],
+    impacts: [],
+    portals: [],
+    projectiles: [],
+    frames: [],
+  };
+}
+
+export function handleMessage(data: string, caches: HarborCaches, setters: SnapshotSetters): void {
   let msg: Record<string, unknown>;
   try {
     msg = JSON.parse(data) as Record<string, unknown>;
@@ -206,7 +320,7 @@ function handleMessage(data: string, setters: SnapshotSetters): void {
     return;
   }
   const handler = typeof msg.type === 'string' ? CHANNEL_HANDLERS[msg.type] : undefined;
-  handler?.(msg, setters);
+  if (handler !== undefined) handler(msg, caches, setters);
 }
 
 export function remotePawns(

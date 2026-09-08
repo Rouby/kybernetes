@@ -1,23 +1,36 @@
 /**
- * Pure v2-to-render-state mapping for the frozen viewport. No React, no DOM,
+ * Pure v2-to-render-state mapping for the viewport. No React, no DOM,
  * no WebGL: every function is a total mapping covered by renderState.test.ts.
  * Stateful session tracking (flashes, notices, impact dedupe) stays in
  * HarborViewport; everything here is snapshot-in, render-state-out.
  */
 
 import type {
+  AirFlow,
   DoorState,
   ManifestBroadcast,
   PawnState,
   PlayerVitals,
   RoomAtmosphereSummary,
   SnapshotBroadcast,
+  SnapshotDeltaBroadcast,
   SnapshotPawn,
+  SnapshotPortal,
   TelemetryBroadcast,
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
 } from '@kybernetes/protocol';
-import { SHIP_ORIGIN } from '@kybernetes/sim-core';
+import {
+  type BreachRenderModel,
+  breachFlowAxis,
+  HESPERIA_ROOMS,
+  isShipSideRoom,
+  mergeAtmos,
+  mergeFrames,
+  mergePortals,
+  PUNCTURE_MAX_M2,
+  SHIP_ORIGIN,
+} from '@kybernetes/sim-core';
 import type { PredictedPawn } from './useHarborMovement';
 
 export function bareId(id: string): string {
@@ -79,6 +92,57 @@ export function callsignFor(manifest: ManifestBroadcast | null, pawnId: string):
   return dot < 0 ? pawnId : pawnId.slice(dot + 1);
 }
 
+/** Merge a SNAPSHOT_DELTA onto the last full SNAPSHOT (pure, total). */
+export function mergeSnapshotDelta(
+  base: SnapshotBroadcast,
+  delta: SnapshotDeltaBroadcast
+): SnapshotBroadcast {
+  if (delta.full) {
+    return {
+      type: 'SNAPSHOT',
+      v: 2,
+      tick: delta.tick,
+      serverTimeMs: delta.serverTimeMs,
+      pawns: [...delta.pawns],
+      impacts: [...delta.impacts],
+      portals: [...delta.portals],
+      projectiles: [...delta.projectiles],
+      frames: [...delta.frames],
+      full: true,
+      portalRev: delta.portalRev,
+      frameRev: delta.frameRev,
+    };
+  }
+  return {
+    type: 'SNAPSHOT',
+    v: 2,
+    tick: delta.tick,
+    serverTimeMs: delta.serverTimeMs,
+    pawns: [...delta.pawns],
+    impacts: [...delta.impacts],
+    portals: mergePortals(base.portals, delta.portals, delta.removedPortalIds),
+    projectiles: [...delta.projectiles],
+    frames: mergeFrames(base.frames, delta.frames),
+    full: false,
+    portalRev: delta.portalRev,
+    frameRev: delta.frameRev,
+  };
+}
+
+/** Merge a delta TELEMETRY (full:false) onto the last full one (pure, total). */
+export function mergeTelemetry(
+  base: TelemetryBroadcast | null,
+  msg: TelemetryBroadcast
+): TelemetryBroadcast {
+  if (msg.full !== false || base === null) return msg;
+  return {
+    ...msg,
+    full: false,
+    atmos: mergeAtmos(base.atmos, msg.atmos),
+    flows: msg.flows ?? base.flows ?? [],
+  };
+}
+
 export function syncDoors(base: DoorState[], snapshot: SnapshotBroadcast): DoorState[] {
   const states = new Map(snapshot.portals.map((portal) => [portal.id, portal]));
   let changed = false;
@@ -93,8 +157,118 @@ export function syncDoors(base: DoorState[], snapshot: SnapshotBroadcast): DoorS
   return changed ? doors : base;
 }
 
+/** Frame-local center of a room for breach normal orientation. */
+function roomCenterFor(
+  roomA: string,
+  fallback: { x: number; y: number }
+): { x: number; y: number } {
+  const room = HESPERIA_ROOMS.find((entry) => entry.id === bareId(roomA));
+  if (room === undefined) return fallback;
+  return { x: room.x + room.width / 2, y: room.y + room.height / 2 };
+}
+
+function frameForRoom(roomA: string): string {
+  const dot = roomA.indexOf('.');
+  if (dot > 0) return roomA.slice(0, dot);
+  return isShipSideRoom(roomA) ? 'ship' : 'station';
+}
+
+function breachFromPortal(portal: SnapshotPortal, nowTick: number): BreachRenderModel | undefined {
+  if (portal.state !== 'destroyed' || portal.areaM2 === undefined) return undefined;
+  if (
+    portal.bornTick === undefined ||
+    portal.x1 === undefined ||
+    portal.y1 === undefined ||
+    portal.x2 === undefined ||
+    portal.y2 === undefined
+  ) {
+    return undefined;
+  }
+  const seg = { x1: portal.x1, y1: portal.y1, x2: portal.x2, y2: portal.y2 };
+  const cx = (seg.x1 + seg.x2) / 2;
+  const cy = (seg.y1 + seg.y2) / 2;
+  const roomA = portal.roomA ?? '';
+  const axis = breachFlowAxis(seg, roomCenterFor(roomA, { x: cx, y: cy - 1 }), null);
+  return {
+    id: portal.id,
+    frameId: frameForRoom(roomA),
+    roomA,
+    roomB: '',
+    areaM2: portal.areaM2,
+    bornTick: portal.bornTick,
+    ageTicks: Math.max(0, nowTick - portal.bornTick),
+    ...seg,
+    cx,
+    cy,
+    nx: axis.x,
+    ny: axis.y,
+    lenPx: Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1),
+    isHull: true,
+    sizeClass: portal.areaM2 < PUNCTURE_MAX_M2 ? 'puncture' : 'breach',
+  };
+}
+
+/** Live breach models from snapshot portal geometry, oldest first. */
+export function mapBreaches(snapshot: SnapshotBroadcast | null): BreachRenderModel[] {
+  if (snapshot === null) return [];
+  const models: BreachRenderModel[] = [];
+  for (const portal of snapshot.portals) {
+    const model = breachFromPortal(portal, snapshot.tick);
+    if (model !== undefined) models.push(model);
+  }
+  models.sort((a, b) => a.bornTick - b.bornTick);
+  return models;
+}
+
+/** Signed throat velocity (m/s) resolved onto each breach flow axis. */
+export function breachFlowVectors(
+  breaches: readonly BreachRenderModel[],
+  flows: readonly AirFlow[] | undefined
+): Map<string, { x: number; y: number }> {
+  const table = new Map((flows ?? []).map((flow) => [flow.portalId, flow.velocityMps]));
+  const out = new Map<string, { x: number; y: number }>();
+  for (const breach of breaches) {
+    const velocity = table.get(breach.id) ?? 0;
+    out.set(breach.id, { x: breach.nx * velocity, y: breach.ny * velocity });
+  }
+  return out;
+}
+
+/** Mean flow vector per bare room id (px/s), from breaches touching the room. */
+export function roomWindVectors(
+  breaches: readonly BreachRenderModel[],
+  flows: readonly AirFlow[] | undefined
+): Record<string, { x: number; y: number }> {
+  const vectors = breachFlowVectors(breaches, flows);
+  const sums = new Map<string, { x: number; y: number; n: number }>();
+  for (const breach of breaches) {
+    const vec = vectors.get(breach.id) ?? { x: 0, y: 0 };
+    const mag = Math.hypot(vec.x, vec.y);
+    if (mag < 0.5) continue;
+    const scale = Math.min(650, mag * 20) / mag;
+    const id = bareId(breach.roomA);
+    const prev = sums.get(id) ?? { x: 0, y: 0, n: 0 };
+    sums.set(id, { x: prev.x + vec.x * scale, y: prev.y + vec.y * scale, n: prev.n + 1 });
+  }
+  const winds: Record<string, { x: number; y: number }> = {};
+  for (const [id, sum] of sums) winds[id] = { x: sum.x / sum.n, y: sum.y / sum.n };
+  return winds;
+}
+
+/** Live destroyed-hole count per bare room id (both punctures and breaches). */
+export function breachCountsByRoom(breaches: readonly BreachRenderModel[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const breach of breaches) {
+    const id = bareId(breach.roomA);
+    counts[id] = (counts[id] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export function mapAtmos(
-  telemetry: TelemetryBroadcast | null
+  telemetry: TelemetryBroadcast | null,
+  winds: Record<string, { x: number; y: number }> = {},
+  breachCounts: Record<string, number> = {}
 ): Record<string, RoomAtmosphereSummary> {
   const rooms: Record<string, RoomAtmosphereSummary> = {};
   for (const room of telemetry?.atmos ?? []) {
@@ -109,7 +283,9 @@ export function mapAtmos(
       isVenting: room.pressureKpa < 20,
       isRepressurizing: room.repressurizing,
       activeFires: 0,
-      activeBreaches: 0,
+      activeBreaches: breachCounts[id] ?? 0,
+      windX: winds[id]?.x ?? 0,
+      windY: winds[id]?.y ?? 0,
     };
   }
   return rooms;

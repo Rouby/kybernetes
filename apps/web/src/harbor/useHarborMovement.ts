@@ -1,8 +1,9 @@
 /**
- * Harbor movement: WASD sampled into INPUT intents at 20Hz with local
+ * Harbor movement: WASD sampled into INPUT intents at up to 20Hz with local
  * prediction and authoritative reconcile. Prediction collides against the
  * same frame colliders as the server (via predictStep), so reconciles are
- * small corrections rather than teleports.
+ * small corrections rather than teleports. Idle clients suppress unchanged
+ * INPUT (500ms heartbeat) so the server tick skips pointless wakeups.
  */
 
 import type { ClientIntent, SnapshotPawn, WallSegment } from '@kybernetes/protocol';
@@ -10,6 +11,8 @@ import { predictStep, predictVelocity } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import type { InputSample } from './inputGate';
+import { shouldSendInput, wantsImmediateSend } from './inputGate';
 
 const KEY_DELTAS: Record<string, { x: number; y: number }> = {
   KeyW: { x: 0, y: -1 },
@@ -86,6 +89,9 @@ export function useHarborMovement(
     let raf = 0;
     let last = performance.now();
     let pump = 0;
+    let lastSent: InputSample | null = null;
+    let lastSentMs = 0;
+    let wasActive = false;
     const frame = (now: number): void => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
@@ -117,16 +123,29 @@ export function useHarborMovement(
         setPredicted(next);
       }
       pump += dt;
-      if (pump >= 0.05) {
+      const pressed = wantsImmediateSend(wasActive, input);
+      wasActive = input !== null;
+      if (pump >= 0.05 || pressed) {
         pump = 0;
-        sendIntent({
-          type: 'INPUT',
-          seq: 0,
-          moveVec: input ?? { x: 0, y: 0 },
+        const sample: InputSample = {
+          x: input?.x ?? 0,
+          y: input?.y ?? 0,
           facing: facingRef.current,
           sprint: false,
           sealed: sealedRef.current,
-        });
+        };
+        if (shouldSendInput(lastSent, sample, now - lastSentMs)) {
+          lastSent = sample;
+          lastSentMs = now;
+          sendIntent({
+            type: 'INPUT',
+            seq: 0,
+            moveVec: { x: sample.x, y: sample.y },
+            facing: sample.facing,
+            sprint: sample.sprint,
+            sealed: sample.sealed,
+          });
+        }
       }
       raf = requestAnimationFrame(frame);
     };

@@ -4,7 +4,7 @@
  * with authoritative reconcile, snapshot remotes/doors, HUD from channels.
  */
 
-import type { Role } from '@kybernetes/protocol';
+import type { Role, SnapshotPortal } from '@kybernetes/protocol';
 import {
   buildHarborWorld,
   collidersForFrame,
@@ -14,10 +14,14 @@ import {
 import type { RefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import { DebugWorldView } from './DebugWorldView';
 import { shouldFireShot } from './fireGate';
 import { HarborViewport } from './HarborViewport';
+import { dropYoungShots, type PredictedShot, spawnPredictedShot } from './predictedShots';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
 import { useHarborSocket } from './useHarborSocket';
+
+const EMPTY_PORTALS: readonly SnapshotPortal[] = [];
 
 function storedIdentity(): { callsign: string; color: string; userId: string } {
   let userId = window.localStorage.getItem('harbor.userId');
@@ -53,13 +57,18 @@ export function HarborApp() {
     () => new URLSearchParams(window.location.search).get('debug') === '1',
     []
   );
+  const showDebugWorld = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('debug-world') === '1' || params.get('view') === 'debug';
+  }, []);
   const staticWorld = useMemo(() => buildHarborWorld(), []);
   const socket = useHarborSocket(identity);
   const ownPawn = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
   const ownFrameId = ownPawn?.frameId ?? 'station';
+  const snapshotPortals = socket.snapshot?.portals ?? EMPTY_PORTALS;
   const predictionView = useMemo(
-    () => withSnapshotStates(staticWorld, socket.snapshot?.portals ?? []),
-    [staticWorld, socket.snapshot]
+    () => withSnapshotStates(staticWorld, snapshotPortals),
+    [staticWorld, snapshotPortals]
   );
   const colliders = useMemo(
     () => collidersForFrame(predictionView, ownFrameId),
@@ -70,16 +79,33 @@ export function HarborApp() {
 
   const predictedRef = useRef(movement.predicted);
   predictedRef.current = movement.predicted;
+  const shotsRef = useRef<PredictedShot[]>([]);
+  const shotIdRef = useRef(0);
   const fire = useCallback((): void => {
     const self = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
     if (self === undefined || !shouldFireShot(socket.vitals, true)) return;
+    const angle = movement.facingRef.current;
     socket.sendIntent({
       type: 'FIRE',
       seq: 0,
-      originAngle: movement.facingRef.current,
+      originAngle: angle,
       weapon: 'kinetic_carbine',
     });
     fireSignalRef.current += 1;
+    shotIdRef.current += 1;
+    const at = predictedRef.current;
+    shotsRef.current = [
+      ...shotsRef.current.slice(-7),
+      spawnPredictedShot(
+        shotIdRef.current,
+        self.frameId,
+        at?.x ?? self.x,
+        at?.y ?? self.y,
+        angle,
+        'kinetic_carbine',
+        performance.now()
+      ),
+    ];
     ShipAudioEngine.getInstance().playWeaponFire(self.x, self.y, 'kinetic_carbine');
   }, [socket.snapshot, socket.pawnId, socket.vitals, socket.sendIntent, movement.facingRef]);
   const fireRef = useRef(fire);
@@ -110,6 +136,15 @@ export function HarborApp() {
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
   }, []);
+  const refusedRef = useRef(0);
+  useEffect(() => {
+    const latest = socket.notices[socket.notices.length - 1];
+    if (latest === undefined || latest.id === refusedRef.current) return;
+    refusedRef.current = latest.id;
+    if (/^FIRE_(overheated|empty|down|miss)/.test(latest.message)) {
+      shotsRef.current = dropYoungShots(shotsRef.current, performance.now(), 600);
+    }
+  }, [socket.notices]);
   useActions(
     socket.sendIntent,
     staticWorld,
@@ -122,6 +157,23 @@ export function HarborApp() {
     pressFireEnd
   );
 
+  if (showDebugWorld) {
+    return (
+      <div style={{ background: '#07090d', width: '100vw', height: '100vh', color: '#cfd8e3' }}>
+        {showDebug ? (
+          <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, pointerEvents: 'none' }}>
+            <HarborHud socket={socket} predicted={movement.predicted} />
+          </div>
+        ) : null}
+        <DebugWorldView
+          staticWorld={staticWorld}
+          snapshot={socket.snapshot}
+          telemetry={socket.telemetry}
+          pawnId={socket.pawnId}
+        />
+      </div>
+    );
+  }
   return (
     <div style={{ background: '#07090d', width: '100vw', height: '100vh', color: '#cfd8e3' }}>
       {showDebug ? (
@@ -140,6 +192,8 @@ export function HarborApp() {
         facingRef={movement.facingRef}
         aimLockedRef={aimLockedRef}
         fireSignalRef={fireSignalRef}
+        shotsRef={shotsRef}
+        shipUnderway={socket.watch?.phase === 'active_watch'}
         onFireDown={pressFireStart}
         onFireUp={pressFireEnd}
       />

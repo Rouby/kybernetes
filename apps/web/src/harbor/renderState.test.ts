@@ -8,14 +8,20 @@ import type {
 import { describe, expect, it } from 'vitest';
 import {
   bareId,
+  breachCountsByRoom,
+  breachFlowVectors,
   callsignFor,
   frameOrigins,
   mapAtmos,
+  mapBreaches,
   mapPawn,
   mapTelemetry,
   mapVitals,
+  mergeSnapshotDelta,
+  mergeTelemetry,
   pawnWorld,
   roomO2,
+  roomWindVectors,
   syncDoors,
   ventedBareIds,
 } from './renderState';
@@ -201,6 +207,81 @@ describe('render-state mapping', () => {
     expect(roomO2(mapAtmos(vacuum))).toEqual({ bridge: 2 });
   });
 
+  it('maps live breach geometry from snapshot portals', () => {
+    const hole = {
+      id: 'breach.ship.bridge.12.3',
+      open: false,
+      state: 'destroyed' as const,
+      areaM2: 0.05,
+      bornTick: 90,
+      roomA: 'ship.bridge',
+      x1: 100,
+      y1: 200,
+      x2: 124,
+      y2: 200,
+    };
+    const models = mapBreaches(snapshot({ tick: 100, portals: [hole] }));
+    expect(models).toHaveLength(1);
+    expect(models[0]).toMatchObject({
+      id: 'breach.ship.bridge.12.3',
+      frameId: 'ship',
+      roomA: 'ship.bridge',
+      areaM2: 0.05,
+      bornTick: 90,
+      ageTicks: 10,
+      sizeClass: 'puncture',
+    });
+    expect(models[0]?.cx).toBe(112);
+    const grown = mapBreaches(
+      snapshot({
+        portals: [{ ...hole, areaM2: 1.2 }],
+      })
+    );
+    expect(grown[0]?.sizeClass).toBe('breach');
+  });
+
+  it('skips portals without wire geometry and null snapshots', () => {
+    expect(mapBreaches(null)).toEqual([]);
+    expect(mapBreaches(snapshot())).toEqual([]);
+    const legacy = snapshot({
+      portals: [{ id: 'breach.bridge.1.0', open: false, state: 'destroyed' }],
+    });
+    expect(mapBreaches(legacy)).toEqual([]);
+  });
+
+  it('joins throat flows onto breach axes and averages room winds', () => {
+    const hole = {
+      id: 'breach.ship.bridge.12.3',
+      open: false,
+      state: 'destroyed' as const,
+      areaM2: 1.2,
+      bornTick: 90,
+      roomA: 'ship.bridge',
+      x1: 100,
+      y1: 200,
+      x2: 124,
+      y2: 200,
+    };
+    const breaches = mapBreaches(snapshot({ portals: [hole] }));
+    const vectors = breachFlowVectors(breaches, [{ portalId: hole.id, velocityMps: 20 }]);
+    const vec = vectors.get(hole.id);
+    expect(Math.hypot(vec?.x ?? 0, vec?.y ?? 0)).toBeCloseTo(20);
+    const still = breachFlowVectors(breaches, []).get(hole.id);
+    expect(Math.hypot(still?.x ?? 999, still?.y ?? 999)).toBe(0);
+    const winds = roomWindVectors(breaches, [{ portalId: hole.id, velocityMps: 20 }]);
+    expect(Math.hypot(winds.bridge?.x ?? 0, winds.bridge?.y ?? 0)).toBeGreaterThan(100);
+    expect(roomWindVectors(breaches, [])).toEqual({});
+    expect(breachCountsByRoom(breaches)).toEqual({ bridge: 1 });
+  });
+
+  it('fills winds and breach counts on atmos rooms', () => {
+    const rooms = mapAtmos(telemetry(), { lobby: { x: 120, y: -40 } }, { lobby: 2 });
+    expect(rooms.lobby?.windX).toBe(120);
+    expect(rooms.lobby?.windY).toBe(-40);
+    expect(rooms.lobby?.activeBreaches).toBe(2);
+    expect(mapAtmos(telemetry()).lobby?.windX).toBe(0);
+  });
+
   it('maps vitals with derived stamina and incapacitation', () => {
     expect(mapVitals(null)).toBeUndefined();
     const mapped = mapVitals(vitals({ fatigue: 20, health: 0 }));
@@ -225,5 +306,56 @@ describe('render-state mapping', () => {
     expect(battered.hull.status).toBe('degraded');
     expect(battered.hull.breaches).toEqual(['ship.door_bridge']);
     expect(battered.oxygenLevelPercent).toBe(40);
+  });
+
+  it('merges snapshot deltas onto the cached full table', () => {
+    const base = snapshot();
+    const firstPawn = base.pawns[0];
+    if (firstPawn === undefined) throw new Error('expected a pawn');
+    const pawnMoved = { ...firstPawn, x: 310 };
+    const merged = mergeSnapshotDelta(base, {
+      type: 'SNAPSHOT_DELTA',
+      v: 2,
+      tick: 101,
+      serverTimeMs: 5100,
+      baseTick: 100,
+      full: false,
+      portalRev: 2,
+      frameRev: 1,
+      pawns: [pawnMoved],
+      impacts: [],
+      portals: [{ id: 'station.lobby_bay', open: true, state: 'open' }],
+      removedPortalIds: [],
+      projectiles: [],
+      frames: [],
+    });
+    expect(merged.tick).toBe(101);
+    expect(merged.pawns[0]?.x).toBe(310);
+    expect(merged.portals).toHaveLength(1);
+    expect(merged.portals[0]?.open).toBe(true);
+    expect(merged.frames).toHaveLength(1);
+    expect(merged.portalRev).toBe(2);
+  });
+
+  it('merges delta telemetry atmos by room id', () => {
+    const full = telemetry();
+    const firstRoom = full.atmos[0];
+    if (firstRoom === undefined) throw new Error('expected a room');
+    const changedRoom = { ...firstRoom, pressureKpa: 12.5 };
+    const merged = mergeTelemetry(full, { ...full, tick: 101, full: false, atmos: [changedRoom] });
+    expect(merged.atmos).toHaveLength(1);
+    expect(merged.atmos[0]?.pressureKpa).toBe(12.5);
+    expect(mergeTelemetry(null, full)).toBe(full);
+    expect(mergeTelemetry(full, full).atmos).toHaveLength(1);
+  });
+
+  it('keeps portal wind across atmos deltas unless replaced', () => {
+    const windy = telemetry({ flows: [{ portalId: 'station.lobby_bay', velocityMps: 4.2 }] });
+    const delta = { ...windy, tick: 101, full: false as const, atmos: [] };
+    expect(mergeTelemetry(windy, delta).flows).toEqual([
+      { portalId: 'station.lobby_bay', velocityMps: 4.2 },
+    ]);
+    const still = { ...windy, tick: 102, full: false as const, atmos: [], flows: [] };
+    expect(mergeTelemetry(windy, still).flows).toEqual([]);
   });
 });

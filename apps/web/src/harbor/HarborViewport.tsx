@@ -1,16 +1,18 @@
 /**
- * HarborViewport: drives the frozen WebGL2Renderer from protocol v2 snapshots.
- * All v2-to-render-state translation lives here (new code). The renderer,
- * passes, HUD, StationHub models, shaders, and audio engine are consumed
- * untouched: pawns + doors + atmos + vitals are mapped onto the render state
+ * HarborViewport: drives the WebGL2Renderer from protocol v2 snapshots.
+ * All v2-to-render-state translation lives here. The renderer, passes,
+ * HUD, StationHub models, shaders, and audio engine are consumed
+ * as-is: pawns + doors + atmos + vitals are mapped onto the render state
  * the viewport has always spoken.
  */
 
 import type {
   DoorState,
   ManifestBroadcast,
+  RoomAtmosphereSummary,
   SnapshotBroadcast,
   TelemetryBroadcast,
+  TelemetryDeltaBroadcast,
   VitalsBroadcast,
   WeaponType,
 } from '@kybernetes/protocol';
@@ -19,16 +21,21 @@ import type { RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
+import type { PredictedShot } from './predictedShots';
+import { advanceShots, confirmShots } from './predictedShots';
 import {
   bareId,
+  breachCountsByRoom,
   callsignFor,
   frameOrigins,
   mapAtmos,
+  mapBreaches,
   mapPawn,
   mapTelemetry,
   mapVitals,
   pawnWorld,
   roomO2,
+  roomWindVectors,
   syncDoors,
   ventedBareIds,
 } from './renderState';
@@ -57,6 +64,8 @@ export interface HarborViewportProps {
   facingRef: RefObject<number>;
   aimLockedRef: RefObject<boolean>;
   fireSignalRef: RefObject<number>;
+  shotsRef: RefObject<PredictedShot[]>;
+  shipUnderway: boolean;
   onFireDown: () => void;
   onFireUp: () => void;
 }
@@ -83,6 +92,11 @@ interface ViewportSession {
   notice: { text: string; until: number } | null;
   lastNotice: string;
   lastSignal: number;
+  shakeUntil: number;
+  telemetryKey: string;
+  cachedRooms: Record<string, RoomAtmosphereSummary>;
+  cachedDelta: TelemetryDeltaBroadcast | null;
+  cachedBreaches: ReturnType<typeof mapBreaches>;
 }
 
 const FLASH_MS = 120;
@@ -105,6 +119,11 @@ export function HarborViewport(props: HarborViewportProps) {
     notice: null,
     lastNotice: '',
     lastSignal: 0,
+    shakeUntil: 0,
+    telemetryKey: '',
+    cachedRooms: {},
+    cachedDelta: null,
+    cachedBreaches: [],
   });
   const viewRef = useRef(props);
   viewRef.current = props;
@@ -218,12 +237,12 @@ function renderViewport(
   const look = lookTarget(at, aim);
   stepCamera(session, look);
   trackShots(session, view, at, now);
+  stepShots(session, view, snapshot, now);
   session.lastFrameMs = now;
   trackNotices(session, view, now);
   session.doors = syncDoors(session.doors, snapshot);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
-  const roomAtmos = mapAtmos(view.telemetry);
-  const delta = mapTelemetry(snapshot, view.telemetry, view.manifest, roomAtmos);
+  const { rooms: roomAtmos, delta, breaches } = telemetryView(session, view, snapshot);
   const mappedVitals = mapVitals(view.vitals);
   if (now - session.lastAudioMs >= AUDIO_MS) {
     session.lastAudioMs = now;
@@ -249,24 +268,43 @@ function renderViewport(
         lockedBulkheads: [],
         ventedRooms: ventedBareIds(view.telemetry),
         doors: session.doors,
-        projectiles: (snapshot.projectiles ?? []).map((shot) => {
-          const age = Math.min(Math.max((now - snapshot.serverTimeMs) / 1000, 0), 0.15);
-          const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
-          return {
-            id: shot.id,
-            x: shot.x + origin.x + shot.vx * age,
-            y: shot.y + origin.y + shot.vy * age,
-            vx: shot.vx,
-            vy: shot.vy,
-            damage: 0,
-            color: '#ffd27f',
-            fromPlayer: true,
-            lifeSeconds: 1,
-            weaponType: (shot.weapon === 'arc_welder'
-              ? 'arc_welder'
-              : 'kinetic_carbine') as WeaponType,
-          };
-        }),
+        projectiles: [
+          ...(snapshot.projectiles ?? []).map((shot) => {
+            const age = Math.min(Math.max((now - snapshot.serverTimeMs) / 1000, 0), 0.15);
+            const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
+            return {
+              id: shot.id,
+              x: shot.x + origin.x + shot.vx * age,
+              y: shot.y + origin.y + shot.vy * age,
+              vx: shot.vx,
+              vy: shot.vy,
+              damage: 0,
+              color: '#ffd27f',
+              fromPlayer: true,
+              lifeSeconds: 1,
+              weaponType: (shot.weapon === 'arc_welder'
+                ? 'arc_welder'
+                : 'kinetic_carbine') as WeaponType,
+            };
+          }),
+          ...view.shotsRef.current.map((shot) => {
+            const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
+            return {
+              id: `pred:${shot.id}`,
+              x: shot.x + origin.x,
+              y: shot.y + origin.y,
+              vx: shot.vx,
+              vy: shot.vy,
+              damage: 0,
+              color: '#ffd27f',
+              fromPlayer: true,
+              lifeSeconds: 1,
+              weaponType: (shot.weapon === 'arc_welder'
+                ? 'arc_welder'
+                : 'kinetic_carbine') as WeaponType,
+            };
+          }),
+        ],
         roomO2: roomO2(roomAtmos),
       },
       credits: view.vitals?.credits,
@@ -291,8 +329,10 @@ function renderViewport(
               isReloading: view.vitals.vitals.reloading,
             },
       overlayMode,
+      breaches,
+      breachFlows: view.telemetry?.flows,
       impacts: freshImpacts(session, snapshot, origins),
-      camera: { ...session.camera },
+      camera: shakenCamera(session, now),
       zoom: VIEW_ZOOM,
       mouseWorld: aim ?? { x: at.x + 50, y: at.y },
       muzzleFlashes: session.flashes.map((flash) => ({
@@ -303,12 +343,49 @@ function renderViewport(
       inGameNotice: session.notice?.text,
       timeMs: now,
       shipOffset: origins.get('ship') ?? { ...SHIP_ORIGIN },
+      shipUnderway: view.shipUnderway,
       screenWidth: canvas.clientWidth,
       screenHeight: canvas.clientHeight,
     },
     canvas.width,
     canvas.height
   );
+}
+
+/** Rebuild atmos/telemetry mappings only when a channel tick actually moved. */
+function telemetryView(
+  session: ViewportSession,
+  view: HarborViewportProps,
+  snapshot: SnapshotBroadcast
+): {
+  rooms: Record<string, RoomAtmosphereSummary>;
+  delta: TelemetryDeltaBroadcast;
+  breaches: ReturnType<typeof mapBreaches>;
+} {
+  const key = telemetryKey(view, snapshot);
+  if (session.telemetryKey === key && session.cachedDelta !== null) {
+    return {
+      rooms: session.cachedRooms,
+      delta: session.cachedDelta,
+      breaches: session.cachedBreaches,
+    };
+  }
+  const breaches = mapBreaches(snapshot);
+  const winds = roomWindVectors(breaches, view.telemetry?.flows);
+  const rooms = mapAtmos(view.telemetry, winds, breachCountsByRoom(breaches));
+  const delta = mapTelemetry(snapshot, view.telemetry, view.manifest, rooms);
+  session.telemetryKey = key;
+  session.cachedRooms = rooms;
+  session.cachedDelta = delta;
+  session.cachedBreaches = breaches;
+  return { rooms, delta, breaches };
+}
+
+function telemetryKey(view: HarborViewportProps, snapshot: SnapshotBroadcast): string {
+  const teleTick = view.telemetry?.tick ?? -1;
+  const manifestRev = view.manifest?.rev ?? view.manifest?.shipName ?? '?';
+  const portalRev = snapshot.portalRev ?? snapshot.tick;
+  return `${snapshot.tick}:${teleTick}:${manifestRev}:${portalRev}`;
 }
 
 function screenToWorld(
@@ -364,9 +441,38 @@ function trackShots(
   if (view.fireSignalRef.current !== session.lastSignal) {
     session.lastSignal = view.fireSignalRef.current;
     session.flashes = [...session.flashes.slice(-3), { x: at.x, y: at.y, until: now + FLASH_MS }];
+    session.shakeUntil = now + SHAKE_MS;
   }
   session.lastHeat = heat;
   session.flashes = session.flashes.filter((flash) => flash.until > now);
+}
+
+const SHAKE_MS = 120;
+const SHAKE_PX = 3;
+
+/** Slight kick on firing that decays to zero; visual only, never sim state. */
+function shakenCamera(session: ViewportSession, now: number): { x: number; y: number } {
+  const remaining = session.shakeUntil - now;
+  if (remaining <= 0) return { ...session.camera };
+  const mag = SHAKE_PX * (remaining / SHAKE_MS);
+  return {
+    x: session.camera.x + (Math.random() * 2 - 1) * mag,
+    y: session.camera.y + (Math.random() * 2 - 1) * mag,
+  };
+}
+
+/** Advance local rounds and drop the ones authority has taken over. */
+function stepShots(
+  session: ViewportSession,
+  view: HarborViewportProps,
+  snapshot: SnapshotBroadcast,
+  now: number
+): void {
+  const dt = Math.min(Math.max((now - session.lastFrameMs) / 1000, 0), 0.05);
+  view.shotsRef.current = confirmShots(
+    advanceShots(view.shotsRef.current, now, dt),
+    snapshot.projectiles ?? []
+  );
 }
 
 function impactKey(frameId: string, x: number, y: number, kind: string): string {
@@ -377,17 +483,22 @@ function freshImpacts(
   session: ViewportSession,
   snapshot: SnapshotBroadcast,
   origins: Map<string, { x: number; y: number }>
-): { x: number; y: number; type: 'kinetic' }[] {
+): { x: number; y: number; type: 'kinetic' | 'breach' }[] {
   const live = new Set<string>();
-  const fresh: { x: number; y: number; type: 'kinetic' }[] = [];
+  const fresh: { x: number; y: number; type: 'kinetic' | 'breach' }[] = [];
   const impacts = Array.isArray(snapshot.impacts) ? snapshot.impacts : [];
   for (const impact of impacts) {
     const key = impactKey(impact.frameId, impact.x, impact.y, impact.kind);
     live.add(key);
     if (session.seenImpacts.has(key)) continue;
     session.seenImpacts.add(key);
+    if (impact.kind === 'miss') continue;
     const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
-    fresh.push({ x: impact.x + origin.x, y: impact.y + origin.y, type: 'kinetic' });
+    fresh.push({
+      x: impact.x + origin.x,
+      y: impact.y + origin.y,
+      type: impact.kind === 'breach' ? 'breach' : 'kinetic',
+    });
   }
   for (const key of [...session.seenImpacts]) {
     if (!live.has(key)) session.seenImpacts.delete(key);
