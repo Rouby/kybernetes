@@ -1,3 +1,4 @@
+/** @deprecated Flat vitals tick — frozen. World vitals (world/survival.ts) fed by air authority replace it from M6 on. Deletion with state.ts. */
 import type { PlayerVitals } from '@kybernetes/protocol';
 import type { CellAtmosphere } from './spatial/shipAtmosphere';
 import { STATION_AMBIENT_ATMOS } from './spatial/shipAtmosphere';

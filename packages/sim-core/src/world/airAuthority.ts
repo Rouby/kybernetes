@@ -197,11 +197,36 @@ export function syncAirAreas(auth: AirAuthorityState, world: World): void {
 
 export function stepAirAuthority(auth: AirAuthorityState, world: World, dtSeconds: number): void {
   if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return;
+  reconcileAirTopology(auth, world);
   syncAirAreas(auth, world);
   const steps = Math.max(1, Math.ceil(dtSeconds / AIR_SUBSTEP));
   const sub = dtSeconds / steps;
   for (const frame of auth.sims.values()) {
     for (let i = 0; i < steps; i += 1) frame.sim.step(sub);
+  }
+}
+
+/** Links new portal-table edges (combat breaches) into their frame sim. */
+export function reconcileAirTopology(auth: AirAuthorityState, world: World): void {
+  for (const frame of auth.sims.values()) {
+    for (const edge of Object.values(world.portals)) {
+      if (frame.portals.has(edge.id) || !frame.rooms.has(edge.roomA)) continue;
+      const roomA = frame.rooms.get(edge.roomA);
+      if (roomA === undefined) continue;
+      const airPortal = new Portal({
+        id: edge.id,
+        type: airPortalType(edge),
+        roomA,
+        roomB: frame.rooms.get(edge.roomB) ?? null,
+        width: Math.max(edge.areaM2, 0.05),
+        height: 1,
+        openRatio: portalOpenRatio(edge),
+        ...portalOrientation(roomA.config, edge),
+      });
+      frame.sim.addPortal(airPortal);
+      frame.portals.set(edge.id, airPortal);
+      frame.axes.set(edge.id, flowAxis(frame, edge));
+    }
   }
 }
 

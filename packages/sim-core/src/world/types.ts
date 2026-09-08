@@ -8,6 +8,7 @@ import type { WallSegment } from '@kybernetes/protocol';
 import type { AirRoomView } from './airAuthority.js';
 import type { CrewRecord, HireOfferRecord } from './crew.js';
 import type { DockLink, TransitState } from './schedule.js';
+import type { PawnVitals } from './survival.js';
 import type { WatchState } from './watch.js';
 
 export type PortalKind = 'door' | 'hole' | 'open' | 'airlock' | 'window';
@@ -48,6 +49,8 @@ export interface PortalEdge {
     readonly y2: number;
   };
   readonly clearance: number;
+  /** Door/wall health 0-100; at 0 the portal is a connecting hole. */
+  readonly integrity: number;
 }
 
 export interface Fixture {
@@ -157,6 +160,8 @@ export interface World {
   readonly spawns: Readonly<Record<string, { frameId: string; x: number; y: number }>>;
   /** Station-to-vessel dock links by id. */
   readonly docks: Readonly<Record<string, DockLink>>;
+  /** Survival vitals by pawn id; created on first tick. */
+  readonly vitals: Readonly<Record<string, PawnVitals>>;
 }
 
 export const FIXED_DT = 1 / 20;
@@ -181,5 +186,6 @@ export function createEmptyWorld(timeMs = 0): World {
     offers: {},
     spawns: {},
     docks: {},
+    vitals: {},
   };
 }

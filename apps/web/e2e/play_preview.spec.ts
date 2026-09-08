@@ -8,6 +8,10 @@ function statX(text: string): number {
   return Number(/x:(-?\d+)/.exec(text)?.[1] ?? Number.NaN);
 }
 
+function statHyp(text: string): number {
+  return Number(/hyp:(-?\d+)/.exec(text)?.[1] ?? Number.NaN);
+}
+
 function statRoom(text: string): string {
   return /room:([A-Za-z_]+)/.exec(text)?.[1] ?? '';
 }
@@ -15,7 +19,7 @@ function statRoom(text: string): string {
 async function waitForStats(
   page: Page,
   pred: (text: string) => boolean,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<string> {
   const start = Date.now();
   let text = await statsText(page);
@@ -93,7 +97,7 @@ test.describe('Playable kernel slice (M3)', () => {
     const crossed = await waitForStats(
       page,
       (t) => statRoom(t) === 'corridor' && statX(t) < 800,
-      8000,
+      8000
     );
     expect(statX(crossed)).toBeLessThan(800);
 
@@ -121,5 +125,39 @@ test.describe('Playable kernel slice (M3)', () => {
     const pressure = Number(/p:(\d+\.\d+)/.exec(text)?.[1] ?? Number.NaN);
     expect(pressure).toBeLessThan(101);
     await page.screenshot({ path: 'test-results/hull-vent.png' });
+  });
+
+  test('harbor lobby: suit seal matters for hypoxia', async ({ page }) => {
+    await page.goto('/?hull=harbor&play=1');
+    await expect(page.getByTestId('play-canvas')).toBeVisible();
+    await expect(page.getByTestId('play-stats')).toContainText('suit:open');
+    await page.keyboard.press('b');
+    await expect(page.getByTestId('play-notice')).toContainText('puncture lobby');
+    const gasping = await waitForStats(page, (t) => statHyp(t) > 5, 30000);
+    const choking = statHyp(gasping);
+    await page.keyboard.press('t');
+    await expect(page.getByTestId('play-notice')).toContainText('suit sealed');
+    await expect(page.getByTestId('play-stats')).toContainText('suit:sealed');
+    await page.waitForTimeout(3000);
+    expect(statHyp(await statsText(page))).toBeLessThan(choking);
+  });
+
+  test('station: shot door and wall vent rooms', async ({ page }) => {
+    await page.goto('/?hull=station&play=1');
+    await expect(page.getByTestId('play-canvas')).toBeVisible();
+    await page.keyboard.press('f');
+    await expect(page.getByTestId('play-notice')).toContainText('fire door');
+    for (let i = 0; i < 3; i += 1) {
+      await page.waitForTimeout(400);
+      await page.keyboard.press('f');
+    }
+    await expect(page.getByTestId('play-notice')).toContainText('fire breach');
+    await page.keyboard.press('f');
+    await waitForStats(page, (t) => t.includes('vent:1'), 20000);
+    await page.keyboard.down('w');
+    await page.waitForTimeout(1200);
+    await page.keyboard.up('w');
+    await page.keyboard.press('f');
+    await waitForStats(page, (t) => t.includes('vent:2'), 25000);
   });
 });

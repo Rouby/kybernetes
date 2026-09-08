@@ -2,7 +2,7 @@
  * tickWorld: the only tick. Small delegates, no god function.
  * M3: movement slice with server-side collision, frame-velocity carry,
  * room-hint tracking, explored-memory, and air readings via the air authority.
- * Survival/bots/combat/watch land in M5-M7.
+ * Survival slice in M6; bots land in M7.
  */
 
 import { type AirAuthorityState, refreshAtmos } from './airAuthority.js';
@@ -18,6 +18,7 @@ import {
   updateRoomHint,
 } from './movement.js';
 import { tickSchedule } from './schedule.js';
+import { tickSurvival } from './survival.js';
 import { FIXED_DT, type PawnBody, type World } from './types.js';
 import { tickWatches } from './watch.js';
 
@@ -26,6 +27,7 @@ export interface WorldInput {
   readonly moveX: number;
   readonly moveY: number;
   readonly sprint: boolean;
+  readonly facing?: number;
 }
 
 export function tickWorld(
@@ -39,7 +41,8 @@ export function tickWorld(
   const moved = stepMovement(world, dt, inputs);
   const scheduled = tickSchedule(moved, dt);
   const watched = tickWatches(scheduled, dt);
-  const framed = stepFrames(watched, dt);
+  const survived = tickSurvival(watched, dt);
+  const framed = stepFrames(survived, dt);
   const ticked = { ...framed, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };
   if (air === undefined) return ticked;
   return { ...ticked, atmos: refreshAtmos(air, ticked, dt) };
@@ -79,7 +82,14 @@ function stepPawn(
   const target = integratePawnPosition({ ...pawn, vel }, vel, dt);
   const collided = collidePawn(pawn, target, collidersForFrame(world, pawn.frameId));
   const pos = carryByFrame(world, pawn.frameId, collided, dt);
-  return { ...pawn, pos, vel, roomHint: updateRoomHint(world, pawn, pos) };
+  const facing = input?.facing;
+  return {
+    ...pawn,
+    pos,
+    vel,
+    facing: facing !== undefined && Number.isFinite(facing) ? facing : pawn.facing,
+    roomHint: updateRoomHint(world, pawn, pos),
+  };
 }
 
 function stepMemory(world: World): World {

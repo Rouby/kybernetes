@@ -133,6 +133,10 @@ export class SimHost {
         return this.handleJoin(clientId, intent.beacon, intent.userId);
       case 'INPUT':
       case 'DOOR':
+      case 'SUIT':
+      case 'CONSUME':
+      case 'SLEEP':
+      case 'FIRE':
         return this.handleKernelIntent(clientId, intent);
       case 'TALK':
         return this.handleTalk(intent.npcId);

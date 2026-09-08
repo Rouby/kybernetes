@@ -1,7 +1,7 @@
 import { buildHarborWorld, HARBOR_BEACON } from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
 import { SimHost } from './SimHost.js';
-import { buildHireOffer, buildManifest, buildWatch } from './snapshotter.js';
+import { buildHireOffer, buildManifest, buildVitals, buildWatch } from './snapshotter.js';
 
 function riggedHost(): SimHost {
   return new SimHost(buildHarborWorld(), undefined, null, {
@@ -136,6 +136,28 @@ describe('host loop sessions', () => {
     expect(watch?.checklist.length).toBe(4);
     expect(host.vitalsFor('pawn:u1').credits).toBe(200);
     expect(host.manifestFor().find((entry) => entry.id === 'pawn:u1')?.role).toBe('deckhand');
+    host.stop();
+  });
+
+  it('routes suit, consume, sleep, and fire intents through the kernel', () => {
+    const host = riggedHost();
+    host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    expect(host.handleIntent('c1', { type: 'SUIT', seq: 1, sealed: true }).notice).toBe('SUIT_ok');
+    expect(host.currentWorld.vitals['pawn:u1']?.suitSealed).toBe(true);
+    expect(host.handleIntent('c1', { type: 'CONSUME', seq: 2, itemId: 'ration' }).notice).toBe(
+      'CONSUME_ok'
+    );
+    expect(
+      host.handleIntent('c1', { type: 'SLEEP', seq: 3, bunkId: 'bunk_a', active: true }).notice
+    ).toBe('SLEEP_ok');
+    expect(host.currentWorld.vitals['pawn:u1']?.sleeping).toBe(true);
+    expect(
+      host.handleIntent('c1', { type: 'FIRE', seq: 4, originAngle: 0, weapon: 'kinetic_carbine' })
+        .notice
+    ).toMatch(/^FIRE_(miss|pawn|door|breach)/);
+    const vitals = buildVitals(host.currentWorld, 0, 'pawn:u1', 0, 1);
+    expect(vitals.vitals.suitSealed).toBe(true);
+    expect(vitals.vitals.hunger).toBe(100);
     host.stop();
   });
 });

@@ -4,7 +4,15 @@
  */
 
 import type { ClientIntent } from '@kybernetes/protocol';
-import { tryToggleDoor, type World, type WorldInput } from '@kybernetes/sim-core';
+import {
+  applyConsume,
+  fireWeapon,
+  setSleeping,
+  setSuitSealed,
+  tryToggleDoor,
+  type World,
+  type WorldInput,
+} from '@kybernetes/sim-core';
 
 export interface RouteResult {
   readonly world: World;
@@ -23,6 +31,22 @@ export function routeIntent(
       return routeInput(world, pawnId, intent, pending);
     case 'DOOR':
       return routeDoor(world, intent, pending);
+    case 'SUIT':
+      return {
+        world: setSuitSealed(world, pawnId, intent.sealed),
+        movement: pending,
+        notice: 'SUIT_ok',
+      };
+    case 'CONSUME':
+      return { world: applyConsume(world, pawnId), movement: pending, notice: 'CONSUME_ok' };
+    case 'SLEEP':
+      return {
+        world: setSleeping(world, pawnId, intent.active),
+        movement: pending,
+        notice: 'SLEEP_ok',
+      };
+    case 'FIRE':
+      return routeFire(world, pawnId, intent, pending);
     case 'HELLO':
     case 'JOIN_BEACON':
       return { world, movement: pending, notice: intent.type };
@@ -42,8 +66,26 @@ function routeInput(
     moveX: intent.moveVec.x,
     moveY: intent.moveVec.y,
     sprint: intent.sprint,
+    facing: intent.facing,
   };
-  return { world, movement: [...pending, movement] };
+  const suited = setSuitSealed(world, pawnId, intent.sealed);
+  return { world: suited, movement: [...pending, movement] };
+}
+
+function routeFire(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'FIRE' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const fired = fireWeapon(world, pawnId, intent.originAngle, intent.weapon);
+  return { world: fired.world, movement: pending, notice: fireNotice(fired.result) };
+}
+
+function fireNotice(result: ReturnType<typeof fireWeapon>['result']): string {
+  if (result.kind === 'miss') return 'FIRE_miss';
+  if (result.kind === 'pawn') return `FIRE_pawn:${result.targetId}`;
+  return `FIRE_${result.kind}:${result.portalId}`;
 }
 
 /** Clearance is 0 until roles land in M5; spec portals require 0. */

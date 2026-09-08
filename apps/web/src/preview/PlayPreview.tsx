@@ -15,6 +15,8 @@ import {
   captainIdFor,
   createAirAuthority,
   FIXED_DT,
+  type FireResult,
+  fireWeapon,
   type HireOfferRecord,
   type HullSpec,
   hireAboard,
@@ -22,6 +24,7 @@ import {
   nearestPortal,
   portalWind,
   roomContainingPoint,
+  setSuitSealed,
   spawnPawn,
   talkToCaptain,
   tickWorld,
@@ -42,6 +45,7 @@ const INTERACT_RADIUS = 90;
 
 export function PlayPreview({ specName }: { specName: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const facingRef = useRef(0);
   const worldRef = useRef<World | null>(null);
   const airRef = useRef<AirAuthorityState | null>(null);
   const offerRef = useRef<HireOfferRecord | null>(null);
@@ -89,7 +93,7 @@ export function PlayPreview({ specName }: { specName: string }) {
       if (world === null || live === null) return;
       const pawn = world.pawns[HERO_ID];
       if (pawn === undefined) return;
-      const id = addPuncture(live, FRAME_ID, pawn.roomHint, 1.5);
+      const id = addPuncture(live, pawn.frameId, pawn.roomHint, 1.5);
       setNotice(id === undefined ? 'puncture failed' : `puncture ${shortId(pawn.roomHint)}`);
     };
     const pressTalk = (): void => {
@@ -128,11 +132,27 @@ export function PlayPreview({ specName }: { specName: string }) {
       offerRef.current = null;
       setNotice(ok ? `hired ${job}, departing` : 'hire refused');
     };
+    const pressSuit = (): void => {
+      const world = worldRef.current;
+      if (world === null) return;
+      const sealed = !(world.vitals[HERO_ID]?.suitSealed ?? false);
+      worldRef.current = setSuitSealed(world, HERO_ID, sealed);
+      setNotice(sealed ? 'suit sealed' : 'suit open');
+    };
+    const pressFire = (): void => {
+      const world = worldRef.current;
+      if (world === null) return;
+      const fired = fireWeapon(world, HERO_ID, facingRef.current, 'kinetic_carbine');
+      worldRef.current = fired.world;
+      setNotice(fireNotice(fired.result));
+    };
     const onDown = (event: KeyboardEvent): void => {
       if (event.key === 'e' || event.key === 'E') pressDoor();
       else if (event.key === 'b' || event.key === 'B') pressBreach();
       else if (event.key === 'h' || event.key === 'H') pressTalk();
       else if (event.key === 'j' || event.key === 'J') pressHire();
+      else if (event.key === 't' || event.key === 'T') pressSuit();
+      else if (event.key === 'f' || event.key === 'F') pressFire();
       else keysRef.current.add(event.key.toLowerCase());
     };
     const onUp = (event: KeyboardEvent): void => {
@@ -148,13 +168,22 @@ export function PlayPreview({ specName }: { specName: string }) {
       acc += Math.min((now - last) / 1000, 0.25);
       last = now;
       const input = readKeys(keysRef.current);
+      if (input !== null) facingRef.current = Math.atan2(input.y, input.x);
       while (acc >= FIXED_DT) {
         const world = worldRef.current;
         if (world !== null) {
           const intents =
             input === null
               ? []
-              : [{ pawnId: HERO_ID, moveX: input.x, moveY: input.y, sprint: false }];
+              : [
+                  {
+                    pawnId: HERO_ID,
+                    moveX: input.x,
+                    moveY: input.y,
+                    sprint: false,
+                    facing: facingRef.current,
+                  },
+                ];
           worldRef.current = tickWorld(world, FIXED_DT, intents, airRef.current ?? undefined);
         }
         acc -= FIXED_DT;
@@ -182,7 +211,8 @@ export function PlayPreview({ specName }: { specName: string }) {
   return (
     <div style={{ background: '#07090d', minHeight: '100vh', padding: 16, color: '#cfd8e3' }}>
       <h1 style={{ fontSize: 16, margin: '0 0 8px' }}>
-        Play slice: {isHarbor ? 'Harbor Loop' : entry?.label} (WASD move, E door, H talk, J hire)
+        Play slice: {isHarbor ? 'Harbor Loop' : entry?.label} (WASD move, E door, H talk, J hire, T
+        suit, F fire)
       </h1>
       <div data-testid="play-stats">{stats}</div>
       <div data-testid="play-notice">{notice}</div>
@@ -276,7 +306,15 @@ function describeWorld(world: World): string {
     view === undefined
       ? 'p:? o2:? vent:0'
       : `p:${view.pressureKpa.toFixed(1)} o2:${view.o2Percent.toFixed(1)} vent:${ventedRooms(world.atmos).length}`;
-  return `x:${Math.round(pawn.pos.x)} y:${Math.round(pawn.pos.y)} room:${room} explored:${explored} door:${door} ${air} ${loop}`;
+  const vitals = world.vitals[HERO_ID];
+  const body = `suit:${vitals?.suitSealed ? 'sealed' : 'open'} hyp:${(vitals?.hypoxia ?? 0).toFixed(0)} hp:${Math.round(pawn.health.hp)}`;
+  return `x:${Math.round(pawn.pos.x)} y:${Math.round(pawn.pos.y)} room:${room} explored:${explored} door:${door} ${air} ${loop} ${body}`;
+}
+
+function fireNotice(result: FireResult): string {
+  if (result.kind === 'miss') return 'fire clean miss';
+  if (result.kind === 'pawn') return `fire hit pawn ${shortId(result.targetId)}`;
+  return `fire ${result.kind} ${shortId(result.portalId)}`;
 }
 
 function shortId(id: string): string {

@@ -76,18 +76,19 @@ export function buildVitals(
   clearance: number
 ): VitalsBroadcast {
   const pawn = world.pawns[pawnId];
+  const vitals = world.vitals[pawnId];
   return {
     type: 'VITALS',
     v: 2,
     tick: world.tick,
     serverTimeMs: nowMs,
     vitals: {
-      hunger: 100,
-      thirst: 100,
-      fatigue: 0,
+      hunger: vitals?.hunger ?? 100,
+      thirst: vitals?.thirst ?? 100,
+      fatigue: vitals?.fatigue ?? 0,
       health: pawn?.health.hp ?? 100,
-      hypoxia: 0,
-      suitSealed: pawn?.health.suitSealed ?? false,
+      hypoxia: vitals?.hypoxia ?? 0,
+      suitSealed: vitals?.suitSealed ?? pawn?.health.suitSealed ?? false,
     },
     credits,
     clearance,

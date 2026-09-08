@@ -168,6 +168,7 @@ describe('air authority repressurizing', () => {
       areaM2: 2,
       segment: { x1: 0, y1: 0, x2: 0, y2: 2 },
       clearance: 0,
+      integrity: 100,
     };
     let box: World = { ...createEmptyWorld(0), rooms: boxRooms, portals: { hatch: hatchEdge } };
     box = setEdge(box, 'hatch', { state: 'destroyed', kind: 'hole' });

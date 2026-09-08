@@ -98,6 +98,7 @@ function compilePortals(spec: HullSpec): PortalEdge[] {
     areaM2: portal.areaM2,
     segment: { ...portal.segment },
     clearance: portal.clearance ?? 0,
+    integrity: 100,
   }));
 }
 
