@@ -3,7 +3,7 @@
  * Replaces trust-client-positions. Pure + deterministic; dt is passed in.
  */
 
-import type { WallSegment } from '@kybernetes/protocol';
+import type { SnapshotPortal, WallSegment } from '@kybernetes/protocol';
 import { resolvePawnMovement } from '../spatial/collision.js';
 import { isPortalConnecting } from './doors.js';
 import type { PawnBody, PortalEdge, Vec2, World } from './types.js';
@@ -87,10 +87,51 @@ function portalCollider(portal: PortalEdge): WallSegment {
 }
 
 export function collidePawn(pawn: PawnBody, target: Vec2, colliders: readonly WallSegment[]): Vec2 {
-  const result = resolvePawnMovement(pawn.pos.x, pawn.pos.y, target.x, target.y, pawn.radius, [
-    ...colliders,
-  ]);
+  return predictStep(pawn.pos, pawn.radius, target, colliders);
+}
+
+/**
+ * Client prediction step: collide an arbitrary point against frame colliders.
+ * Same resolver as the server, so predictions match authority until snapshots
+ * correct them. Pure + deterministic.
+ */
+export function predictStep(
+  from: Vec2,
+  radius: number,
+  target: Vec2,
+  colliders: readonly WallSegment[]
+): Vec2 {
+  const result = resolvePawnMovement(from.x, from.y, target.x, target.y, radius, [...colliders]);
   return { x: result.x, y: result.y };
+}
+
+/**
+ * Client prediction view: overlay authoritative portal states onto static
+ * geometry, then feed the result to collidersForFrame. Destroyed doors become
+ * connecting holes (matching combat), so predictions stop rubber-banding on
+ * doorways the server already opened. Breach-carved holes have no static
+ * segment to join, so predictions still collide there until snapshots correct.
+ */
+export function withSnapshotStates(world: World, snapshots: readonly SnapshotPortal[]): World {
+  if (snapshots.length === 0) return world;
+  const states = new Map(snapshots.map((portal) => [portal.id, portal.state]));
+  let changed = false;
+  const portals: Record<string, PortalEdge> = {};
+  for (const [id, portal] of Object.entries(world.portals)) {
+    const state = states.get(id);
+    if (state === undefined) {
+      portals[id] = portal;
+      continue;
+    }
+    const kind = state === 'destroyed' ? 'hole' : portal.kind;
+    if (kind === portal.kind && state === portal.state) {
+      portals[id] = portal;
+      continue;
+    }
+    changed = true;
+    portals[id] = { ...portal, kind, state };
+  }
+  return changed ? { ...world, portals } : world;
 }
 
 /** Pawns aboard a moving vessel inherit its frame velocity (no offset-hack). */

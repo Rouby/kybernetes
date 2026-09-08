@@ -5,7 +5,12 @@
  */
 
 import type { Role } from '@kybernetes/protocol';
-import { buildHarborWorld, type World } from '@kybernetes/sim-core';
+import {
+  buildHarborWorld,
+  collidersForFrame,
+  type World,
+  withSnapshotStates,
+} from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
@@ -36,7 +41,16 @@ export function HarborApp() {
   const staticWorld = useMemo(() => buildHarborWorld(), []);
   const socket = useHarborSocket(identity);
   const ownPawn = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
-  const movement = useHarborMovement(ownPawn, socket.sendIntent);
+  const ownFrameId = ownPawn?.frameId ?? 'station';
+  const predictionView = useMemo(
+    () => withSnapshotStates(staticWorld, socket.snapshot?.portals ?? []),
+    [staticWorld, socket.snapshot]
+  );
+  const colliders = useMemo(
+    () => collidersForFrame(predictionView, ownFrameId),
+    [predictionView, ownFrameId]
+  );
+  const movement = useHarborMovement(ownPawn, socket.sendIntent, colliders);
 
   const predictedRef = useRef(movement.predicted);
   predictedRef.current = movement.predicted;

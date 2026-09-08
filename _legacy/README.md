@@ -1,5 +1,13 @@
 # _legacy cut line (M0 scaffold)
 
+C3: `spatial/deck.ts` + `spatial/doors.ts` rebacked on compiled harbor hulls
+(same export names/shapes, new data; doors start shut, stations deferred).
+Adapter tests (`spatial.test.ts`, `spatial/deck.test.ts`) updated to harbor
+truth. Tests for deprecated modules (`gauntlet`, `bots/botManager`,
+`systems/decisionTree`, `systems/projectiles`, `spatial/hullAirDebug`,
+`spatial/shipAtmosphere`) deleted with the reback — they encoded old-geometry
+behavior of C4-owned modules; the modules themselves follow in C4.
+
 M0 keeps legacy implementations in place so `yarn typecheck` stays green while
 protocol v2 / world kernel / SimHost shells land alongside them.
 

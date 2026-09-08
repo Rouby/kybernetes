@@ -31,8 +31,8 @@ describe('atmos overlay geometry', () => {
     expect(ids).toContain('corridor_fwd');
     expect(ids).toContain('corridor_mid');
     expect(ids).toContain('corridor_aft');
-    expect(ids).toContain('station_lobby');
-    expect(ids).toContain('station_bay');
+    expect(ids).toContain('lobby');
+    expect(ids).toContain('bay');
     expect(ids).toContain('gauntlet');
     expect(ids).not.toContain('corridor');
   });
@@ -80,14 +80,16 @@ describe('atmos overlay geometry', () => {
     const summaries = Object.fromEntries(rects.map((r) => [r.id, summary({ roomId: r.id })]));
     const plain = buildOverlayVertices(rects, summaries, 'o2', 1.0);
     const shifted = buildOverlayVertices(rects, summaries, 'o2', 1.0, -1400);
-    // First quad belongs to the first rect (bridge, ship-side): x shifts by shipDx.
-    expect(shifted[0]).toBeCloseTo(plain[0] - 1400, 6);
+    // Bridge quad (ship-side) shifts by shipDx; lobby quad (station-side) does not.
+    const bridgeIndex = rects.findIndex((r) => r.id === 'bridge');
+    expect(bridgeIndex).toBeGreaterThanOrEqual(0);
+    expect(shifted[bridgeIndex * 36]).toBeCloseTo(plain[bridgeIndex * 36] - 1400, 6);
     // Station lobby quad keeps world coordinates: find its quad start.
-    const lobbyIndex = rects.findIndex((r) => r.id === 'station_lobby');
+    const lobbyIndex = rects.findIndex((r) => r.id === 'lobby');
     const lobbyPlainX = plain[lobbyIndex * 36];
     const lobbyShiftedX = shifted[lobbyIndex * 36];
     expect(lobbyShiftedX).toBeCloseTo(lobbyPlainX, 6);
-    expect(lobbyPlainX).toBeCloseTo(120.5, 6);
+    expect(lobbyPlainX).toBeCloseTo(0.5, 6);
   });
 
   it('returns transparent color when the overlay is off', () => {

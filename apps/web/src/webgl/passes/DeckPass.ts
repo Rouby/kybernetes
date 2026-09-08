@@ -273,7 +273,7 @@ export class DeckPass {
 
     const roomTypeMap: Record<string, number> = {
       bridge: 0,
-      quarters: 1,
+      berthing: 1,
       mess: 2,
       corridor: 3,
       armory: 4,
@@ -281,11 +281,9 @@ export class DeckPass {
       engineering: 6,
       avionics: 7,
       life_support: 8,
-      airlock_port: 9,
-      airlock_stbd: 10,
       gauntlet: 3,
-      station_lobby: 2,
-      station_bay: 5,
+      lobby: 2,
+      bay: 5,
     };
 
     for (const room of getWorldRooms(this.shipOffset)) {

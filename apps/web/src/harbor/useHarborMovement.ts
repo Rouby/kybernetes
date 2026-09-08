@@ -1,11 +1,12 @@
 /**
  * Harbor movement: WASD sampled into INPUT intents at 20Hz with local
- * prediction and authoritative reconcile. Prediction runs free (no client
- * collision yet — the server corrects every snapshot); C3 adds shared
- * colliders for prediction parity.
+ * prediction and authoritative reconcile. Prediction collides against the
+ * same frame colliders as the server (via predictStep), so reconciles are
+ * small corrections rather than teleports.
  */
 
-import type { ClientIntent, SnapshotPawn } from '@kybernetes/protocol';
+import type { ClientIntent, SnapshotPawn, WallSegment } from '@kybernetes/protocol';
+import { predictStep } from '@kybernetes/sim-core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const KEY_DELTAS: Record<string, { x: number; y: number }> = {
@@ -43,9 +44,12 @@ function readMoveInput(keys: Set<string>): { x: number; y: number } | null {
   return { x: x / len, y: y / len };
 }
 
+const PREDICT_RADIUS = 12;
+
 export function useHarborMovement(
   authoritative: SnapshotPawn | undefined,
-  sendIntent: (intent: ClientIntent) => void
+  sendIntent: (intent: ClientIntent) => void,
+  colliders: readonly WallSegment[] = []
 ) {
   const [predicted, setPredicted] = useState<PredictedPawn | null>(null);
   const [sealed, setSealed] = useState(false);
@@ -55,6 +59,8 @@ export function useHarborMovement(
   const predictedRef = useRef<PredictedPawn | null>(null);
   const authRef = useRef(authoritative);
   authRef.current = authoritative;
+  const collidersRef = useRef(colliders);
+  collidersRef.current = colliders;
 
   useEffect(() => {
     const onDown = (event: KeyboardEvent): void => {
@@ -82,7 +88,7 @@ export function useHarborMovement(
       if (input !== null) facingRef.current = Math.atan2(input.y, input.x);
       const prev = predictedRef.current;
       const base = prev ?? snapshotPose(authRef.current);
-      const next = advancePose(base, input, dt, facingRef.current);
+      const next = advancePose(base, input, dt, facingRef.current, collidersRef.current);
       if (next !== prev) {
         predictedRef.current = next;
         setPredicted(next);
@@ -150,13 +156,15 @@ function advancePose(
   base: PredictedPawn | null,
   input: { x: number; y: number } | null,
   dt: number,
-  facing: number
+  facing: number,
+  colliders: readonly WallSegment[]
 ): PredictedPawn | null {
   if (base === null) return null;
   if (input === null) return base.facing === facing ? base : { ...base, facing };
-  return {
+  const target = {
     x: base.x + input.x * PREDICT_SPEED * dt,
     y: base.y + input.y * PREDICT_SPEED * dt,
-    facing,
   };
+  const stepped = predictStep(base, PREDICT_RADIUS, target, colliders);
+  return { ...stepped, facing };
 }
