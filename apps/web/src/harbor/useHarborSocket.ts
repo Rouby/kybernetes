@@ -15,7 +15,6 @@ import type {
   NoticeBroadcast,
   SnapshotBroadcast,
   SnapshotDeltaBroadcast,
-  SnapshotPawn,
   TelemetryBroadcast,
   VitalsBroadcast,
   WatchBroadcast,
@@ -321,13 +320,4 @@ export function handleMessage(data: string, caches: HarborCaches, setters: Snaps
   }
   const handler = typeof msg.type === 'string' ? CHANNEL_HANDLERS[msg.type] : undefined;
   if (handler !== undefined) handler(msg, caches, setters);
-}
-
-export function remotePawns(
-  snapshot: SnapshotBroadcast | null,
-  pawnId: string | null
-): readonly SnapshotPawn[] {
-  if (snapshot === null) return [];
-  if (pawnId === null) return snapshot.pawns;
-  return snapshot.pawns.filter((pawn) => pawn.id !== pawnId);
 }

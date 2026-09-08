@@ -11,26 +11,31 @@ import type {
   ManifestBroadcast,
   PawnState,
   PlayerVitals,
+  ProjectileState,
   RoomAtmosphereSummary,
   SnapshotBroadcast,
   SnapshotDeltaBroadcast,
   SnapshotPawn,
   SnapshotPortal,
+  SnapshotProjectile,
   TelemetryBroadcast,
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
+  WeaponType,
 } from '@kybernetes/protocol';
 import {
   type BreachRenderModel,
   breachFlowAxis,
   HESPERIA_ROOMS,
   isShipSideRoom,
+  MAG_SIZE,
   mergeAtmos,
   mergeFrames,
   mergePortals,
   PUNCTURE_MAX_M2,
   SHIP_ORIGIN,
 } from '@kybernetes/sim-core';
+import type { PredictedShot } from './predictedShots';
 import type { PredictedPawn } from './useHarborMovement';
 
 export function bareId(id: string): string {
@@ -93,7 +98,7 @@ export function callsignFor(manifest: ManifestBroadcast | null, pawnId: string):
 }
 
 /** Max forward extrapolation for authoritative projectiles between 10Hz deltas. */
-export const PROJECTILE_EXTRAPOLATE_S = 0.15;
+const PROJECTILE_EXTRAPOLATE_S = 0.15;
 
 /**
  * Seconds since a snapshot arrived, for projectile extrapolation.
@@ -304,6 +309,98 @@ export function mapAtmos(
     };
   }
   return rooms;
+}
+
+function tracerWeapon(weapon: string): WeaponType {
+  return (weapon === 'arc_welder' ? 'arc_welder' : 'kinetic_carbine') as WeaponType;
+}
+
+/** Authoritative rounds, forward-extrapolated by ageS over frame origins. */
+export function mapServerProjectiles(
+  shots: readonly SnapshotProjectile[] | undefined,
+  origins: Map<string, { x: number; y: number }>,
+  ageS: number
+): ProjectileState[] {
+  return (shots ?? []).map((shot) => {
+    const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
+    return {
+      id: shot.id,
+      x: shot.x + origin.x + shot.vx * ageS,
+      y: shot.y + origin.y + shot.vy * ageS,
+      vx: shot.vx,
+      vy: shot.vy,
+      damage: 0,
+      color: '#ffd27f',
+      fromPlayer: true,
+      lifeSeconds: 1,
+      weaponType: tracerWeapon(shot.weapon),
+    };
+  });
+}
+
+/** Locally predicted rounds render at once; authority confirms or expires them. */
+export function mapPredictedProjectiles(
+  shots: readonly PredictedShot[],
+  origins: Map<string, { x: number; y: number }>
+): ProjectileState[] {
+  return shots.map((shot) => {
+    const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
+    return {
+      id: `pred:${shot.id}`,
+      x: shot.x + origin.x,
+      y: shot.y + origin.y,
+      vx: shot.vx,
+      vy: shot.vy,
+      damage: 0,
+      color: '#ffd27f',
+      fromPlayer: true,
+      lifeSeconds: 1,
+      weaponType: tracerWeapon(shot.weapon),
+    };
+  });
+}
+
+/** Remotes with callsigns and world-space positions for the renderer. */
+export function mapRemotePawns(
+  snapshot: SnapshotBroadcast,
+  pawnId: string | null,
+  manifest: ManifestBroadcast | null,
+  origins: Map<string, { x: number; y: number }>
+): PawnState[] {
+  const remotes =
+    pawnId === null ? snapshot.pawns : snapshot.pawns.filter((pawn) => pawn.id !== pawnId);
+  return remotes.map((pawn) =>
+    mapPawn(pawn, callsignFor(manifest, pawn.id), pawnWorld(pawn, origins, null), pawn.facing)
+  );
+}
+
+/** Ship frame origin for render offsets; station space when unknown. */
+export function shipOffsetOf(origins: Map<string, { x: number; y: number }>): {
+  x: number;
+  y: number;
+} {
+  return origins.get('ship') ?? { ...SHIP_ORIGIN };
+}
+
+/** Ammo readout for the visor combat card; absent without vitals. */
+export function mapKineticAmmo(
+  vitals: VitalsBroadcast | null
+): { current: number; max: number; reserve: number; isReloading: boolean } | undefined {
+  if (vitals === null) return undefined;
+  return {
+    current: vitals.vitals.ammo,
+    max: MAG_SIZE,
+    reserve: vitals.vitals.reserve,
+    isReloading: vitals.vitals.reloading,
+  };
+}
+
+/** Aim point or a short forward default when the mouse never moved. */
+export function aimPoint(
+  aim: { x: number; y: number } | null,
+  at: { x: number; y: number }
+): { x: number; y: number } {
+  return aim ?? { x: at.x + 50, y: at.y };
 }
 
 export function ventedBareIds(telemetry: TelemetryBroadcast | null): string[] {

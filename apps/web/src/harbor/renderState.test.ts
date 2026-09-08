@@ -7,6 +7,7 @@ import type {
 } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  aimPoint,
   bareId,
   breachCountsByRoom,
   breachFlowVectors,
@@ -14,7 +15,11 @@ import {
   frameOrigins,
   mapAtmos,
   mapBreaches,
+  mapKineticAmmo,
   mapPawn,
+  mapPredictedProjectiles,
+  mapRemotePawns,
+  mapServerProjectiles,
   mapTelemetry,
   mapVitals,
   mergeSnapshotDelta,
@@ -22,6 +27,7 @@ import {
   pawnWorld,
   roomO2,
   roomWindVectors,
+  shipOffsetOf,
   snapshotAgeS,
   syncDoors,
   ventedBareIds,
@@ -357,6 +363,63 @@ describe('render-state mapping', () => {
     ]);
     const still = { ...windy, tick: 102, full: false as const, atmos: [], flows: [] };
     expect(mergeTelemetry(windy, still).flows).toEqual([]);
+  });
+
+  it('maps projectile views with origins, age, and weapon kinds', () => {
+    const origins = new Map([
+      ['station', { x: 0, y: 0 }],
+      ['ship', { x: 1400, y: 0 }],
+    ]);
+    const server = mapServerProjectiles(
+      [
+        { id: 's1', frameId: 'ship', x: 100, y: 200, vx: 600, vy: 0, weapon: 'kinetic_carbine' },
+        { id: 's2', frameId: 'station', x: 10, y: 20, vx: 0, vy: -600, weapon: 'arc_welder' },
+      ],
+      origins,
+      0.1
+    );
+    // 600px/s over 0.1s of age flies 60px past the snapshot position.
+    expect(server[0]).toMatchObject({
+      id: 's1',
+      x: 1560,
+      y: 200,
+      weaponType: 'kinetic_carbine',
+    });
+    expect(server[1]).toMatchObject({ x: 10, y: -40, weaponType: 'arc_welder' });
+    expect(mapServerProjectiles(undefined, origins, 0.1)).toEqual([]);
+    const predicted = mapPredictedProjectiles(
+      [
+        {
+          id: 7,
+          frameId: 'ship',
+          x: 50,
+          y: 60,
+          vx: 600,
+          vy: 0,
+          bornMs: 1,
+          weapon: 'kinetic_carbine',
+        },
+      ],
+      origins
+    );
+    expect(predicted[0]).toMatchObject({ id: 'pred:7', x: 1450, y: 60 });
+    expect(mapPredictedProjectiles([], origins)).toEqual([]);
+  });
+
+  it('maps remotes and the ship offset for the renderer', () => {
+    const base = snapshot();
+    expect(mapRemotePawns(base, 'pawn:u1', manifest(), frameOrigins(base))).toEqual([]);
+    expect(mapRemotePawns(base, null, manifest(), frameOrigins(base))).toHaveLength(1);
+    expect(shipOffsetOf(frameOrigins(base))).toEqual({ x: 1400, y: 0 });
+    expect(shipOffsetOf(new Map([['ship', { x: 1, y: 2 }]]))).toEqual({ x: 1, y: 2 });
+    expect(shipOffsetOf(new Map())).toEqual({ x: 1400, y: 0 });
+  });
+
+  it('maps ammo and aim fallbacks without branches in the viewport', () => {
+    expect(mapKineticAmmo(null)).toBeUndefined();
+    expect(mapKineticAmmo(vitals())).toMatchObject({ current: 30, isReloading: false });
+    expect(aimPoint({ x: 1, y: 2 }, { x: 0, y: 0 })).toEqual({ x: 1, y: 2 });
+    expect(aimPoint(null, { x: 10, y: 20 })).toEqual({ x: 60, y: 20 });
   });
 
   it('times projectile extrapolation from snapshot arrival, not wall clock', () => {

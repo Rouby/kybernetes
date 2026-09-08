@@ -57,7 +57,6 @@ export interface HudDrawState {
     isReloading: boolean;
     reloadProgress?: number;
   };
-  welderThermal?: { heat: number; isOverheated: boolean };
   shiftChecklist?: ShiftChecklistState;
   projectedGrade?: ShiftEvaluationGrade;
   shiftTimerFormatted?: string;
@@ -630,17 +629,10 @@ export class HudRenderer {
       const barCol: [number, number, number] = isPrimed ? [0.75, 0.3, 1.0] : [0.0, 0.9, 1.0];
       this.addProgressBar(x + 15, y + 80, panelW - 30, 8, Math.max(pct, 5), barCol);
     } else {
-      // arc_welder
-      const heat = state.welderThermal?.heat ?? 0;
-      const isOverheated = state.welderThermal?.isOverheated ?? false;
-      const heatPct = Math.round(heat * 100);
-      const isWelding = Boolean(state.welderState?.active && !isOverheated);
-      const statusText = isOverheated
-        ? '[THERMAL LOCKOUT]'
-        : isWelding
-          ? '[DISCHARGING ARC]'
-          : '[OPTIMAL]';
-      const welderCol = isOverheated ? '#ff2244' : heat > 0.7 ? '#ffaa00' : '#ffb000';
+      // arc_welder has no thermal model: status follows the live arc state.
+      const isWelding = Boolean(state.welderState?.active);
+      const statusText = isWelding ? '[DISCHARGING ARC]' : '[STANDBY]';
+      const welderCol = isWelding ? '#ffb000' : '#7090b0';
 
       this.addText('ARC WELDER', x + 15, y + 36, {
         fontSize: 22,
@@ -648,17 +640,10 @@ export class HudRenderer {
         color: welderCol,
       });
 
-      this.addText(`HEAT: ${heatPct}%  ${statusText}`, x + 15, y + 60, {
+      this.addText(statusText, x + 15, y + 60, {
         fontSize: 18,
-        color: isOverheated ? '#ff3344' : '#e0e6ed',
+        color: '#e0e6ed',
       });
-      const barCol: [number, number, number] =
-        isOverheated || heat > 0.8
-          ? [1.0, 0.13, 0.27]
-          : heat > 0.4
-            ? [1.0, 0.69, 0.0]
-            : [0.0, 0.9, 1.0];
-      this.addProgressBar(x + 15, y + 80, panelW - 30, 8, Math.max(heatPct, 4), barCol);
     }
 
     // Station Shift progress indicator (when active)

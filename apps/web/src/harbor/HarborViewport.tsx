@@ -9,14 +9,14 @@
 import type {
   DoorState,
   ManifestBroadcast,
+  PlayerVitals,
   RoomAtmosphereSummary,
   SnapshotBroadcast,
   TelemetryBroadcast,
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
-  WeaponType,
 } from '@kybernetes/protocol';
-import { createInitialDoors, MAG_SIZE, SHIP_ORIGIN } from '@kybernetes/sim-core';
+import { createInitialDoors } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
@@ -24,24 +24,29 @@ import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
 import {
+  aimPoint,
   bareId,
   breachCountsByRoom,
   callsignFor,
   frameOrigins,
   mapAtmos,
   mapBreaches,
+  mapKineticAmmo,
   mapPawn,
+  mapPredictedProjectiles,
+  mapRemotePawns,
+  mapServerProjectiles,
   mapTelemetry,
   mapVitals,
   pawnWorld,
   roomO2,
   roomWindVectors,
+  shipOffsetOf,
   snapshotAgeS,
   syncDoors,
   ventedBareIds,
 } from './renderState';
 import type { PredictedPawn } from './useHarborMovement';
-import { remotePawns } from './useHarborSocket';
 
 const VIEW_MIN_H = 480;
 const CAMERA_LERP = 0.12;
@@ -101,6 +106,7 @@ interface ViewportSession {
   cachedRooms: Record<string, RoomAtmosphereSummary>;
   cachedDelta: TelemetryDeltaBroadcast | null;
   cachedBreaches: ReturnType<typeof mapBreaches>;
+  cachedFlows: TelemetryBroadcast['flows'];
 }
 
 const FLASH_MS = 120;
@@ -131,6 +137,7 @@ export function HarborViewport(props: HarborViewportProps) {
     cachedRooms: {},
     cachedDelta: null,
     cachedBreaches: [],
+    cachedFlows: undefined,
   });
   const viewRef = useRef(props);
   viewRef.current = props;
@@ -239,12 +246,8 @@ function renderViewport(
   const origins = frameOrigins(snapshot);
   const at = pawnWorld(own, origins, view.predicted);
   const now = performance.now();
-  if (snapshot.tick !== session.lastSnapshotTick) {
-    session.lastSnapshotTick = snapshot.tick;
-    session.snapshotAtMs = now;
-  }
-  const aim = aimWorld(session, canvas);
-  if (aim !== null) view.facingRef.current = Math.atan2(aim.y - at.y, aim.x - at.x);
+  stampSnapshotArrival(session, snapshot, now);
+  const aim = trackAim(session, view, canvas, at);
   const look = lookTarget(at, aim);
   stepCamera(session, look);
   trackShots(session, view, at, now);
@@ -253,23 +256,13 @@ function renderViewport(
   trackNotices(session, view, now);
   session.doors = syncDoors(session.doors, snapshot);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
-  const { rooms: roomAtmos, delta, breaches } = telemetryView(session, view, snapshot);
+  const { rooms: roomAtmos, delta, breaches, flows } = telemetryView(session, view, snapshot);
   const mappedVitals = mapVitals(view.vitals);
-  if (now - session.lastAudioMs >= AUDIO_MS) {
-    session.lastAudioMs = now;
-    ShipAudioEngine.getInstance().updateTelemetry(delta, mappedVitals, bareId(own.roomHint));
-  }
+  pollAudioTelemetry(session, delta, mappedVitals, bareId(own.roomHint), now);
   renderer.render(
     {
       pawn: mapPawn(own, callsignFor(view.manifest, own.id), at, view.facingRef.current),
-      remotePawns: remotePawns(snapshot, view.pawnId).map((pawn) =>
-        mapPawn(
-          pawn,
-          callsignFor(view.manifest, pawn.id),
-          pawnWorld(pawn, origins, null),
-          pawn.facing
-        )
-      ),
+      remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, origins),
       vitals: mappedVitals,
       telemetry: delta,
       boarding: {
@@ -280,41 +273,12 @@ function renderViewport(
         ventedRooms: ventedBareIds(view.telemetry),
         doors: session.doors,
         projectiles: [
-          ...(snapshot.projectiles ?? []).map((shot) => {
-            const age = snapshotAgeS(session.snapshotAtMs, now);
-            const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
-            return {
-              id: shot.id,
-              x: shot.x + origin.x + shot.vx * age,
-              y: shot.y + origin.y + shot.vy * age,
-              vx: shot.vx,
-              vy: shot.vy,
-              damage: 0,
-              color: '#ffd27f',
-              fromPlayer: true,
-              lifeSeconds: 1,
-              weaponType: (shot.weapon === 'arc_welder'
-                ? 'arc_welder'
-                : 'kinetic_carbine') as WeaponType,
-            };
-          }),
-          ...view.shotsRef.current.map((shot) => {
-            const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
-            return {
-              id: `pred:${shot.id}`,
-              x: shot.x + origin.x,
-              y: shot.y + origin.y,
-              vx: shot.vx,
-              vy: shot.vy,
-              damage: 0,
-              color: '#ffd27f',
-              fromPlayer: true,
-              lifeSeconds: 1,
-              weaponType: (shot.weapon === 'arc_welder'
-                ? 'arc_welder'
-                : 'kinetic_carbine') as WeaponType,
-            };
-          }),
+          ...mapServerProjectiles(
+            snapshot.projectiles,
+            origins,
+            snapshotAgeS(session.snapshotAtMs, now)
+          ),
+          ...mapPredictedProjectiles(view.shotsRef.current, origins),
         ],
         roomO2: roomO2(roomAtmos),
       },
@@ -323,22 +287,14 @@ function renderViewport(
       beaconCode: view.manifest?.beacon,
       crewCount: view.manifest?.crew.length,
       currentRoomId: bareId(own.roomHint),
-      kineticAmmo:
-        view.vitals === null
-          ? undefined
-          : {
-              current: view.vitals.vitals.ammo,
-              max: MAG_SIZE,
-              reserve: view.vitals.vitals.reserve,
-              isReloading: view.vitals.vitals.reloading,
-            },
+      kineticAmmo: mapKineticAmmo(view.vitals),
       overlayMode,
       breaches,
-      breachFlows: view.telemetry?.flows,
+      breachFlows: flows,
       impacts: freshImpacts(session, snapshot, origins),
       camera: shakenCamera(session, now),
       zoom: VIEW_ZOOM,
-      mouseWorld: aim ?? { x: at.x + 50, y: at.y },
+      mouseWorld: aimPoint(aim, at),
       muzzleFlashes: session.flashes.map((flash) => ({
         x: flash.x,
         y: flash.y,
@@ -346,7 +302,7 @@ function renderViewport(
       })),
       inGameNotice: session.notice?.text,
       timeMs: now,
-      shipOffset: origins.get('ship') ?? { ...SHIP_ORIGIN },
+      shipOffset: shipOffsetOf(origins),
       shipUnderway: view.shipUnderway,
       screenWidth: canvas.clientWidth,
       screenHeight: canvas.clientHeight,
@@ -365,6 +321,7 @@ function telemetryView(
   rooms: Record<string, RoomAtmosphereSummary>;
   delta: TelemetryDeltaBroadcast;
   breaches: ReturnType<typeof mapBreaches>;
+  flows: TelemetryBroadcast['flows'];
 } {
   const key = telemetryKey(view, snapshot);
   if (session.telemetryKey === key && session.cachedDelta !== null) {
@@ -372,17 +329,20 @@ function telemetryView(
       rooms: session.cachedRooms,
       delta: session.cachedDelta,
       breaches: session.cachedBreaches,
+      flows: session.cachedFlows,
     };
   }
   const breaches = mapBreaches(snapshot);
-  const winds = roomWindVectors(breaches, view.telemetry?.flows);
+  const flows = view.telemetry?.flows;
+  const winds = roomWindVectors(breaches, flows);
   const rooms = mapAtmos(view.telemetry, winds, breachCountsByRoom(breaches));
   const delta = mapTelemetry(snapshot, view.telemetry, view.manifest, rooms);
   session.telemetryKey = key;
   session.cachedRooms = rooms;
   session.cachedDelta = delta;
   session.cachedBreaches = breaches;
-  return { rooms, delta, breaches };
+  session.cachedFlows = flows;
+  return { rooms, delta, breaches, flows };
 }
 
 function telemetryKey(view: HarborViewportProps, snapshot: SnapshotBroadcast): string {
@@ -410,6 +370,43 @@ function aimWorld(
 ): { x: number; y: number } | null {
   if (!session.mouse.moved) return null;
   return screenToWorld(session.mouse.x, session.mouse.y, canvas, session.camera);
+}
+
+/** Stamp snapshot arrival on the client clock for projectile extrapolation. */
+function stampSnapshotArrival(
+  session: ViewportSession,
+  snapshot: SnapshotBroadcast,
+  now: number
+): void {
+  if (snapshot.tick !== session.lastSnapshotTick) {
+    session.lastSnapshotTick = snapshot.tick;
+    session.snapshotAtMs = now;
+  }
+}
+
+/** Aim from the mouse ray; also steers the facing the server will apply. */
+function trackAim(
+  session: ViewportSession,
+  view: HarborViewportProps,
+  canvas: HTMLCanvasElement,
+  at: { x: number; y: number }
+): { x: number; y: number } | null {
+  const aim = aimWorld(session, canvas);
+  if (aim !== null) view.facingRef.current = Math.atan2(aim.y - at.y, aim.x - at.x);
+  return aim;
+}
+
+/** Throttled ambience update; the render path never blocks on audio. */
+function pollAudioTelemetry(
+  session: ViewportSession,
+  delta: TelemetryDeltaBroadcast,
+  mappedVitals: PlayerVitals | undefined,
+  roomId: string,
+  now: number
+): void {
+  if (now - session.lastAudioMs < AUDIO_MS) return;
+  session.lastAudioMs = now;
+  ShipAudioEngine.getInstance().updateTelemetry(delta, mappedVitals, roomId);
 }
 
 function lookTarget(
