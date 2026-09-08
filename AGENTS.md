@@ -56,7 +56,9 @@ commit gate. CI keeps running the browser suite as the human signal.
 * Maintain clean process lifecycle: ensure `stop()` terminates open client sockets and closes `WebSocketServer`.
 
 ### Step 4: Web Viewport Slice (`apps/web`)
-* Drive the frozen WebGL renderer from v2 snapshots through `harbor/` adapters; never edit frozen files.
+* Drive the WebGL renderer from v2 snapshots through `harbor/` adapters; the
+  renderer, passes, and models under `apps/web/src/webgl/` are editable — the
+  rework freeze is lifted, so fix render leftover mistakes at their source.
 * Keep all translation logic pure and unit-tested (see `harbor/renderState.ts`).
 
 ### Step 5: Cover With Vitest (unit + integration)

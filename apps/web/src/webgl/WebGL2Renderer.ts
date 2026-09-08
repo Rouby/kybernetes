@@ -1,4 +1,5 @@
 import type {
+  AirFlow,
   BoardingTacticsTelemetry,
   DoorState,
   PawnState,
@@ -7,25 +8,23 @@ import type {
   WeaponType,
 } from '@kybernetes/protocol';
 import {
+  type BreachRenderModel,
   createInitialDoors,
   findWorldRoom,
-  getAirflowDragVector,
-  getDecompressionAirflowSources,
   getWorldDoors,
   getWorldOpaqueWalls,
   getWorldStations,
   HESPERIA_WALLS,
-  isAboardShip,
   isImpactVisible,
   isPointInPolygon,
-  isShipSideRoom,
   type Point2D,
+  throatFlowToPx,
 } from '@kybernetes/sim-core';
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
 import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
 import { AtmosOverlayPass } from './passes/AtmosOverlayPass';
-import { DeckPass } from './passes/DeckPass';
+import { DeckPass, THRUSTER_BELLS } from './passes/DeckPass';
 import { FogOfWarPass } from './passes/FogOfWarPass';
 import { LightingPass } from './passes/LightingPass';
 import { StarfieldPass } from './passes/StarfieldPass';
@@ -59,15 +58,26 @@ import { ParticleSystem } from './systems/ParticleSystem';
 
 export interface WebGLRenderState extends HudDrawState {
   shipOffset?: { x: number; y: number };
+  /** True while the vessel is underway (in transit); exhaust burns full. */
+  shipUnderway?: boolean;
   impacts?: Array<{
     x: number;
     y: number;
-    type: 'kinetic' | 'laser' | 'welder';
+    type: 'kinetic' | 'laser' | 'welder' | 'breach';
     shipVelocity?: { vx: number; vy: number };
   }>;
+  /** Live breach models cut from snapshot portal geometry (oldest first). */
+  breaches?: BreachRenderModel[];
+  /** TELEMETRY throat velocities keyed by portal id. */
+  breachFlows?: readonly AirFlow[];
   muzzleFlashes?: Array<{ x: number; y: number; weaponType: WeaponType }>;
   zoom?: number;
   nearestDoorId?: string;
+}
+
+function bareRoomId(roomA: string): string {
+  const dot = roomA.indexOf('.');
+  return dot < 0 ? roomA : roomA.slice(dot + 1);
 }
 
 function getPlayerAtmosphere(state: WebGLRenderState) {
@@ -665,6 +675,62 @@ export class WebGL2Renderer {
     this.renderFullscreenVignette(0.01, 0.01, 0.02, alpha);
   }
 
+  /** Live exhaust at the three aft bells; idle trickle while docked. */
+  private exhaustAcc = 0;
+  private exhaustBell = 0;
+  private emitBreachPlumes(state: WebGLRenderState, frameOffset: { x: number; y: number }): void {
+    const breaches = state.breaches ?? [];
+    if (breaches.length === 0) return;
+    const flows = new Map(
+      (state.breachFlows ?? []).map((flow) => [flow.portalId, flow.velocityMps])
+    );
+    const rooms = state.telemetry?.roomAtmospheres;
+    for (const breach of breaches) {
+      this.emitBreachPlume(breach, flows.get(breach.id) ?? 0, rooms, frameOffset);
+    }
+  }
+
+  private emitBreachPlume(
+    breach: BreachRenderModel,
+    velocityMps: number,
+    rooms: Record<string, RoomAtmosphereSummary> | undefined,
+    frameOffset: { x: number; y: number }
+  ): void {
+    const speed = Math.abs(velocityMps);
+    if (speed < 0.5) return;
+    const pressure = rooms?.[bareRoomId(breach.roomA)]?.pressureKpa ?? 101.3;
+    if (pressure < 1) return;
+    const sign = velocityMps >= 0 ? 1 : -1;
+    const intensity = Math.min(1, speed / 30) * Math.min(1, pressure / 101.3);
+    const wx = breach.frameId === 'ship' ? frameOffset.x : 0;
+    this.particleSystem.emitBreachPlume(
+      breach.cx + wx,
+      breach.cy,
+      breach.nx * sign,
+      breach.ny * sign,
+      Math.abs(throatFlowToPx(velocityMps)),
+      intensity,
+      breach.areaM2
+    );
+  }
+
+  private applyAmbientWind(state: WebGLRenderState): void {
+    const roomId = state.currentRoomId;
+    const wind = roomId === undefined ? undefined : state.telemetry?.roomAtmospheres?.[roomId];
+    this.particleSystem.setAmbientWind(wind?.windX ?? 0, wind?.windY ?? 0);
+  }
+
+  private emitThrusterExhaust(offsetX: number, underway: boolean, dt: number): void {
+    this.exhaustAcc += dt * (underway ? 90 : 8);
+    while (this.exhaustAcc >= 1) {
+      this.exhaustAcc -= 1;
+      this.exhaustBell = (this.exhaustBell + 1) % THRUSTER_BELLS.length;
+      const bell = THRUSTER_BELLS[this.exhaustBell];
+      if (bell === undefined) return;
+      this.particleSystem.emitExhaust(bell.x + offsetX, bell.y, 1, 0, underway ? 1 : 0.3);
+    }
+  }
+
   private renderFrostCrystals(timeSec: number, intensity: number, aspect: number): void {
     const gl = this.gl;
     gl.useProgram(this.frostProg);
@@ -691,11 +757,6 @@ export class WebGL2Renderer {
 
     const doors = state.telemetry?.boarding?.doors || state.boarding?.doors || createInitialDoors();
     const playerAtmosphere = getPlayerAtmosphere(state);
-    const decompressionSources = getDecompressionAirflowSources(
-      doors,
-      state.telemetry?.hull?.breaches,
-      state.telemetry?.roomAtmospheres
-    );
     const targetFrost = computeTargetFrostIntensity(state, playerAtmosphere);
     const thawRate = targetFrost > this.currentFrostIntensity ? 0.85 : 0.45;
     this.currentFrostIntensity +=
@@ -718,31 +779,12 @@ export class WebGL2Renderer {
         this.particleSystem.addMuzzleFlash(mf);
       }
     }
-    const particleOffset = frameOffset;
-    for (const source of decompressionSources) {
-      const sx = isShipSideRoom(source.roomId) ? source.x + particleOffset.x : source.x;
-      this.particleSystem.emitAirflow(sx, source.y, source.u, source.v, source.intensity);
-    }
-    const dragAboard = isAboardShip(state.pawn.x, state.pawn.y, particleOffset);
-    if (playerAtmosphere?.isVenting && playerAtmosphere.pressureKpa > 0.5) {
-      const airflow = getAirflowDragVector(
-        dragAboard ? state.pawn.x - particleOffset.x : state.pawn.x,
-        dragAboard ? state.pawn.y - particleOffset.y : state.pawn.y,
-        doors,
-        state.telemetry?.hull?.breaches,
-        state.telemetry?.roomAtmospheres
-      );
-      const intensity = Math.min(1.0, playerAtmosphere.pressureKpa / 101.3);
-      this.particleSystem.emitAirflow(state.pawn.x, state.pawn.y, airflow.u, airflow.v, intensity);
-    }
+    this.emitBreachPlumes(state, frameOffset);
+    this.applyAmbientWind(state);
     this.particleSystem.update(dt);
+    this.emitThrusterExhaust(frameOffset.x, state.shipUnderway === true, dt);
 
-    const opaqueWalls = getWorldOpaqueWalls(
-      HESPERIA_WALLS,
-      doors,
-      state.telemetry?.hull?.breaches,
-      frameOffset
-    );
+    const opaqueWalls = getWorldOpaqueWalls(HESPERIA_WALLS, doors, state.breaches, frameOffset);
     const doorsHash = (state.boarding?.doors || [])
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
       .join('|');
@@ -788,23 +830,21 @@ export class WebGL2Renderer {
     this.atmosOverlayPass.render(
       matrix,
       state.boarding?.doors,
-      state.telemetry?.hull?.breaches,
+      state.breaches,
       state.telemetry?.activeFires,
       state.telemetry?.roomAtmospheres,
       state.overlayMode ?? 'off',
       timeSec,
-      frameOffset.x
+      frameOffset.x,
+      state.breachFlows
     );
     this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
-    const partitionHoles =
-      state.telemetry?.boarding?.partitionHoles || state.boarding?.partitionHoles;
     this.deckPass.renderBulkheads(
       this.flatProg,
       this.flatVAO,
       matrix,
-      state.telemetry?.hull?.breaches,
-      timeSec,
-      partitionHoles
+      state.breaches ?? [],
+      timeSec
     );
     this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);

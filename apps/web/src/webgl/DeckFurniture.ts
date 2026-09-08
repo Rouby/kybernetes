@@ -32,8 +32,8 @@ function drawCrateStack(
 }
 
 function renderCargoCrates(gl: WebGL2RenderingContext, buf: WebGLBuffer, prog: WebGLProgram): void {
-  drawCrateStack(gl, buf, prog, 470, 460);
-  drawCrateStack(gl, buf, prog, 680, 460);
+  drawCrateStack(gl, buf, prog, 470, 415);
+  drawCrateStack(gl, buf, prog, 680, 415);
 }
 
 function renderReactorShielding(
@@ -42,18 +42,18 @@ function renderReactorShielding(
   prog: WebGLProgram
 ): void {
   setColor(gl, prog, 0.15, 0.17, 0.22, 1.0);
-  drawQuad(gl, buf, 860, 460, 60, 10);
-  drawQuad(gl, buf, 860, 550, 60, 10);
+  drawQuad(gl, buf, 800, 420, 60, 10);
+  drawQuad(gl, buf, 800, 455, 60, 10);
 
   setColor(gl, prog, 0.88, 0.72, 0.08, 0.85);
-  drawQuad(gl, buf, 864, 462, 12, 6);
-  drawQuad(gl, buf, 902, 462, 12, 6);
-  drawQuad(gl, buf, 864, 552, 12, 6);
-  drawQuad(gl, buf, 902, 552, 12, 6);
+  drawQuad(gl, buf, 804, 422, 12, 6);
+  drawQuad(gl, buf, 842, 422, 12, 6);
+  drawQuad(gl, buf, 804, 457, 12, 6);
+  drawQuad(gl, buf, 842, 457, 12, 6);
 
   setColor(gl, prog, 0.0, 0.85, 1.0, 0.9);
-  drawQuad(gl, buf, 878, 463, 22, 4);
-  drawQuad(gl, buf, 878, 553, 22, 4);
+  drawQuad(gl, buf, 818, 423, 22, 4);
+  drawQuad(gl, buf, 818, 458, 22, 4);
 }
 
 function renderAvionicsRacks(
@@ -62,7 +62,7 @@ function renderAvionicsRacks(
   prog: WebGLProgram,
   time: number
 ): void {
-  const rackX = [330, 385];
+  const rackX = [300, 350];
   for (const rx of rackX) {
     setColor(gl, prog, 0.1, 0.12, 0.16, 1.0);
     drawQuad(gl, buf, rx, 235, 45, 20);
@@ -86,7 +86,7 @@ function renderLifeSupportVats(
   prog: WebGLProgram,
   time: number
 ): void {
-  const vatX = [455, 545];
+  const vatX = [440, 492];
   const pulse = 0.75 + 0.25 * Math.sin(time * 3.0);
   for (const vx of vatX) {
     setColor(gl, prog, 0.12, 0.16, 0.14, 1.0);
@@ -100,27 +100,48 @@ function renderLifeSupportVats(
 
 function renderMessDining(gl: WebGL2RenderingContext, buf: WebGLBuffer, prog: WebGLProgram): void {
   setColor(gl, prog, 0.22, 0.25, 0.32, 1.0);
-  drawQuad(gl, buf, 810, 328, 60, 20);
+  drawQuad(gl, buf, 810, 292, 60, 20);
   setColor(gl, prog, 0.14, 0.17, 0.22, 1.0);
-  drawQuad(gl, buf, 810, 320, 60, 5);
-  drawQuad(gl, buf, 810, 351, 60, 5);
+  drawQuad(gl, buf, 810, 284, 60, 5);
+  drawQuad(gl, buf, 810, 315, 60, 5);
 
   setColor(gl, prog, 0.45, 0.5, 0.58, 1.0);
-  drawQuad(gl, buf, 818, 332, 9, 12);
-  drawQuad(gl, buf, 834, 332, 9, 12);
-  drawQuad(gl, buf, 850, 332, 9, 12);
+  drawQuad(gl, buf, 818, 296, 9, 12);
+  drawQuad(gl, buf, 834, 296, 9, 12);
+  drawQuad(gl, buf, 850, 296, 9, 12);
 }
 
 function renderArmoryRacks(gl: WebGL2RenderingContext, buf: WebGLBuffer, prog: WebGLProgram): void {
   setColor(gl, prog, 0.14, 0.17, 0.13, 1.0);
-  drawQuad(gl, buf, 130, 450, 35, 75);
+  drawQuad(gl, buf, 130, 418, 35, 75);
   setColor(gl, prog, 0.25, 0.3, 0.24, 1.0);
-  drawQuad(gl, buf, 134, 455, 27, 20);
-  drawQuad(gl, buf, 134, 480, 27, 20);
-  drawQuad(gl, buf, 134, 505, 27, 15);
+  drawQuad(gl, buf, 134, 423, 27, 20);
+  drawQuad(gl, buf, 134, 448, 27, 20);
+  drawQuad(gl, buf, 134, 473, 27, 15);
   setColor(gl, prog, 0.85, 0.2, 0.2, 1.0);
-  drawQuad(gl, buf, 144, 452, 7, 2);
+  drawQuad(gl, buf, 144, 420, 7, 2);
 }
+
+/** Outer bounds of each furniture group in ship-local coords, by room.
+ * Mirrors the draw calls below; the containment test pins every group
+ * inside its room rect so decor never bleeds through bulkheads again. */
+export interface FurnitureBounds {
+  readonly room: string;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+export const SHIP_FURNITURE_BOUNDS: readonly FurnitureBounds[] = [
+  { room: 'cargo', x: 470, y: 415, w: 50, h: 80 },
+  { room: 'engineering', x: 680, y: 415, w: 50, h: 80 },
+  { room: 'engineering', x: 800, y: 415, w: 60, h: 55 },
+  { room: 'avionics', x: 300, y: 235, w: 95, h: 20 },
+  { room: 'life_support', x: 440, y: 234, w: 88, h: 34 },
+  { room: 'mess', x: 810, y: 284, w: 60, h: 36 },
+  { room: 'armory', x: 130, y: 418, w: 35, h: 75 },
+];
 
 export function renderDeckFurniture(
   gl: WebGL2RenderingContext,

@@ -1,5 +1,7 @@
-import type { AtmosOverlayMode, RoomAtmosphereSummary } from '@kybernetes/protocol';
-import { HESPERIA_ROOMS } from '@kybernetes/sim-core';
+import type { AirFlow, AtmosOverlayMode, RoomAtmosphereSummary } from '@kybernetes/protocol';
+import { type BreachRenderModel, HESPERIA_ROOMS } from '@kybernetes/sim-core';
+
+export const BREACH_ARROW_MIN_MPS = 3;
 
 export interface OverlayRoomRect {
   id: string;
@@ -122,6 +124,34 @@ function pushDragArrow(
   pushArrowHead(out, tipX, tipY, dirX, dirY, color);
 }
 
+/** Throat arrows: one per rushing breach, drawn downstream of the gap. */
+export function buildBreachArrowVertices(
+  breaches: readonly BreachRenderModel[],
+  flows: readonly AirFlow[] | undefined,
+  pulse: number,
+  shipDx = 0
+): number[] {
+  const table = new Map((flows ?? []).map((flow) => [flow.portalId, flow.velocityMps]));
+  const out: number[] = [];
+  for (const breach of breaches) {
+    const velocity = table.get(breach.id) ?? 0;
+    if (Math.abs(velocity) < BREACH_ARROW_MIN_MPS) continue;
+    const sign = velocity >= 0 ? 1 : -1;
+    const dirX = breach.nx * sign;
+    const dirY = breach.ny * sign;
+    const dx = breach.frameId === 'ship' ? shipDx : 0;
+    pushDragArrow(
+      out,
+      breach.cx + dx + dirX * 16,
+      breach.cy + dirY * 16,
+      dirX * 60,
+      dirY * 60,
+      pulse
+    );
+  }
+  return out;
+}
+
 export function buildOverlayVertices(
   rects: OverlayRoomRect[],
   summaries: Record<string, RoomAtmosphereSummary> | undefined,
@@ -139,7 +169,13 @@ export function buildOverlayVertices(
       const y1 = rect.y + 0.5;
       const x2 = rect.x + dx + rect.w - 0.5;
       const y2 = rect.y + rect.h - 0.5;
-      const color: [number, number, number, number] = [r, g, b, a * pulse];
+      const ventShimmer = summary?.isVenting === true ? 0.1 * pulse : 0;
+      const color: [number, number, number, number] = [
+        r,
+        g,
+        b,
+        Math.min(0.85, a * pulse + ventShimmer),
+      ];
       pushVertex(out, x1, y1, color);
       pushVertex(out, x2, y1, color);
       pushVertex(out, x1, y2, color);

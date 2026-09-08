@@ -2,6 +2,8 @@ import type { RoomAtmosphereSummary } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   ARROW_MIN_WIND,
+  BREACH_ARROW_MIN_MPS,
+  buildBreachArrowVertices,
   buildOverlayVertices,
   getRoomColor,
   overlayRoomRects,
@@ -94,5 +96,65 @@ describe('atmos overlay geometry', () => {
 
   it('returns transparent color when the overlay is off', () => {
     expect(getRoomColor('off', summary())).toEqual([0, 0, 0, 0]);
+  });
+
+  it('boosts alpha on venting rooms so air loss shimmers', () => {
+    const rects = overlayRoomRects();
+    const calm = Object.fromEntries(rects.map((r) => [r.id, summary({ roomId: r.id })]));
+    const venting = Object.fromEntries(
+      rects.map((r) => [r.id, summary({ roomId: r.id, isVenting: true })])
+    );
+    const plain = buildOverlayVertices(rects, calm, 'pressure', 1.0);
+    const lit = buildOverlayVertices(rects, venting, 'pressure', 1.0);
+    let calmAlpha = 0;
+    let litAlpha = 0;
+    for (let i = 0; i < plain.length; i += 6) calmAlpha = Math.max(calmAlpha, plain[i + 5] ?? 0);
+    for (let i = 0; i < lit.length; i += 6) litAlpha = Math.max(litAlpha, lit[i + 5] ?? 0);
+    expect(litAlpha).toBeGreaterThan(calmAlpha);
+  });
+
+  it('draws throat arrows for rushing breaches only', () => {
+    const breach = {
+      id: 'breach.ship.bridge.1.0',
+      frameId: 'ship',
+      roomA: 'ship.bridge',
+      roomB: 'space',
+      areaM2: 1.2,
+      bornTick: 1,
+      ageTicks: 5,
+      x1: 100,
+      y1: 200,
+      x2: 124,
+      y2: 200,
+      cx: 112,
+      cy: 200,
+      nx: 0,
+      ny: -1,
+      lenPx: 24,
+      isHull: true,
+      sizeClass: 'breach' as const,
+    };
+    expect(buildBreachArrowVertices([breach], [], 1.0)).toEqual([]);
+    expect(
+      buildBreachArrowVertices(
+        [breach],
+        [{ portalId: breach.id, velocityMps: BREACH_ARROW_MIN_MPS - 0.5 }],
+        1.0
+      )
+    ).toEqual([]);
+    const rushing = buildBreachArrowVertices(
+      [breach],
+      [{ portalId: breach.id, velocityMps: 20 }],
+      1.0,
+      1400
+    );
+    // Shaft quad (6 verts) plus head triangle (3 verts), ship-offset downstream.
+    expect(rushing.length / 6).toBe(9);
+    let minY = Infinity;
+    for (let i = 0; i < rushing.length; i += 6) minY = Math.min(minY, rushing[i + 1] ?? 0);
+    expect(minY).toBeLessThan(200);
+    let maxX = -Infinity;
+    for (let i = 0; i < rushing.length; i += 6) maxX = Math.max(maxX, rushing[i] ?? 0);
+    expect(maxX).toBeGreaterThan(1400);
   });
 });

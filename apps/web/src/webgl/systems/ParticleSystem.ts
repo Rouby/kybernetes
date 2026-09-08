@@ -50,6 +50,7 @@ export class ParticleSystem {
   private dustMotes: DustMote[] = [];
   private muzzleFlashes: MuzzleFlash[] = [];
   private lastWeaponRecoil = 0;
+  private ambientWind = { x: 0, y: 0 };
 
   constructor() {
     for (let i = 0; i < 40; i++) {
@@ -65,10 +66,71 @@ export class ParticleSystem {
   }
 
   // fallow-ignore-next-line complexity
+  /** Suction drift for dust motes (px/s); rooms exhaling through breaches lean. */
+  public setAmbientWind(u: number, v: number): void {
+    this.ambientWind = { x: u, y: v };
+  }
+
+  /**
+   * Directional breach plume: streak vapor along the flow axis plus a
+   * condensation collar at the throat when the pressure drop is violent.
+   */
+  public emitBreachPlume(
+    cx: number,
+    cy: number,
+    dx: number,
+    dy: number,
+    speedPx: number,
+    intensity: number,
+    areaM2: number
+  ): void {
+    if (speedPx < 20 || intensity <= 0.02) return;
+    const wide = Math.min(1, areaM2 / 1.5);
+    const perpX = -dy;
+    const perpY = dx;
+    const halfLen = 6 + 14 * wide;
+    const puffs = 2 + Math.round(intensity * 3);
+    for (let i = 0; i < puffs; i += 1) {
+      const along = (Math.random() - 0.5) * halfLen * 2;
+      const across = (Math.random() - 0.5) * (6 + 10 * wide);
+      this.emitAirflow(
+        cx + dx * along + perpX * across,
+        cy + dy * along + perpY * across,
+        dx * speedPx,
+        dy * speedPx,
+        intensity
+      );
+    }
+    if (intensity > 0.5) this.emitThroatCollar(cx, cy, dx, dy, intensity);
+  }
+
+  private emitThroatCollar(
+    cx: number,
+    cy: number,
+    dx: number,
+    dy: number,
+    intensity: number
+  ): void {
+    this.airflowParticles.push({
+      kind: 'vapor',
+      x: cx + (Math.random() - 0.5) * 6,
+      y: cy + (Math.random() - 0.5) * 6,
+      vx: dx * 40 + (Math.random() - 0.5) * 30,
+      vy: dy * 40 + (Math.random() - 0.5) * 30,
+      size: 3.5,
+      maxSize: 9.0,
+      life: 0.4,
+      maxLife: 0.4,
+      intensity: Math.min(1, intensity),
+      seed: Math.random() * 100,
+    });
+    if (this.airflowParticles.length > 500) this.airflowParticles.shift();
+  }
+
   public addImpact(
     x: number,
     y: number,
-    type: 'kinetic' | 'laser' | 'welder',
+    type: 'kinetic' | 'laser' | 'welder' | 'breach',
     shipVelocity?: { vx: number; vy: number }
   ): void {
     const svx = shipVelocity?.vx ?? 0;
@@ -88,6 +150,23 @@ export class ParticleSystem {
           size: 2.5 + Math.random() * 2.0,
           life: 0.2 + Math.random() * 0.15,
           maxLife: 0.35,
+        });
+      }
+    } else if (type === 'breach') {
+      for (let i = 0; i < 14; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const spd = 90 + Math.random() * 220;
+        this.particles.push({
+          x,
+          y,
+          vx: Math.cos(a) * spd + svx,
+          vy: Math.sin(a) * spd + svy,
+          r: 1.0,
+          g: 0.45 + Math.random() * 0.4,
+          b: 0.1,
+          size: 3.0 + Math.random() * 3.0,
+          life: 0.35 + Math.random() * 0.3,
+          maxLife: 0.65,
         });
       }
     } else if (type === 'laser') {
@@ -130,6 +209,37 @@ export class ParticleSystem {
   public addMuzzleFlash(flash: { x: number; y: number; weaponType: WeaponType }): void {
     this.muzzleFlashes.push({ ...flash, life: 0.05, maxLife: 0.05 });
     this.lastWeaponRecoil = flash.weaponType === 'kinetic_carbine' ? 2.5 : 4.0;
+  }
+
+  /** Thruster exhaust: white-hot cores laced with cyan, streaming astern. */
+  public emitExhaust(x: number, y: number, dirX: number, dirY: number, intensity = 1.0): void {
+    if (intensity <= 0.02) return;
+    const len = Math.hypot(dirX, dirY) || 1;
+    const nx = dirX / len;
+    const ny = dirY / len;
+    const count = 1 + (Math.random() < intensity ? 1 : 0);
+    for (let i = 0; i < count; i += 1) {
+      const spread = (Math.random() - 0.5) * 0.24;
+      const cos = Math.cos(spread);
+      const sin = Math.sin(spread);
+      const speed = 150 + Math.random() * 130;
+      const whiteHot = Math.random() < 0.35;
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 8,
+        y: y + (Math.random() - 0.5) * 10,
+        vx: (nx * cos - ny * sin) * speed,
+        vy: (nx * sin + ny * cos) * speed,
+        r: whiteHot ? 0.9 : 0.0,
+        g: whiteHot ? 0.97 : 0.8,
+        b: 1.0,
+        size: 2.5 + Math.random() * 3.0,
+        life: 0.3 + Math.random() * 0.35,
+        maxLife: 0.65,
+      });
+    }
+    if (this.particles.length > 600) {
+      this.particles.splice(0, this.particles.length - 600);
+    }
   }
 
   public emitAirflow(x: number, y: number, u: number, v: number, intensity = 1.0): void {
@@ -221,8 +331,8 @@ export class ParticleSystem {
     gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
 
     for (const m of this.dustMotes) {
-      m.x = 60 + ((m.x + m.vx * dt - 60 + 1080) % 1080);
-      m.y = 60 + ((m.y + m.vy * dt - 60 + 680) % 680);
+      m.x = 60 + ((m.x + (m.vx + this.ambientWind.x * 0.35) * dt - 60 + 1080) % 1080);
+      m.y = 60 + ((m.y + (m.vy + this.ambientWind.y * 0.35) * dt - 60 + 680) % 680);
 
       const shimmer = m.alpha * (0.8 + 0.2 * Math.sin(timeSec * 3.0 + m.x));
       gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.8, 0.9, 1.0, shimmer);

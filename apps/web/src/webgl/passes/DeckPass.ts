@@ -1,13 +1,15 @@
 import type { DoorState } from '@kybernetes/protocol';
 import {
   applyShipOffsetToWalls,
-  carveBreachedWallSegments,
-  getBreachLocation,
+  BREACH_GLOW_S,
+  type BreachRenderModel,
+  carveWallsAtBreachSegments,
   getWorldRooms,
   HESPERIA_LIGHTS,
   HESPERIA_WALLS,
   isShipSideRoom,
   isStationSideDoor,
+  TICKS_PER_S,
 } from '@kybernetes/sim-core';
 
 import { renderDeckFurniture } from '../DeckFurniture';
@@ -19,6 +21,16 @@ import {
   translateMatrixX,
 } from '../glUtils';
 import { DECK_FLOOR_FS, DECK_FLOOR_VS } from '../shaders';
+
+/** Hull plate in ship-local coords; every v2 room rect must sit inside it. */
+export const HULL_PLATE = { x: 70, y: 180, w: 850, h: 350 } as const;
+
+/** Aft bell nozzle exits in ship-local coords; exhaust streams +X to space. */
+export const THRUSTER_BELLS: ReadonlyArray<{ x: number; y: number }> = [
+  { x: 922, y: 306 },
+  { x: 924, y: 420 },
+  { x: 922, y: 494 },
+];
 
 function drawDoorBrackets(
   gl: WebGL2RenderingContext,
@@ -74,73 +86,146 @@ function renderPanelSeams(
   bufferAndDraw(gl, dynamicBuffer, new Float32Array(detailLines));
 }
 
-function renderBreachFractureHoles(
+/** 0 = stone cold, 1 = freshly cut. Molten rims cool into frost. */
+function breachGlow(model: BreachRenderModel): number {
+  return Math.max(0, Math.min(1, 1 - model.ageTicks / TICKS_PER_S / BREACH_GLOW_S));
+}
+
+function breachScale(model: BreachRenderModel): number {
+  return Math.max(0.15, Math.min(1, model.areaM2 / 1.5));
+}
+
+function breachDx(model: BreachRenderModel, shipDx: number): number {
+  return model.frameId === 'ship' ? shipDx : 0;
+}
+
+/** Dark vacuum inset behind the carved gap so holes read as depth. */
+function renderBreachVoids(
   gl: WebGL2RenderingContext,
   dynamicBuffer: WebGLBuffer,
   flatProg: WebGLProgram,
-  breaches: string[],
-  timeSec = 0,
-  shipDx = 0
+  breaches: readonly BreachRenderModel[],
+  shipDx: number
+): void {
+  const voids: number[] = [];
+  for (const breach of breaches) {
+    if (breach.sizeClass !== 'breach') continue;
+    const dx = breachDx(breach, shipDx);
+    const tx = -breach.ny;
+    const ty = breach.nx;
+    const over = 2;
+    const half = breach.lenPx / 2 + over;
+    addThickSegment(
+      voids,
+      breach.cx + dx - tx * half,
+      breach.cy - ty * half,
+      breach.cx + dx + tx * half,
+      breach.cy + ty * half,
+      7 + 6 * breachScale(breach)
+    );
+  }
+  if (voids.length === 0) return;
+  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.008, 0.012, 0.025, 0.96);
+  bufferAndDraw(gl, dynamicBuffer, new Float32Array(voids));
+}
+
+function addMoltenLips(
+  glowLines: number[],
+  breach: BreachRenderModel,
+  dx: number,
+  scale: number
+): void {
+  const tx = -breach.ny;
+  const ty = breach.nx;
+  const half = breach.lenPx / 2;
+  const lip = 4 + 6 * scale;
+  const cx = breach.cx + dx;
+  addThickSegment(
+    glowLines,
+    cx - tx * half,
+    breach.cy - ty * half,
+    cx - tx * half - breach.nx * lip * 0.5,
+    breach.cy - ty * half - breach.ny * lip * 0.5,
+    2 + 1.6 * scale
+  );
+  addThickSegment(
+    glowLines,
+    cx + tx * half,
+    breach.cy + ty * half,
+    cx + tx * half - breach.nx * lip * 0.5,
+    breach.cy + ty * half - breach.ny * lip * 0.5,
+    2 + 1.6 * scale
+  );
+  addThickSegment(
+    glowLines,
+    cx - tx * half * 0.8,
+    breach.cy - ty * half * 0.8,
+    cx + tx * half * 0.8,
+    breach.cy + ty * half * 0.8,
+    1.8
+  );
+}
+
+function addFrostSpurs(
+  frostLines: number[],
+  breach: BreachRenderModel,
+  dx: number,
+  scale: number,
+  glow: number
+): void {
+  const tx = -breach.ny;
+  const ty = breach.nx;
+  const half = breach.lenPx / 2;
+  const reach = 3 + 5 * (1 - glow) + 3 * scale;
+  const cx = breach.cx + dx;
+  addThickSegment(
+    frostLines,
+    cx - tx * (half + 2),
+    breach.cy - ty * (half + 2),
+    cx - tx * (half + 2 + reach) + breach.nx * 3,
+    breach.cy - ty * (half + 2 + reach) + breach.ny * 3,
+    1.5
+  );
+  addThickSegment(
+    frostLines,
+    cx + tx * (half + 2),
+    breach.cy + ty * (half + 2),
+    cx + tx * (half + 2 + reach) + breach.nx * 3,
+    breach.cy + ty * (half + 2 + reach) + breach.ny * 3,
+    1.5
+  );
+}
+
+/** Molten lips cool into frost: fresh cuts burn, old ones glitter. */
+function renderBreachDressing(
+  gl: WebGL2RenderingContext,
+  dynamicBuffer: WebGLBuffer,
+  flatProg: WebGLProgram,
+  breaches: readonly BreachRenderModel[],
+  timeSec: number,
+  shipDx: number
 ): void {
   const glowLines: number[] = [];
   const frostLines: number[] = [];
-  const pulse = 0.75 + 0.25 * Math.sin(timeSec * 7);
-
-  for (const b of breaches) {
-    const raw = getBreachLocation(b);
-    if (!raw) continue;
-    const dx = isShipSideRoom(raw.roomId) ? shipDx : 0;
-    const loc = { ...raw, x: raw.x + dx };
-
-    const nx = loc.normalX;
-    const ny = loc.normalY;
-    const tx = -ny;
-    const ty = nx;
-
-    // Glowing molten jagged edges along the opening (-9 to +9)
-    addThickSegment(
-      glowLines,
-      loc.x - tx * 9,
-      loc.y - ty * 9,
-      loc.x - tx * 9 - nx * 4,
-      loc.y - ty * 9 - ny * 4,
-      3.2
-    );
-    addThickSegment(
-      glowLines,
-      loc.x + tx * 9,
-      loc.y + ty * 9,
-      loc.x + tx * 9 - nx * 4,
-      loc.y + ty * 9 - ny * 4,
-      3.2
-    );
-    addThickSegment(glowLines, loc.x - tx * 7, loc.y - ty * 7, loc.x + tx * 7, loc.y + ty * 7, 1.8);
-
-    // Cyan vacuum frost fracture spurs
-    addThickSegment(
-      frostLines,
-      loc.x - tx * 11,
-      loc.y - ty * 11,
-      loc.x - tx * 14 + nx * 3,
-      loc.y - ty * 14 + ny * 3,
-      1.5
-    );
-    addThickSegment(
-      frostLines,
-      loc.x + tx * 11,
-      loc.y + ty * 11,
-      loc.x + tx * 14 + nx * 3,
-      loc.y + ty * 14 + ny * 3,
-      1.5
-    );
+  let glowAlpha = 0;
+  let frostAlpha = 0;
+  for (const breach of breaches) {
+    if (breach.sizeClass !== 'breach') continue;
+    const glow = breachGlow(breach);
+    const scale = breachScale(breach);
+    const dx = breachDx(breach, shipDx);
+    glowAlpha = Math.max(glowAlpha, 0.25 + 0.65 * glow);
+    frostAlpha = Math.max(frostAlpha, 0.35 + 0.5 * (1 - glow));
+    addMoltenLips(glowLines, breach, dx, scale);
+    addFrostSpurs(frostLines, breach, dx, scale, glow);
   }
-
   if (glowLines.length > 0) {
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 1.0, 0.42, 0.12, pulse);
+    const flicker = 0.9 + 0.1 * Math.sin(timeSec * 9);
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 1.0, 0.42, 0.12, glowAlpha * flicker);
     bufferAndDraw(gl, dynamicBuffer, new Float32Array(glowLines));
   }
   if (frostLines.length > 0) {
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.2, 0.85, 1.0, 0.8);
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.2, 0.85, 1.0, frostAlpha);
     bufferAndDraw(gl, dynamicBuffer, new Float32Array(frostLines));
   }
 }
@@ -167,30 +252,32 @@ function renderWindowGlass(
   bufferAndDraw(gl, dynamicBuffer, new Float32Array(frameLines));
 }
 
-function renderPartitionHoles(
+/** Puncture decals: scorch + rim + core, scaled by hole area. No carve. */
+function renderPunctureDecals(
   gl: WebGL2RenderingContext,
   dynamicBuffer: WebGLBuffer,
   flatProg: WebGLProgram,
-  holes: Array<{ x: number; y: number; wallId?: string }>,
-  shipOffset: { x: number; y: number } = { x: 0, y: 0 }
+  breaches: readonly BreachRenderModel[],
+  shipDx: number
 ): void {
-  if (holes.length === 0) return;
   const scorchVerts: number[] = [];
   const coreVerts: number[] = [];
   const rimVerts: number[] = [];
 
-  for (const h of holes) {
-    const isShip = !h.wallId || (!h.wallId.startsWith('st_') && !h.wallId.startsWith('gauntlet_'));
-    const hx = isShip ? h.x + shipOffset.x : h.x;
-    const hy = isShip ? h.y + shipOffset.y : h.y;
+  for (const breach of breaches) {
+    if (breach.sizeClass !== 'puncture') continue;
+    const hx = breach.cx + breachDx(breach, shipDx);
+    const hy = breach.cy;
+    const s = 0.55 + 0.45 * Math.min(1, breach.areaM2 / 0.2);
 
-    addThickSegment(scorchVerts, hx - 3.5, hy, hx + 3.5, hy, 3.5);
-    addThickSegment(scorchVerts, hx, hy - 3.5, hx, hy + 3.5, 3.5);
-    addThickSegment(rimVerts, hx - 2.5, hy - 1.5, hx + 2.5, hy - 1.5, 1.2);
-    addThickSegment(coreVerts, hx - 1.5, hy, hx + 1.5, hy, 2.0);
-    addThickSegment(coreVerts, hx, hy - 1.5, hx, hy + 1.5, 2.0);
+    addThickSegment(scorchVerts, hx - 3.5 * s, hy, hx + 3.5 * s, hy, 3.5 * s);
+    addThickSegment(scorchVerts, hx, hy - 3.5 * s, hx, hy + 3.5 * s, 3.5 * s);
+    addThickSegment(rimVerts, hx - 2.5 * s, hy - 1.5 * s, hx + 2.5 * s, hy - 1.5 * s, 1.2);
+    addThickSegment(coreVerts, hx - 1.5 * s, hy, hx + 1.5 * s, hy, 2.0 * s);
+    addThickSegment(coreVerts, hx, hy - 1.5 * s, hx, hy + 1.5 * s, 2.0 * s);
   }
 
+  if (scorchVerts.length === 0) return;
   gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.08, 0.1, 0.14, 0.95);
   bufferAndDraw(gl, dynamicBuffer, new Float32Array(scorchVerts));
 
@@ -306,19 +393,19 @@ export class DeckPass {
     flatProg: WebGLProgram,
     flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
-    breaches?: string[],
-    timeSec = 0,
-    partitionHoles?: Array<{ x: number; y: number; wallId?: string }>
+    breaches: readonly BreachRenderModel[] = [],
+    timeSec = 0
   ): void {
     const gl = this.gl;
     gl.useProgram(flatProg);
     gl.bindVertexArray(flatVAO);
     gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
 
+    const gaps = breaches
+      .filter((breach) => breach.sizeClass === 'breach')
+      .map(({ x1, y1, x2, y2 }) => ({ x1, y1, x2, y2 }));
     const walls = applyShipOffsetToWalls(
-      breaches && breaches.length > 0
-        ? carveBreachedWallSegments(HESPERIA_WALLS, breaches)
-        : HESPERIA_WALLS,
+      gaps.length > 0 ? carveWallsAtBreachSegments(HESPERIA_WALLS, gaps) : HESPERIA_WALLS,
       this.shipOffset
     );
 
@@ -355,22 +442,12 @@ export class DeckPass {
     // 5. Viewport glass: translucent panes with bright frame ticks
     renderWindowGlass(gl, this.dynamicBuffer, flatProg, glass);
 
-    // 5. Active Wall Breach Fracture Holes
-    if (breaches && breaches.length > 0) {
-      renderBreachFractureHoles(
-        gl,
-        this.dynamicBuffer,
-        flatProg,
-        breaches,
-        timeSec,
-        this.shipOffset.x
-      );
-    }
+    // 5. Vacuum insets behind carved gaps
+    renderBreachVoids(gl, this.dynamicBuffer, flatProg, breaches, this.shipOffset.x);
 
-    // 6. Partition Bullet Holes (Impact craters)
-    if (partitionHoles && partitionHoles.length > 0) {
-      renderPartitionHoles(gl, this.dynamicBuffer, flatProg, partitionHoles, this.shipOffset);
-    }
+    // 6. Molten lips cooling into frost + puncture impact decals
+    renderBreachDressing(gl, this.dynamicBuffer, flatProg, breaches, timeSec, this.shipOffset.x);
+    renderPunctureDecals(gl, this.dynamicBuffer, flatProg, breaches, this.shipOffset.x);
 
     gl.bindVertexArray(null);
   }
@@ -379,7 +456,7 @@ export class DeckPass {
     flatProg: WebGLProgram,
     flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
-    time: number
+    _time: number
   ): void {
     const gl = this.bindFlat(flatProg, flatVAO, matrix);
 
@@ -396,47 +473,29 @@ export class DeckPass {
 
     this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
 
-    // Dark armor hull base enclosing the compact submarine ship
+    // Dark armor hull base hugging the v2 room block (x100-880, y200-500)
+    // with even margins; the east strip is the engine mount for the bells.
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
-    drawQuad(gl, this.dynamicBuffer, 100, 210, 940, 380);
-    drawQuad(gl, this.dynamicBuffer, 70, 320, 30, 160);
+    drawQuad(gl, this.dynamicBuffer, HULL_PLATE.x, HULL_PLATE.y, HULL_PLATE.w, HULL_PLATE.h);
+    drawQuad(gl, this.dynamicBuffer, 40, 315, 30, 80);
 
-    // Armor perimeter outline (submarine hull profile)
+    // Armor perimeter outline (submarine hull profile with west stern wedge)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.2, 0.25, 0.35, 1.0);
     const hullLines: number[] = [];
-    addThickSegment(hullLines, 70, 400, 100, 210, 4);
-    addThickSegment(hullLines, 100, 210, 1040, 210, 4);
-    addThickSegment(hullLines, 1040, 210, 1040, 590, 4);
-    addThickSegment(hullLines, 1040, 590, 100, 590, 4);
-    addThickSegment(hullLines, 100, 590, 70, 400, 4);
+    addThickSegment(hullLines, 40, 355, 70, 180, 4);
+    addThickSegment(hullLines, 70, 180, 920, 180, 4);
+    addThickSegment(hullLines, 920, 180, 920, 530, 4);
+    addThickSegment(hullLines, 920, 530, 70, 530, 4);
+    addThickSegment(hullLines, 70, 530, 40, 355, 4);
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(hullLines));
 
-    // Thruster bell housings at aft (aligned to central axis Y=400)
+    // Thruster bell housings mounted on the aft edge (aligned to Y=400).
+    // Plumes are live exhaust particles (see emitThrusterExhaust), not quads,
+    // so docked ships idle instead of burning at full scale.
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.14, 0.17, 0.24, 1.0);
-    drawQuad(gl, this.dynamicBuffer, 1036, 300, 16, 20);
-    drawQuad(gl, this.dynamicBuffer, 1036, 384, 22, 32);
-    drawQuad(gl, this.dynamicBuffer, 1036, 480, 16, 20);
-
-    // Animated rear thruster plasma plumes (3 engines firing aft +X)
-    const isMoving = this.shipOffset.x !== 0;
-    const flareScale = isMoving ? 1.35 : 0.85;
-    const flicker = (0.8 + 0.2 * Math.sin(time * 15.0)) * (isMoving ? 1.1 : 0.9);
-    gl.uniform4f(
-      gl.getUniformLocation(flatProg, 'u_color'),
-      0.0,
-      0.85,
-      1.0,
-      Math.min(1.0, flicker)
-    );
-    drawQuad(gl, this.dynamicBuffer, 1050, 302, 42 * flareScale, 16);
-    drawQuad(gl, this.dynamicBuffer, 1056, 386, 58 * flareScale, 28);
-    drawQuad(gl, this.dynamicBuffer, 1050, 482, 42 * flareScale, 16);
-
-    // Hot white inner thruster core
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.9, 0.98, 1.0, 0.95);
-    drawQuad(gl, this.dynamicBuffer, 1044, 305, 20 * flareScale, 10);
-    drawQuad(gl, this.dynamicBuffer, 1048, 392, 28 * flareScale, 16);
-    drawQuad(gl, this.dynamicBuffer, 1044, 485, 20 * flareScale, 10);
+    drawQuad(gl, this.dynamicBuffer, 898, 296, 22, 20);
+    drawQuad(gl, this.dynamicBuffer, 898, 404, 22, 32);
+    drawQuad(gl, this.dynamicBuffer, 898, 484, 22, 20);
 
     gl.bindVertexArray(null);
   }
