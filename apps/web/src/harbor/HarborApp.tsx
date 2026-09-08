@@ -48,6 +48,10 @@ export function HarborApp() {
     const callsign = params.get('callsign') ?? stored.callsign;
     return { ...stored, callsign, beacon };
   }, []);
+  const showDebug = useMemo(
+    () => new URLSearchParams(window.location.search).get('debug') === '1',
+    []
+  );
   const staticWorld = useMemo(() => buildHarborWorld(), []);
   const socket = useHarborSocket(identity);
   const ownPawn = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
@@ -78,9 +82,9 @@ export function HarborApp() {
   return (
     <div style={{ background: '#07090d', minHeight: '100vh', padding: 16, color: '#cfd8e3' }}>
       <h1 style={{ fontSize: 16, margin: '0 0 8px' }}>
-        Harbor Loop (WASD move, E door, H talk, J hire, T suit, F fire)
+        Harbor Loop (WASD move, E door, H talk, J hire, T suit, F fire, O overlay)
       </h1>
-      <HarborHud socket={socket} predicted={movement.predicted} />
+      {showDebug ? <HarborHud socket={socket} predicted={movement.predicted} /> : null}
       <HarborViewport
         snapshot={socket.snapshot}
         pawnId={socket.pawnId}

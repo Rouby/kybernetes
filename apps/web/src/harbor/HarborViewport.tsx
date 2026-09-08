@@ -26,8 +26,7 @@ import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
 import type { PredictedPawn } from './useHarborMovement';
 import { remotePawns } from './useHarborSocket';
 
-const VIEW_W = 980;
-const VIEW_H = 640;
+const VIEW_MIN_H = 480;
 const CAMERA_LERP = 0.12;
 const VIEW_ZOOM = 1.15;
 
@@ -82,6 +81,19 @@ export function HarborViewport(props: HarborViewportProps) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return;
+    const parent = canvas.parentElement;
+    if (parent === null) return;
+    const fitCanvas = (): void => {
+      const w = Math.max(320, Math.floor(parent.clientWidth));
+      const h = Math.max(VIEW_MIN_H, Math.floor(parent.clientHeight));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+    };
+    fitCanvas();
+    const observer = new ResizeObserver(fitCanvas);
+    observer.observe(parent);
     const session = sessionRef.current;
     if (session.renderer === null) {
       try {
@@ -99,17 +111,20 @@ export function HarborViewport(props: HarborViewportProps) {
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
   }, []);
 
   return (
-    <canvas
-      ref={canvasRef}
-      data-testid="harbor-canvas"
-      width={VIEW_W}
-      height={VIEW_H}
-      style={{ border: '1px solid #2a3340', marginTop: 8, width: VIEW_W, height: VIEW_H }}
-    />
+    <div style={{ width: '100%', height: 'calc(100vh - 250px)', minHeight: VIEW_MIN_H }}>
+      <canvas
+        ref={canvasRef}
+        data-testid="harbor-canvas"
+        style={{ border: '1px solid #2a3340', marginTop: 8, width: '100%', height: '100%' }}
+      />
+    </div>
   );
 }
 

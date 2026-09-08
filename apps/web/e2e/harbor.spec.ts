@@ -3,7 +3,9 @@ import { harborBoard, statRoom, statX, waitForHarbor } from './helpers';
 
 test.describe('Harbor client smoke (C2)', () => {
   test('connects, joins, and streams ticked snapshots', async ({ page }) => {
-    await harborBoard(page, { callsign: 'Smoke-1' });
+    const canvas = await harborBoard(page, { callsign: 'Smoke-1' });
+    const box = await canvas.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThan(900);
     await expect(page.getByTestId('harbor-status')).toContainText('room:lobby');
     const first = await waitForHarbor(page, 'harbor-status', (t) => /tick:(\d+)/.test(t), 10000);
     const firstTick = Number(/tick:(\d+)/.exec(first)?.[1] ?? 0);
@@ -16,6 +18,12 @@ test.describe('Harbor client smoke (C2)', () => {
     expect(Number(/tick:(\d+)/.exec(second)?.[1] ?? 0)).toBeGreaterThan(firstTick);
     await expect(page.getByTestId('harbor-vitals')).toContainText('hp:100');
     await expect(page.getByTestId('harbor-manifest')).toContainText('HESP01');
+  });
+
+  test('hides the debug panel on the default route', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('harbor-canvas')).toBeVisible();
+    await expect(page.getByTestId('harbor-status')).toBeHidden();
   });
 
   test('moves on input with server-confirmed positions', async ({ page }) => {

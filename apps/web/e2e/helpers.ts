@@ -27,7 +27,7 @@ export async function harborBoard(
   page: Page,
   options: { beacon?: string; callsign?: string } = {}
 ) {
-  const params = new URLSearchParams({ harbor: '1' });
+  const params = new URLSearchParams({ harbor: '1', debug: '1' });
   if (options.beacon !== undefined) params.set('beacon', options.beacon);
   if (options.callsign !== undefined) params.set('callsign', options.callsign);
   await page.goto(`/?${params.toString()}`);
