@@ -92,6 +92,21 @@ export function callsignFor(manifest: ManifestBroadcast | null, pawnId: string):
   return dot < 0 ? pawnId : pawnId.slice(dot + 1);
 }
 
+/** Max forward extrapolation for authoritative projectiles between 10Hz deltas. */
+export const PROJECTILE_EXTRAPOLATE_S = 0.15;
+
+/**
+ * Seconds since a snapshot arrived, for projectile extrapolation.
+ * The arrival stamp must come from the client's monotonic clock:
+ * snapshot serverTimeMs is server wall clock and must never be subtracted
+ * from performance.now() (the difference is always negative, which pins
+ * extrapolation to zero and makes bullets step discretely per delta).
+ */
+export function snapshotAgeS(arrivedMs: number, nowMs: number): number {
+  if (!Number.isFinite(arrivedMs) || !Number.isFinite(nowMs)) return 0;
+  return Math.min(Math.max((nowMs - arrivedMs) / 1000, 0), PROJECTILE_EXTRAPOLATE_S);
+}
+
 /** Merge a SNAPSHOT_DELTA onto the last full SNAPSHOT (pure, total). */
 export function mergeSnapshotDelta(
   base: SnapshotBroadcast,

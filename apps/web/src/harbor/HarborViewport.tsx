@@ -36,6 +36,7 @@ import {
   pawnWorld,
   roomO2,
   roomWindVectors,
+  snapshotAgeS,
   syncDoors,
   ventedBareIds,
 } from './renderState';
@@ -90,6 +91,8 @@ interface ViewportSession {
   flashes: MuzzleFlash[];
   trauma: number;
   lastTraumaMs: number;
+  lastSnapshotTick: number;
+  snapshotAtMs: number;
   notice: { text: string; until: number } | null;
   lastNotice: string;
   lastSignal: number;
@@ -118,6 +121,8 @@ export function HarborViewport(props: HarborViewportProps) {
     flashes: [],
     trauma: 0,
     lastTraumaMs: 0,
+    lastSnapshotTick: -1,
+    snapshotAtMs: 0,
     notice: null,
     lastNotice: '',
     lastSignal: 0,
@@ -234,6 +239,10 @@ function renderViewport(
   const origins = frameOrigins(snapshot);
   const at = pawnWorld(own, origins, view.predicted);
   const now = performance.now();
+  if (snapshot.tick !== session.lastSnapshotTick) {
+    session.lastSnapshotTick = snapshot.tick;
+    session.snapshotAtMs = now;
+  }
   const aim = aimWorld(session, canvas);
   if (aim !== null) view.facingRef.current = Math.atan2(aim.y - at.y, aim.x - at.x);
   const look = lookTarget(at, aim);
@@ -272,7 +281,7 @@ function renderViewport(
         doors: session.doors,
         projectiles: [
           ...(snapshot.projectiles ?? []).map((shot) => {
-            const age = Math.min(Math.max((now - snapshot.serverTimeMs) / 1000, 0), 0.15);
+            const age = snapshotAgeS(session.snapshotAtMs, now);
             const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
             return {
               id: shot.id,

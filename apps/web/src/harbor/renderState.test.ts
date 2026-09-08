@@ -22,6 +22,7 @@ import {
   pawnWorld,
   roomO2,
   roomWindVectors,
+  snapshotAgeS,
   syncDoors,
   ventedBareIds,
 } from './renderState';
@@ -356,5 +357,18 @@ describe('render-state mapping', () => {
     ]);
     const still = { ...windy, tick: 102, full: false as const, atmos: [], flows: [] };
     expect(mergeTelemetry(windy, still).flows).toEqual([]);
+  });
+
+  it('times projectile extrapolation from snapshot arrival, not wall clock', () => {
+    // A fresh arrival extrapolates nothing yet; 80ms later a 600px/s round
+    // has flown ~48px, so the dead zone between 10Hz deltas stays covered.
+    expect(snapshotAgeS(1000, 1000)).toBe(0);
+    expect(snapshotAgeS(1000, 1080)).toBeCloseTo(0.08, 10);
+    // Stale snapshots pin at the cap instead of overshooting past the next delta.
+    expect(snapshotAgeS(1000, 2000)).toBe(0.15);
+    // Clock skew and bad stamps never rewind or explode the offset.
+    expect(snapshotAgeS(2000, 1000)).toBe(0);
+    expect(snapshotAgeS(Number.NaN, 1000)).toBe(0);
+    expect(snapshotAgeS(1000, Number.POSITIVE_INFINITY)).toBe(0);
   });
 });
