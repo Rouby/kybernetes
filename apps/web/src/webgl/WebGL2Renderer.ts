@@ -10,6 +10,7 @@ import type {
 import {
   type BreachRenderModel,
   createInitialDoors,
+  type ExplorationGrid,
   findWorldRoom,
   getWorldDoors,
   getWorldOpaqueWalls,
@@ -18,8 +19,11 @@ import {
   isImpactVisible,
   isPointInPolygon,
   type Point2D,
+  resetExplorationGrid,
   throatFlowToPx,
+  updateExplorationGrid,
 } from '@kybernetes/sim-core';
+import { clearFowGrid, createFowGrid, loadFowGrid, saveFowGrid } from './fowMemory';
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
 import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
@@ -193,6 +197,11 @@ export class WebGL2Renderer {
   private fogOfWarPass: FogOfWarPass;
   private hudRenderer: HudRenderer;
   private currentFrostIntensity = 0;
+  private fowGrid: ExplorationGrid = createFowGrid();
+  private fowBeacon: string | null = null;
+  private fowUserId: string | null = null;
+  private fowHydratedKey: string | null = null;
+  private fowFramesSinceSave = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -258,9 +267,53 @@ export class WebGL2Renderer {
     this.lightingPass = new LightingPass(gl, this.quadBuffer, this.dynamicBuffer);
   }
 
+  // fallow-ignore-next-line unused-class-member -- live: HarborViewport sets the per-player FOW key every frame; analyzer misses the session-indirected call
+  public setFowIdentity(beacon: string, userId: string): void {
+    if (this.fowBeacon === beacon && this.fowUserId === userId) return;
+    this.fowBeacon = beacon;
+    this.fowUserId = userId;
+    this.fowHydratedKey = null;
+    this.fowFramesSinceSave = 0;
+  }
+
+  private fowIdentityKey(): string | null {
+    if (this.fowBeacon === null || this.fowUserId === null) return null;
+    return `${this.fowBeacon}:${this.fowUserId}`;
+  }
+
+  private ensureFowHydrated(): void {
+    const key = this.fowIdentityKey();
+    if (key === null || this.fowHydratedKey === key) return;
+    this.fowHydratedKey = key;
+    if (typeof window === 'undefined' || this.fowBeacon === null || this.fowUserId === null) return;
+    try {
+      const restored = loadFowGrid(window.localStorage, this.fowBeacon, this.fowUserId);
+      if (restored !== null) {
+        this.fowGrid = restored;
+        this.fogOfWarPass.restoreFromExplorationGrid(this.framebufferManager, restored);
+      }
+    } catch {
+      // GPU mask alone still tracks this session.
+    }
+  }
+
+  private trackFowExploration(pawn: { x: number; y: number }, poly: Point2D[]): void {
+    updateExplorationGrid(this.fowGrid, poly, pawn, 0);
+    this.fowFramesSinceSave += 1;
+    if (this.fowFramesSinceSave < 300) return;
+    this.fowFramesSinceSave = 0;
+    if (this.fowBeacon === null || this.fowUserId === null || typeof window === 'undefined') return;
+    saveFowGrid(window.localStorage, this.fowBeacon, this.fowUserId, this.fowGrid);
+  }
+
   // fallow-ignore-next-line unused-class-member
   public resetFogOfWar(): void {
+    resetExplorationGrid(this.fowGrid);
     this.framebufferManager.resetFogOfWar();
+    this.fowFramesSinceSave = 0;
+    if (this.fowBeacon !== null && this.fowUserId !== null && typeof window !== 'undefined') {
+      clearFowGrid(window.localStorage, this.fowBeacon, this.fowUserId);
+    }
   }
 
   // fallow-ignore-next-line unused-class-member
@@ -903,6 +956,7 @@ export class WebGL2Renderer {
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
       .join('|');
 
+    this.ensureFowHydrated();
     // PASS 1: Render Lightmap FBO
     const playerLoSPoly = this.lightingPass.renderLightmap(
       matrix,
@@ -921,6 +975,7 @@ export class WebGL2Renderer {
       frameOffset.y
     );
 
+    this.trackFowExploration(state.pawn, playerLoSPoly);
     const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
     this.lightingPass.updateLights(state.boarding?.projectiles, welders, playerLoSPoly);
     return { playerLoSPoly, welders };

@@ -200,6 +200,8 @@ function HarborPlayerRoot() {
       <HarborViewport
         snapshot={socket.snapshot}
         pawnId={socket.pawnId}
+        beacon={identity.beacon}
+        userId={identity.userId}
         predicted={movement.predicted}
         telemetry={socket.telemetry}
         vitals={socket.vitals}

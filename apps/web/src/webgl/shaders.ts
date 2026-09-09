@@ -338,9 +338,11 @@ in vec2 a_position;
 uniform mat3 u_matrix;
 uniform vec2 u_lightOrigin;
 out vec2 v_relPos;
+out vec2 v_worldPos;
 
 void main() {
   v_relPos = a_position - u_lightOrigin;
+  v_worldPos = a_position;
   gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
 }
 `;
@@ -348,6 +350,7 @@ void main() {
 export const LIGHT_FAN_FS = `#version 300 es
 precision highp float;
 in vec2 v_relPos;
+in vec2 v_worldPos;
 uniform vec3 u_lightColor;
 uniform float u_intensity;
 uniform float u_radius;
@@ -355,12 +358,26 @@ uniform float u_isDirectional; // 0.0 = omni, 1.0 = flashlight cone
 uniform float u_facingAngle;
 uniform float u_fov;
 uniform float u_ambientRadius;
+uniform sampler2D u_fowTexture;
+uniform vec2 u_worldBounds;
+uniform vec2 u_worldOrigin;
 
 out vec4 fragColor;
 
 void main() {
   float dist = length(v_relPos);
   if (dist >= u_radius) discard;
+
+  // Omni room/dynamic lights never auto-reveal: they only add where the
+  // persistent exploration mask already proved the player has looked.
+  // The directional player cone bypasses (it is the explorer itself).
+  if (u_isDirectional < 0.5) {
+    vec2 fowUv = (v_worldPos - u_worldOrigin) / u_worldBounds;
+    if (fowUv.x >= 0.0 && fowUv.x <= 1.0 && fowUv.y >= 0.0 && fowUv.y <= 1.0) {
+      float explored = texture(u_fowTexture, fowUv).r;
+      if (explored < 0.02) discard;
+    }
+  }
 
   // Smooth quadratic physical falloff
   float normD = dist / u_radius;

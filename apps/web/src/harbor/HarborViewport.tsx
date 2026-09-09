@@ -69,6 +69,8 @@ export interface HarborNoticed {
 export interface HarborViewportProps {
   snapshot: SnapshotBroadcast | null;
   pawnId: string | null;
+  beacon: string;
+  userId: string;
   predicted: PredictedPawn | null;
   telemetry: TelemetryBroadcast | null;
   vitals: VitalsBroadcast | null;
@@ -259,6 +261,7 @@ function renderViewport(
   session.lastFrameMs = now;
   trackNotices(session, view, now);
   session.doors = applyDockGates(syncDoors(session.doors, snapshot), view.dock?.walkable === true);
+  renderer.setFowIdentity(view.beacon, view.userId);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
   const { rooms: roomAtmos, delta, breaches, flows } = telemetryView(session, view, snapshot);
   const mappedVitals = mapVitals(view.vitals);

@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildFowStampMatrix,
   createExplorationGrid,
+  decodeGridCells,
+  deserializeExplorationGrid,
+  encodeGridCells,
   getExplorationPercentage,
   isPointInPolygon,
   isWorldPointExplored,
   isWorldPointVisible,
   resetExplorationGrid,
   revealAllGrid,
+  serializeExplorationGrid,
   updateExplorationGrid,
 } from './fogOfWar';
 import { computeVisibilityPolygon } from './visibility';
@@ -111,6 +116,68 @@ describe('Fog of War & Line of Sight Math', () => {
       resetExplorationGrid(grid);
       expect(getExplorationPercentage(grid)).toBe(0);
       expect(isWorldPointExplored(grid, 10, 10)).toBe(false);
+    });
+
+    it('round-trips through storage with visible demoted to explored', () => {
+      const grid = createExplorationGrid(200, 200, 20);
+      updateExplorationGrid(
+        grid,
+        [
+          { x: 20, y: 20 },
+          { x: 80, y: 20 },
+          { x: 80, y: 80 },
+          { x: 20, y: 80 },
+        ],
+        { x: 50, y: 50 },
+        0
+      );
+      expect(isWorldPointVisible(grid, 50, 50)).toBe(true);
+      const saved = serializeExplorationGrid(grid);
+      expect(saved.version).toBe(1);
+      const restored = deserializeExplorationGrid(JSON.parse(JSON.stringify(saved)));
+      if (restored === null) throw new Error('expected restored grid');
+      expect(isWorldPointExplored(restored, 50, 50)).toBe(true);
+      // Transient visibility is memory after reload, never an active sightline.
+      expect(isWorldPointVisible(restored, 50, 50)).toBe(false);
+      expect(isWorldPointExplored(restored, 150, 150)).toBe(false);
+    });
+
+    it('rejects corrupt persisted payloads', () => {
+      const grid = createExplorationGrid(100, 100, 20);
+      const saved = serializeExplorationGrid(grid);
+      expect(deserializeExplorationGrid(null)).toBeNull();
+      expect(deserializeExplorationGrid({ ...saved, version: 999 })).toBeNull();
+      expect(deserializeExplorationGrid({ ...saved, cellsB64: '!!!' })).toBeNull();
+      expect(
+        deserializeExplorationGrid({ ...saved, cellsB64: saved.cellsB64.slice(0, 4) })
+      ).toBeNull();
+      expect(decodeGridCells('')).toBeNull();
+      expect(encodeGridCells(new Uint8Array([1, 2, 3])).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('fow stamp matrix', () => {
+    it('maps the world window to NDC with the origin applied', () => {
+      const m = buildFowStampMatrix(2400, 1000, -200, -200);
+      const sx = m[0] ?? 0;
+      const sy = m[4] ?? 0;
+      const tx = m[6] ?? 0;
+      const ty = m[7] ?? 0;
+      const apply = (x: number, y: number): [number, number] => [sx * x + tx, sy * y + ty];
+      const [x0, y0] = apply(-200, -200);
+      const [x1, y1] = apply(2200, 800);
+      expect(x0).toBeCloseTo(-1, 5);
+      expect(y0).toBeCloseTo(-1, 5);
+      expect(x1).toBeCloseTo(1, 5);
+      expect(y1).toBeCloseTo(1, 5);
+    });
+
+    it('keeps zero-origin behavior identical to the legacy matrix', () => {
+      const m = buildFowStampMatrix(1200, 800, 0, 0);
+      expect(m[0]).toBeCloseTo(2 / 1200, 8);
+      expect(m[4]).toBeCloseTo(2 / 800, 8);
+      expect(m[6]).toBeCloseTo(-1, 8);
+      expect(m[7]).toBeCloseTo(-1, 8);
     });
   });
 

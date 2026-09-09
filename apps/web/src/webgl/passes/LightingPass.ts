@@ -22,6 +22,15 @@ export interface LightSourceConfig {
   ambientRadius?: number;
 }
 
+/** World-space exploration mask sampled by omni light fans. */
+export interface FowSampling {
+  readonly texture: WebGLTexture | null;
+  readonly width: number;
+  readonly height: number;
+  readonly originX: number;
+  readonly originY: number;
+}
+
 /**
  * True when a light at (x, y) must be culled: non-player sources outside
  * the player visibility polygon contribute nothing. Player sources and
@@ -172,11 +181,30 @@ export class LightingPass {
     return lightIdx;
   }
 
+  private bindFowSampling(fow?: FowSampling): void {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, fow?.texture ?? null);
+    gl.uniform1i(gl.getUniformLocation(this.lightFanProg, 'u_fowTexture'), 1);
+    gl.uniform2f(
+      gl.getUniformLocation(this.lightFanProg, 'u_worldBounds'),
+      fow?.width ?? 1,
+      fow?.height ?? 1
+    );
+    gl.uniform2f(
+      gl.getUniformLocation(this.lightFanProg, 'u_worldOrigin'),
+      fow?.originX ?? 0,
+      fow?.originY ?? 0
+    );
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
   // fallow-ignore-next-line complexity
   public drawLightPolygonFan(
     matrix: Float32Array,
     light: LightSourceConfig,
-    poly: Point2D[]
+    poly: Point2D[],
+    fow?: FowSampling
   ): void {
     if (poly.length < 3) return;
     const gl = this.gl;
@@ -184,6 +212,7 @@ export class LightingPass {
 
     gl.useProgram(this.lightFanProg);
     gl.bindVertexArray(this.lightFanVAO);
+    this.bindFowSampling(fow);
 
     gl.uniformMatrix3fv(gl.getUniformLocation(this.lightFanProg, 'u_matrix'), false, matrix);
     gl.uniform2f(gl.getUniformLocation(this.lightFanProg, 'u_lightOrigin'), light.x, light.y);
@@ -216,31 +245,44 @@ export class LightingPass {
     gl.bindVertexArray(null);
   }
 
+  private staticLightPoly(
+    light: { id: string; x: number; y: number; radius: number },
+    opaqueWalls: WallSegment[],
+    shipDx: number,
+    shipDy: number
+  ): Point2D[] {
+    if (shipDx === 0 && shipDy === 0) {
+      const cached = this.cachedStaticLights.get(light.id);
+      if (cached) return cached;
+    }
+    const poly = computeVisibilityPolygon(
+      { x: light.x, y: light.y },
+      light.radius,
+      opaqueWalls,
+      36
+    );
+    if (shipDx === 0 && shipDy === 0) this.cachedStaticLights.set(light.id, poly);
+    return poly;
+  }
+
+  // Static room lamps always render their full wall-clipped fan: spill through
+  // open doors stays visible around corners. The light-fan shader gates each
+  // fragment against the exploration mask, so unexplored rooms still stay void.
   // fallow-ignore-next-line complexity
   public renderStaticShipLights(
     matrix: Float32Array,
     timeSec: number,
     opaqueWalls: WallSegment[],
     shipDx = 0,
-    shipDy = 0
+    shipDy = 0,
+    fow?: FowSampling
   ): void {
     for (const light of getWorldLights({ x: shipDx, y: shipDy })) {
       let intensity = light.intensity;
       if (light.flickerSpeed && light.flickerAmount) {
         intensity += Math.sin(timeSec * light.flickerSpeed) * light.flickerAmount;
       }
-
-      let poly: Point2D[] | undefined;
-      if (shipDx === 0 && shipDy === 0) {
-        poly = this.cachedStaticLights.get(light.id);
-      }
-      if (!poly) {
-        poly = computeVisibilityPolygon({ x: light.x, y: light.y }, light.radius, opaqueWalls, 36);
-        if (shipDx === 0 && shipDy === 0) {
-          this.cachedStaticLights.set(light.id, poly);
-        }
-      }
-
+      const poly = this.staticLightPoly(light, opaqueWalls, shipDx, shipDy);
       this.drawLightPolygonFan(
         matrix,
         {
@@ -250,7 +292,8 @@ export class LightingPass {
           intensity,
           color: light.color,
         },
-        poly
+        poly,
+        fow
       );
     }
   }
@@ -270,12 +313,13 @@ export class LightingPass {
       | undefined,
     opaqueWalls: WallSegment[],
     timeSec: number,
-    playerLoSPoly?: Point2D[]
+    playerLoSPoly?: Point2D[],
+    fow?: FowSampling
   ): void {
-    this.renderProjectileLightFans(matrix, projectiles, opaqueWalls, playerLoSPoly);
-    this.renderMuzzleLightFans(matrix, muzzleFlashes, opaqueWalls, playerLoSPoly);
-    this.renderReactorLightFan(matrix, opaqueWalls, timeSec);
-    this.renderWelderLightFan(matrix, welderState, opaqueWalls, playerLoSPoly);
+    this.renderProjectileLightFans(matrix, projectiles, opaqueWalls, playerLoSPoly, fow);
+    this.renderMuzzleLightFans(matrix, muzzleFlashes, opaqueWalls, playerLoSPoly, fow);
+    this.renderReactorLightFan(matrix, opaqueWalls, timeSec, fow);
+    this.renderWelderLightFan(matrix, welderState, opaqueWalls, playerLoSPoly, fow);
   }
 
   /** Energy-round light fans, culled outside player sight. */
@@ -283,7 +327,8 @@ export class LightingPass {
     matrix: Float32Array,
     projectiles: ProjectileState[] | undefined,
     opaqueWalls: WallSegment[],
-    playerLoSPoly: Point2D[] | undefined
+    playerLoSPoly: Point2D[] | undefined,
+    fow?: FowSampling
   ): void {
     if (!projectiles) return;
     for (const p of projectiles) {
@@ -294,7 +339,12 @@ export class LightingPass {
         p.color === '#ff1744' ? [1.0, 0.15, 0.25] : isLaser ? [0.1, 0.95, 1.0] : [0.4, 0.75, 1.0];
       const radius = isLaser ? 110 + (p.chargeRatio ?? 1.0) * 40 : 100;
       const poly = computeVisibilityPolygon({ x: p.x, y: p.y }, radius, opaqueWalls, 32);
-      this.drawLightPolygonFan(matrix, { x: p.x, y: p.y, radius, intensity: 0.9, color }, poly);
+      this.drawLightPolygonFan(
+        matrix,
+        { x: p.x, y: p.y, radius, intensity: 0.9, color },
+        poly,
+        fow
+      );
     }
   }
 
@@ -309,7 +359,8 @@ export class LightingPass {
       maxLife: number;
     }>,
     opaqueWalls: WallSegment[],
-    playerLoSPoly: Point2D[] | undefined
+    playerLoSPoly: Point2D[] | undefined,
+    fow?: FowSampling
   ): void {
     for (const mf of muzzleFlashes) {
       if (isOccludedFromPlayer(mf.x, mf.y, false, playerLoSPoly)) continue;
@@ -318,22 +369,24 @@ export class LightingPass {
       const color: [number, number, number] = isLaser ? [0.2, 0.95, 1.0] : [1.0, 0.85, 0.4];
       const intensity = (mf.life / mf.maxLife) * 1.8;
       const poly = computeVisibilityPolygon({ x: mf.x, y: mf.y }, radius, opaqueWalls, 28);
-      this.drawLightPolygonFan(matrix, { x: mf.x, y: mf.y, radius, intensity, color }, poly);
+      this.drawLightPolygonFan(matrix, { x: mf.x, y: mf.y, radius, intensity, color }, poly, fow);
     }
   }
 
-  /** Idle reactor pulse glow. */
+  /** Idle reactor pulse glow; the FOW mask gates unseen fragments per-pixel. */
   private renderReactorLightFan(
     matrix: Float32Array,
     opaqueWalls: WallSegment[],
-    timeSec: number
+    timeSec: number,
+    fow?: FowSampling
   ): void {
     const reactorPulse = 0.75 + 0.25 * Math.sin(timeSec * 4.0);
     const reactorPoly = computeVisibilityPolygon({ x: 970, y: 570 }, 140, opaqueWalls, 28);
     this.drawLightPolygonFan(
       matrix,
       { x: 970, y: 570, radius: 140, intensity: 0.6 * reactorPulse, color: [1.0, 0.55, 0.1] },
-      reactorPoly
+      reactorPoly,
+      fow
     );
   }
 
@@ -344,7 +397,8 @@ export class LightingPass {
       | { active: boolean; originX: number; originY: number; facingAngle: number }
       | undefined,
     opaqueWalls: WallSegment[],
-    playerLoSPoly: Point2D[] | undefined
+    playerLoSPoly: Point2D[] | undefined,
+    fow?: FowSampling
   ): void {
     if (!welderState?.active) return;
     const arcX = welderState.originX + Math.cos(welderState.facingAngle) * 24;
@@ -354,7 +408,8 @@ export class LightingPass {
     this.drawLightPolygonFan(
       matrix,
       { x: arcX, y: arcY, radius: 90, intensity: 1.2, color: [0.2, 0.85, 1.0] },
-      poly
+      poly,
+      fow
     );
   }
 
@@ -403,6 +458,13 @@ export class LightingPass {
     );
     fogOfWarPass.setLastPlayerLosPoly(playerLoSPoly);
     fogOfWarPass.stampFowExploration(fboManager, playerLoSPoly, pawn);
+    const fow: FowSampling = {
+      texture: fboManager.getFowTexture(),
+      width: fboManager.fowWidth,
+      height: fboManager.fowHeight,
+      originX: fboManager.fowOriginX,
+      originY: fboManager.fowOriginY,
+    };
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.viewport(0, 0, width, height);
@@ -416,7 +478,7 @@ export class LightingPass {
     fogOfWarPass.renderShipAmbientRooms(fboManager, matrix, shipDx, shipDy);
 
     gl.blendFunc(gl.ONE, gl.ONE);
-    this.renderStaticShipLights(matrix, timeSec, opaqueWalls, shipDx, shipDy);
+    this.renderStaticShipLights(matrix, timeSec, opaqueWalls, shipDx, shipDy, fow);
 
     this.drawLightPolygonFan(
       matrix,
@@ -431,7 +493,8 @@ export class LightingPass {
         fov: playerFov,
         ambientRadius: perceptionRadius,
       },
-      playerLoSPoly
+      playerLoSPoly,
+      fow
     );
 
     this.renderDynamicLightSources(
@@ -441,7 +504,8 @@ export class LightingPass {
       welderState,
       opaqueWalls,
       timeSec,
-      playerLoSPoly
+      playerLoSPoly,
+      fow
     );
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

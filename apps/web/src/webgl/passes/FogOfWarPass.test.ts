@@ -1,5 +1,6 @@
+import { createExplorationGrid, updateExplorationGrid } from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
-import { buildPolygonFanVertices, fanShortEdge } from './FogOfWarPass';
+import { buildExploredCellQuads, buildPolygonFanVertices, fanShortEdge } from './FogOfWarPass';
 
 describe('fog-of-war fan builder', () => {
   it('skips degenerate slivers that read as GPU streaks', () => {
@@ -38,5 +39,30 @@ describe('fog-of-war fan builder', () => {
       { x: 0, y: -100 },
     ]);
     expect(verts.length).toBe(24);
+  });
+});
+
+describe('explored-cell restore quads', () => {
+  it('emits nothing for a fresh grid', () => {
+    const grid = createExplorationGrid(100, 100, 20);
+    expect(buildExploredCellQuads(grid).length).toBe(0);
+  });
+
+  it('emits one quad per explored cell', () => {
+    const grid = createExplorationGrid(100, 100, 20);
+    updateExplorationGrid(
+      grid,
+      [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+        { x: 40, y: 40 },
+        { x: 0, y: 40 },
+      ],
+      { x: 20, y: 20 },
+      0
+    );
+    const quads = buildExploredCellQuads(grid);
+    expect(quads.length % 12).toBe(0);
+    expect(quads.length).toBeGreaterThan(0);
   });
 });
