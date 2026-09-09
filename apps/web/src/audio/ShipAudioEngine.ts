@@ -224,33 +224,43 @@ export class ShipAudioEngine {
 
   // --- Spatial Foley & Interactions ---
 
+  /**
+   * Shared spatial-foley preamble: calculate params at (x, y), drop
+   * inaudible voices below gainFloor, and return a panned channel input.
+   * Returns null when audio is unavailable or the voice is culled.
+   */
+  private spatialFoleyInput(x: number, y: number, gainFloor: number): AudioNode | null {
+    if (!this.busManager || !this.spatializer) return null;
+    const params = this.spatializer.calculate(
+      this.listenerX,
+      this.listenerY,
+      x,
+      y,
+      this.activeDoors
+    );
+    if (params.gain < gainFloor) return null;
+    const channel = this.spatializer.createSpatialChannel(this.busManager.foleyGain);
+    this.spatializer.applySpatialParams(channel, params, 0.01);
+    return channel.input;
+  }
+
   public playLocalFootstep(surface: DeckSurfaceType = 'steel'): void {
     if (!this.busManager || !this.metalSynth) return;
     this.metalSynth.playFootstep(this.busManager.foleyGain, surface, 0.7);
   }
 
-  // fallow-ignore-next-line unused-class-member, complexity
   public playRemoteFootstep(
     emitterX: number,
     emitterY: number,
     surface: DeckSurfaceType = 'steel'
   ): void {
-    if (!this.busManager || !this.spatializer || !this.metalSynth) return;
+    if (!this.metalSynth) return;
     if (this.activeFoleyVoices >= this.MAX_CONCURRENT_FOLEY) return;
-
-    const params = this.spatializer.calculate(
-      this.listenerX,
-      this.listenerY,
-      emitterX,
-      emitterY,
-      this.activeDoors
-    );
-    if (params.gain < 0.05) return;
+    const input = this.spatialFoleyInput(emitterX, emitterY, 0.05);
+    if (!input) return;
 
     this.activeFoleyVoices++;
-    const channel = this.spatializer.createSpatialChannel(this.busManager.foleyGain);
-    this.spatializer.applySpatialParams(channel, params, 0.01);
-    this.metalSynth.playFootstep(channel.input, surface, 0.6);
+    this.metalSynth.playFootstep(input, surface, 0.6);
 
     setTimeout(() => {
       this.activeFoleyVoices = Math.max(0, this.activeFoleyVoices - 1);
@@ -272,53 +282,24 @@ export class ShipAudioEngine {
       return;
     }
 
-    if (!this.spatializer) return;
-    const params = this.spatializer.calculate(
-      this.listenerX,
-      this.listenerY,
-      originX,
-      originY,
-      this.activeDoors
-    );
-    if (params.gain < 0.03) return;
-
-    const channel = this.spatializer.createSpatialChannel(this.busManager.foleyGain);
-    this.spatializer.applySpatialParams(channel, params, 0.01);
-    this.ballisticsSynth.playWeaponFire(channel.input, weaponType, chargeRatio, 0.85);
+    const input = this.spatialFoleyInput(originX, originY, 0.03);
+    if (!input) return;
+    this.ballisticsSynth.playWeaponFire(input, weaponType, chargeRatio, 0.85);
   }
 
-  // fallow-ignore-next-line complexity, unused-class-member -- hitscan combat has no impact points yet; kept for the tracer milestone
+  // Hitscan combat has no impact points yet; kept for the tracer milestone.
   public playImpact(x: number, y: number, type: 'kinetic' | 'laser' | 'welder'): void {
-    if (!this.busManager || !this.spatializer || !this.ballisticsSynth) return;
-    const params = this.spatializer.calculate(
-      this.listenerX,
-      this.listenerY,
-      x,
-      y,
-      this.activeDoors
-    );
-    if (params.gain < 0.03) return;
-
-    const channel = this.spatializer.createSpatialChannel(this.busManager.foleyGain);
-    this.spatializer.applySpatialParams(channel, params, 0.01);
-    this.ballisticsSynth.playImpact(channel.input, type, 0.65);
+    if (!this.ballisticsSynth) return;
+    const input = this.spatialFoleyInput(x, y, 0.03);
+    if (!input) return;
+    this.ballisticsSynth.playImpact(input, type, 0.65);
   }
 
-  // fallow-ignore-next-line complexity
   public playDoorToggle(x: number, y: number, isOpen: boolean): void {
-    if (!this.busManager || !this.spatializer || !this.pneumaticSynth) return;
-    const params = this.spatializer.calculate(
-      this.listenerX,
-      this.listenerY,
-      x,
-      y,
-      this.activeDoors
-    );
-    if (params.gain < 0.03) return;
-
-    const channel = this.spatializer.createSpatialChannel(this.busManager.foleyGain);
-    this.spatializer.applySpatialParams(channel, params, 0.01);
-    this.pneumaticSynth.playDoorCycle(channel.input, isOpen, 0.85);
+    if (!this.pneumaticSynth) return;
+    const input = this.spatialFoleyInput(x, y, 0.03);
+    if (!input) return;
+    this.pneumaticSynth.playDoorCycle(input, isOpen, 0.85);
   }
 
   public playStationInteract(): void {
