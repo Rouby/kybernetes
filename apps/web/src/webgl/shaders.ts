@@ -115,6 +115,23 @@ uniform int u_isShipRoom;
 
 out vec4 fragColor;
 
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash12(i);
+  float b = hash12(i + vec2(1.0, 0.0));
+  float c = hash12(i + vec2(0.0, 1.0));
+  float d = hash12(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
 void main() {
   vec2 refPos = u_isShipRoom == 1 ? (v_worldPos - u_shipOffset) : v_worldPos;
   vec3 baseColor;
@@ -208,26 +225,47 @@ void main() {
     baseColor = mix(airMetal, vec3(0.0, 0.75, 0.95), borderMask * 0.6);
 
   } else if (u_roomType == 3) {
-    // CENTRAL CATWALK SPINE: Perforated steel subfloor grating with visible conduit channels beneath
-    float distFromCenter = abs(refPos.y - 400.0);
-    float runner = step(distFromCenter, 20.0);
-    float rib = step(0.45, fract(refPos.x / 16.0)) * 0.18;
+    // CATWALK SPINE: perforated steel grating with conduit channels beneath.
+    // The walk axis follows the room long side so vertical spines (ship
+    // corridor, east dock spine) read correctly; bounds are world-space so
+    // ship rooms subtract the docked offset back to frame-local coords.
+    vec2 localOrigin = u_isShipRoom == 1 ? (u_roomBounds.xy - u_shipOffset) : u_roomBounds.xy;
+    vec2 localPt = refPos - localOrigin;
+    vec2 roomSize = u_roomBounds.zw;
+    bool verticalSpine = roomSize.y > roomSize.x;
+    float across = verticalSpine ? localPt.x : localPt.y;
+    float along = verticalSpine ? localPt.y : localPt.x;
+    float acrossSize = verticalSpine ? roomSize.x : roomSize.y;
+    float distFromCenter = abs(across - acrossSize * 0.5);
+    float rib = step(0.45, fract(along / 16.0)) * 0.18;
     // Subfloor conduit depth effect
-    float grateHoles = step(0.65, fract(refPos.x / 8.0)) * step(0.65, fract(refPos.y / 8.0));
+    float grateHoles = step(0.65, fract(along / 8.0)) * step(0.65, fract(across / 8.0));
     vec3 catwalkMetal = mix(vec3(0.11, 0.13, 0.16), vec3(0.20, 0.24, 0.30), rib);
     catwalkMetal = mix(catwalkMetal, vec3(0.04, 0.05, 0.07), grateHoles * 0.45);
 
-    // Glowing cyan transit guide line at catwalk borders (Y = 400 +/- 20)
+    // Transit guide line inset 20px from each walk edge
     float runnerEdge = smoothstep(1.2, 0.0, abs(distFromCenter - 20.0));
     baseColor = mix(catwalkMetal, vec3(0.0, 0.85, 1.0), runnerEdge * 0.75);
 
   } else {
-    // CREW BUNKS (1) & MESS HALL (2): Modular clean living panels
+    // CREW CABINS & BERTHS (1): worn living panels; ship cabins arrive with
+    // a warm dark base, the station keeps its clean white finish.
     vec2 qCoord = refPos / 32.0;
     vec2 qGrid = abs(fract(qCoord - 0.5) - 0.5) / fwidth(qCoord);
     float qLine = 1.0 - min(min(qGrid.x, qGrid.y), 1.0);
-    baseColor = mix(u_floorColor, vec3(0.68, 0.74, 0.82), clamp(qLine * 0.85, 0.0, 1.0));
+    vec3 seamColor = u_isShipRoom == 1 ? vec3(0.55, 0.50, 0.42) : vec3(0.68, 0.74, 0.82);
+    baseColor = mix(u_floorColor, seamColor, clamp(qLine * 0.85, 0.0, 1.0));
   }
+
+  // Rugged finish: low-frequency stains, per-plate tone shift, fine grain.
+  // Amplitudes stay small on purpose; ship decks wear ~1.6x harder.
+  float wearBoost = u_isShipRoom == 1 ? 1.6 : 1.0;
+  float blotch = vnoise(refPos / 110.0) * 0.65 + vnoise(refPos / 37.0 + vec2(7.3)) * 0.35;
+  float stain = smoothstep(0.55, 0.95, blotch) * 0.10 * wearBoost;
+  baseColor *= 1.0 - stain;
+  baseColor = mix(baseColor, baseColor * vec3(1.04, 0.97, 0.89), clamp(stain * 6.0, 0.0, 1.0) * 0.6);
+  baseColor *= 0.965 + 0.07 * hash12(floor(refPos / 32.0));
+  baseColor += (hash12(floor(refPos / 2.0)) - 0.5) * 0.028;
 
   // Soft Ambient Occlusion / Wall Drop Shadow along room perimeter
   vec2 dPerimeter = min(v_worldPos - u_roomBounds.xy, u_roomBounds.xy + u_roomBounds.zw - v_worldPos);

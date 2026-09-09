@@ -11,7 +11,7 @@ import {
   isStationSideDoor,
   TICKS_PER_S,
 } from '@kybernetes/sim-core';
-
+import { deckFloorStyle } from '../DeckFloorStyle';
 import { renderDeckFurniture } from '../DeckFurniture';
 import {
   addThickSegment,
@@ -33,6 +33,95 @@ export const THRUSTER_BELLS: ReadonlyArray<{ x: number; y: number }> = [
   { x: 120, y: 718 },
   { x: 170, y: 716 },
 ];
+
+/** Tapered outer armor silhouette in ship-local coords (reference-ship style:
+ * chamfered nose, straight mid-body, stepped engineering shoulders, flared
+ * drive housing). Pure visuals: collision stays on the hull-compiler rects
+ * and HULL_PLATE bounds. Loop order is clockwise from the nose tip. */
+export interface HullSilhouettePoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+export const HULL_SILHOUETTE: readonly HullSilhouettePoint[] = [
+  { x: 110, y: -56 },
+  { x: 148, y: -36 },
+  { x: 202, y: -12 },
+  { x: 232, y: 8 },
+  { x: 234, y: 560 },
+  { x: 240, y: 585 },
+  { x: 240, y: 660 },
+  { x: 238, y: 700 },
+  { x: 180, y: 708 },
+  { x: 182, y: 732 },
+  { x: 38, y: 732 },
+  { x: 40, y: 708 },
+  { x: -18, y: 700 },
+  { x: -20, y: 660 },
+  { x: -20, y: 585 },
+  { x: -14, y: 560 },
+  { x: -14, y: 8 },
+  { x: 18, y: -12 },
+  { x: 72, y: -36 },
+];
+
+/** Ray-cast point test against HULL_SILHOUETTE (visual containment only). */
+export function isPointInHullSilhouette(x: number, y: number): boolean {
+  let inside = false;
+  for (let i = 0, j = HULL_SILHOUETTE.length - 1; i < HULL_SILHOUETTE.length; j = i++) {
+    const xi = HULL_SILHOUETTE[i].x;
+    const yi = HULL_SILHOUETTE[i].y;
+    const xj = HULL_SILHOUETTE[j].x;
+    const yj = HULL_SILHOUETTE[j].y;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function addHullLoop(verts: number[], thickness: number): void {
+  for (let i = 0; i < HULL_SILHOUETTE.length; i++) {
+    const a = HULL_SILHOUETTE[i];
+    const b = HULL_SILHOUETTE[(i + 1) % HULL_SILHOUETTE.length];
+    addThickSegment(verts, a.x, a.y, b.x, b.y, thickness);
+  }
+}
+
+function renderHullNoseCap(gl: WebGL2RenderingContext, buf: WebGLBuffer): void {
+  drawQuad(gl, buf, 72, -38, 76, 20);
+  drawQuad(gl, buf, 48, -24, 124, 16);
+  drawQuad(gl, buf, -2, -10, 224, 12);
+}
+
+function renderHullEngineHousing(
+  gl: WebGL2RenderingContext,
+  buf: WebGLBuffer,
+  prog: WebGLProgram
+): void {
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.1, 0.12, 0.17, 1.0);
+  drawQuad(gl, buf, 38, 700, 144, 32);
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.16, 0.19, 0.26, 1.0);
+  drawQuad(gl, buf, 34, 726, 152, 8);
+}
+
+function renderHullGreebles(
+  gl: WebGL2RenderingContext,
+  buf: WebGLBuffer,
+  prog: WebGLProgram
+): void {
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.16, 0.19, 0.26, 1.0);
+  drawQuad(gl, buf, 102, -44, 16, 8);
+  drawQuad(gl, buf, -20, 600, 8, 40);
+  drawQuad(gl, buf, 232, 600, 8, 40);
+  drawQuad(gl, buf, -14, 120, 6, 26);
+  drawQuad(gl, buf, 228, 120, 6, 26);
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.32, 0.36, 0.44, 0.9);
+  drawQuad(gl, buf, -20, 585, 10, 4);
+  drawQuad(gl, buf, 230, 585, 10, 4);
+  drawQuad(gl, buf, -20, 656, 10, 4);
+  drawQuad(gl, buf, 230, 656, 10, 4);
+}
 
 function drawDoorBrackets(
   gl: WebGL2RenderingContext,
@@ -349,31 +438,12 @@ export class DeckPass {
     gl.uniform3fv(this.uProjColorsLoc, currentLightColors);
     gl.uniform2f(this.uShipOffsetLoc, this.shipOffset.x, this.shipOffset.y);
 
-    const roomTypeMap: Record<string, number> = {
-      bridge: 0,
-      berthing: 1,
-      mess: 2,
-      corridor: 3,
-      armory: 4,
-      cargo: 5,
-      engineering: 6,
-      avionics: 7,
-      life_support: 8,
-      gauntlet: 3,
-      lobby: 2,
-      bay: 5,
-    };
-
     for (const room of getWorldRooms(this.shipOffset)) {
+      const style = deckFloorStyle(room.id);
       gl.uniform1i(this.uIsShipRoomLoc, isShipSideRoom(room.id) ? 1 : 0);
-      gl.uniform1i(this.uRoomTypeLoc, roomTypeMap[room.id] ?? 1);
+      gl.uniform1i(this.uRoomTypeLoc, style.type);
       gl.uniform4f(this.uRoomBoundsLoc, room.x, room.y, room.width, room.height);
-
-      if (room.id === 'corridor') {
-        gl.uniform3f(this.uFloorColorLoc, 0.12, 0.14, 0.18);
-      } else {
-        gl.uniform3f(this.uFloorColorLoc, 0.9, 0.92, 0.95);
-      }
+      gl.uniform3f(this.uFloorColorLoc, style.color[0], style.color[1], style.color[2]);
 
       drawQuad(gl, this.dynamicBuffer, room.x, room.y, room.width, room.height);
     }
@@ -587,20 +657,22 @@ export class DeckPass {
     // with even margins; the south strip is the engine mount for the bells.
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
     drawQuad(gl, this.dynamicBuffer, HULL_PLATE.x, HULL_PLATE.y, HULL_PLATE.w, HULL_PLATE.h);
-    drawQuad(gl, this.dynamicBuffer, 60, 700, 160, 30);
+    renderHullNoseCap(gl, this.dynamicBuffer);
+    renderHullEngineHousing(gl, this.dynamicBuffer, flatProg);
 
-    // Armor perimeter outline (vertical spine with south drive face)
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.2, 0.25, 0.35, 1.0);
+    // Tapered armor band following HULL_SILHOUETTE (reference-ship read).
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.1, 0.12, 0.17, 1.0);
+    const armorBand: number[] = [];
+    addHullLoop(armorBand, 18);
+    bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(armorBand));
+
+    // Outer edge highlight tracing the same silhouette loop.
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.28, 0.34, 0.45, 1.0);
     const hullLines: number[] = [];
-    addThickSegment(hullLines, -20, -20, 240, -20, 4);
-    addThickSegment(hullLines, 240, -20, 240, 700, 4);
-    addThickSegment(hullLines, 240, 700, 60, 700, 4);
-    addThickSegment(hullLines, 60, 700, 60, 730, 4);
-    addThickSegment(hullLines, 60, 730, 220, 730, 4);
-    addThickSegment(hullLines, 220, 730, 220, 700, 4);
-    addThickSegment(hullLines, 220, 700, -20, 700, 4);
-    addThickSegment(hullLines, -20, 700, -20, -20, 4);
+    addHullLoop(hullLines, 3);
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(hullLines));
+
+    renderHullGreebles(gl, this.dynamicBuffer, flatProg);
 
     // Thruster bell housings mounted on the drive face (south edge).
     // Plumes are live exhaust particles (see emitThrusterExhaust), not quads,
