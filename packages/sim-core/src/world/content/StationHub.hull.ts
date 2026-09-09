@@ -4,7 +4,8 @@
  * corridor plus west Kommando stub and east N-S dock spine, south band
  * (Hydroponik / Frachthalle / Reaktorraum / Sicherheit-Sud), and the east
  * Andockschleuse A airlock tube mating the vertical vessel.
- * Physical boarding only: pawns walk korridor_ost -> andock_a -> ship mouth.
+ * Seamless boarding: pawns walk korridor_ost -> andock_a -> andock_tube
+ * -> ship mouth in world space, no teleport volumes.
  */
 
 import type { HullSpec } from '../hullCompiler.js';
@@ -25,6 +26,7 @@ export const StationHubSpec: HullSpec = {
     { id: 'sicherheit_sued', rect: { x: 720, y: 280, w: 200, h: 200 }, volumeM3: 240 },
     { id: 'korridor_ost', rect: { x: 920, y: 120, w: 100, h: 360 }, volumeM3: 90 },
     { id: 'andock_a', rect: { x: 1020, y: 220, w: 120, h: 80 }, volumeM3: 48 },
+    { id: 'andock_tube', rect: { x: 1140, y: 220, w: 70, h: 80 }, volumeM3: 28 },
   ],
   portals: [
     {
@@ -153,6 +155,22 @@ export const StationHubSpec: HullSpec = {
       roomB: 'andock_a',
       kind: 'airlock',
       segment: { x1: 1020, y1: 220, x2: 1020, y2: 280 },
+      areaM2: 2.4,
+    },
+    {
+      id: 'andock_a_tube',
+      roomA: 'andock_a',
+      roomB: 'andock_tube',
+      kind: 'open',
+      segment: { x1: 1140, y1: 240, x2: 1140, y2: 280 },
+      areaM2: 2.4,
+    },
+    {
+      id: 'andock_tube_mund',
+      roomA: 'andock_tube',
+      roomB: 'space',
+      kind: 'airlock',
+      segment: { x1: 1210, y1: 240, x2: 1210, y2: 280 },
       areaM2: 2.4,
     },
     {

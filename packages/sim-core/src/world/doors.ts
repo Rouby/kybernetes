@@ -51,8 +51,8 @@ export function sealPortal(portal: PortalEdge, tick: number): PortalEdge {
   return { ...portal, state: 'sealed', cooldownUntilTick: tick };
 }
 
-/** Returns a sealed dock portal to a shut edge. Docked transfer volumes move pawns
- * while the edge stays vacuum-safe; only explicit toggles or damage reopen it. */
+/** Returns a sealed dock portal to a shut edge. Seamless walkers cross in world
+ * space while the edge stays vacuum-safe; only the cycle, toggles, or damage reopen it. */
 export function unsealPortal(portal: PortalEdge, tick: number): PortalEdge {
   return { ...portal, state: 'closed', cooldownUntilTick: tick };
 }

@@ -52,7 +52,7 @@ describe('air authority binding', () => {
   it('starts rooms at nominal breathable air', () => {
     const { auth } = stationSetup();
     const views = readAirRooms(auth, 'station');
-    expect(views).toHaveLength(11);
+    expect(views).toHaveLength(12);
     for (const view of views) {
       expect(view.pressureKpa).toBeCloseTo(NOMINAL_PRESSURE_KPA, 1);
       expect(view.o2Percent).toBeCloseTo(20.9, 1);

@@ -8,6 +8,7 @@
 
 import { segmentsIntersect } from '../spatial/collision.js';
 import { isPortalConnecting } from './doors.js';
+import { isDockGateWalkable } from './schedule.js';
 import type { PawnBody, PortalEdge, Vec2, World } from './types.js';
 
 export interface SightSegment {
@@ -57,7 +58,20 @@ export function visibleRooms(world: World, pawnId: string): string[] {
     const other = neighborThroughVisiblePortal(world, pawn, portal);
     if (other !== undefined) visible.add(other);
   }
+  for (const other of dockNeighbors(world, pawn)) visible.add(other);
   return [...visible];
+}
+
+/** Seamless tube adjacency: tube room sees ship corridor and back while walkable. */
+function dockNeighbors(world: World, pawn: PawnBody): string[] {
+  const out: string[] = [];
+  for (const dock of Object.values(world.docks)) {
+    if (!isDockGateWalkable(world, dock.stationPortal)) continue;
+    const vesselRoom = world.portals[dock.vesselPortal]?.roomA;
+    if (pawn.roomHint === dock.tubeRoom && vesselRoom !== undefined) out.push(vesselRoom);
+    if (pawn.roomHint === vesselRoom) out.push(dock.tubeRoom);
+  }
+  return out;
 }
 
 function neighborThroughVisiblePortal(

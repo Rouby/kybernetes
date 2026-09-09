@@ -81,7 +81,7 @@ function pointInRect(p: Vec2, rect: { x: number; y: number; w: number; h: number
 /**
  * Colliders for a frame: compiled walls plus shut-portal segments. Closed
  * doors block — except dock gates while the cycle holds them walkable, so
- * crews stroll the tube instead of teleporting through it.
+ * crews stroll the tube in world space with no teleport.
  */
 export function collidersForFrame(world: World, frameId: string): WallSegment[] {
   const colliders = [...(world.wallsByFrame[frameId] ?? [])];

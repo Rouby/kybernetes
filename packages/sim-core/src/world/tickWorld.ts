@@ -1,13 +1,14 @@
 /**
  * tickWorld: the only tick. Small delegates, no god function.
- * M3: movement slice with server-side collision, frame-velocity carry,
- * room-hint tracking, explored-memory, and air readings via the air authority.
- * Survival slice in M6; bots land in M7.
+ * Movement slice with server-side collision, world-space dock crossing,
+ * frame-velocity carry, room-hint tracking, explored-memory, and air
+ * readings via the air authority.
  */
 
 import { type AirAuthorityState, refreshAtmos } from './airAuthority.js';
 import { tickBots } from './bots.js';
 import { tickImpacts, tickProjectiles, tickSpread } from './combat.js';
+import { stepCrossFrame } from './dockCrossing.js';
 import { advanceFrameOrigin } from './frames.js';
 import { unionRooms, visibleRooms } from './los.js';
 import {
@@ -42,7 +43,8 @@ export function tickWorld(
   if (dt === 0) return world;
   const botted = tickBots(world);
   const moved = stepMovement(botted.world, dt, [...inputs, ...botted.inputs]);
-  const scheduled = tickSchedule(moved, dt);
+  const crossed = stepCrossFrame(moved);
+  const scheduled = tickSchedule(crossed, dt);
   const watched = tickWatches(scheduled, dt);
   const survived = tickSurvival(watched, dt);
   const shot = tickProjectiles(survived, dt);

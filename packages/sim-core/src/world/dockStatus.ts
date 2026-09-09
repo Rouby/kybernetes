@@ -1,6 +1,6 @@
 /**
  * Dock status view: pure derivation of walkability + seal countdown.
- * The gauntlet portals seal on departure; while any dock gate is sealed
+ * The tube leaves seal on departure; while any dock gate is sealed
  * or the vessel is not docked, walking across is blocked. No DOM.
  */
 
@@ -23,9 +23,12 @@ export function dockWalkable(world: World, dockId: string): boolean {
   if (dock === undefined) return false;
   if (dockPhaseOf(world, dock.vesselFrame) !== 'docked') return false;
   const stationGate = world.portals[dock.stationPortal];
+  const tubeGate = world.portals[dock.tubePortal];
   const vesselGate = world.portals[dock.vesselPortal];
-  if (stationGate === undefined || vesselGate === undefined) return false;
-  return stationGate.state !== 'sealed' && vesselGate.state !== 'sealed';
+  if (stationGate === undefined || tubeGate === undefined || vesselGate === undefined) return false;
+  return (
+    stationGate.state !== 'sealed' && tubeGate.state !== 'sealed' && vesselGate.state !== 'sealed'
+  );
 }
 
 export function secondsToSealOf(world: World, vesselId: string): number {
@@ -55,6 +58,9 @@ export function dockStatusOf(
     walkable: dockWalkable(world, dockId),
     secondsToSeal: secondsToSealOf(world, dock.vesselFrame),
     stationGate: dock.stationPortal,
+    tubeGate: dock.tubePortal,
     vesselGate: dock.vesselPortal,
+    tubeRoom: dock.tubeRoom,
+    mouthWorld: { ...dock.mouthWorld },
   };
 }

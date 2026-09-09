@@ -183,7 +183,7 @@ export function mergeTelemetry(
 
 /** Dock gate leaves by portal id for the walkable overlay below. */
 export function dockGateIds(): readonly string[] {
-  return [HARBOR_DOCK.stationPortal, HARBOR_DOCK.vesselPortal];
+  return [HARBOR_DOCK.stationPortal, HARBOR_DOCK.tubePortal, HARBOR_DOCK.vesselPortal];
 }
 
 /**

@@ -46,7 +46,10 @@ function dockedStatus(): DockStatusBroadcast {
     walkable: true,
     secondsToSeal: 0,
     stationGate: 'station.korridor_ost_andock',
+    tubeGate: 'station.andock_tube_mund',
     vesselGate: 'ship.schiff_mund',
+    tubeRoom: 'station.andock_tube',
+    mouthWorld: { x1: 1210, y1: 240, x2: 1210, y2: 280 },
   };
 }
 
@@ -290,7 +293,10 @@ describe('observer + docking view-models', () => {
       walkable: true,
       secondsToSeal: 0,
       stationGate: 'station.korridor_ost_andock',
+      tubeGate: 'station.andock_tube_mund',
       vesselGate: 'ship.schiff_mund',
+      tubeRoom: 'station.andock_tube',
+      mouthWorld: { x1: 1210, y1: 240, x2: 1210, y2: 280 },
     };
     expect(dockChipText(docked)).toBe('DOCKED · walk aboard');
     expect(

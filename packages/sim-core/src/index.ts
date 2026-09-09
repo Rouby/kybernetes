@@ -18,6 +18,7 @@ export * from './world/content/StationHub.hull';
 export * from './world/crew';
 export * from './world/debugStats';
 export * from './world/decals';
+export * from './world/dockCrossing';
 export * from './world/dockStatus';
 export * from './world/doors';
 export * from './world/frames';

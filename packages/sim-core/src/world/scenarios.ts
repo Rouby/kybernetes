@@ -18,24 +18,20 @@ export const HARBOR_SHIP = 'ship';
 export const HARBOR_BEACON = 'HESP01';
 
 /**
- * Harbor tube crossing: tight volumes at both gate leaves with landings a
- * stride past each leaf, so the frame flip reads as one more step. The
- * station leaf sits at Andockschleuse A wall contact; the vessel leaf just
- * inside the west corridor mouth (open while walkable, sealed with the cycle).
+ * Harbor tube crossing: seamless world-space walk through andock_tube.
+ * The tube (1140-1210) bridges Andockschleuse A to the ship mouth at world
+ * x=1210; crossing the mouth line re-bases world position into the other
+ * frame with no jump. All three leaves seal with the cycle.
  */
 export const HARBOR_DOCK: DockLink = {
   id: 'harbor',
   stationFrame: HARBOR_STATION,
   stationPortal: 'station.korridor_ost_andock',
-  stationX: 1128,
-  stationY: 260,
+  tubePortal: 'station.andock_tube_mund',
+  tubeRoom: 'station.andock_tube',
   vesselFrame: HARBOR_SHIP,
   vesselPortal: 'ship.schiff_mund',
-  vesselX: 15,
-  vesselY: 340,
-  radius: 18,
-  vesselEgress: { x: 40, y: 340 },
-  stationEgress: { x: 1035, y: 250 },
+  mouthWorld: { x1: 1210, y1: 240, x2: 1210, y2: 280 },
 };
 
 export function buildHarborWorld(): World {
@@ -96,11 +92,13 @@ function ensureStationCrowd(world: World): World {
       color: npc.color,
     });
     next = ensureBot(next, npc.id);
-    // The crowd mills the halls, never the airlock tube itself: the
-    // dead-end tube is a transfer volume, not a lounge.
+    // The crowd mills the halls, never the airlock tube itself: the tube
+    // is a walkway, not a lounge.
     const sched = next.bots[npc.id];
     if (sched !== undefined) {
-      const waypoints = sched.waypoints.filter((point) => point.roomId !== 'station.andock_a');
+      const waypoints = sched.waypoints.filter(
+        (point) => point.roomId !== 'station.andock_a' && point.roomId !== 'station.andock_tube'
+      );
       if (waypoints.length > 0) {
         next = { ...next, bots: { ...next.bots, [npc.id]: { ...sched, waypoints } } };
       }

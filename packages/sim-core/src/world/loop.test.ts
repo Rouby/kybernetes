@@ -51,7 +51,7 @@ describe('harbor loop', () => {
     expect(world.docks.harbor?.vesselFrame).toBe('ship');
   });
 
-  it('walks aboard through the dock transfer while docked', () => {
+  it('walks aboard through the seamless tube while docked', () => {
     const staged = spawnPawn(buildHarborWorld(), {
       id: 'p1',
       owner: 'u1',
@@ -64,13 +64,13 @@ describe('harbor loop', () => {
     const aboard = eastUntilFrame(staged, 'p1', 'ship', 200);
     expect(aboard.pawns.p1?.frameId).toBe('ship');
     expect(aboard.pawns.p1?.roomHint).toBe('ship.korridor_schiff');
-    // The flip lands a stride past the ramp leaf, facing still east.
+    // The mouth crossing preserves world position, facing still east.
     const pos = aboard.pawns.p1?.pos;
     expect(pos?.x ?? 0).toBeGreaterThanOrEqual(0);
     expect(pos?.x ?? 999).toBeLessThan(120);
   });
 
-  it('ignores return transfers until the dock cycle ends', () => {
+  it('walks back ashore through the seamless tube', () => {
     const staged = spawnPawn(buildHarborWorld(), {
       id: 'p1',
       owner: 'u1',
@@ -82,8 +82,8 @@ describe('harbor loop', () => {
     });
     const aboard = eastUntilFrame(staged, 'p1', 'ship', 200);
     expect(aboard.pawns.p1?.frameId).toBe('ship');
-    // Stroll east into the corridor, then walk back out through the mouth:
-    // the airlock leaf is a stride past the flip, not a teleport pad.
+    // Stroll east into the corridor, then walk back out through the mouth
+    // in world space with no teleport pad.
     const held = driveEast(aboard, 'p1', 3);
     expect(held.pawns.p1?.frameId).toBe('ship');
     const returned = driveWest(held, 'p1', 4);

@@ -1,7 +1,7 @@
 /**
  * Vessel schedule: docked -> departing -> in_transit -> inbound -> docked.
  * Phase entries seal and unseal the Andockschleuse dock portals; while docked,
- * pawns crossing the dock transfer volumes walk aboard (no teleport).
+ * pawns walk the tube in world space with no teleport (see dockCrossing.ts).
  */
 
 import { sealPortal, unsealPortal } from './doors.js';
@@ -16,16 +16,21 @@ export const DESTINATIONS = ['New Anchorage', 'Kepler Yard', 'Vesta Dock'] as co
 
 /**
  * Docked vessel origin (frame-local → world): the west mouth at local
- * (0, 340) lands on world (1210, 260), a 70px umbilical off the
- * Andockschleuse A east face (1140) and dead-level with its axis (y 260).
- * The corridor mouth kisses the tube end for a visibly mated dock.
+ * (0, 340) lands on world (1210, 260), flush with the Andockschleuse tube
+ * east face (1210) and dead-level with its axis (y 260). The corridor mouth
+ * mates the tube end for a seamless world-space walk.
  */
 export const SHIP_ORIGIN = { x: 1210, y: -80 };
 /** Holding origin while off-station: far east, off-screen, out of the way. */
 export const SHIP_FAR_ORIGIN = { x: 2800, y: -80 };
 
-/** Ticks a pawn ignores dock transfer volumes after crossing (dock cycle). */
-export const TRANSFER_COOLDOWN_TICKS = 40;
+/** World-space mouth segment where the tube meets the ship (for crossing). */
+export interface DockMouthWorld {
+  readonly x1: number;
+  readonly y1: number;
+  readonly x2: number;
+  readonly y2: number;
+}
 
 export interface TransitState {
   readonly vesselId: string;
@@ -37,25 +42,25 @@ export interface TransitState {
 export interface DockLink {
   readonly id: string;
   readonly stationFrame: string;
+  /** Inner airlock (korridor_ost <-> andock_a). */
   readonly stationPortal: string;
-  readonly stationX: number;
-  readonly stationY: number;
+  /** Tube mouth (andock_tube <-> space), cut by the hull tube room. */
+  readonly tubePortal: string;
+  /** Station-side tube room pawns walk through. */
+  readonly tubeRoom: string;
   readonly vesselFrame: string;
+  /** Ship mouth (korridor_schiff <-> space), mates the tube in world space. */
   readonly vesselPortal: string;
-  readonly vesselX: number;
-  readonly vesselY: number;
-  readonly radius: number;
-  /** Frame-local landing just past the gate on the vessel side. */
-  readonly vesselEgress: { readonly x: number; readonly y: number };
-  /** Frame-local landing just past the gate on the station side. */
-  readonly stationEgress: { readonly x: number; readonly y: number };
+  /** World-space mouth segment where tube meets ship. */
+  readonly mouthWorld: DockMouthWorld;
 }
 
-/** Dock gate portal ids (both leaves of every dock link). */
+/** Dock gate portal ids (all leaves of every dock link). */
 export function dockGateIds(world: World): Set<string> {
   const ids = new Set<string>();
   for (const dock of Object.values(world.docks)) {
     ids.add(dock.stationPortal);
+    ids.add(dock.tubePortal);
     ids.add(dock.vesselPortal);
   }
   return ids;
@@ -64,7 +69,12 @@ export function dockGateIds(world: World): Set<string> {
 /** The dock link owning a gate portal, if any. */
 export function dockLinkForPortal(world: World, portalId: string): DockLink | undefined {
   for (const dock of Object.values(world.docks)) {
-    if (dock.stationPortal === portalId || dock.vesselPortal === portalId) return dock;
+    if (
+      dock.stationPortal === portalId ||
+      dock.tubePortal === portalId ||
+      dock.vesselPortal === portalId
+    )
+      return dock;
   }
   return undefined;
 }
@@ -116,8 +126,7 @@ export function tickSchedule(world: World, dtSeconds: number): World {
   for (const vessel of Object.values(world.vessels)) {
     next = tickVesselTransit(next, vessel.id, dtSeconds);
   }
-  next = tickVesselMotion(next, dtSeconds);
-  return stepBoarding(next);
+  return tickVesselMotion(next, dtSeconds);
 }
 
 /**
@@ -191,7 +200,7 @@ function setDockPortals(world: World, vesselId: string, open: boolean): World {
   const portals = { ...world.portals };
   for (const dock of Object.values(world.docks)) {
     if (dock.vesselFrame !== vesselId) continue;
-    for (const portalId of [dock.stationPortal, dock.vesselPortal]) {
+    for (const portalId of [dock.stationPortal, dock.tubePortal, dock.vesselPortal]) {
       const portal = portals[portalId];
       if (portal === undefined) continue;
       portals[portalId] = open ? unsealPortal(portal, world.tick) : sealPortal(portal, world.tick);
@@ -202,72 +211,13 @@ function setDockPortals(world: World, vesselId: string, open: boolean): World {
 
 function gatesSealed(world: World, dock: DockLink): boolean {
   const stationGate = world.portals[dock.stationPortal];
+  const tubeGate = world.portals[dock.tubePortal];
   const vesselGate = world.portals[dock.vesselPortal];
-  return stationGate?.state === 'sealed' || vesselGate?.state === 'sealed';
-}
-
-/**
- * Posted crew ride their vessel: captains and hired NPC crew never drift
- * through the dock volumes on patrol. Players (pawn:*) and visitors roam.
- */
-function isPostedCrew(world: World, pawnId: string): boolean {
-  if (pawnId.startsWith('captain:')) return true;
-  return pawnId.startsWith('npc:') && world.crew[pawnId] !== undefined;
-}
-
-function stepBoarding(world: World): World {
-  const docks = Object.values(world.docks);
-  if (docks.length === 0) return world;
-  const pawns = { ...world.pawns };
-  for (const dock of docks) {
-    const vessel = world.vessels[dock.vesselFrame];
-    if (vessel === undefined || vessel.schedule !== 'docked') continue;
-    if (gatesSealed(world, dock)) continue;
-    for (const pawn of Object.values(pawns)) {
-      if (isPostedCrew(world, pawn.id)) continue;
-      const moved = transferThroughDock(world, pawn, dock);
-      if (moved !== undefined) pawns[pawn.id] = moved;
-    }
-  }
-  return { ...world, pawns };
-}
-
-function transferThroughDock(
-  world: World,
-  pawn: World['pawns'][string],
-  dock: DockLink
-): World['pawns'][string] | undefined {
-  if (pawn === undefined || world.tick < pawn.transferCooldownUntilTick) return undefined;
-  // Egress lands a stride past the gate leaf on the far side, facing and
-  // velocity untouched: the flip reads as one more step down the tube.
-  if (
-    pawn.frameId === dock.stationFrame &&
-    nearPawn(pawn, dock.stationX, dock.stationY, dock.radius)
-  ) {
-    const pos = { ...dock.vesselEgress };
-    const gateRoom = world.portals[dock.vesselPortal]?.roomA;
-    return {
-      ...pawn,
-      frameId: dock.vesselFrame,
-      pos,
-      roomHint: roomAt(world, dock.vesselFrame, pos.x, pos.y) ?? gateRoom ?? pawn.roomHint,
-      transferCooldownUntilTick: world.tick + TRANSFER_COOLDOWN_TICKS,
-    };
-  }
-  if (
-    pawn.frameId === dock.vesselFrame &&
-    nearPawn(pawn, dock.vesselX, dock.vesselY, dock.radius)
-  ) {
-    const pos = { ...dock.stationEgress };
-    return {
-      ...pawn,
-      frameId: dock.stationFrame,
-      pos,
-      roomHint: roomAt(world, dock.stationFrame, pos.x, pos.y) ?? pawn.roomHint,
-      transferCooldownUntilTick: world.tick + TRANSFER_COOLDOWN_TICKS,
-    };
-  }
-  return undefined;
+  return (
+    stationGate?.state === 'sealed' ||
+    tubeGate?.state === 'sealed' ||
+    vesselGate?.state === 'sealed'
+  );
 }
 
 /** Room id containing a frame-local point; bounds are edge-inclusive. Canonical lookup shared by schedule, crew, and combat. */
@@ -284,13 +234,4 @@ export function roomAt(world: World, frameId: string, x: number, y: number): str
     }
   }
   return undefined;
-}
-
-function nearPawn(
-  pawn: { pos: { x: number; y: number } },
-  x: number,
-  y: number,
-  radius: number
-): boolean {
-  return Math.hypot(pawn.pos.x - x, pawn.pos.y - y) <= radius;
 }

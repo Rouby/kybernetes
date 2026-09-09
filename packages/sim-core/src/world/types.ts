@@ -132,8 +132,6 @@ export interface PawnBody {
   readonly speed: number;
   readonly health: HealthSummary;
   readonly color: string;
-  /** Tick before which dock transfer volumes ignore this pawn (anti-bounce). */
-  readonly transferCooldownUntilTick: number;
   /** Spoken line cleared after sayUntilTick; empty means silent. */
   readonly say: string;
   readonly sayUntilTick: number;

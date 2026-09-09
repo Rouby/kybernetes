@@ -56,7 +56,7 @@ describe('vessel docking motion', () => {
     expect(docked.vessels.ship?.origin).toEqual({ ...SHIP_ORIGIN });
   });
 
-  it('flips frames at the gate leaves with stride-scale pops', () => {
+  it('flips frames at the mated mouth with world position preserved', () => {
     let world = spawnPawn(buildHarborWorld(), {
       id: 'p1',
       owner: 'u1',
@@ -66,13 +66,20 @@ describe('vessel docking motion', () => {
       y: 260,
       color: '#fff',
     });
-    // Mid-spine strolls never trigger the leaves.
+    // Mid-spine and tube strolls never flip before the mouth line.
     world = tickWorld(stationPawn(world, 970, 260), 0.05, []);
     expect(world.pawns.p1?.frameId).toBe('station');
-    // At the east leaf the flip lands a stride inside the corridor mouth.
     world = tickWorld(stationPawn(world, 1125, 260), 0.05, []);
+    expect(world.pawns.p1?.frameId).toBe('station');
+    world = tickWorld(stationPawn(world, 1205, 260), 0.05, []);
+    expect(world.pawns.p1?.frameId).toBe('station');
+    expect(world.pawns.p1?.roomHint).toBe('station.andock_tube');
+    // A stride past the mouth (world x >= 1210) re-bases the same world
+    // point into the ship: world position never jumps.
+    world = tickWorld(stationPawn(world, 1215, 260), 0.05, []);
     expect(world.pawns.p1?.frameId).toBe('ship');
-    expect(world.pawns.p1?.pos).toEqual({ ...HARBOR_DOCK.vesselEgress });
+    expect(world.pawns.p1?.pos).toEqual({ x: 5, y: 340 });
+    expect(world.pawns.p1?.roomHint).toBe('ship.korridor_schiff');
   });
 
   it('holds shut colliders off walkable dock leaves', () => {
@@ -86,11 +93,13 @@ describe('vessel docking motion', () => {
     expect(colliders.some((wall) => wall.id === 'portal-shut.ship.bruecke_korridor')).toBe(true);
   });
 
-  it('mates the corridor mouth with the airlock at the docked origin', () => {
-    // Mouth local (0, 340) rides to world (1210, 260): a 70px umbilical
-    // off the airlock east face, level with its axis.
+  it('mates the corridor mouth with the tube at the docked origin', () => {
+    // Mouth local (0, 340) rides to world (1210, 260): flush with the tube
+    // east face, level with its axis for a seamless walk.
     const mouthWorld = { x: SHIP_ORIGIN.x + 0, y: SHIP_ORIGIN.y + 340 };
     expect(mouthWorld.x).toBe(1210);
     expect(mouthWorld.y).toBe(260);
+    expect(HARBOR_DOCK.mouthWorld).toEqual({ x1: 1210, y1: 240, x2: 1210, y2: 280 });
+    expect(HARBOR_DOCK.tubeRoom).toBe('station.andock_tube');
   });
 });

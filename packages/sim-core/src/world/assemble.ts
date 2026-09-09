@@ -122,7 +122,6 @@ export function spawnPawn(world: World, request: SpawnRequest): World {
     speed: 200,
     health: { hp: 100, maxHp: 100, suitSealed: false, incapacitated: false },
     color: request.color,
-    transferCooldownUntilTick: 0,
     say: '',
     sayUntilTick: 0,
   };

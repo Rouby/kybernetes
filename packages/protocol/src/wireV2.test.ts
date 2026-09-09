@@ -241,7 +241,10 @@ describe('protocol v2 snapshot tick monotonicity', () => {
       walkable: true,
       secondsToSeal: 0,
       stationGate: 'station.bay_gauntlet',
+      tubeGate: 'station.tube_mund',
       vesselGate: 'ship.ship_mouth',
+      tubeRoom: 'station.tube',
+      mouthWorld: { x1: 1210, y1: 240, x2: 1210, y2: 280 },
     };
     const parsed = roundTrip<ServerSnapshot>(dock);
     expect(parsed.type).toBe('DOCK_STATUS');

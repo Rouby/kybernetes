@@ -438,7 +438,7 @@ function paintDecals(
   }
 }
 
-/** Dashed logical umbilical: station gauntlet mouth to ship ramp mouth. */
+/** Solid seamless tube: station tube mouth to ship mouth in world space. */
 function paintDockLink(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
@@ -446,10 +446,9 @@ function paintDockLink(
   snapshot: SnapshotBroadcast | null
 ): void {
   if (snapshot === null) return;
-  const origins = debugOrigins(snapshot);
-  const ship = origins.get(HARBOR_DOCK.vesselFrame) ?? { x: 0, y: 0 };
-  const a = toScreen(canvas, camera, HARBOR_DOCK.stationX, HARBOR_DOCK.stationY);
-  const b = toScreen(canvas, camera, HARBOR_DOCK.vesselX + ship.x, HARBOR_DOCK.vesselY + ship.y);
+  const mouth = HARBOR_DOCK.mouthWorld;
+  const a = toScreen(canvas, camera, mouth.x1, mouth.y1);
+  const b = toScreen(canvas, camera, mouth.x2, mouth.y2);
   ctx.save();
   ctx.strokeStyle = '#3a4a63';
   ctx.lineWidth = 1.5;

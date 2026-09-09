@@ -31,7 +31,7 @@ describe('Deck Layout & Geometry', () => {
     expect(deck.height).toBe(800);
     expect(deck.walls.length).toBeGreaterThan(15);
     expect(deck.stations.length).toBe(16);
-    expect(HESPERIA_ROOMS.length).toBe(16);
+    expect(HESPERIA_ROOMS.length).toBe(17);
   });
 
   it('defines valid spawn points for all 5 starting roles', () => {
