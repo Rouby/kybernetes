@@ -6,6 +6,7 @@ export * from './debug';
 export * from './docking';
 export * from './envelope';
 export * from './intents';
+export * from './intentValidators';
 export * from './intro';
 export * from './quant';
 export * from './seq';
