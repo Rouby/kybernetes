@@ -897,7 +897,8 @@ export class WebGL2Renderer {
     width: number,
     height: number
   ): { playerLoSPoly: Point2D[]; welders: WelderArcSet } {
-    const opaqueWalls = getWorldOpaqueWalls(HESPERIA_WALLS, doors, state.breaches, frameOffset);
+    const carveBreaches = (state.breaches ?? []).filter((breach) => breach.sizeClass === 'breach');
+    const opaqueWalls = getWorldOpaqueWalls(HESPERIA_WALLS, doors, carveBreaches, frameOffset);
     const doorsHash = (state.boarding?.doors || [])
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
       .join('|');

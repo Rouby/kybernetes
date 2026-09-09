@@ -59,3 +59,50 @@ describe('framed breach carving', () => {
     expect(idsOf(side(shelled))).toEqual(idsOf(side(calm)));
   });
 });
+
+describe('puncture versus breach carving', () => {
+  it('never carves sight walls for bullet punctures', () => {
+    const wall = wallById('station.habitat.w');
+    const puncture = {
+      frameId: 'station',
+      areaM2: 0.05,
+      x1: wall.x1,
+      y1: 50,
+      x2: wall.x2,
+      y2: 150,
+    };
+    const carved = carveWallsByFrame(HESPERIA_WALLS, [puncture]);
+    expect(carved.find((entry) => entry.id === 'station.habitat.w')).toEqual(
+      wallById('station.habitat.w')
+    );
+  });
+
+  it('carves sight walls once the hole grows past the puncture threshold', () => {
+    const wall = wallById('station.habitat.w');
+    const breach = {
+      frameId: 'station',
+      areaM2: 0.3,
+      x1: wall.x1,
+      y1: 50,
+      x2: wall.x2,
+      y2: 150,
+    };
+    const carved = carveWallsByFrame(HESPERIA_WALLS, [breach]);
+    expect(carved.find((entry) => entry.id === 'station.habitat.w')).toBeUndefined();
+  });
+
+  it('holds opaque sight blockers steady through punctures', () => {
+    const wall = wallById('station.habitat.w');
+    const puncture = {
+      frameId: 'station',
+      areaM2: 0.05,
+      x1: wall.x1,
+      y1: 50,
+      x2: wall.x2,
+      y2: 150,
+    };
+    const calm = getWorldOpaqueWalls(HESPERIA_WALLS, [], [], { ...SHIP_ORIGIN });
+    const nicked = getWorldOpaqueWalls(HESPERIA_WALLS, [], [puncture], { ...SHIP_ORIGIN });
+    expect(idsOf(nicked)).toEqual(idsOf(calm));
+  });
+});

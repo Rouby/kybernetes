@@ -1,5 +1,9 @@
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
-import { type BreachSegment, carveWallsAtBreachSegments } from '../world/breachView.js';
+import {
+  type BreachSegment,
+  carveWallsAtBreachSegments,
+  PUNCTURE_MAX_M2,
+} from '../world/breachView.js';
 import { type Point2D, segmentsIntersect } from './collision';
 import {
   applyShipOffsetToWalls,
@@ -16,13 +20,21 @@ export interface VisibilityRayHit {
   distance: number;
 }
 
-/** Breach cut tagged with its owning frame; untagged cuts keep legacy broadcast behavior. */
-export type FramedBreachSegment = BreachSegment & { readonly frameId?: string };
+/**
+ * Breach cut tagged with its owning frame; untagged cuts keep legacy broadcast behavior.
+ * Punctures (areaM2 below PUNCTURE_MAX_M2) are impact decals and never carve walls;
+ * only full breaches open sight lines. Segments without area keep legacy carving.
+ */
+export type FramedBreachSegment = BreachSegment & {
+  readonly frameId?: string;
+  readonly areaM2?: number;
+};
 
 function gapsForFrame(breaches: readonly FramedBreachSegment[], ship: boolean): BreachSegment[] {
   const gaps: BreachSegment[] = [];
   for (const breach of breaches) {
     if (breach.frameId !== undefined && (breach.frameId === 'ship') !== ship) continue;
+    if (breach.areaM2 !== undefined && breach.areaM2 < PUNCTURE_MAX_M2) continue;
     gaps.push({ x1: breach.x1, y1: breach.y1, x2: breach.x2, y2: breach.y2 });
   }
   return gaps;
@@ -32,6 +44,7 @@ function gapsForFrame(breaches: readonly FramedBreachSegment[], ship: boolean): 
  * Cut breach gaps only into their own frame's walls. Ship cuts are
  * frame-local like ship walls, so carving the mixed wall soup with raw
  * segments punched holes into station bulkheads (and poisoned sight).
+ * Puncture decals never carve; only full breaches open walls for sight.
  */
 export function carveWallsByFrame(
   walls: readonly WallSegment[],

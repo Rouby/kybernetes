@@ -395,7 +395,7 @@ export class DeckPass {
 
     const gaps = breaches
       .filter((breach) => breach.sizeClass === 'breach')
-      .map(({ frameId, x1, y1, x2, y2 }) => ({ frameId, x1, y1, x2, y2 }));
+      .map(({ frameId, x1, y1, x2, y2, areaM2 }) => ({ frameId, x1, y1, x2, y2, areaM2 }));
     const walls = applyShipOffsetToWalls(
       gaps.length > 0 ? carveWallsByFrame(HESPERIA_WALLS, gaps) : HESPERIA_WALLS,
       this.shipOffset
