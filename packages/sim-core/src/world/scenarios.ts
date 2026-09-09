@@ -1,5 +1,5 @@
 /**
- * Harbor scenario: station hub plus one docked reference vessel, gauntlet dock
+ * Harbor scenario: station hub plus one docked reference vessel, Andockschleuse dock
  * link, captain aboard, and transit primed. The M5 loop stage; the SimHost,
  * the playable preview, and the loop tests all start here.
  */
@@ -20,22 +20,22 @@ export const HARBOR_BEACON = 'HESP01';
 /**
  * Harbor tube crossing: tight volumes at both gate leaves with landings a
  * stride past each leaf, so the frame flip reads as one more step. The
- * station leaf sits at gauntlet wall contact; the vessel leaf just inside
- * the stern ramp mouth (open while walkable, sealed with the cycle).
+ * station leaf sits at Andockschleuse A wall contact; the vessel leaf just
+ * inside the west corridor mouth (open while walkable, sealed with the cycle).
  */
 export const HARBOR_DOCK: DockLink = {
   id: 'harbor',
   stationFrame: HARBOR_STATION,
-  stationPortal: 'station.bay_gauntlet',
-  stationX: 1008,
-  stationY: 200,
+  stationPortal: 'station.korridor_ost_andock',
+  stationX: 1128,
+  stationY: 260,
   vesselFrame: HARBOR_SHIP,
-  vesselPortal: 'ship.ship_mouth',
-  vesselX: 30,
-  vesselY: 360,
+  vesselPortal: 'ship.schiff_mund',
+  vesselX: 15,
+  vesselY: 340,
   radius: 18,
-  vesselEgress: { x: 18, y: 360 },
-  stationEgress: { x: 1008, y: 200 },
+  vesselEgress: { x: 40, y: 340 },
+  stationEgress: { x: 1035, y: 250 },
 };
 
 export function buildHarborWorld(): World {
@@ -63,7 +63,7 @@ export function buildHarborWorld(): World {
   return ensureStationCrowd(world);
 }
 
-/** Ambient concourse crowd: three wanderers that never crew, never fight. */
+/** Ambient harbor crowd: three wanderers that never crew, never fight. */
 const STATION_CROWD: ReadonlyArray<{
   id: string;
   roomId: string;
@@ -71,9 +71,15 @@ const STATION_CROWD: ReadonlyArray<{
   y: number;
   color: string;
 }> = [
-  { id: 'npc:station:concourse', roomId: 'station.concourse', x: 300, y: 480, color: '#2dd4bf' },
-  { id: 'npc:station:overlook', roomId: 'station.overlook', x: 300, y: -70, color: '#b55fe6' },
-  { id: 'npc:station:lounge', roomId: 'station.lounge', x: 750, y: 350, color: '#ffd166' },
+  {
+    id: 'npc:station:korridor',
+    roomId: 'station.korridor_mitte',
+    x: 460,
+    y: 240,
+    color: '#2dd4bf',
+  },
+  { id: 'npc:station:habitat', roomId: 'station.habitat', x: 160, y: 100, color: '#b55fe6' },
+  { id: 'npc:station:fracht', roomId: 'station.frachthalle', x: 410, y: 380, color: '#ffd166' },
 ];
 
 function ensureStationCrowd(world: World): World {
@@ -90,11 +96,11 @@ function ensureStationCrowd(world: World): World {
       color: npc.color,
     });
     next = ensureBot(next, npc.id);
-    // The crowd mills the concourse, never the gauntlet tube itself: the
+    // The crowd mills the halls, never the airlock tube itself: the
     // dead-end tube is a transfer volume, not a lounge.
     const sched = next.bots[npc.id];
     if (sched !== undefined) {
-      const waypoints = sched.waypoints.filter((point) => point.roomId !== 'station.gauntlet');
+      const waypoints = sched.waypoints.filter((point) => point.roomId !== 'station.andock_a');
       if (waypoints.length > 0) {
         next = { ...next, bots: { ...next.bots, [npc.id]: { ...sched, waypoints } } };
       }

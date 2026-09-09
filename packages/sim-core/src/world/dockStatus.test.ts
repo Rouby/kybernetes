@@ -9,8 +9,8 @@ describe('physical dock status', () => {
     expect(dockWalkable(world, 'harbor')).toBe(true);
     const status = dockStatusOf(world, 'harbor', 1000);
     expect(status?.walkable).toBe(true);
-    expect(status?.stationGate).toBe('station.bay_gauntlet');
-    expect(status?.vesselGate).toBe('ship.ship_mouth');
+    expect(status?.stationGate).toBe('station.korridor_ost_andock');
+    expect(status?.vesselGate).toBe('ship.schiff_mund');
   });
 
   it('enters boarding_closing inside the final 5s docked', () => {

@@ -12,9 +12,9 @@ function shipWorld(): World {
     id: 'p1',
     owner: 'u1',
     frameId: 'ship',
-    roomId: 'ship.corridor',
-    x: 180,
-    y: 360,
+    roomId: 'ship.korridor_schiff',
+    x: 30,
+    y: 200,
     color: '#fff',
   });
 }
@@ -22,15 +22,15 @@ function shipWorld(): World {
 describe('world doors', () => {
   it('finds the nearest portal within range', () => {
     const world = shipWorld();
-    expect(nearestPortal(world, 'p1', 80)?.id).toBe('ship.door_bridge');
+    expect(nearestPortal(world, 'p1', 80)?.id).toBe('ship.kajute_nord_korridor');
     expect(nearestPortal(world, 'p1', 10)).toBeUndefined();
     expect(nearestPortal(world, 'ghost', 1000)).toBeUndefined();
   });
 
   it('rejects toggles below the portal clearance', () => {
     const world = shipWorld();
-    const portal = world.portals['ship.door_bridge'];
-    if (portal === undefined) throw new Error('missing door_bridge');
+    const portal = world.portals['ship.kajute_nord_korridor'];
+    if (portal === undefined) throw new Error('missing kajute_nord_korridor');
     const guarded: World = {
       ...world,
       portals: { ...world.portals, [portal.id]: { ...portal, clearance: 2 } },

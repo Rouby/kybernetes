@@ -19,9 +19,9 @@ function shipBotWorld(): World {
     id: 'b1',
     owner: 'npc:ship:engineer',
     frameId: 'ship',
-    roomId: 'ship.corridor',
-    x: 480,
-    y: 360,
+    roomId: 'ship.korridor_schiff',
+    x: 30,
+    y: 350,
     color: '#9fb4c8',
   });
   return ensureBot(withBot, 'b1');
@@ -30,7 +30,7 @@ function shipBotWorld(): World {
 describe('bot schedules', () => {
   it('assigns sorted room-center patrols', () => {
     const world = shipBotWorld();
-    expect(world.bots.b1?.waypoints.length).toBe(9);
+    expect(world.bots.b1?.waypoints.length).toBe(5);
     expect(defaultWaypoints(world, 'void')).toEqual([]);
     const schedule = world.bots.b1;
     if (schedule === undefined) throw new Error('missing schedule');
@@ -86,29 +86,29 @@ describe('bot schedules', () => {
 
   it('routes cross-room legs through door midpoints, not bulkheads', () => {
     const world = shipBotWorld();
-    const door = routeSubTarget(world, 'ship.bridge', 'ship.corridor');
+    const door = routeSubTarget(world, 'ship.bruecke', 'ship.korridor_schiff');
     expect(door).toBeDefined();
-    // Bridge door segment midpoint (160-200 at y:320).
-    expect(door?.x).toBeCloseTo(180, 0);
-    expect(door?.y).toBeCloseTo(320, 0);
-    expect(routeSubTarget(world, 'ship.corridor', 'ship.corridor')).toBeUndefined();
-    expect(routeSubTarget(world, 'ship.bridge', 'void.nowhere')).toBeUndefined();
+    // Bridge door segment midpoint (x:60, y:50-90).
+    expect(door?.x).toBeCloseTo(60, 0);
+    expect(door?.y).toBeCloseTo(70, 0);
+    expect(routeSubTarget(world, 'ship.korridor_schiff', 'ship.korridor_schiff')).toBeUndefined();
+    expect(routeSubTarget(world, 'ship.bruecke', 'void.nowhere')).toBeUndefined();
   });
 
   it('skips a waypoint it cannot make progress toward', () => {
     let world = shipBotWorld();
     // One target behind a sealed door: the bot leans on it with no progress.
     const bot = world.bots.b1;
-    const door = world.portals['ship.door_bridge'];
+    const door = world.portals['ship.bruecke_korridor'];
     if (bot === undefined || door === undefined) throw new Error('missing rig');
     world = {
       ...world,
-      portals: { ...world.portals, 'ship.door_bridge': { ...door, state: 'sealed' } },
+      portals: { ...world.portals, 'ship.bruecke_korridor': { ...door, state: 'sealed' } },
       bots: {
         ...world.bots,
         b1: {
           ...bot,
-          waypoints: [{ x: 180, y: 260, roomId: 'ship.bridge' }],
+          waypoints: [{ x: 140, y: 65, roomId: 'ship.bruecke' }],
           index: 0,
           waitUntilTick: 0,
         },

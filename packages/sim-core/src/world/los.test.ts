@@ -15,9 +15,9 @@ function shipWorld(): World {
     id: 'p1',
     owner: 'u1',
     frameId: 'ship',
-    roomId: 'ship.corridor',
-    x: 480,
-    y: 360,
+    roomId: 'ship.korridor_schiff',
+    x: 30,
+    y: 350,
     color: '#fff',
   });
 }
@@ -34,25 +34,25 @@ describe('world line of sight', () => {
     const world = assembleWorld([{ frameId: 'station', hull: StationHubSpec }]);
     const blockers = sightBlockers(world, 'station');
     const pane = blockers.filter(
-      (blocker) => blocker.x1 === 100 && blocker.x2 === 500 && blocker.y1 === 0
+      (blocker) => blocker.x1 === 100 && blocker.x2 === 220 && blocker.y1 === 0
     );
     expect(pane).toHaveLength(0);
-    expect(hasLineOfSight(blockers, { x: 300, y: 40 }, { x: 300, y: -40 })).toBe(true);
-    expect(hasLineOfSight(blockers, { x: 300, y: 200 }, { x: 700, y: 200 })).toBe(false);
+    expect(hasLineOfSight(blockers, { x: 160, y: 40 }, { x: 160, y: -40 })).toBe(true);
+    expect(hasLineOfSight(blockers, { x: 160, y: 100 }, { x: 160, y: 240 })).toBe(false);
   });
 });
 
 describe('world room visibility', () => {
   it('reveals neighbors through open doors only', () => {
     const world = shipWorld();
-    expect(visibleRooms(world, 'p1')).toEqual(['ship.corridor']);
-    const toggled = tryToggleDoor(world, 'ship.door_cargo', true, 0);
+    expect(visibleRooms(world, 'p1')).toEqual(['ship.korridor_schiff']);
+    const toggled = tryToggleDoor(world, 'ship.kajute_nord_korridor', true, 0);
     if (!toggled.ok) throw new Error('door toggle failed');
     const opened: World = {
       ...world,
       portals: { ...world.portals, [toggled.portal.id]: toggled.portal },
     };
-    expect(visibleRooms(opened, 'p1').sort()).toEqual(['ship.cargo', 'ship.corridor']);
+    expect(visibleRooms(opened, 'p1').sort()).toEqual(['ship.kajute_nord', 'ship.korridor_schiff']);
   });
 
   it('sees through interior windows without connecting rooms', () => {
@@ -63,14 +63,14 @@ describe('world room visibility', () => {
 
   it('remembers explored rooms after doors close', () => {
     const world = shipWorld();
-    const toggled = tryToggleDoor(world, 'ship.door_cargo', true, 0);
+    const toggled = tryToggleDoor(world, 'ship.kajute_nord_korridor', true, 0);
     if (!toggled.ok) throw new Error('door toggle failed');
     const opened: World = {
       ...world,
       portals: { ...world.portals, [toggled.portal.id]: toggled.portal },
     };
     const explored = tickWorld(opened, 1 / 20, []);
-    expect(explored.memory.p1).toContain('ship.cargo');
+    expect(explored.memory.p1).toContain('ship.kajute_nord');
     const shut: World = {
       ...explored,
       portals: {
@@ -79,7 +79,7 @@ describe('world room visibility', () => {
       },
     };
     const later = tickWorld(shut, 1 / 20, []);
-    expect(visibleRooms(later, 'p1')).toEqual(['ship.corridor']);
-    expect(later.memory.p1).toContain('ship.cargo');
+    expect(visibleRooms(later, 'p1')).toEqual(['ship.korridor_schiff']);
+    expect(later.memory.p1).toContain('ship.kajute_nord');
   });
 });

@@ -18,7 +18,7 @@ test.describe('Harbor client smoke (C2)', () => {
     const canvas = await harborBoard(page, { callsign: 'Smoke-1' });
     const box = await canvas.boundingBox();
     expect(box?.width ?? 0).toBeGreaterThan(900);
-    await expect(page.getByTestId('harbor-status')).toContainText('room:lobby');
+    await expect(page.getByTestId('harbor-status')).toContainText('room:korridor_mitte');
     const first = await waitForHarbor(page, 'harbor-status', (t) => /tick:(\d+)/.test(t), 10000);
     const firstTick = Number(/tick:(\d+)/.exec(first)?.[1] ?? 0);
     const second = await waitForHarbor(
@@ -142,13 +142,13 @@ test.describe('Harbor client smoke (C2)', () => {
     );
   });
 
-  test('toggles the lobby door open', async ({ page }) => {
+  test('toggles a corridor door open', async ({ page }) => {
     await harborBoard(page, { callsign: 'Smoke-5' });
     await page.keyboard.down('d');
-    await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 510, 20000);
+    await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 380, 20000);
     await page.keyboard.up('d');
     await page.keyboard.press('e');
     await expect(page.getByTestId('harbor-notices')).toContainText('DOOR_ok', { timeout: 10000 });
-    expect(statRoom(await page.getByTestId('harbor-status').innerText())).toBe('lobby');
+    expect(statRoom(await page.getByTestId('harbor-status').innerText())).toBe('korridor_mitte');
   });
 });

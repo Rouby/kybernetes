@@ -8,12 +8,12 @@ describe('dock gate door discipline', () => {
     const refused = routeIntent(
       world,
       'pawn:u1',
-      { type: 'DOOR', seq: 1, portalId: 'ship.ship_mouth', wantOpen: true },
+      { type: 'DOOR', seq: 1, portalId: 'ship.schiff_mund', wantOpen: true },
       []
     );
     expect(refused.notice).toBe('DOOR_dock-cycle');
-    expect(refused.world.portals['ship.ship_mouth']?.state).toBe(
-      world.portals['ship.ship_mouth']?.state
+    expect(refused.world.portals['ship.schiff_mund']?.state).toBe(
+      world.portals['ship.schiff_mund']?.state
     );
   });
 
@@ -22,7 +22,7 @@ describe('dock gate door discipline', () => {
     const result = routeIntent(
       world,
       'pawn:u1',
-      { type: 'DOOR', seq: 1, portalId: 'station.lobby_bay', wantOpen: true },
+      { type: 'DOOR', seq: 1, portalId: 'station.habitat_korridor', wantOpen: true },
       []
     );
     expect(result.notice).toMatch(/^DOOR_/);

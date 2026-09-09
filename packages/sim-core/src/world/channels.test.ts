@@ -39,9 +39,9 @@ function liveWorld(): { world: World; offerId: string } {
     id: 'hero',
     owner: 'hero',
     frameId: 'ship',
-    roomId: 'ship.corridor',
-    x: 480,
-    y: 360,
+    roomId: 'ship.korridor_schiff',
+    x: 30,
+    y: 350,
     color: '#ffd166',
   });
   const talked = talkToCaptain(world, 'captain:ship', () => 0.1);
@@ -72,7 +72,7 @@ describe('channel coverage', () => {
     const { world } = liveWorld();
     const telemetry = buildTelemetry(world, 1000, [
       {
-        roomId: 'ship.bridge',
+        roomId: 'ship.bruecke',
         pressureKpa: 101.3,
         tempCelsius: 21,
         o2Percent: 20.9,
@@ -82,7 +82,7 @@ describe('channel coverage', () => {
     ]);
     expect(telemetry.subsystems.hull).toBe(100);
     expect(telemetry.subsystems.crew).toBeGreaterThanOrEqual(4);
-    expect(telemetry.atmos[0]?.roomId).toBe('ship.bridge');
+    expect(telemetry.atmos[0]?.roomId).toBe('ship.bruecke');
     expect(telemetry.atmos[0]?.repressurizing).toBe(false);
   });
 
@@ -172,7 +172,7 @@ describe('snapshot deltas and quantization', () => {
   it('diffs atmos rooms on quantized values only', () => {
     const rooms = [
       {
-        roomId: 'ship.bridge',
+        roomId: 'ship.bruecke',
         pressureKpa: 101.3,
         tempCelsius: 21,
         o2Percent: 20.9,
@@ -222,9 +222,9 @@ describe('snapshot deltas and quantization', () => {
     const plain = buildTelemetry(world, 1000, []);
     expect(plain.flows).toEqual([]);
     const windy = buildTelemetry(world, 1000, [], true, [
-      { portalId: 'station.lobby_bay', velocityMps: 8.66 },
-      { portalId: 'station.bay_gauntlet', velocityMps: 0 },
+      { portalId: 'station.habitat_korridor', velocityMps: 8.66 },
+      { portalId: 'station.korridor_ost_andock', velocityMps: 0 },
     ]);
-    expect(windy.flows).toEqual([{ portalId: 'station.lobby_bay', velocityMps: 8.7 }]);
+    expect(windy.flows).toEqual([{ portalId: 'station.habitat_korridor', velocityMps: 8.7 }]);
   });
 });

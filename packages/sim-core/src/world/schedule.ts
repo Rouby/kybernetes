@@ -1,6 +1,6 @@
 /**
  * Vessel schedule: docked -> departing -> in_transit -> inbound -> docked.
- * Phase entries seal and unseal the gauntlet dock portals; while docked,
+ * Phase entries seal and unseal the Andockschleuse dock portals; while docked,
  * pawns crossing the dock transfer volumes walk aboard (no teleport).
  */
 
@@ -15,16 +15,16 @@ export const INBOUND_S = 5;
 export const DESTINATIONS = ['New Anchorage', 'Kepler Yard', 'Vesta Dock'] as const;
 
 /**
- * Docked vessel origin (frame-local → world): the stern ramp mouth at local
- * (100, 360) lands on world (1090, 200), a 70px umbilical off the gauntlet
- * east face (1020) and dead-level with its axis (y 200). The wedge tip at
- * local x40 kisses the tube mouth for a visibly mated dock.
+ * Docked vessel origin (frame-local → world): the west mouth at local
+ * (0, 340) lands on world (1210, 260), a 70px umbilical off the
+ * Andockschleuse A east face (1140) and dead-level with its axis (y 260).
+ * The corridor mouth kisses the tube end for a visibly mated dock.
  */
-export const SHIP_ORIGIN = { x: 990, y: -160 };
+export const SHIP_ORIGIN = { x: 1210, y: -80 };
 /** Holding origin while off-station: far east, off-screen, out of the way. */
-export const SHIP_FAR_ORIGIN = { x: 2600, y: -400 };
+export const SHIP_FAR_ORIGIN = { x: 2800, y: -80 };
 
-/** Ticks a pawn ignores dock transfer volumes after crossing (gauntlet cycle). */
+/** Ticks a pawn ignores dock transfer volumes after crossing (dock cycle). */
 export const TRANSFER_COOLDOWN_TICKS = 40;
 
 export interface TransitState {

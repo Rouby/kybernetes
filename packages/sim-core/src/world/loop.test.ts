@@ -56,35 +56,35 @@ describe('harbor loop', () => {
       id: 'p1',
       owner: 'u1',
       frameId: 'station',
-      roomId: 'station.bay',
-      x: 800,
-      y: 200,
+      roomId: 'station.andock_a',
+      x: 1060,
+      y: 260,
       color: '#fff',
     });
     const aboard = eastUntilFrame(staged, 'p1', 'ship', 200);
     expect(aboard.pawns.p1?.frameId).toBe('ship');
-    expect(aboard.pawns.p1?.roomHint).toBe('ship.corridor');
+    expect(aboard.pawns.p1?.roomHint).toBe('ship.korridor_schiff');
     // The flip lands a stride past the ramp leaf, facing still east.
     const pos = aboard.pawns.p1?.pos;
     expect(pos?.x ?? 0).toBeGreaterThanOrEqual(0);
     expect(pos?.x ?? 999).toBeLessThan(120);
   });
 
-  it('ignores return transfers until the gauntlet cycle ends', () => {
+  it('ignores return transfers until the dock cycle ends', () => {
     const staged = spawnPawn(buildHarborWorld(), {
       id: 'p1',
       owner: 'u1',
       frameId: 'station',
-      roomId: 'station.bay',
-      x: 800,
-      y: 200,
+      roomId: 'station.andock_a',
+      x: 1060,
+      y: 260,
       color: '#fff',
     });
     const aboard = eastUntilFrame(staged, 'p1', 'ship', 200);
     expect(aboard.pawns.p1?.frameId).toBe('ship');
-    // Stroll east into the corridor, then walk back out through the ramp:
-    // the gauntlet leaf is a stride past the flip, not a teleport pad.
-    const held = driveEast(aboard, 'p1', 1);
+    // Stroll east into the corridor, then walk back out through the mouth:
+    // the airlock leaf is a stride past the flip, not a teleport pad.
+    const held = driveEast(aboard, 'p1', 3);
     expect(held.pawns.p1?.frameId).toBe('ship');
     const returned = driveWest(held, 'p1', 4);
     expect(returned.pawns.p1?.frameId).toBe('station');
@@ -95,9 +95,9 @@ describe('harbor loop', () => {
       id: 'p1',
       owner: 'u1',
       frameId: 'ship',
-      roomId: 'ship.corridor',
-      x: 480,
-      y: 360,
+      roomId: 'ship.korridor_schiff',
+      x: 30,
+      y: 350,
       color: '#fff',
     });
     const talked = talkToCaptain(world, captainIdFor('ship'), RIGGED_RNG);
@@ -111,7 +111,7 @@ describe('harbor loop', () => {
     expect(world.crew.p1?.role).toBe('engineer');
     expect(world.pawns['npc:ship:cook']?.frameId).toBe('ship');
     expect(world.vessels.ship?.schedule).toBe('departing');
-    expect(world.portals['station.bay_gauntlet']?.state).toBe('sealed');
+    expect(world.portals['station.korridor_ost_andock']?.state).toBe('sealed');
 
     world = drive(world, 3.5);
     expect(world.vessels.ship?.schedule).toBe('in_transit');
@@ -127,7 +127,7 @@ describe('harbor loop', () => {
     expect(world.vessels.ship?.schedule).toBe('docked');
     expect(world.transit.ship?.legIndex).toBe(1);
     expect(world.transit.ship?.destination).toBe('Kepler Yard');
-    expect(world.portals['station.bay_gauntlet']?.state).toBe('closed');
+    expect(world.portals['station.korridor_ost_andock']?.state).toBe('closed');
   });
 
   it('starts a second watch on the next leg for the stay-aboard crew', () => {
@@ -135,9 +135,9 @@ describe('harbor loop', () => {
       id: 'p1',
       owner: 'u1',
       frameId: 'ship',
-      roomId: 'ship.corridor',
-      x: 480,
-      y: 360,
+      roomId: 'ship.korridor_schiff',
+      x: 30,
+      y: 350,
       color: '#fff',
     });
     const talked = talkToCaptain(world, captainIdFor('ship'), RIGGED_RNG);
@@ -157,9 +157,9 @@ describe('harbor loop', () => {
       id: 'p1',
       owner: 'u1',
       frameId: 'ship',
-      roomId: 'ship.corridor',
-      x: 480,
-      y: 360,
+      roomId: 'ship.korridor_schiff',
+      x: 30,
+      y: 350,
       color: '#fff',
     });
     expect(hireAboard(world, 'ship', 'p1', 'engineer', 'offer_bogus').hired).toBe(false);

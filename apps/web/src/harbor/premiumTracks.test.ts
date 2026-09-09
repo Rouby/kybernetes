@@ -45,8 +45,8 @@ function dockedStatus(): DockStatusBroadcast {
     phase: 'docked',
     walkable: true,
     secondsToSeal: 0,
-    stationGate: 'station.bay_gauntlet',
-    vesselGate: 'ship.ship_mouth',
+    stationGate: 'station.korridor_ost_andock',
+    vesselGate: 'ship.schiff_mund',
   };
 }
 
@@ -203,14 +203,14 @@ describe('walkable dock overlays and frame motion', () => {
       y2: 1,
       isOpen: false,
       isAirlock: true,
-      roomA: 'station.bay',
+      roomA: 'station.korridor_ost',
       roomB: 'vacuum',
     });
-    const doors = [door('station.bay_gauntlet'), door('station.lobby_bay')];
+    const doors = [door('station.korridor_ost_andock'), door('station.habitat_korridor')];
     expect(applyDockGates(doors, false)).toBe(doors);
     const open = applyDockGates(doors, true);
-    expect(open.find((door) => door.id === 'station.bay_gauntlet')?.isOpen).toBe(true);
-    expect(open.find((door) => door.id === 'station.lobby_bay')?.isOpen).toBe(false);
+    expect(open.find((door) => door.id === 'station.korridor_ost_andock')?.isOpen).toBe(true);
+    expect(open.find((door) => door.id === 'station.habitat_korridor')?.isOpen).toBe(false);
   });
 
   it('maps dock phases onto prediction vessel schedules', () => {
@@ -220,28 +220,28 @@ describe('walkable dock overlays and frame motion', () => {
   });
 
   it('smooths frame velocity without teleporting the camera', () => {
-    const still = stepFrameMotion(null, 990, -160, 1000);
+    const still = stepFrameMotion(null, 1210, -80, 1000);
     expect(still.velX).toBe(0);
-    const cruise = stepFrameMotion(still, 990 + 34, -160, 1100);
+    const cruise = stepFrameMotion(still, 1210 + 34, -80, 1100);
     expect(cruise.velX).toBeGreaterThan(0);
     expect(cruise.velX).toBeLessThanOrEqual(FRAME_VEL_MAX);
-    const warp = stepFrameMotion(still, 990 + 5000, -160, 1100);
+    const warp = stepFrameMotion(still, 1210 + 5000, -80, 1100);
     expect(warp.velX).toBeLessThanOrEqual(FRAME_VEL_MAX);
-    const stalled = stepFrameMotion(cruise, 990 + 34, -160, 1105);
+    const stalled = stepFrameMotion(cruise, 1210 + 34, -80, 1105);
     expect(stalled.velX).toBe(cruise.velX);
   });
 
   it('overlays walkable gates and phase onto prediction worlds', () => {
     const world = buildHarborWorld();
     const open = withDockWalkable(world, dockedStatus());
-    expect(open.portals['station.bay_gauntlet']?.state).toBe('open');
+    expect(open.portals['station.korridor_ost_andock']?.state).toBe('open');
     expect(open.vessels.ship?.schedule).toBe('docked');
     const away = withDockWalkable(world, {
       ...dockedStatus(),
       walkable: false,
       phase: 'in_transit',
     });
-    expect(away.portals['station.bay_gauntlet']?.state).not.toBe('open');
+    expect(away.portals['station.korridor_ost_andock']?.state).not.toBe('open');
     expect(away.vessels.ship?.schedule).toBe('in_transit');
   });
 });
@@ -289,8 +289,8 @@ describe('observer + docking view-models', () => {
       phase: 'docked',
       walkable: true,
       secondsToSeal: 0,
-      stationGate: 'station.bay_gauntlet',
-      vesselGate: 'ship.ship_mouth',
+      stationGate: 'station.korridor_ost_andock',
+      vesselGate: 'ship.schiff_mund',
     };
     expect(dockChipText(docked)).toBe('DOCKED · walk aboard');
     expect(

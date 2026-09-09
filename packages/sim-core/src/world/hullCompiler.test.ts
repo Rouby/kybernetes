@@ -30,16 +30,16 @@ describe('hullCompiler scaffold', () => {
   it('compiles station hub with no errors', () => {
     const compiled = compileHull(StationHubSpec);
     expect(compiled.errors).toEqual([]);
-    expect(compiled.rooms).toHaveLength(7);
-    expect(compiled.airRooms).toHaveLength(7);
+    expect(compiled.rooms).toHaveLength(11);
+    expect(compiled.airRooms).toHaveLength(11);
     expect(compiled.spawns.fresh_spawn).toBeDefined();
   });
 
   it('compiles hesperia v2 with no errors', () => {
     const compiled = compileHull(HesperiaV2Spec);
     expect(compiled.errors).toEqual([]);
-    expect(compiled.rooms).toHaveLength(9);
-    expect(compiled.portals).toHaveLength(9);
+    expect(compiled.rooms).toHaveLength(5);
+    expect(compiled.portals).toHaveLength(5);
   });
 
   it('flags unreachable rooms', () => {
@@ -65,15 +65,15 @@ describe('hullCompiler scaffold', () => {
 describe('hullCompiler door gaps', () => {
   it('cuts exact gaps on both sides of a shared-edge door', () => {
     const walls = toLegacyWalls(compileHull(HesperiaV2Spec));
-    expect(minWallDistance(walls, 180, 320)).toBeGreaterThan(10);
-    expect(minWallDistance(walls, 130, 320)).toBeLessThan(1);
-    expect(minWallDistance(walls, 230, 320)).toBeLessThan(1);
+    expect(minWallDistance(walls, 60, 70)).toBeGreaterThan(10);
+    expect(minWallDistance(walls, 60, 30)).toBeLessThan(1);
+    expect(minWallDistance(walls, 60, 110)).toBeLessThan(1);
   });
 
-  it('cuts cargo-bay gaps on the corridor south edge', () => {
+  it('cuts cabin gaps on the ship corridor east edge', () => {
     const walls = toLegacyWalls(compileHull(HesperiaV2Spec));
-    expect(minWallDistance(walls, 400, 400)).toBeGreaterThan(10);
-    expect(minWallDistance(walls, 300, 400)).toBeLessThan(1);
+    expect(minWallDistance(walls, 60, 200)).toBeGreaterThan(10);
+    expect(minWallDistance(walls, 60, 150)).toBeLessThan(1);
   });
 
   it('flags portals that touch no wall of their rooms', () => {
@@ -98,7 +98,7 @@ describe('hullCompiler door gaps', () => {
 describe('hullCompiler windows', () => {
   it('emits transparent movement-blocking panes', () => {
     const walls = toLegacyWalls(compileHull(StationHubSpec));
-    const pane = walls.find((wall) => wall.id === 'portal.lobby_window');
+    const pane = walls.find((wall) => wall.id === 'portal.habitat_window');
     expect(pane?.isWindow).toBe(true);
     expect(pane?.isOpaque).toBe(false);
     expect(pane?.isTraversable).toBe(false);
@@ -110,7 +110,7 @@ describe('hullCompiler windows', () => {
 
   it('keeps solid walls sight- and movement-blocking', () => {
     const walls = toLegacyWalls(compileHull(HesperiaV2Spec));
-    const solid = walls.find((wall) => wall.id === 'hesperia_v2.bridge.n');
+    const solid = walls.find((wall) => wall.id === 'hesperia_v2.bruecke.n');
     expect(solid).toBeDefined();
     if (solid !== undefined) {
       expect(wallBlocksSight(solid)).toBe(true);
@@ -120,7 +120,7 @@ describe('hullCompiler windows', () => {
 
   it('compiles window portals to sealed non-connecting edges', () => {
     const compiled = compileHull(StationHubSpec);
-    const window = compiled.portals.find((portal) => portal.id === 'lobby_window');
+    const window = compiled.portals.find((portal) => portal.id === 'habitat_window');
     expect(window?.kind).toBe('window');
     expect(window?.state).toBe('closed');
     if (window !== undefined) {

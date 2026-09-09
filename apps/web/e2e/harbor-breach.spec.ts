@@ -14,7 +14,7 @@ test.describe('Harbor structural damage (own daemon: venting is permanent)', () 
     daemon = null;
   });
 
-  test('breaches the bay wall, spends mag, and reloads', async ({ page }) => {
+  test('breaches the freight wall, spends mag, and reloads', async ({ page }) => {
     test.setTimeout(180000);
     await harborBoard(page, { callsign: 'Breach-1' });
     await page.keyboard.down('d');
@@ -41,7 +41,7 @@ test.describe('Harbor structural damage (own daemon: venting is permanent)', () 
     // bloom still lands inside merge distance of the first puncture.
     await page.mouse.move(640, 80);
     await waitForHarbor(page, 'harbor-status', (t) => angDiff(statFace(t), 270) < 35, 10000);
-    // One puncture (0.05m2) cannot vent the bay+lobby complex on any sane
+    // One puncture (0.05m2) cannot vent the frachthalle+habitat complex on any sane
     // timeout: walk a short full-auto burst so repeat hits widen it into a
     // real breach via merge, then the rooms vent faster than they refill.
     await page.keyboard.down('f');

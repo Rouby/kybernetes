@@ -425,7 +425,7 @@ describe('render-state mapping', () => {
     expect(mapRemotePawns(base, null, manifest(), frameOrigins(base))).toHaveLength(1);
     expect(shipOffsetOf(frameOrigins(base))).toEqual({ x: 1400, y: 0 });
     expect(shipOffsetOf(new Map([['ship', { x: 1, y: 2 }]]))).toEqual({ x: 1, y: 2 });
-    expect(shipOffsetOf(new Map())).toEqual({ x: 990, y: -160 });
+    expect(shipOffsetOf(new Map())).toEqual({ x: 1210, y: -80 });
   });
 
   it('maps ammo and aim fallbacks without branches in the viewport', () => {
@@ -459,7 +459,7 @@ describe('render-state mapping', () => {
     const origins = frameOrigins(snapshot());
     expect(focusOriginOf(origins, 'ship')).toEqual({ x: 1400, y: 0 });
     expect(focusOriginOf(origins, 'station')).toEqual({ x: 0, y: 0 });
-    expect(focusOriginOf(new Map(), 'ship')).toEqual({ x: 990, y: -160 });
+    expect(focusOriginOf(new Map(), 'ship')).toEqual({ x: 1210, y: -80 });
     expect(focusOriginOf(new Map(), 'station')).toEqual({ x: 0, y: 0 });
   });
 

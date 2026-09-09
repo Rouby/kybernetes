@@ -35,14 +35,14 @@ function snapshot(): SnapshotBroadcast {
         vy: 0,
         facing: 0,
         frameId: 'station',
-        roomHint: 'station.lobby',
+        roomHint: 'station.habitat',
         color: '#ffd166',
       },
     ],
     impacts: [],
-    portals: [{ id: 'station.lobby_bay', open: true, state: 'open' }],
+    portals: [{ id: 'station.habitat_korridor', open: true, state: 'open' }],
     projectiles: [],
-    frames: [{ id: 'ship', originX: 1400, originY: 0, angle: 0 }],
+    frames: [{ id: 'ship', originX: 1700, originY: 0, angle: 0 }],
   };
 }
 
@@ -56,7 +56,7 @@ function telemetry(): TelemetryBroadcast {
     full: true,
     atmos: [
       {
-        roomId: 'station.lobby',
+        roomId: 'station.habitat',
         pressureKpa: 101.3,
         tempCelsius: 21,
         o2Percent: 20.9,
@@ -64,7 +64,7 @@ function telemetry(): TelemetryBroadcast {
         repressurizing: false,
       },
       {
-        roomId: 'station.bay',
+        roomId: 'station.frachthalle',
         pressureKpa: 5,
         tempCelsius: -20,
         o2Percent: 2,
@@ -72,7 +72,7 @@ function telemetry(): TelemetryBroadcast {
         repressurizing: false,
       },
     ],
-    flows: [{ portalId: 'station.lobby_bay', velocityMps: 12.4 }],
+    flows: [{ portalId: 'station.habitat_korridor', velocityMps: 12.4 }],
   };
 }
 
@@ -80,7 +80,7 @@ describe('debug world mapping', () => {
   it('resolves frame origins with snapshot overrides and defaults', () => {
     const origins = debugOrigins(snapshot());
     expect(origins.get('station')).toEqual({ x: 0, y: 0 });
-    expect(origins.get('ship')).toEqual({ x: 1400, y: 0 });
+    expect(origins.get('ship')).toEqual({ x: 1700, y: 0 });
     expect(debugOrigins(null).get('ship')).toBeDefined();
   });
 
@@ -88,12 +88,12 @@ describe('debug world mapping', () => {
     const world = buildHarborWorld();
     const rooms = buildDebugRooms(world, snapshot(), telemetry());
     expect(rooms.length).toBeGreaterThan(0);
-    const lobby = rooms.find((room) => room.id === 'station.lobby');
-    expect(lobby?.pressureKpa).toBe(101.3);
-    expect(lobby?.venting).toBe(false);
-    const bay = rooms.find((room) => room.id === 'station.bay');
-    expect(bay?.venting).toBe(true);
-    expect(bay?.x).toBe(600);
+    const habitat = rooms.find((room) => room.id === 'station.habitat');
+    expect(habitat?.pressureKpa).toBe(101.3);
+    expect(habitat?.venting).toBe(false);
+    const fracht = rooms.find((room) => room.id === 'station.frachthalle');
+    expect(fracht?.venting).toBe(true);
+    expect(fracht?.x).toBe(300);
   });
 
   it('offsets ship rooms by the snapshot frame origin', () => {
@@ -107,7 +107,7 @@ describe('debug world mapping', () => {
   it('maps portals with live state and wind velocity', () => {
     const world = buildHarborWorld();
     const portals = buildDebugPortals(world, snapshot(), telemetry());
-    const door = portals.find((portal) => portal.id === 'station.lobby_bay');
+    const door = portals.find((portal) => portal.id === 'station.habitat_korridor');
     expect(door?.open).toBe(true);
     expect(door?.state).toBe('open');
     expect(door?.velocityMps).toBe(12.4);
@@ -119,7 +119,7 @@ describe('debug world mapping', () => {
     const portals = buildDebugPortals(world, null, null);
     expect(portals.length).toBeGreaterThan(0);
     for (const portal of portals) expect(portal.velocityMps).toBe(0);
-    expect(flowFor(null, 'station.lobby_bay')).toBe(0);
+    expect(flowFor(null, 'station.habitat_korridor')).toBe(0);
     expect(flowFor(telemetry(), 'station.missing')).toBe(0);
   });
 
@@ -145,9 +145,9 @@ describe('debug world mapping', () => {
     const pinned = overviewFraming(rooms);
     expect(pinned?.shipOffscreen).not.toBeNull();
     expect(pinned?.shipOffscreen?.x ?? 0).toBeGreaterThan(0.9);
-    // Moored against the gauntlet (10px edge gap): one shared frame.
+    // Moored against the airlock (10px edge gap): one shared frame.
     const docked = rooms.map((room) =>
-      room.frameId === 'ship' ? { ...room, x: room.x - 410, y: room.y - 160 } : room
+      room.frameId === 'ship' ? { ...room, x: room.x - 490, y: room.y - 80 } : room
     );
     expect(overviewFraming(docked)?.shipOffscreen).toBeNull();
     // A generous leash reunites even a departed vessel with the harbor.
@@ -185,13 +185,13 @@ describe('debug world mapping', () => {
   it('selects overlay colors and formats labels', () => {
     const world = buildHarborWorld();
     const rooms = buildDebugRooms(world, snapshot(), telemetry());
-    const lobby = rooms.find((room) => room.id === 'station.lobby');
-    if (lobby === undefined) throw new Error('expected lobby');
-    expect(roomOverlayColor(lobby, 'pressure')).toBe('#3fb950');
-    expect(roomOverlayColor(lobby, 'o2')).toBe('#3fb950');
-    expect(roomOverlayColor(lobby, 'temp')).toBe('#3fb950');
-    expect(bareDebugId('station.lobby')).toBe('lobby');
-    expect(bareDebugId('lobby')).toBe('lobby');
+    const habitat = rooms.find((room) => room.id === 'station.habitat');
+    if (habitat === undefined) throw new Error('expected habitat');
+    expect(roomOverlayColor(habitat, 'pressure')).toBe('#3fb950');
+    expect(roomOverlayColor(habitat, 'o2')).toBe('#3fb950');
+    expect(roomOverlayColor(habitat, 'temp')).toBe('#3fb950');
+    expect(bareDebugId('station.habitat')).toBe('habitat');
+    expect(bareDebugId('habitat')).toBe('habitat');
     expect(formatKpa(101.27)).toBe('101.3kPa');
     expect(formatKpa(Number.NaN)).toBe('--');
   });

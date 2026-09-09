@@ -13,9 +13,9 @@ function shipWorld(): World {
     id: 'p1',
     owner: 'u1',
     frameId: 'ship',
-    roomId: 'ship.corridor',
-    x: 180,
-    y: 360,
+    roomId: 'ship.kajute_nord',
+    x: 140,
+    y: 200,
     color: '#fff',
   });
 }
@@ -72,7 +72,7 @@ describe('tickWorld scaffold', () => {
     const a = tickWorld(world, 1 / 20, [input]);
     const b = tickWorld(world, 1 / 20, [input]);
     expect(a.pawns.p1?.pos.x).toBe(b.pawns.p1?.pos.x);
-    expect(a.pawns.p1?.pos.x ?? 0).toBeGreaterThan(180);
+    expect(a.pawns.p1?.pos.x ?? 0).toBeGreaterThan(140);
   });
 });
 
@@ -80,46 +80,46 @@ describe('tickWorld collision', () => {
   it('stops pawns at compiled walls', () => {
     const world = shipWorld();
     const end = drive(world, 90, { pawnId: 'p1', moveX: -1, moveY: 0, sprint: false });
-    expect(end.pawns.p1?.pos.x ?? 0).toBeGreaterThanOrEqual(100 + 12 - 1);
+    expect(end.pawns.p1?.pos.x ?? 0).toBeGreaterThanOrEqual(60 + 12 - 1);
   });
 
   it('blocks crossing through closed doors', () => {
     const world = shipWorld();
-    let minY = Number.POSITIVE_INFINITY;
+    let minX = Number.POSITIVE_INFINITY;
     let current = world;
     for (let tick = 0; tick < 90; tick += 1) {
-      current = tickWorld(current, 1 / 20, [{ pawnId: 'p1', moveX: 0, moveY: -1, sprint: false }]);
-      minY = Math.min(minY, current.pawns.p1?.pos.y ?? minY);
+      current = tickWorld(current, 1 / 20, [{ pawnId: 'p1', moveX: -1, moveY: 0, sprint: false }]);
+      minX = Math.min(minX, current.pawns.p1?.pos.x ?? minX);
     }
-    expect(minY).toBeGreaterThan(320 + 12 - 1);
-    expect(current.pawns.p1?.roomHint).toBe('ship.corridor');
+    expect(minX).toBeGreaterThan(60 + 12 - 1);
+    expect(current.pawns.p1?.roomHint).toBe('ship.kajute_nord');
   });
 
   it('lets pawns cross opened doors and updates the room hint', () => {
-    const world = withPortal(shipWorld(), 'ship.door_bridge', true);
-    const end = drive(world, 90, { pawnId: 'p1', moveX: 0, moveY: -1, sprint: false });
-    expect(end.pawns.p1?.pos.y ?? 400).toBeLessThan(320);
-    expect(end.pawns.p1?.roomHint).toBe('ship.bridge');
+    const world = withPortal(shipWorld(), 'ship.kajute_nord_korridor', true);
+    const end = drive(world, 90, { pawnId: 'p1', moveX: -1, moveY: 0, sprint: false });
+    expect(end.pawns.p1?.pos.x ?? 100).toBeLessThan(60);
+    expect(end.pawns.p1?.roomHint).toBe('ship.korridor_schiff');
   });
 
   it('lets pawns cross destroyed-to-hole portals', () => {
     const world = shipWorld();
-    const portal = world.portals['ship.door_bridge'];
-    if (portal === undefined) throw new Error('missing door_bridge');
+    const portal = world.portals['ship.kajute_nord_korridor'];
+    if (portal === undefined) throw new Error('missing kajute_nord_korridor');
     const destroyed = destroyPortal(portal, world.tick);
     expect(isPortalConnecting(destroyed)).toBe(true);
     const breached = { ...world, portals: { ...world.portals, [destroyed.id]: destroyed } };
-    const end = drive(breached, 90, { pawnId: 'p1', moveX: 0, moveY: -1, sprint: false });
-    expect(end.pawns.p1?.roomHint).toBe('ship.bridge');
+    const end = drive(breached, 90, { pawnId: 'p1', moveX: -1, moveY: 0, sprint: false });
+    expect(end.pawns.p1?.roomHint).toBe('ship.korridor_schiff');
   });
 });
 
 describe('tickWorld doors and cooldown', () => {
   it('enforces the toggle cooldown across ticks', () => {
     const world = shipWorld();
-    const openedWorld = withPortal(world, 'ship.door_bridge', true);
-    expect(openedWorld.portals['ship.door_bridge']?.state).toBe('open');
-    const repeat = tryToggleDoor(openedWorld, 'ship.door_bridge', false, 0);
+    const openedWorld = withPortal(world, 'ship.kajute_nord_korridor', true);
+    expect(openedWorld.portals['ship.kajute_nord_korridor']?.state).toBe('open');
+    const repeat = tryToggleDoor(openedWorld, 'ship.kajute_nord_korridor', false, 0);
     expect(repeat.ok).toBe(false);
     if (!repeat.ok) expect(repeat.reason).toBe('cooldown');
     const aged = drive(openedWorld, 24, {
@@ -128,7 +128,7 @@ describe('tickWorld doors and cooldown', () => {
       moveY: 0,
       sprint: false,
     });
-    expect(tryToggleDoor(aged, 'ship.door_bridge', false, 0).ok).toBe(true);
+    expect(tryToggleDoor(aged, 'ship.kajute_nord_korridor', false, 0).ok).toBe(true);
   });
 });
 

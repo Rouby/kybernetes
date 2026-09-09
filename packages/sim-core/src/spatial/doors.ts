@@ -1,6 +1,6 @@
 /**
  * Legacy door view rebacked on compiled harbor portals. DoorStates carry
- * world-space segments with namespaced ids ('station.lobby_bay') so live
+ * world-space segments with namespaced ids ('station.habitat_korridor') so live
  * snapshot portals join directly. Pure helpers (toggle/find/collide) keep
  * their semantics; the data now comes from the compiler, not hand lists.
  */
@@ -93,8 +93,8 @@ export function createInitialDoors(): DoorState[] {
 }
 
 export const GAUNTLET_DOOR_IDS: readonly string[] = [
-  'station.bay_gauntlet',
-  'ship.ship_mouth',
+  'station.korridor_ost_andock',
+  'ship.schiff_mund',
 ] as const;
 
 export function isGauntletDoorId(doorId: string): boolean {

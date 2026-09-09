@@ -61,36 +61,36 @@ describe('vessel docking motion', () => {
       id: 'p1',
       owner: 'u1',
       frameId: 'station',
-      roomId: 'station.gauntlet',
-      x: 950,
-      y: 200,
+      roomId: 'station.andock_a',
+      x: 1060,
+      y: 260,
       color: '#fff',
     });
-    // Mid-bay strolls never trigger the leaves.
-    world = tickWorld(stationPawn(world, 800, 200), 0.05, []);
+    // Mid-spine strolls never trigger the leaves.
+    world = tickWorld(stationPawn(world, 970, 260), 0.05, []);
     expect(world.pawns.p1?.frameId).toBe('station');
-    // At the east leaf the flip lands a stride inside the ramp mouth.
-    world = tickWorld(stationPawn(world, 1005, 200), 0.05, []);
+    // At the east leaf the flip lands a stride inside the corridor mouth.
+    world = tickWorld(stationPawn(world, 1125, 260), 0.05, []);
     expect(world.pawns.p1?.frameId).toBe('ship');
     expect(world.pawns.p1?.pos).toEqual({ ...HARBOR_DOCK.vesselEgress });
   });
 
   it('holds shut colliders off walkable dock leaves', () => {
     const world = buildHarborWorld();
-    expect(dockLinkForPortal(world, 'ship.ship_mouth')?.id).toBe('harbor');
-    expect(dockLinkForPortal(world, 'ship.door_bridge')).toBeUndefined();
-    expect(isDockGateWalkable(world, 'ship.ship_mouth')).toBe(true);
-    expect(isDockGateWalkable(world, 'station.bay_gauntlet')).toBe(true);
+    expect(dockLinkForPortal(world, 'ship.schiff_mund')?.id).toBe('harbor');
+    expect(dockLinkForPortal(world, 'ship.bruecke_korridor')).toBeUndefined();
+    expect(isDockGateWalkable(world, 'ship.schiff_mund')).toBe(true);
+    expect(isDockGateWalkable(world, 'station.korridor_ost_andock')).toBe(true);
     const colliders = collidersForFrame(world, 'ship');
-    expect(colliders.some((wall) => wall.id === 'portal-shut.ship.ship_mouth')).toBe(false);
-    expect(colliders.some((wall) => wall.id.startsWith('portal-shut.ship.door_'))).toBe(true);
+    expect(colliders.some((wall) => wall.id === 'portal-shut.ship.schiff_mund')).toBe(false);
+    expect(colliders.some((wall) => wall.id === 'portal-shut.ship.bruecke_korridor')).toBe(true);
   });
 
-  it('mates the stern ramp with the gauntlet at the docked origin', () => {
-    // Mouth local (100, 360) rides to world (1090, 200): a 70px umbilical
-    // off the gauntlet east face, level with its axis.
-    const mouthWorld = { x: SHIP_ORIGIN.x + 100, y: SHIP_ORIGIN.y + 360 };
-    expect(mouthWorld.x).toBe(1090);
-    expect(mouthWorld.y).toBe(200);
+  it('mates the corridor mouth with the airlock at the docked origin', () => {
+    // Mouth local (0, 340) rides to world (1210, 260): a 70px umbilical
+    // off the airlock east face, level with its axis.
+    const mouthWorld = { x: SHIP_ORIGIN.x + 0, y: SHIP_ORIGIN.y + 340 };
+    expect(mouthWorld.x).toBe(1210);
+    expect(mouthWorld.y).toBe(260);
   });
 });

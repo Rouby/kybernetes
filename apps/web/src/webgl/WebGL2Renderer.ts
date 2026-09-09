@@ -124,7 +124,7 @@ function getPlayerAtmosphere(state: WebGLRenderState) {
   const offset = state.shipOffset ?? { x: 0, y: 0 };
   const roomId = findWorldRoom(state.pawn.x, state.pawn.y, offset);
   if (!roomId) return undefined;
-  if (roomId !== 'corridor') return atmospheres[roomId];
+  if (roomId !== 'korridor_schiff') return atmospheres[roomId];
   if (state.pawn.x <= 440) return atmospheres.corridor_fwd ?? atmospheres.corridor;
   if (state.pawn.x < 760) return atmospheres.corridor_mid ?? atmospheres.corridor;
   return atmospheres.corridor_aft ?? atmospheres.corridor;
@@ -761,8 +761,8 @@ export class WebGL2Renderer {
       this.particleSystem.emitExhaust(
         bell.x + offset.x,
         bell.y + offset.y,
-        -1,
         0,
+        1,
         underway ? 1 : 0.3
       );
     }

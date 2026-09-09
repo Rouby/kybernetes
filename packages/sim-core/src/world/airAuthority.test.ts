@@ -52,7 +52,7 @@ describe('air authority binding', () => {
   it('starts rooms at nominal breathable air', () => {
     const { auth } = stationSetup();
     const views = readAirRooms(auth, 'station');
-    expect(views).toHaveLength(7);
+    expect(views).toHaveLength(11);
     for (const view of views) {
       expect(view.pressureKpa).toBeCloseTo(NOMINAL_PRESSURE_KPA, 1);
       expect(view.o2Percent).toBeCloseTo(20.9, 1);
@@ -72,19 +72,19 @@ describe('air authority binding', () => {
 describe('air authority venting', () => {
   it('maps vented rooms after a hull puncture', () => {
     const { auth, world } = stationSetup();
-    expect(addPuncture(auth, 'station', 'bay', 1.5)).toBeDefined();
+    expect(addPuncture(auth, 'station', 'frachthalle', 1.5)).toBeDefined();
     const vented = stepBoth(auth, world, 3);
     const views = readAllAir(auth);
-    expect(ventedRooms(views)).toContain('bay');
-    expect(views.lobby?.pressureKpa ?? 0).toBeGreaterThan(100);
-    expect(vented.atmos.bay?.pressureKpa ?? 0).toBeLessThan(90);
+    expect(ventedRooms(views)).toContain('frachthalle');
+    expect(views.habitat?.pressureKpa ?? 0).toBeGreaterThan(100);
+    expect(vented.atmos.frachthalle?.pressureKpa ?? 0).toBeLessThan(90);
   });
 
   it('follows combat breach widening instead of venting at birth size', () => {
     const { auth, world } = stationSetup();
     const hole: PortalEdge = {
-      id: 'breach.bay.1.0',
-      roomA: 'bay',
+      id: 'breach.frachthalle.1.0',
+      roomA: 'frachthalle',
       roomB: 'space',
       kind: 'hole',
       state: 'destroyed',
@@ -118,34 +118,34 @@ describe('air authority venting', () => {
       portals[portal.id] = portal;
     }
     const world: World = { ...createEmptyWorld(0), rooms, portals };
-    addPuncture(auth, 'ship', 'cargo', 2);
+    addPuncture(auth, 'ship', 'reaktor_antrieb', 2);
     stepBoth(auth, world, 3);
     const views = readAllAir(auth);
-    expect(ventedRooms(views)).toContain('cargo');
-    expect(views.lobby?.pressureKpa ?? 0).toBeGreaterThan(100);
+    expect(ventedRooms(views)).toContain('reaktor_antrieb');
+    expect(views.habitat?.pressureKpa ?? 0).toBeGreaterThan(100);
   });
 });
 
 describe('air authority wind and drag', () => {
   it('probes still air as zero wind and zero drag', () => {
     const { auth } = stationSetup();
-    expect(sampleRoomWind(auth, 'station', 'lobby')).toEqual({ x: 0, y: 0 });
+    expect(sampleRoomWind(auth, 'station', 'habitat')).toEqual({ x: 0, y: 0 });
     expect(dragForceNewtons({ x: 0, y: 0 }, 1.2)).toEqual({ x: 0, y: 0 });
     expect(portalWind(auth, 'station', 'nope')).toBeUndefined();
   });
 
   it('flows from breach to wind to drag force', () => {
     const { auth, world } = stationSetup();
-    addPuncture(auth, 'station', 'bay', 1.5);
+    addPuncture(auth, 'station', 'frachthalle', 1.5);
     let current = stepBoth(auth, world, 3);
-    current = setEdge(current, 'lobby_bay', { state: 'open' });
+    current = setEdge(current, 'frachthalle_korridor', { state: 'open' });
     current = stepBoth(auth, current, 0.5);
-    expect(current.atmos.lobby?.pressureKpa ?? 999).toBeLessThan(NOMINAL_PRESSURE_KPA);
-    const wind = portalWind(auth, 'station', 'lobby_bay');
+    expect(current.atmos.korridor_mitte?.pressureKpa ?? 999).toBeLessThan(NOMINAL_PRESSURE_KPA);
+    const wind = portalWind(auth, 'station', 'frachthalle_korridor');
     expect(wind).toBeDefined();
     const speed = Math.hypot(wind?.x ?? 0, wind?.y ?? 0);
     expect(speed).toBeGreaterThan(1);
-    const density = roomAirDensity(auth, 'station', 'lobby') ?? 0;
+    const density = roomAirDensity(auth, 'station', 'korridor_mitte') ?? 0;
     expect(density).toBeGreaterThan(0);
     const drag = dragForceNewtons(wind ?? { x: 0, y: 0 }, density);
     expect(Math.hypot(drag.x, drag.y)).toBeGreaterThan(0);
@@ -155,11 +155,11 @@ describe('air authority wind and drag', () => {
 describe('air authority repressurizing', () => {
   it('flags sealed depleted rooms and clears venting ones', () => {
     const { auth, world } = stationSetup();
-    addPuncture(auth, 'station', 'bay', 1.5);
+    addPuncture(auth, 'station', 'frachthalle', 1.5);
     const venting = stepBoth(auth, world, 3);
-    expect(venting.atmos.bay?.repressurizing).toBe(false);
-    const sealed = stepBoth(auth, setEdge(venting, 'lobby_bay', { state: 'sealed' }), 0.5);
-    expect(sealed.atmos.bay?.repressurizing).toBe(false);
+    expect(venting.atmos.frachthalle?.repressurizing).toBe(false);
+    const sealed = stepBoth(auth, setEdge(venting, 'habitat_korridor', { state: 'sealed' }), 0.5);
+    expect(sealed.atmos.frachthalle?.repressurizing).toBe(false);
   });
 
   it('recovers the flag through a breach-seal cycle on an exterior door', () => {
@@ -212,7 +212,7 @@ describe('air authority repressurizing', () => {
     const auth = createAirAuthority();
     bindAirFrame(auth, 'station', Object.values(assembled.rooms), Object.values(assembled.portals));
     const next = tickWorld(assembled, 0.05, [], auth);
-    expect(next.atmos['station.lobby']?.pressureKpa).toBeCloseTo(NOMINAL_PRESSURE_KPA, 1);
+    expect(next.atmos['station.habitat']?.pressureKpa).toBeCloseTo(NOMINAL_PRESSURE_KPA, 1);
     expect(refreshAtmos(auth, next, 0)).toBeDefined();
   });
 });
@@ -229,12 +229,12 @@ describe('air authority debug flows', () => {
 
   it('reports wind on the breach path after venting', () => {
     const { auth, world } = stationSetup();
-    addPuncture(auth, 'station', 'bay', 1.5);
+    addPuncture(auth, 'station', 'frachthalle', 1.5);
     let current = stepBoth(auth, world, 3);
-    current = setEdge(current, 'lobby_bay', { state: 'open' });
+    current = setEdge(current, 'frachthalle_korridor', { state: 'open' });
     stepBoth(auth, current, 0.5);
     const flows = readAirFlows(auth);
-    const door = flows.find((flow) => flow.portalId === 'lobby_bay');
+    const door = flows.find((flow) => flow.portalId === 'frachthalle_korridor');
     expect(door).toBeDefined();
     expect(Math.abs(door?.velocityMps ?? 0)).toBeGreaterThan(0);
   });

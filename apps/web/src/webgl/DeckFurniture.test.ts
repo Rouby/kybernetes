@@ -16,11 +16,12 @@ describe('ship furniture placement', () => {
     }
   });
 
-  it('mounts all three thruster bells on the stern wedge', () => {
+  it('mounts all three thruster bells on the drive face', () => {
     expect(THRUSTER_BELLS).toHaveLength(3);
     for (const bell of THRUSTER_BELLS) {
-      expect(bell.x).toBeLessThan(70);
-      expect(bell.y).toBeGreaterThanOrEqual(HULL_PLATE.y);
+      expect(bell.x).toBeGreaterThanOrEqual(HULL_PLATE.x);
+      expect(bell.x).toBeLessThanOrEqual(HULL_PLATE.x + HULL_PLATE.w);
+      expect(bell.y).toBeGreaterThanOrEqual(700);
       expect(bell.y).toBeLessThanOrEqual(HULL_PLATE.y + HULL_PLATE.h);
     }
   });

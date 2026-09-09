@@ -1,8 +1,8 @@
 /**
- * HesperiaV2 reference ship hull spec (M0 scaffold).
- * Bridge, avionics, life-support, berthing, mess/galley, airlocks,
- * armory, cargo, engineering, corridor spine. Same feel as today,
- * rebuilt as room adjacency + door/window annotations.
+ * HesperiaV2 vertical Lynx hull spec (screenshot remake).
+ * North-to-south spine: bridge, north cabin, south cabin, vertical
+ * corridor, reactor \u0026 drive. The west mouth on the corridor mates
+ * with station Andockschleuse A while the vessel holds the docked origin.
  */
 
 import type { HullSpec } from '../hullCompiler.js';
@@ -12,95 +12,60 @@ export const HESPERIA_V2_FRAME_ID = 'hesperia_v2';
 export const HesperiaV2Spec: HullSpec = {
   frameId: HESPERIA_V2_FRAME_ID,
   rooms: [
-    { id: 'bridge', rect: { x: 100, y: 200, w: 160, h: 120 }, volumeM3: 120 },
-    { id: 'avionics', rect: { x: 280, y: 200, w: 120, h: 120 }, volumeM3: 90 },
-    { id: 'life_support', rect: { x: 420, y: 200, w: 120, h: 120 }, volumeM3: 90 },
-    { id: 'berthing', rect: { x: 560, y: 200, w: 160, h: 120 }, volumeM3: 120 },
-    { id: 'mess', rect: { x: 740, y: 200, w: 140, h: 120 }, volumeM3: 105 },
-    { id: 'corridor', rect: { x: 100, y: 320, w: 780, h: 80 }, volumeM3: 140 },
-    { id: 'armory', rect: { x: 100, y: 400, w: 140, h: 100 }, volumeM3: 84 },
-    { id: 'cargo', rect: { x: 260, y: 400, w: 280, h: 100 }, volumeM3: 280 },
-    { id: 'engineering', rect: { x: 560, y: 400, w: 320, h: 100 }, volumeM3: 320 },
+    { id: 'korridor_schiff', rect: { x: 0, y: 0, w: 60, h: 700 }, volumeM3: 100 },
+    { id: 'bruecke', rect: { x: 60, y: 0, w: 160, h: 130 }, volumeM3: 130 },
+    { id: 'kajute_nord', rect: { x: 60, y: 130, w: 160, h: 150 }, volumeM3: 140 },
+    { id: 'kajute_sued', rect: { x: 60, y: 280, w: 160, h: 150 }, volumeM3: 140 },
+    { id: 'reaktor_antrieb', rect: { x: 60, y: 430, w: 160, h: 270 }, volumeM3: 320 },
   ],
   portals: [
     {
-      id: 'door_bridge',
-      roomA: 'bridge',
-      roomB: 'corridor',
+      id: 'bruecke_korridor',
+      roomA: 'bruecke',
+      roomB: 'korridor_schiff',
       kind: 'door',
-      segment: { x1: 160, y1: 320, x2: 200, y2: 320 },
+      segment: { x1: 60, y1: 50, x2: 60, y2: 90 },
       areaM2: 2,
     },
     {
-      id: 'door_avionics',
-      roomA: 'avionics',
-      roomB: 'corridor',
+      id: 'kajute_nord_korridor',
+      roomA: 'kajute_nord',
+      roomB: 'korridor_schiff',
       kind: 'door',
-      segment: { x1: 320, y1: 320, x2: 360, y2: 320 },
+      segment: { x1: 60, y1: 180, x2: 60, y2: 220 },
       areaM2: 2,
     },
     {
-      id: 'door_life_support',
-      roomA: 'life_support',
-      roomB: 'corridor',
+      id: 'kajute_sued_korridor',
+      roomA: 'kajute_sued',
+      roomB: 'korridor_schiff',
       kind: 'door',
-      segment: { x1: 460, y1: 320, x2: 500, y2: 320 },
+      segment: { x1: 60, y1: 330, x2: 60, y2: 370 },
       areaM2: 2,
     },
     {
-      id: 'door_berthing',
-      roomA: 'berthing',
-      roomB: 'corridor',
+      id: 'reaktor_korridor',
+      roomA: 'reaktor_antrieb',
+      roomB: 'korridor_schiff',
       kind: 'door',
-      segment: { x1: 620, y1: 320, x2: 660, y2: 320 },
-      areaM2: 2,
-    },
-    {
-      id: 'door_mess',
-      roomA: 'mess',
-      roomB: 'corridor',
-      kind: 'door',
-      segment: { x1: 780, y1: 320, x2: 820, y2: 320 },
-      areaM2: 2,
-    },
-    {
-      id: 'door_armory',
-      roomA: 'armory',
-      roomB: 'corridor',
-      kind: 'door',
-      segment: { x1: 150, y1: 400, x2: 190, y2: 400 },
-      areaM2: 2,
-    },
-    {
-      id: 'door_cargo',
-      roomA: 'cargo',
-      roomB: 'corridor',
-      kind: 'door',
-      segment: { x1: 380, y1: 400, x2: 420, y2: 400 },
+      segment: { x1: 60, y1: 540, x2: 60, y2: 580 },
       areaM2: 2.4,
     },
     {
-      id: 'door_engineering',
-      roomA: 'engineering',
-      roomB: 'corridor',
-      kind: 'door',
-      segment: { x1: 700, y1: 400, x2: 740, y2: 400 },
-      areaM2: 2.4,
-    },
-    {
-      // Stern boarding ramp on the corridor west wall: mates with the
-      // station gauntlet when the vessel holds the docked origin.
-      id: 'ship_mouth',
-      roomA: 'corridor',
+      // West boarding mouth on the corridor: mates with Andockschleuse A
+      // while the vessel holds the docked origin.
+      id: 'schiff_mund',
+      roomA: 'korridor_schiff',
       roomB: 'space',
       kind: 'airlock',
-      segment: { x1: 100, y1: 340, x2: 100, y2: 380 },
+      segment: { x1: 0, y1: 320, x2: 0, y2: 360 },
       areaM2: 2.4,
     },
   ],
   spawns: {
-    bridge_spawn: { x: 180, y: 260 },
-    corridor_spawn: { x: 480, y: 370 },
-    engineering_spawn: { x: 720, y: 470 },
+    bridge_spawn: { x: 140, y: 65 },
+    kajute_spawn: { x: 140, y: 205 },
+    korridor_spawn: { x: 30, y: 350 },
+    reaktor_spawn: { x: 140, y: 565 },
   },
 };

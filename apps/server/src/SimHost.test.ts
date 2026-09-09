@@ -158,20 +158,20 @@ describe('SimHost scaffold', () => {
       id: 'p1',
       owner: 'u1',
       frameId: 'station',
-      roomId: 'station.lobby',
-      x: 590,
-      y: 200,
+      roomId: 'station.habitat',
+      x: 160,
+      y: 150,
       color: '#fff',
     });
     const door = (wantOpen: boolean) => ({
       type: 'DOOR' as const,
       seq: 1,
-      portalId: 'station.lobby_bay',
+      portalId: 'station.habitat_korridor',
       wantOpen,
     });
     const opened = routeIntent(world, 'p1', door(true), []);
     expect(opened.notice).toBe('DOOR_ok');
-    expect(opened.world.portals['station.lobby_bay']?.state).toBe('open');
+    expect(opened.world.portals['station.habitat_korridor']?.state).toBe('open');
     const shut = routeIntent(opened.world, 'p1', door(false), []);
     expect(shut.notice).toBe('DOOR_cooldown');
     const missing = routeIntent(world, 'p1', { ...door(true), portalId: 'station.nope' }, []);
@@ -180,9 +180,9 @@ describe('SimHost scaffold', () => {
       id: 'p2',
       owner: 'u2',
       frameId: 'station',
-      roomId: 'station.lobby',
-      x: 100,
-      y: 100,
+      roomId: 'station.sicherheit_sued',
+      x: 820,
+      y: 380,
       color: '#fff',
     });
     expect(routeIntent(distant, 'p2', door(true), []).notice).toBe('DOOR_too-far');

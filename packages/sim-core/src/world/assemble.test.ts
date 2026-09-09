@@ -10,10 +10,10 @@ describe('world assemble', () => {
       { frameId: 'ship', hull: HesperiaV2Spec, vessel: { name: 'Hesperia', beacon: 'HESP' } },
     ]);
     expect(Object.keys(world.rooms)).toHaveLength(16);
-    expect(world.rooms['ship.bridge']?.frameId).toBe('ship');
-    expect(world.rooms['station.lobby']?.frameId).toBe('station');
-    expect(world.portals['ship.door_bridge']?.roomA).toBe('ship.bridge');
-    expect(world.portals['station.lobby_bay']?.roomB).toBe('station.bay');
+    expect(world.rooms['ship.bruecke']?.frameId).toBe('ship');
+    expect(world.rooms['station.habitat']?.frameId).toBe('station');
+    expect(world.portals['ship.bruecke_korridor']?.roomA).toBe('ship.bruecke');
+    expect(world.portals['station.habitat_korridor']?.roomB).toBe('station.korridor_mitte');
     expect(world.vessels.ship?.beacon).toBe('HESP');
     expect(world.stations.station?.id).toBe('station');
     expect(world.vessels.station).toBeUndefined();
@@ -30,12 +30,12 @@ describe('world assemble', () => {
       id: 'p1',
       owner: 'u1',
       frameId: 'station',
-      roomId: 'station.lobby',
-      x: 300,
-      y: 200,
+      roomId: 'station.habitat',
+      x: 160,
+      y: 100,
       color: '#00e5ff',
     });
     expect(world.pawns.p1?.health.hp).toBe(100);
-    expect(world.pawns.p1?.roomHint).toBe('station.lobby');
+    expect(world.pawns.p1?.roomHint).toBe('station.habitat');
   });
 });

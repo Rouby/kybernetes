@@ -176,15 +176,15 @@ describe('host loop sessions', () => {
       });
       drive(0.05);
     };
-    for (let i = 0; i < 200; i += 1) {
-      if ((host.currentWorld.pawns['pawn:u1']?.pos.x ?? 0) > 510) break;
+    for (let i = 0; i < 400; i += 1) {
+      if ((host.currentWorld.pawns['pawn:u1']?.pos.x ?? 0) > 900) break;
       pushEast();
     }
     expect(
       host.handleIntent('c1', {
         type: 'DOOR',
         seq: 900,
-        portalId: 'station.lobby_bay',
+        portalId: 'station.sued_ost',
         wantOpen: true,
       }).notice
     ).toBe('DOOR_ok');

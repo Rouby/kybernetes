@@ -24,14 +24,14 @@ import { DECK_FLOOR_FS, DECK_FLOOR_VS } from '../shaders';
 import { accumulatePit, emptyPitLayers, type PremiumDecal, scorchPalette } from './ImpactDecalPass';
 
 /** Hull plate in ship-local coords; every v2 room rect must sit inside it. */
-export const HULL_PLATE = { x: 70, y: 180, w: 850, h: 350 } as const;
+export const HULL_PLATE = { x: -20, y: -20, w: 260, h: 740 } as const;
 
-/** Stern bell nozzle exits in ship-local coords; the stern faces the
- * station while docked, so exhaust streams -X (main burn pushes east). */
+/** Drive bell nozzle exits in ship-local coords; the drive deck faces south
+ * on the vertical hull, so exhaust streams +Y (main burn pushes north). */
 export const THRUSTER_BELLS: ReadonlyArray<{ x: number; y: number }> = [
-  { x: 36, y: 306 },
-  { x: 34, y: 420 },
-  { x: 36, y: 494 },
+  { x: 70, y: 716 },
+  { x: 120, y: 718 },
+  { x: 170, y: 716 },
 ];
 
 function drawDoorBrackets(
@@ -519,9 +519,9 @@ export class DeckPass {
   }
 
   /**
-   * Gauntlet dock tube: while the docked origin holds the stern ramp at
-   * world (1090, 200), a 70px umbilical spans the gauntlet east face (1020)
-   * to the ramp mouth. Sealed otherwise: red ticks on both gate leaves.
+   * Andockschleuse dock tube: while the docked origin holds the corridor
+   * mouth at world (1210, 260), a 70px umbilical spans the airlock east
+   * face (1140) to the mouth. Sealed otherwise: red ticks on both leaves.
    */
   public renderDockTube(
     flatProg: WebGLProgram,
@@ -534,19 +534,19 @@ export class DeckPass {
     const walkable = dock?.walkable === true;
     if (walkable) {
       gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.16, 0.19, 0.26, 1.0);
-      drawQuad(gl, this.dynamicBuffer, 1020, 184, 70, 32);
+      drawQuad(gl, this.dynamicBuffer, 1140, 244, 70, 32);
       gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.9, 1.0, 0.85);
       const guides: number[] = [];
-      addThickSegment(guides, 1020, 184, 1090, 184, 2);
-      addThickSegment(guides, 1020, 216, 1090, 216, 2);
-      addThickSegment(guides, 1020, 176, 1020, 224, 2.4);
-      addThickSegment(guides, 1090, 180, 1090, 220, 2.4);
+      addThickSegment(guides, 1140, 244, 1210, 244, 2);
+      addThickSegment(guides, 1140, 276, 1210, 276, 2);
+      addThickSegment(guides, 1140, 236, 1140, 284, 2.4);
+      addThickSegment(guides, 1210, 240, 1210, 280, 2.4);
       bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(guides));
     } else {
       const blink = 0.5 + 0.5 * Math.sin(timeSec * 6);
       gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
       const seals: number[] = [];
-      addThickSegment(seals, 1020, 170, 1020, 230, 4);
+      addThickSegment(seals, 1140, 230, 1140, 290, 4);
       bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(seals));
       this.bindFlat(
         flatProg,
@@ -555,7 +555,7 @@ export class DeckPass {
       );
       gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
       const shipSeals: number[] = [];
-      addThickSegment(shipSeals, 100, 340, 100, 380, 4);
+      addThickSegment(shipSeals, 0, 320, 0, 360, 4);
       bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(shipSeals));
     }
     gl.bindVertexArray(null);
@@ -570,42 +570,45 @@ export class DeckPass {
     const gl = this.bindFlat(flatProg, flatVAO, matrix);
 
     // Station block hull plate backing the live hub footprint
-    // (lobby/bay/gauntlet/concourse/security/overlook/lounge).
+    // (habitat/medizin/sicherheit_nord, corridors, south band, Andock A).
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.09, 0.11, 0.16, 1.0);
-    drawQuad(gl, this.dynamicBuffer, -24, -164, 1068, 748);
+    drawQuad(gl, this.dynamicBuffer, -24, -24, 1188, 528);
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.22, 0.28, 0.38, 1.0);
     const stationLines: number[] = [];
-    addThickSegment(stationLines, -24, -164, 1044, -164, 4);
-    addThickSegment(stationLines, 1044, -164, 1044, 584, 4);
-    addThickSegment(stationLines, 1044, 584, -24, 584, 4);
-    addThickSegment(stationLines, -24, 584, -24, -164, 4);
+    addThickSegment(stationLines, -24, -24, 1164, -24, 4);
+    addThickSegment(stationLines, 1164, -24, 1164, 504, 4);
+    addThickSegment(stationLines, 1164, 504, -24, 504, 4);
+    addThickSegment(stationLines, -24, 504, -24, -24, 4);
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(stationLines));
 
     this.bindFlat(flatProg, flatVAO, translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y));
 
-    // Dark armor hull base hugging the v2 room block (x100-880, y200-500)
-    // with even margins; the east strip is the engine mount for the bells.
+    // Dark armor hull base hugging the vertical room block (x0-220, y0-700)
+    // with even margins; the south strip is the engine mount for the bells.
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
     drawQuad(gl, this.dynamicBuffer, HULL_PLATE.x, HULL_PLATE.y, HULL_PLATE.w, HULL_PLATE.h);
-    drawQuad(gl, this.dynamicBuffer, 40, 315, 30, 80);
+    drawQuad(gl, this.dynamicBuffer, 60, 700, 160, 30);
 
-    // Armor perimeter outline (submarine hull profile with west stern wedge)
+    // Armor perimeter outline (vertical spine with south drive face)
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.2, 0.25, 0.35, 1.0);
     const hullLines: number[] = [];
-    addThickSegment(hullLines, 40, 355, 70, 180, 4);
-    addThickSegment(hullLines, 70, 180, 920, 180, 4);
-    addThickSegment(hullLines, 920, 180, 920, 530, 4);
-    addThickSegment(hullLines, 920, 530, 70, 530, 4);
-    addThickSegment(hullLines, 70, 530, 40, 355, 4);
+    addThickSegment(hullLines, -20, -20, 240, -20, 4);
+    addThickSegment(hullLines, 240, -20, 240, 700, 4);
+    addThickSegment(hullLines, 240, 700, 60, 700, 4);
+    addThickSegment(hullLines, 60, 700, 60, 730, 4);
+    addThickSegment(hullLines, 60, 730, 220, 730, 4);
+    addThickSegment(hullLines, 220, 730, 220, 700, 4);
+    addThickSegment(hullLines, 220, 700, -20, 700, 4);
+    addThickSegment(hullLines, -20, 700, -20, -20, 4);
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(hullLines));
 
-    // Thruster bell housings mounted on the stern wedge (west edge).
+    // Thruster bell housings mounted on the drive face (south edge).
     // Plumes are live exhaust particles (see emitThrusterExhaust), not quads,
     // so docked ships idle instead of burning at full scale.
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.14, 0.17, 0.24, 1.0);
-    drawQuad(gl, this.dynamicBuffer, 18, 296, 20, 20);
-    drawQuad(gl, this.dynamicBuffer, 18, 404, 20, 32);
-    drawQuad(gl, this.dynamicBuffer, 18, 484, 20, 20);
+    drawQuad(gl, this.dynamicBuffer, 60, 706, 20, 14);
+    drawQuad(gl, this.dynamicBuffer, 110, 706, 20, 14);
+    drawQuad(gl, this.dynamicBuffer, 160, 706, 20, 14);
 
     gl.bindVertexArray(null);
   }
@@ -748,7 +751,7 @@ export class DeckPass {
       translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
     );
 
-    const corridorLights = HESPERIA_LIGHTS.filter((l) => l.room === 'corridor');
+    const corridorLights = HESPERIA_LIGHTS.filter((l) => l.room === 'korridor_schiff');
     for (const cl of corridorLights) {
       const flicker = cl.flickerSpeed ? 0.95 + 0.05 * Math.sin(time * cl.flickerSpeed) : 1.0;
 

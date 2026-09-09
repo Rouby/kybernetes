@@ -22,9 +22,9 @@ describe('air loop', () => {
       id: 'hero',
       owner: 'hero',
       frameId: 'station',
-      roomId: 'station.bay',
-      x: 800,
-      y: 200,
+      roomId: 'station.andock_a',
+      x: 1060,
+      y: 260,
       color: '#ffd166',
     });
     for (let i = 0; i < 400; i += 1) {
@@ -43,6 +43,6 @@ describe('air loop', () => {
     expect(world.crew.hero?.credits).toBe(200);
     world = drive(world, auth, 5.5);
     expect(world.vessels.ship?.schedule).toBe('docked');
-    expect(world.atmos['ship.corridor']?.pressureKpa ?? 0).toBeGreaterThan(90);
+    expect(world.atmos['ship.korridor_schiff']?.pressureKpa ?? 0).toBeGreaterThan(90);
   });
 });
