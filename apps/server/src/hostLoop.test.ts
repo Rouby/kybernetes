@@ -40,6 +40,55 @@ describe('host loop sessions', () => {
     host.stop();
   });
 
+  it('evicts the previous holder when the same userId resumes, keeping one driver', () => {
+    const host = riggedHost();
+    const drive = driver(host);
+    const first = host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    expect(first?.resumed).toBe(false);
+    const pawnId = first?.pawnId ?? '';
+    const second = host.joinBeacon('c2', HARBOR_BEACON, 'Rook', '#fff', 'u1');
+    expect(second).toEqual({ pawnId, resumed: true });
+    expect(host.drainEvictedClients()).toEqual(['c1']);
+    expect(host.drainEvictedClients()).toEqual([]);
+    // The evicted session's intents no longer reach the pawn.
+    expect(
+      host.handleIntent('c1', {
+        type: 'INPUT',
+        seq: 9,
+        moveVec: { x: 0, y: 0 },
+        facing: 0,
+        sprint: false,
+        sealed: false,
+      }).notice
+    ).toBe('not-joined');
+    // The new holder drives facing and seal alone, with no flop back.
+    host.handleIntent('c2', {
+      type: 'INPUT',
+      seq: 1,
+      moveVec: { x: 0, y: 0 },
+      facing: 1.5,
+      sprint: false,
+      sealed: true,
+    });
+    drive(0.1);
+    expect(host.currentWorld.pawns[pawnId]?.facing).toBe(1.5);
+    expect(host.currentWorld.vitals[pawnId]?.suitSealed).toBe(true);
+    // The evicted socket closing must not release the seat or the latch.
+    host.leaveClient('c1');
+    expect(host.clientOf('c2')?.pawnId).toBe(pawnId);
+    host.handleIntent('c2', {
+      type: 'INPUT',
+      seq: 2,
+      moveVec: { x: 0, y: 0 },
+      facing: 2.5,
+      sprint: false,
+      sealed: true,
+    });
+    drive(0.1);
+    expect(host.currentWorld.pawns[pawnId]?.facing).toBe(2.5);
+    host.stop();
+  });
+
   it('rejects unknown beacons without spawning', () => {
     const host = riggedHost();
     expect(host.joinBeacon('c9', 'NOPE', 'Rook', '#fff', 'u9')).toEqual({

@@ -86,6 +86,7 @@ export class SimHost {
   private readonly clients = new Map<string, HostClient>();
   private readonly beacons = new Map<string, BeaconEntry>();
   private readonly latched = new Map<string, { input: WorldInput; atMs: number }>();
+  private evictedClients: string[] = [];
 
   constructor(
     initialWorld: World,
@@ -102,6 +103,17 @@ export class SimHost {
 
   get droppedStepCount(): number {
     return this.droppedSteps;
+  }
+
+  /**
+   * Client ids evicted by a same-userId resume since the last drain. The
+   * transport terminates their sockets; their intents are already dropped
+   * because eviction removes them from the client registry.
+   */
+  drainEvictedClients(): string[] {
+    const evicted = this.evictedClients;
+    this.evictedClients = [];
+    return evicted;
   }
 
   enqueueInput(input: WorldInput): void {
@@ -124,6 +136,15 @@ export class SimHost {
     if (vessel === undefined) return { denied: 'unknown-beacon' };
     const id = userId ?? clientId;
     const pawnId = `pawn:${id}`;
+    // Single driver per pawn: a second session under the same userId evicts
+    // the previous holder. Without this both sockets drive one pawn and its
+    // facing and suit state flop between their inputs every tick.
+    for (const [otherId, other] of this.clients) {
+      if (otherId !== clientId && other.userId === id) {
+        this.clients.delete(otherId);
+        this.evictedClients.push(otherId);
+      }
+    }
     this.clients.set(clientId, { userId: id, pawnId, callsign, color, beacon });
     if (this.world.pawns[pawnId] !== undefined) return { pawnId, resumed: true };
     const entry = this.beacons.get(beacon) ?? createBeaconEntry(beacon, vessel.id);
@@ -149,12 +170,15 @@ export class SimHost {
 
   leaveClient(clientId: string): void {
     const client = this.clients.get(clientId);
-    if (client !== undefined) {
-      const entry = this.beacons.get(client.beacon);
-      if (entry !== undefined) this.beacons.set(client.beacon, leaveBeacon(entry, client.userId));
-      this.latched.delete(client.pawnId);
-    }
     this.clients.delete(clientId);
+    if (client === undefined) return;
+    // An evicted socket closing after a steal must not release the beacon
+    // seat or drop the latch out from under the session that replaced it.
+    const stillHeld = [...this.clients.values()].some((other) => other.userId === client.userId);
+    if (stillHeld) return;
+    const entry = this.beacons.get(client.beacon);
+    if (entry !== undefined) this.beacons.set(client.beacon, leaveBeacon(entry, client.userId));
+    this.latched.delete(client.pawnId);
   }
 
   handleIntent(clientId: string, intent: ClientIntent): HostIntentResult {

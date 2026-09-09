@@ -6,6 +6,19 @@
 
 export const PROTOCOL_VERSION = 2 as const;
 
+/**
+ * WebSocket close code the daemon sends when a session is resumed elsewhere:
+ * the same userId joined from a newer socket, which now owns the pawn. The
+ * evicted client must NOT auto-reconnect, or the two tabs steal the pawn
+ * back and forth while facing and suit state flop between their inputs.
+ */
+export const SESSION_RESUMED_ELSEWHERE_CODE = 4400 as const;
+
+/** True when a socket close should trigger the reconnect backoff. */
+export function shouldResumeAfterClose(code: number): boolean {
+  return code !== SESSION_RESUMED_ELSEWHERE_CODE;
+}
+
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 export interface Envelope {

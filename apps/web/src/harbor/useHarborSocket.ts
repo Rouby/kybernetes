@@ -19,7 +19,7 @@ import type {
   VitalsBroadcast,
   WatchBroadcast,
 } from '@kybernetes/protocol';
-import { isNewerTick, PROTOCOL_VERSION } from '@kybernetes/protocol';
+import { isNewerTick, PROTOCOL_VERSION, shouldResumeAfterClose } from '@kybernetes/protocol';
 import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { mergeSnapshotDelta, mergeTelemetry } from './renderState';
@@ -90,6 +90,7 @@ export function useHarborSocket(identity: HarborIdentity) {
   const [manifest, setManifest] = useState<ManifestBroadcast | null>(null);
   const [offer, setOffer] = useState<HireOfferBroadcast | null>(null);
   const [notices, setNotices] = useState<HarborNotice[]>([]);
+  const [takenOver, setTakenOver] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const seqRef = useRef(0);
   const identityRef = useRef(identity);
@@ -158,11 +159,24 @@ export function useHarborSocket(identity: HarborIdentity) {
           setNotices,
         });
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         setConnected(false);
         if (window.__kybernetesSocket === socket) delete window.__kybernetesSocket;
         wsRef.current = null;
-        if (!isDisposed) retry = setTimeout(connect, 2000);
+        if (isDisposed) return;
+        if (!shouldResumeAfterClose(event.code)) {
+          // Our pawn was resumed in another tab: reconnecting would steal
+          // it straight back every 2s while both tabs flop its inputs.
+          setTakenOver(true);
+          pushNotice(
+            setNotices,
+            'warning',
+            'Session taken over',
+            'This pawn resumed in another tab.'
+          );
+          return;
+        }
+        retry = setTimeout(connect, 2000);
       };
       socket.onerror = () => {
         if (!isDisposed) socket.close();
@@ -187,6 +201,7 @@ export function useHarborSocket(identity: HarborIdentity) {
 
   return {
     connected,
+    takenOver,
     pawnId,
     snapshot,
     telemetry,

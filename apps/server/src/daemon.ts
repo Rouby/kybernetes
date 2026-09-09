@@ -16,6 +16,7 @@
 import {
   type ClientIntent,
   makeHelloMismatch,
+  SESSION_RESUMED_ELSEWHERE_CODE,
   type SnapshotFrame,
   type SnapshotPortal,
 } from '@kybernetes/protocol';
@@ -319,6 +320,7 @@ export class HarborDaemon {
 
   private routeIntent(ws: WebSocket, clientId: string, intent: ClientIntent): void {
     const result = this.host.handleIntent(clientId, intent);
+    if (intent.type === 'JOIN_BEACON') this.evictStolenSessions();
     if (intent.type === 'JOIN_BEACON' && result.notice === undefined) {
       this.welcomeAboard(ws, intent.beacon);
     }
@@ -330,6 +332,28 @@ export class HarborDaemon {
         ws,
         buildNotice(this.host.currentWorld.tick, Date.now(), 'info', 'Bridge', result.notice)
       );
+    }
+  }
+
+  /**
+   * Terminate sockets the host just evicted via a same-userId resume. The
+   * application close code tells the losing tab not to auto-reconnect,
+   * which would otherwise steal the pawn straight back every 2 seconds.
+   */
+  private evictStolenSessions(): void {
+    for (const evictedId of this.host.drainEvictedClients()) {
+      for (const [sock, meta] of this.meta) {
+        if (meta.clientId !== evictedId) continue;
+        this.meta.delete(sock);
+        this.vitalsSent.delete(evictedId);
+        try {
+          if (sock.readyState === WebSocket.OPEN) {
+            sock.close(SESSION_RESUMED_ELSEWHERE_CODE, 'session-resumed-elsewhere');
+          }
+        } catch {
+          // Already gone; registry cleanup above is what matters.
+        }
+      }
     }
   }
 

@@ -1,3 +1,4 @@
+import { SESSION_RESUMED_ELSEWHERE_CODE } from '@kybernetes/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
 import { HarborDaemon } from './daemon.js';
@@ -171,6 +172,42 @@ describe('HarborDaemon v2 transport', () => {
     expect(Array.isArray(telemetry.atmos)).toBe(true);
     expect(Array.isArray(telemetry.flows)).toBe(true);
     tap.stop();
+  });
+
+  it('evicts the first socket when the same userId resumes elsewhere', async () => {
+    const { port } = await startDaemon();
+    const first = await connectAndJoin(port, 'Rook', 'twin-9');
+    sockets.push(first);
+    await waitForType(first, 'JOINED');
+    const closed = new Promise<{ code: number; reason: string }>((resolve) => {
+      first.on('close', (code: number, reason: Buffer) =>
+        resolve({ code, reason: reason.toString() })
+      );
+    });
+    const second = await connectAndJoin(port, 'Rook', 'twin-9');
+    sockets.push(second);
+    const joined = await waitForType(second, 'JOINED');
+    expect(joined.pawnId).toBe('pawn:twin-9');
+    const { code, reason } = await closed;
+    expect(code).toBe(SESSION_RESUMED_ELSEWHERE_CODE);
+    expect(reason).toBe('session-resumed-elsewhere');
+    expect(first.readyState).not.toBe(WebSocket.OPEN);
+    // The surviving holder drives the shared pawn alone.
+    send(second, {
+      type: 'INPUT',
+      seq: 1,
+      moveVec: { x: 0, y: 0 },
+      facing: 1.5,
+      sprint: false,
+      sealed: true,
+    });
+    let facing = Number.NaN;
+    for (let i = 0; i < 40 && !(Math.abs(facing - 1.5) < 0.01); i += 1) {
+      const snapshot = await waitForSnapshot(second);
+      const pawns = snapshot.pawns as { id: string; facing: number }[];
+      facing = pawns.find((pawn) => pawn.id === 'pawn:twin-9')?.facing ?? Number.NaN;
+    }
+    expect(facing).toBeCloseTo(1.5, 2);
   });
 
   it('runs talk to hire to departure over the socket', async () => {
