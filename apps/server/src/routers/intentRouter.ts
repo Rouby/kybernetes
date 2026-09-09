@@ -6,10 +6,16 @@
 import type { ClientIntent } from '@kybernetes/protocol';
 import {
   applyConsume,
+  claimFixture,
   dockLinkForPortal,
   fireWeapon,
+  fixtureOnline,
+  harvestTray,
+  repairFixture,
+  runRecycle,
   setSleeping,
   setSuitSealed,
+  startCook,
   startReload,
   tryToggleDoor,
   type World,
@@ -40,7 +46,11 @@ export function routeIntent(
         notice: 'SUIT_ok',
       };
     case 'CONSUME':
-      return { world: applyConsume(world, pawnId), movement: pending, notice: 'CONSUME_ok' };
+      return {
+        world: applyConsume(world, pawnId, intent.itemId),
+        movement: pending,
+        notice: 'CONSUME_ok',
+      };
     case 'SLEEP':
       return {
         world: setSleeping(world, pawnId, intent.active),
@@ -51,6 +61,20 @@ export function routeIntent(
       return routeFire(world, pawnId, intent, pending);
     case 'RELOAD':
       return routeReload(world, pawnId, pending);
+    case 'CLAIM':
+      return routeClaim(world, pawnId, intent, pending);
+    case 'VEND':
+      return routeVend(world, pawnId, intent, pending);
+    case 'COOK':
+      return routeCook(world, pawnId, intent, pending);
+    case 'HARVEST':
+      return routeHarvest(world, pawnId, intent, pending);
+    case 'RECYCLE':
+      return routeRecycle(world, pawnId, intent, pending);
+    case 'REPAIR':
+      return routeRepair(world, pawnId, intent, pending);
+    case 'INTERACT':
+      return routeInteract(world, pawnId, intent, pending);
     case 'HELLO':
     case 'JOIN_BEACON':
       return { world, movement: pending, notice: intent.type };
@@ -105,6 +129,200 @@ function fireNotice(result: ReturnType<typeof fireWeapon>['result']): string {
 function routeReload(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
   const reloaded = startReload(world, pawnId);
   return { world: reloaded.world, movement: pending, notice: `RELOAD_${reloaded.result}` };
+}
+
+const FIXTURE_REACH_PX = 150;
+
+function pawnNearFixture(world: World, pawnId: string, fixtureId: string): boolean {
+  const pawn = world.pawns[pawnId];
+  const fix = world.fixtures[fixtureId];
+  if (pawn === undefined || fix === undefined) return false;
+  const dot = fix.roomId.indexOf('.');
+  const fixtureFrame = dot < 0 ? '' : fix.roomId.slice(0, dot);
+  if (fixtureFrame !== pawn.frameId) return false;
+  return Math.hypot(pawn.pos.x - fix.pos.x, pawn.pos.y - fix.pos.y) <= FIXTURE_REACH_PX;
+}
+
+function needReach(
+  world: World,
+  pawnId: string,
+  fixtureId: string,
+  pending: readonly WorldInput[],
+  verb: string
+): RouteResult | undefined {
+  if (world.pawns[pawnId] === undefined)
+    return { world, movement: pending, notice: verb + '_no-pawn' };
+  if (world.fixtures[fixtureId] === undefined)
+    return { world, movement: pending, notice: verb + '_unknown' };
+  if (!pawnNearFixture(world, pawnId, fixtureId))
+    return { world, movement: pending, notice: verb + '_too-far' };
+  return undefined;
+}
+
+function routeClaim(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'CLAIM' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gated = needReach(world, pawnId, intent.fixtureId, pending, 'CLAIM');
+  if (gated !== undefined) return gated;
+  const before = world.fixtures[intent.fixtureId]?.claimedBy;
+  const next = claimFixture(world, intent.fixtureId, pawnId);
+  const after = next.fixtures[intent.fixtureId]?.claimedBy;
+  if (before !== undefined && before !== pawnId)
+    return { world, movement: pending, notice: 'CLAIM_taken' };
+  if (after !== pawnId) return { world, movement: pending, notice: 'CLAIM_denied' };
+  return { world: next, movement: pending, notice: 'CLAIM_ok' };
+}
+
+function routeVend(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'VEND' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gated = needReach(world, pawnId, intent.fixtureId, pending, 'VEND');
+  if (gated !== undefined) return gated;
+  const fix = world.fixtures[intent.fixtureId];
+  if (fix === undefined || fix.kind !== 'vending_wall')
+    return { world, movement: pending, notice: 'VEND_denied' };
+  if (!fixtureOnline(fix)) return { world, movement: pending, notice: 'VEND_offline' };
+  if (
+    intent.vendId !== 'ration_tin' &&
+    intent.vendId !== 'recycled_water' &&
+    intent.vendId !== 'suit_patch'
+  )
+    return { world, movement: pending, notice: 'VEND_denied' };
+  if (intent.vendId === 'suit_patch') return routeSuitPatch(world, pawnId, pending);
+  const itemId = intent.vendId === 'ration_tin' ? 'ration_tin' : 'recycled_water';
+  return { world: applyConsume(world, pawnId, itemId), movement: pending, notice: 'VEND_ok' };
+}
+
+function routeSuitPatch(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
+  const vitals = world.vitals[pawnId];
+  if (vitals === undefined) return { world, movement: pending, notice: 'VEND_no-pawn' };
+  const integrity = Math.min(100, vitals.suitIntegrity + 25);
+  return {
+    world: {
+      ...world,
+      vitals: { ...world.vitals, [pawnId]: { ...vitals, suitIntegrity: integrity } },
+    },
+    movement: pending,
+    notice: 'VEND_ok',
+  };
+}
+
+function routeCook(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'COOK' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gated = needReach(world, pawnId, intent.stoveId, pending, 'COOK');
+  if (gated !== undefined) return gated;
+  const fix = world.fixtures[intent.stoveId];
+  if (fix === undefined || fix.kind !== 'stove')
+    return { world, movement: pending, notice: 'COOK_denied' };
+  if (!fixtureOnline(fix)) return { world, movement: pending, notice: 'COOK_offline' };
+  const next = startCook(world, intent.stoveId);
+  if (next.fixtures[intent.stoveId]?.progress01 === fix.progress01)
+    return { world, movement: pending, notice: 'COOK_busy' };
+  return { world: next, movement: pending, notice: 'COOK_ok' };
+}
+
+function routeHarvest(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'HARVEST' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gated = needReach(world, pawnId, intent.trayId, pending, 'HARVEST');
+  if (gated !== undefined) return gated;
+  const fix = world.fixtures[intent.trayId];
+  if (fix === undefined || fix.kind !== 'hydro_tray')
+    return { world, movement: pending, notice: 'HARVEST_denied' };
+  if (!fixtureOnline(fix)) return { world, movement: pending, notice: 'HARVEST_offline' };
+  const before = fix.progress01 ?? 0;
+  const next = harvestTray(world, intent.trayId);
+  if ((next.fixtures[intent.trayId]?.progress01 ?? 0) >= before && before < 1)
+    return { world, movement: pending, notice: 'HARVEST_growing' };
+  return { world: next, movement: pending, notice: 'HARVEST_ok' };
+}
+
+function routeRecycle(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'RECYCLE' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gated = needReach(world, pawnId, intent.recyclerId, pending, 'RECYCLE');
+  if (gated !== undefined) return gated;
+  const fix = world.fixtures[intent.recyclerId];
+  if (fix === undefined || fix.kind !== 'water_recycler')
+    return { world, movement: pending, notice: 'RECYCLE_denied' };
+  if (!fixtureOnline(fix)) return { world, movement: pending, notice: 'RECYCLE_offline' };
+  const next = runRecycle(world, intent.recyclerId);
+  if (next === world) return { world, movement: pending, notice: 'RECYCLE_busy' };
+  return { world: next, movement: pending, notice: 'RECYCLE_ok' };
+}
+
+function routeRepair(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'REPAIR' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gated = needReach(world, pawnId, intent.fixtureId, pending, 'REPAIR');
+  if (gated !== undefined) return gated;
+  const fix = world.fixtures[intent.fixtureId];
+  if (fix === undefined) return { world, movement: pending, notice: 'REPAIR_unknown' };
+  if ((fix.integrity ?? 100) >= 100) return { world, movement: pending, notice: 'REPAIR_full' };
+  return { world: repairFixture(world, intent.fixtureId), movement: pending, notice: 'REPAIR_ok' };
+}
+
+function routeInteract(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'INTERACT' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const fix = world.fixtures[intent.fixtureId];
+  if (fix === undefined) return { world, movement: pending, notice: 'INTERACT_unknown' };
+  if (!pawnNearFixture(world, pawnId, intent.fixtureId))
+    return { world, movement: pending, notice: 'INTERACT_too-far' };
+  if (!fixtureOnline(fix)) return { world, movement: pending, notice: 'INTERACT_offline' };
+  if (fix.kind === 'aid_cabinet') return routeAid(world, pawnId, pending);
+  if (fix.kind === 'sink') return routeSink(world, pawnId, pending);
+  if (fix.kind === 'mess_table')
+    return {
+      world: applyConsume(world, pawnId, 'hot_meal'),
+      movement: pending,
+      notice: 'INTERACT_ate',
+    };
+  return { world, movement: pending, notice: 'INTERACT_ok' };
+}
+
+function routeAid(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return { world, movement: pending, notice: 'INTERACT_no-pawn' };
+  const hp = Math.min(pawn.health.maxHp, pawn.health.hp + 20);
+  return {
+    world: {
+      ...world,
+      pawns: { ...world.pawns, [pawnId]: { ...pawn, health: { ...pawn.health, hp } } },
+    },
+    movement: pending,
+    notice: 'INTERACT_aided',
+  };
+}
+
+function routeSink(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
+  return {
+    world: applyConsume(world, pawnId, 'recycled_water'),
+    movement: pending,
+    notice: 'INTERACT_drank',
+  };
 }
 
 const DOOR_REACH_PX = 150;

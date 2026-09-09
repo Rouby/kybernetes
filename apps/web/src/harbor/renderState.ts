@@ -41,6 +41,8 @@ import {
   SHIP_ORIGIN,
   type World,
 } from '@kybernetes/sim-core';
+import type { LivingSummary } from '../webgl/hud/livingFormatters';
+import type { LivingView } from '../webgl/LivingFixtures';
 import type { PredictedShot } from './predictedShots';
 import type { PredictedPawn } from './useHarborMovement';
 
@@ -57,6 +59,65 @@ export function frameOrigins(snapshot: SnapshotBroadcast): Map<string, { x: numb
     origins.set(frame.id, { x: frame.originX, y: frame.originY });
   }
   return origins;
+}
+
+/** Living fixtures in world coords (ship offset applied for ship-side rooms). */
+export function mapLivingFixtures(
+  snapshot: SnapshotBroadcast,
+  origins: Map<string, { x: number; y: number }>
+): LivingView[] {
+  const fixtures = snapshot.fixtures ?? [];
+  return fixtures.map((fixture) => {
+    const frame = frameOfRoom(fixture.roomId);
+    const origin = origins.get(frame) ?? { x: 0, y: 0 };
+    return {
+      id: fixture.id,
+      kind: fixture.kind,
+      x: fixture.x + origin.x,
+      y: fixture.y + origin.y,
+      integrity: fixture.integrity,
+      online: fixture.online,
+      claimedBy: fixture.claimedBy,
+      progressPct: fixture.progressPct,
+      levelPct: fixture.levelPct,
+    };
+  });
+}
+
+/** Aggregate living room resources for the HUD strip; undefined while absent. */
+export function mapLivingSummary(telemetry: TelemetryBroadcast | null): LivingSummary | undefined {
+  const rooms = telemetry?.living ?? [];
+  if (rooms.length === 0) return undefined;
+  let powerKw = 0;
+  let heatMaxC = Number.NEGATIVE_INFINITY;
+  let waterCleanL = 0;
+  let waterGreyL = 0;
+  let mealsReady = 0;
+  let growthMaxPct = 0;
+  let breakerTripped = false;
+  for (const room of rooms) {
+    powerKw += room.powerKw ?? 0;
+    heatMaxC = Math.max(heatMaxC, room.heatC ?? heatMaxC);
+    waterCleanL += room.waterCleanL ?? 0;
+    waterGreyL += room.waterGreyL ?? 0;
+    mealsReady += room.mealsReady ?? 0;
+    growthMaxPct = Math.max(growthMaxPct, room.growthPct ?? 0);
+    breakerTripped = breakerTripped || (room.breakerTripped ?? false);
+  }
+  return {
+    powerKw,
+    heatMaxC: heatMaxC === Number.NEGATIVE_INFINITY ? 20 : heatMaxC,
+    waterCleanL,
+    waterGreyL,
+    mealsReady,
+    growthMaxPct,
+    breakerTripped,
+  };
+}
+
+function frameOfRoom(roomId: string): string {
+  const dot = roomId.indexOf('.');
+  return dot < 0 ? roomId : roomId.slice(0, dot);
 }
 
 export function pawnWorld(
@@ -134,6 +195,12 @@ export function mergeSnapshotDelta(
       portals: [...delta.portals],
       projectiles: [...delta.projectiles],
       frames: [...delta.frames],
+      fixtures:
+        delta.fixtures !== undefined
+          ? [...delta.fixtures]
+          : base.fixtures !== undefined
+            ? [...base.fixtures]
+            : [],
       decals:
         delta.decals !== undefined
           ? [...delta.decals]
@@ -155,6 +222,12 @@ export function mergeSnapshotDelta(
     portals: mergePortals(base.portals, delta.portals, delta.removedPortalIds),
     projectiles: [...delta.projectiles],
     frames: mergeFrames(base.frames, delta.frames),
+    fixtures:
+      delta.fixtures !== undefined
+        ? [...delta.fixtures]
+        : base.fixtures !== undefined
+          ? [...base.fixtures]
+          : [],
     decals:
       delta.decals !== undefined
         ? [...delta.decals]
@@ -178,6 +251,7 @@ export function mergeTelemetry(
     full: false,
     atmos: mergeAtmos(base.atmos, msg.atmos),
     flows: msg.flows ?? base.flows ?? [],
+    living: msg.living ?? base.living,
   };
 }
 
@@ -759,20 +833,27 @@ export function mapTelemetry(
   const subsystems = telemetry?.subsystems;
   const hullIntegrity = subsystems?.hull ?? 100;
   const atmosLevel = subsystems?.atmos ?? 100;
+  const livingPowerKw = (telemetry?.living ?? []).reduce(
+    (sum, room) => sum + (room.powerKw ?? 0),
+    0
+  );
+  const shipWaterL = (telemetry?.living ?? []).find(
+    (room) => room.roomId === 'ship.kajute_sued'
+  )?.waterCleanL;
   return {
     type: 'TELEMETRY_DELTA',
     timestamp: Date.now(),
     shipName: manifest?.shipName ?? 'CSS Hesperia',
     reactorTemp: 340,
     reactorMaxTemp: 1200,
-    reactorOutputMw: 42,
+    reactorOutputMw: 42 + livingPowerKw,
     oxygenLevelPercent: atmosLevel,
     hullIntegrityPercent: hullIntegrity,
     shieldIntegrityPercent: 100,
     alertLevel: hullIntegrity < 70 ? 'yellow' : 'nominal',
     supplies: {
       rations: 100,
-      waterLitres: 100,
+      waterLitres: shipWaterL ?? 100,
       oxygenPercent: atmosLevel,
       morale: 80,
       mutinyRisk: 0,
@@ -780,7 +861,7 @@ export function mapTelemetry(
     reactor: {
       tempKelvin: 340,
       maxTempKelvin: 1200,
-      outputMw: 42,
+      outputMw: 42 + livingPowerKw,
       coolantLevelPercent: 100,
       status: 'nominal',
     },

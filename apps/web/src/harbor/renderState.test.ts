@@ -22,6 +22,8 @@ import {
   mapDecalsView,
   mapFreshImpactsView,
   mapKineticAmmo,
+  mapLivingFixtures,
+  mapLivingSummary,
   mapPawn,
   mapPredictedProjectiles,
   mapPredictedProjectilesView,
@@ -613,6 +615,129 @@ describe('render-state mapping', () => {
     expect(smooth.get('station')).toEqual({ x: 0, y: 0 });
     expect(origins.get('ship')).toEqual({ x: 1400, y: 0 });
     expect(shipOffsetOf(smooth)).toEqual({ x: 1450, y: 10 });
+  });
+
+  it('maps living fixtures into world coords per frame', () => {
+    const snap = snapshot({
+      fixtures: [
+        {
+          id: 'station.bar_counter',
+          kind: 'bar_counter',
+          roomId: 'station.frachthalle',
+          x: 350,
+          y: 340,
+          integrity: 100,
+          online: true,
+        },
+        {
+          id: 'ship.stove',
+          kind: 'stove',
+          roomId: 'ship.kajute_nord',
+          x: 110,
+          y: 170,
+          integrity: 60,
+          online: true,
+          progressPct: 50,
+        },
+      ],
+    });
+    const views = mapLivingFixtures(snap, frameOrigins(snap));
+    expect(views).toHaveLength(2);
+    expect(views[0]).toMatchObject({ id: 'station.bar_counter', x: 350, y: 340 });
+    expect(views[1]).toMatchObject({
+      id: 'ship.stove',
+      x: 110 + 1400,
+      y: 170,
+      integrity: 60,
+      progressPct: 50,
+    });
+  });
+
+  it('maps empty fixtures to no views', () => {
+    expect(mapLivingFixtures(snapshot(), frameOrigins(snapshot()))).toEqual([]);
+  });
+
+  it('feeds living power and water into telemetry gauges', () => {
+    const tele = telemetry({
+      living: [
+        { roomId: 'ship.kajute_nord', powerKw: 6, heatC: 33 },
+        { roomId: 'ship.kajute_sued', powerKw: 2.5, waterCleanL: 12.5 },
+      ],
+    });
+    const mapped = mapTelemetry(snapshot(), tele, null, {});
+    expect(mapped.reactorOutputMw).toBeCloseTo(50.5);
+    expect(mapped.supplies.waterLitres).toBeCloseTo(12.5);
+  });
+
+  it('retains fixtures across deltas that omit them', () => {
+    const base = snapshot({
+      fixtures: [
+        {
+          id: 'ship.stove',
+          kind: 'stove',
+          roomId: 'ship.kajute_nord',
+          x: 110,
+          y: 170,
+          integrity: 100,
+          online: true,
+        },
+      ],
+    });
+    const ticked = mergeSnapshotDelta(base, {
+      type: 'SNAPSHOT_DELTA',
+      v: 2,
+      tick: 101,
+      serverTimeMs: 5050,
+      baseTick: 100,
+      full: false,
+      portalRev: 1,
+      frameRev: 1,
+      pawns: [],
+      impacts: [],
+      portals: [],
+      removedPortalIds: [],
+      projectiles: [],
+      frames: [],
+    });
+    expect(ticked.fixtures).toHaveLength(1);
+    expect(mapLivingFixtures(ticked, frameOrigins(ticked))).toHaveLength(1);
+  });
+
+  it('aggregates living rooms into a HUD summary', () => {
+    expect(mapLivingSummary(telemetry())).toBeUndefined();
+    expect(mapLivingSummary(null)).toBeUndefined();
+    const summary = mapLivingSummary(
+      telemetry({
+        living: [
+          { roomId: 'ship.kajute_nord', powerKw: 6, heatC: 33, mealsReady: 1 },
+          { roomId: 'ship.kajute_sued', powerKw: 2.5, waterCleanL: 12.5, growthPct: 64 },
+        ],
+      })
+    );
+    expect(summary).toMatchObject({
+      powerKw: 8.5,
+      heatMaxC: 33,
+      waterCleanL: 12.5,
+      mealsReady: 1,
+      growthMaxPct: 64,
+      breakerTripped: false,
+    });
+  });
+
+  it('flags tripped breakers in the summary', () => {
+    const summary = mapLivingSummary(
+      telemetry({ living: [{ roomId: 'ship.korridor_schiff', breakerTripped: true }] })
+    );
+    expect(summary?.breakerTripped).toBe(true);
+  });
+
+  it('retains living telemetry across deltas that omit it', () => {
+    const full = telemetry({
+      living: [{ roomId: 'ship.kajute_sued', powerKw: 2.5, waterCleanL: 12.5 }],
+    });
+    const merged = mergeTelemetry(full, { ...full, full: false, atmos: [] });
+    expect(merged.living).toHaveLength(1);
+    expect(mapTelemetry(snapshot(), merged, null, {}).supplies.waterLitres).toBeCloseTo(12.5);
   });
 
   it('keeps focus interpolation total on bad clocks', () => {

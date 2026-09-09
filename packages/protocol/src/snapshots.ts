@@ -11,6 +11,7 @@
 import type { Role } from './content.js';
 import type { ServerStatsBroadcast } from './debug.js';
 import type { DockStatusBroadcast } from './docking.js';
+import type { FixtureSnapshot, LivingRoomState } from './living.js';
 
 export interface SnapshotPawn {
   readonly id: string;
@@ -103,6 +104,8 @@ export interface SnapshotBroadcast {
   readonly portals: readonly SnapshotPortal[];
   readonly projectiles: readonly SnapshotProjectile[];
   readonly frames: readonly SnapshotFrame[];
+  /** Living fixtures (optional so pre-living clients keep working). */
+  readonly fixtures?: readonly FixtureSnapshot[];
   /** Persistent scorch decals (server LRU, oldest first). Absent on pre-decal senders. */
   readonly decals?: readonly ScorchDecal[];
   /** True when portals/frames are complete. Absent on pre-delta senders. */
@@ -135,6 +138,8 @@ export interface SnapshotDeltaBroadcast {
   readonly removedPortalIds: readonly string[];
   readonly projectiles: readonly SnapshotProjectile[];
   readonly frames: readonly SnapshotFrame[];
+  /** Complete fixture table when changed; clients replace on newer tick. */
+  readonly fixtures?: readonly FixtureSnapshot[];
   /** Complete decal table when changed; clients replace on newer tick. */
   readonly decals?: readonly ScorchDecal[];
 }
@@ -163,6 +168,8 @@ export interface TelemetryBroadcast {
   }[];
   /** Complete portal wind table (q1 m/s). Absent on pre-flow senders; clients keep last. */
   readonly flows?: readonly AirFlow[];
+  /** Living room resources (power/heat/water/growth). Absent on pre-living senders. */
+  readonly living?: readonly LivingRoomState[];
 }
 
 export interface VitalsBroadcast {
@@ -181,6 +188,8 @@ export interface VitalsBroadcast {
     readonly reserve: number;
     readonly mags: readonly number[];
     readonly reloading: boolean;
+    /** Seconds of mess-table meal buff remaining (q0). Absent = 0. */
+    readonly mealBuffS?: number;
   };
   readonly credits: number;
   readonly clearance: number;

@@ -1,5 +1,6 @@
 import {
   assembleWorld,
+  buildHarborWorld,
   buildManifest,
   buildSnapshot,
   buildTelemetry,
@@ -186,5 +187,78 @@ describe('SimHost scaffold', () => {
       color: '#fff',
     });
     expect(routeIntent(distant, 'p2', door(true), []).notice).toBe('DOOR_too-far');
+  });
+
+  it('forwards living verbs to the kernel instead of dropping them', () => {
+    const host = new SimHost(buildHarborWorld(), DEFAULT_CLOCKS, null);
+    host.handleIntent('c1', {
+      type: 'HELLO',
+      callsign: 'Rook',
+      color: '#ffd166',
+      clientVersion: 2,
+    });
+    const joined = host.handleIntent('c1', {
+      type: 'JOIN_BEACON',
+      beacon: 'HESP01',
+      seq: 1,
+      userId: 'u1',
+    });
+    expect(joined.notice).toBeUndefined();
+    const verbs = [
+      host.handleIntent('c1', { type: 'INTERACT', seq: 2, fixtureId: 'station.job_board' }),
+      host.handleIntent('c1', { type: 'CLAIM', seq: 3, fixtureId: 'station.locker_a' }),
+      host.handleIntent('c1', {
+        type: 'VEND',
+        seq: 4,
+        fixtureId: 'station.vending_wall',
+        vendId: 'ration_tin',
+      }),
+      host.handleIntent('c1', { type: 'COOK', seq: 5, stoveId: 'ship.stove' }),
+      host.handleIntent('c1', { type: 'HARVEST', seq: 6, trayId: 'ship.hydro_tray' }),
+      host.handleIntent('c1', { type: 'RECYCLE', seq: 7, recyclerId: 'ship.recycler' }),
+      host.handleIntent('c1', { type: 'REPAIR', seq: 8, fixtureId: 'ship.stove' }),
+    ];
+    const notices = verbs.map((result) => result.notice);
+    expect(notices).toEqual([
+      'INTERACT_too-far',
+      'CLAIM_too-far',
+      'VEND_too-far',
+      'COOK_too-far',
+      'HARVEST_too-far',
+      'RECYCLE_too-far',
+      'REPAIR_too-far',
+    ]);
+  });
+
+  it('walks the corridor to the job board and interacts for real', () => {
+    const host = new SimHost(buildHarborWorld(), DEFAULT_CLOCKS, null);
+    host.handleIntent('c1', {
+      type: 'HELLO',
+      callsign: 'Rook',
+      color: '#ffd166',
+      clientVersion: 2,
+    });
+    host.handleIntent('c1', { type: 'JOIN_BEACON', beacon: 'HESP01', seq: 1, userId: 'u1' });
+    let nowMs = 0;
+    for (let i = 0; i < 200; i += 1) {
+      nowMs += 50;
+      host.handleIntent('c1', {
+        type: 'INPUT',
+        seq: 10 + i,
+        moveVec: { x: 1, y: 0 },
+        facing: 0,
+        sprint: false,
+        sealed: false,
+      });
+      host.slice(nowMs, 50);
+      if ((host.currentWorld.pawns['pawn:u1']?.pos.x ?? 0) >= 430) break;
+    }
+    expect(host.currentWorld.pawns['pawn:u1']?.pos.x ?? 0).toBeGreaterThanOrEqual(430);
+    const result = host.handleIntent('c1', {
+      type: 'INTERACT',
+      seq: 999,
+      fixtureId: 'station.job_board',
+    });
+    expect(result.notice).toBe('INTERACT_ok');
   });
 });

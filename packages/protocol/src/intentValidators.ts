@@ -185,3 +185,43 @@ export function validateReload(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   return { ok: true, intent: { type: 'RELOAD', seq: raw.seq } };
 }
+
+export function validateClaim(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.fixtureId)) return fail('bad-field', 'fixtureId');
+  return { ok: true, intent: { type: 'CLAIM', seq: raw.seq, fixtureId: raw.fixtureId } };
+}
+
+export function validateVend(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.fixtureId)) return fail('bad-field', 'fixtureId');
+  if (!isShortId(raw.vendId)) return fail('bad-field', 'vendId');
+  return {
+    ok: true,
+    intent: { type: 'VEND', seq: raw.seq, fixtureId: raw.fixtureId, vendId: raw.vendId },
+  };
+}
+
+export function validateCook(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.stoveId)) return fail('bad-field', 'stoveId');
+  return { ok: true, intent: { type: 'COOK', seq: raw.seq, stoveId: raw.stoveId } };
+}
+
+export function validateHarvest(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.trayId)) return fail('bad-field', 'trayId');
+  return { ok: true, intent: { type: 'HARVEST', seq: raw.seq, trayId: raw.trayId } };
+}
+
+export function validateRecycle(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.recyclerId)) return fail('bad-field', 'recyclerId');
+  return { ok: true, intent: { type: 'RECYCLE', seq: raw.seq, recyclerId: raw.recyclerId } };
+}
+
+export function validateRepair(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.fixtureId)) return fail('bad-field', 'fixtureId');
+  return { ok: true, intent: { type: 'REPAIR', seq: raw.seq, fixtureId: raw.fixtureId } };
+}

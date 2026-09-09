@@ -14,6 +14,7 @@ import {
   findWorldRoom,
   getWorldDoors,
   getWorldOpaqueWalls,
+  getWorldRooms,
   getWorldStations,
   HESPERIA_WALLS,
   isImpactVisible,
@@ -23,9 +24,11 @@ import {
   throatFlowToPx,
   updateExplorationGrid,
 } from '@kybernetes/sim-core';
+import { renderClutter } from './Clutter';
 import { clearFowGrid, createFowGrid, loadFowGrid, saveFowGrid } from './fowMemory';
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
 import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
+import { type LivingView, renderLivingFixtures } from './LivingFixtures';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
 import { DeckPass, THRUSTER_BELLS } from './passes/DeckPass';
 import { FogOfWarPass } from './passes/FogOfWarPass';
@@ -114,6 +117,9 @@ export interface WebGLRenderState extends HudDrawState {
   muzzleFlashes?: Array<{ x: number; y: number; weaponType: WeaponType }>;
   zoom?: number;
   nearestDoorId?: string;
+  /** Living fixtures in world coords (snapshot state, ship offset applied). */
+  livingFixtures?: readonly LivingView[];
+  nearestLivingId?: string | null;
 }
 
 function bareRoomId(roomA: string): string {
@@ -389,10 +395,24 @@ export class WebGL2Renderer {
     matrix: Float32Array,
     nearestId?: string,
     timeSec = 0,
-    shipOffset: { x: number; y: number } = { x: 0, y: 0 }
+    shipOffset: { x: number; y: number } = { x: 0, y: 0 },
+    living: readonly LivingView[] = [],
+    nearestLivingId?: string | null
   ): void {
     this.bindFlatProgram(matrix);
     const ctx = this.getRenderContext();
+
+    renderClutter(
+      ctx,
+      getWorldRooms(shipOffset).map((room) => ({
+        id: room.id,
+        x: room.x,
+        y: room.y,
+        w: room.width,
+        h: room.height,
+      })),
+      timeSec
+    );
 
     for (const st of getWorldStations(shipOffset)) {
       const isNear = st.id === nearestId;
@@ -426,6 +446,7 @@ export class WebGL2Renderer {
         renderJobBoard(ctx, st, isNear, timeSec);
       }
     }
+    renderLivingFixtures(ctx, living, nearestLivingId, timeSec);
     this.gl.bindVertexArray(null);
   }
 
@@ -1031,7 +1052,14 @@ export class WebGL2Renderer {
     this.deckPass.renderDockTube(this.flatProg, this.flatVAO, matrix, state.dock, timeSec);
     this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);
-    this.renderStations(matrix, state.nearestStation?.id, timeSec, frameOffset);
+    this.renderStations(
+      matrix,
+      state.nearestStation?.id,
+      timeSec,
+      frameOffset,
+      state.livingFixtures ?? [],
+      state.nearestLivingId ?? null
+    );
 
     this.renderPawn(matrix, state.pawn, state.equippedWeapon, timeSec);
     this.renderVisibleRemotePawns(state, matrix, playerLoSPoly, timeSec);

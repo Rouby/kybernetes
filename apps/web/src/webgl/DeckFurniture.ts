@@ -34,22 +34,6 @@ function renderBridgeConsoles(
   }
 }
 
-function renderCabinBunks(
-  gl: WebGL2RenderingContext,
-  buf: WebGLBuffer,
-  prog: WebGLProgram,
-  y: number
-): void {
-  for (const bx of [100, 145]) {
-    setColor(gl, prog, 0.18, 0.2, 0.26, 1.0);
-    drawQuad(gl, buf, bx, y, 40, 44);
-    setColor(gl, prog, 0.72, 0.76, 0.84, 1.0);
-    drawQuad(gl, buf, bx + 3, y + 3, 34, 38);
-    setColor(gl, prog, 0.35, 0.45, 0.6, 1.0);
-    drawQuad(gl, buf, bx + 3, y + 22, 34, 19);
-  }
-}
-
 function renderDriveShielding(
   gl: WebGL2RenderingContext,
   buf: WebGLBuffer,
@@ -96,8 +80,6 @@ export interface FurnitureBounds {
 
 export const SHIP_FURNITURE_BOUNDS: readonly FurnitureBounds[] = [
   { room: 'bruecke', x: 90, y: 30, w: 100, h: 40 },
-  { room: 'kajute_nord', x: 90, y: 160, w: 100, h: 60 },
-  { room: 'kajute_sued', x: 90, y: 310, w: 100, h: 60 },
   { room: 'reaktor_antrieb', x: 90, y: 520, w: 100, h: 100 },
   { room: 'korridor_schiff', x: 10, y: 300, w: 40, h: 80 },
 ];
@@ -109,8 +91,6 @@ export function renderDeckFurniture(
   time: number
 ): void {
   renderBridgeConsoles(gl, dynamicBuffer, flatProg, time);
-  renderCabinBunks(gl, dynamicBuffer, flatProg, 165);
-  renderCabinBunks(gl, dynamicBuffer, flatProg, 315);
   renderDriveShielding(gl, dynamicBuffer, flatProg);
   renderSpineLights(gl, dynamicBuffer, flatProg, time);
 }

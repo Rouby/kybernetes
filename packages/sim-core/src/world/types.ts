@@ -91,6 +91,27 @@ export interface Fixture {
   readonly pos: Vec2;
   readonly radius: number;
   readonly prompt?: string;
+  /** 0-100; 0 = broken/offline until repaired. Defaults to 100. */
+  readonly integrity?: number;
+  /** False while broken or unpowered. Defaults to true. */
+  readonly online?: boolean;
+  /** Claiming pawn id for lockers/bunks. Absent = unclaimed. */
+  readonly claimedBy?: string;
+  /** 0-1 cook/growth/recycle progress. Absent = idle. */
+  readonly progress01?: number;
+  /** 0-1 fill level (freezer stock, hydro biomass, recycler water). */
+  readonly level01?: number;
+}
+
+export interface RoomLiving {
+  readonly roomId: string;
+  readonly powerKw: number;
+  readonly heatC: number;
+  readonly waterCleanL: number;
+  readonly waterGreyL: number;
+  readonly growth01: number;
+  readonly mealsReady: number;
+  readonly breakerTripped: boolean;
 }
 
 export interface LimbHealth {
@@ -197,6 +218,8 @@ export interface World {
   readonly docks: Readonly<Record<string, DockLink>>;
   /** Survival vitals by pawn id; created on first tick. */
   readonly vitals: Readonly<Record<string, PawnVitals>>;
+  /** Living room resources by namespaced room id; created on demand. */
+  readonly living: Readonly<Record<string, RoomLiving>>;
   /** Bot schedules by pawn id; only scheduled pawns move on their own. */
   readonly bots: Readonly<Record<string, BotSchedule>>;
   /** Aim bloom in radians by pawn id; grows per shot, decays when not firing. */
@@ -230,6 +253,7 @@ export function createEmptyWorld(timeMs = 0): World {
     spawns: {},
     docks: {},
     vitals: {},
+    living: {},
     bots: {},
     spread: {},
     impacts: [],

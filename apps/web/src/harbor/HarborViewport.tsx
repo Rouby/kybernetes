@@ -13,15 +13,24 @@ import type {
   PlayerVitals,
   RoomAtmosphereSummary,
   SnapshotBroadcast,
+  SnapshotPawn,
   TelemetryBroadcast,
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
 } from '@kybernetes/protocol';
-import { createInitialDoors } from '@kybernetes/sim-core';
+import { createInitialDoors, type World } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
 import { useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import type { LivingView } from '../webgl/LivingFixtures';
 import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
+import {
+  doorSpotsOf,
+  type InteractTarget,
+  selectInteractTarget,
+  sightBlockers,
+  targetPrompt,
+} from './interactTarget';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
 import type { FocusOrigin, FrameMotion } from './renderState';
@@ -37,6 +46,8 @@ import {
   mapBreaches,
   mapDecals,
   mapKineticAmmo,
+  mapLivingFixtures,
+  mapLivingSummary,
   mapPawn,
   mapPredictedProjectiles,
   mapRemotePawns,
@@ -67,6 +78,7 @@ export interface HarborNoticed {
 }
 
 export interface HarborViewportProps {
+  statics: World;
   snapshot: SnapshotBroadcast | null;
   pawnId: string | null;
   beacon: string;
@@ -84,6 +96,7 @@ export interface HarborViewportProps {
   shipUnderway: boolean;
   onFireDown: () => void;
   onFireUp: () => void;
+  targetRef: { current: InteractTarget | null };
 }
 
 interface MuzzleFlash {
@@ -101,7 +114,7 @@ interface ViewportSession {
   seenImpacts: Set<string>;
   lastFrameMs: number;
   lastAudioMs: number;
-  mouse: { x: number; y: number; moved: boolean };
+  mouse: { x: number; y: number; moved: boolean; lastMs: number };
   flashes: MuzzleFlash[];
   trauma: number;
   lastTraumaMs: number;
@@ -134,7 +147,7 @@ export function HarborViewport(props: HarborViewportProps) {
     seenImpacts: new Set<string>(),
     lastFrameMs: 0,
     lastAudioMs: 0,
-    mouse: { x: 0, y: 0, moved: false },
+    mouse: { x: 0, y: 0, moved: false, lastMs: 0 },
     flashes: [],
     trauma: 0,
     lastTraumaMs: 0,
@@ -183,6 +196,7 @@ export function HarborViewport(props: HarborViewportProps) {
       session.mouse.x = (event.clientX - rect.left) * (canvas.width / Math.max(rect.width, 1));
       session.mouse.y = (event.clientY - rect.top) * (canvas.height / Math.max(rect.height, 1));
       session.mouse.moved = true;
+      session.mouse.lastMs = performance.now();
       viewRef.current.aimLockedRef.current = true;
     };
     const onDown = (): void => {
@@ -246,6 +260,17 @@ function renderViewport(
   const viewOrigins = smoothedOrigins(origins, session.shipInterp);
   const at = pawnWorld(own, viewOrigins, view.predicted);
   stampSnapshotArrival(session, snapshot, now);
+  const cursorWorld = cursorWorldOf(session, canvas, now);
+  const { livingViews, target } = targetFrameState(
+    snapshot,
+    view.statics,
+    viewOrigins,
+    own,
+    view.facingRef.current,
+    view.predicted,
+    cursorWorld
+  );
+  view.targetRef.current = target;
   const aim = trackAim(session, view, canvas, at);
   const motion = stepFrameMotion(
     session.frameMotion ?? null,
@@ -267,64 +292,125 @@ function renderViewport(
   const mappedVitals = mapVitals(view.vitals);
   pollAudioTelemetry(session, delta, mappedVitals, bareId(own.roomHint), now);
   renderer.render(
-    {
-      pawn: mapPawn(own, callsignFor(view.manifest, own.id), at, view.facingRef.current),
-      remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, viewOrigins),
-      vitals: mappedVitals,
-      telemetry: delta,
-      boarding: {
-        intruders: [],
-        boardingPods: [],
-        sentries: [],
-        lockedBulkheads: [],
-        ventedRooms: ventedBareIds(view.telemetry),
-        doors: session.doors,
-        projectiles: [
-          ...mapServerProjectiles(
-            snapshot.projectiles,
-            viewOrigins,
-            snapshotAgeS(session.snapshotAtMs, now)
-          ),
-          ...mapPredictedProjectiles(view.shotsRef.current, viewOrigins),
-        ],
-        roomO2: roomO2(roomAtmos),
-      },
-      credits: view.vitals?.credits,
-      clearanceLevel: view.vitals?.clearance,
-      beaconCode: view.manifest?.beacon,
-      crewCount: view.manifest?.crew.length,
-      currentRoomId: bareId(own.roomHint),
-      kineticAmmo: mapKineticAmmo(view.vitals),
+    viewportRenderState({
+      session,
+      view,
+      snapshot,
+      viewOrigins,
+      at,
+      aim,
+      own,
+      roomAtmos,
+      delta,
       breaches,
-      breachFlows: flows,
-      decals: mapDecals(snapshot, viewOrigins),
-      dock:
-        view.dock === null
-          ? undefined
-          : {
-              walkable: view.dock.walkable,
-              phase: view.dock.phase,
-              secondsToSeal: view.dock.secondsToSeal,
-            },
-      impacts: freshImpacts(session, snapshot, viewOrigins),
-      camera: shakenCamera(session, now),
-      zoom: VIEW_ZOOM,
-      mouseWorld: aimPoint(aim, at),
-      muzzleFlashes: session.flashes.map((flash) => ({
-        x: flash.x,
-        y: flash.y,
-        weaponType: 'kinetic_carbine' as const,
-      })),
-      inGameNotice: session.notice?.text,
-      timeMs: now,
-      shipOffset: shipOffsetOf(viewOrigins),
-      shipUnderway: view.shipUnderway,
-      screenWidth: canvas.clientWidth,
-      screenHeight: canvas.clientHeight,
-    },
+      flows,
+      mappedVitals,
+      livingViews,
+      target,
+      now,
+      canvas,
+    }),
     canvas.width,
     canvas.height
   );
+}
+
+/** Pure render-state assembly for one viewport frame (single args object). */
+function viewportRenderState(args: {
+  session: ViewportSession;
+  view: HarborViewportProps;
+  snapshot: SnapshotBroadcast;
+  viewOrigins: Map<string, { x: number; y: number }>;
+  at: { x: number; y: number };
+  aim: { x: number; y: number } | null;
+  own: SnapshotPawn;
+  roomAtmos: Record<string, RoomAtmosphereSummary>;
+  delta: TelemetryDeltaBroadcast;
+  breaches: ReturnType<typeof mapBreaches>;
+  flows: TelemetryBroadcast['flows'];
+  mappedVitals: PlayerVitals | undefined;
+  livingViews: LivingView[];
+  target: InteractTarget | null;
+  now: number;
+  canvas: HTMLCanvasElement;
+}) {
+  const {
+    session,
+    view,
+    snapshot,
+    viewOrigins,
+    at,
+    aim,
+    own,
+    roomAtmos,
+    delta,
+    breaches,
+    flows,
+    mappedVitals,
+    livingViews,
+    target,
+    now,
+  } = args;
+  return {
+    pawn: mapPawn(own, callsignFor(view.manifest, own.id), at, view.facingRef.current),
+    remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, viewOrigins),
+    vitals: mappedVitals,
+    telemetry: delta,
+    boarding: {
+      intruders: [],
+      boardingPods: [],
+      sentries: [],
+      lockedBulkheads: [],
+      ventedRooms: ventedBareIds(view.telemetry),
+      doors: session.doors,
+      projectiles: [
+        ...mapServerProjectiles(
+          snapshot.projectiles,
+          viewOrigins,
+          snapshotAgeS(session.snapshotAtMs, now)
+        ),
+        ...mapPredictedProjectiles(view.shotsRef.current, viewOrigins),
+      ],
+      roomO2: roomO2(roomAtmos),
+    },
+    livingFixtures: livingViews,
+    livingSummary: mapLivingSummary(view.telemetry),
+    mealBuffS: view.vitals?.vitals.mealBuffS ?? 0,
+    nearestLivingId: target?.kind === 'fixture' ? target.contact.id : null,
+    promptActionName: target === null ? undefined : targetPrompt(target),
+    credits: view.vitals?.credits,
+    clearanceLevel: view.vitals?.clearance,
+    beaconCode: view.manifest?.beacon,
+    crewCount: view.manifest?.crew.length,
+    currentRoomId: bareId(own.roomHint),
+    kineticAmmo: mapKineticAmmo(view.vitals),
+    breaches,
+    breachFlows: flows,
+    decals: mapDecals(snapshot, viewOrigins),
+    dock:
+      view.dock === null
+        ? undefined
+        : {
+            walkable: view.dock.walkable,
+            phase: view.dock.phase,
+            secondsToSeal: view.dock.secondsToSeal,
+          },
+    impacts: freshImpacts(session, snapshot, viewOrigins),
+    camera: shakenCamera(session, now),
+    zoom: VIEW_ZOOM,
+    mouseWorld: aimPoint(aim, at),
+    muzzleFlashes: session.flashes.map((flash) => ({
+      x: flash.x,
+      y: flash.y,
+      weaponType: 'kinetic_carbine' as const,
+    })),
+    inGameNotice: session.notice?.text,
+    timeMs: now,
+    shipOffset: shipOffsetOf(viewOrigins),
+    shipUnderway: view.shipUnderway,
+    screenWidth: args.canvas.clientWidth,
+    screenHeight: args.canvas.clientHeight,
+  };
 }
 
 /** Rebuild atmos/telemetry mappings only when a channel tick actually moved. */
@@ -385,6 +471,47 @@ function aimWorld(
 ): { x: number; y: number } | null {
   if (!session.mouse.moved) return null;
   return screenToWorld(session.mouse.x, session.mouse.y, canvas, session.camera);
+}
+
+/** Stale cursors stop voting so keyboard-only play keeps facing-only picks. */
+const CURSOR_FRESH_MS = 4000;
+
+function cursorWorldOf(
+  session: ViewportSession,
+  canvas: HTMLCanvasElement,
+  now: number
+): { x: number; y: number } | null {
+  if (!session.mouse.moved || now - session.mouse.lastMs > CURSOR_FRESH_MS) return null;
+  return screenToWorld(session.mouse.x, session.mouse.y, canvas, session.camera);
+}
+
+/** Living fixture views plus the shared [E] target (prompt and action agree). */
+function targetFrameState(
+  snapshot: SnapshotBroadcast,
+  statics: World,
+  origins: Map<string, { x: number; y: number }>,
+  own: SnapshotPawn,
+  facing: number,
+  predicted: PredictedPawn | null,
+  cursorWorld: { x: number; y: number } | null
+) {
+  const origin = origins.get(own.frameId) ?? { x: 0, y: 0 };
+  const at = predicted === null ? { x: own.x, y: own.y } : { x: predicted.x, y: predicted.y };
+  const cursor =
+    cursorWorld === null ? null : { x: cursorWorld.x - origin.x, y: cursorWorld.y - origin.y };
+  return {
+    livingViews: mapLivingFixtures(snapshot, origins),
+    target: selectInteractTarget({
+      fixtures: snapshot.fixtures,
+      doors: doorSpotsOf(statics, own.frameId),
+      openById: new Map(snapshot.portals.map((portal) => [portal.id, portal.open] as const)),
+      frameId: own.frameId,
+      at,
+      facing,
+      cursor,
+      blockers: sightBlockers(statics, own.frameId, snapshot.portals),
+    }),
+  };
 }
 
 /** Stamp snapshot arrival on the client clock for projectile extrapolation. */

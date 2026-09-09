@@ -19,8 +19,15 @@ import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import { DebugWorldView } from './DebugWorldView';
 import { shouldFireShot } from './fireGate';
 import { HarborViewport } from './HarborViewport';
+import {
+  doorSpotsOf,
+  type InteractTarget,
+  selectInteractTarget,
+  sightBlockers,
+  targetIntent,
+} from './interactTarget';
 import { dropYoungShots, type PredictedShot, spawnPredictedShot } from './predictedShots';
-import { dockChipText, dockGateIds, withDockWalkable } from './renderState';
+import { dockChipText, withDockWalkable } from './renderState';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
 import { useHarborObserver } from './useHarborObserver';
 import { useHarborSocket } from './useHarborSocket';
@@ -112,6 +119,7 @@ function HarborPlayerRoot() {
 
   const predictedRef = useRef(movement.predicted);
   predictedRef.current = movement.predicted;
+  const targetRef = useRef<InteractTarget | null>(null);
   const shotsRef = useRef<PredictedShot[]>([]);
   const shotIdRef = useRef(0);
   const fireSignalRef = useRef(0);
@@ -185,7 +193,8 @@ function HarborPlayerRoot() {
     socket.pawnId,
     socket.offer,
     movement.toggleSeal,
-    predictedRef,
+    targetRef,
+    movement.facingRef,
     pressFireStart,
     pressFireEnd
   );
@@ -198,6 +207,8 @@ function HarborPlayerRoot() {
         </div>
       ) : null}
       <HarborViewport
+        statics={staticWorld}
+        targetRef={targetRef}
         snapshot={socket.snapshot}
         pawnId={socket.pawnId}
         beacon={identity.beacon}
@@ -231,7 +242,8 @@ function useActions(
   pawnId: string | null,
   offer: Offer,
   toggleSeal: () => void,
-  predictedRef: RefObject<{ x: number; y: number; facing: number } | null>,
+  targetRef: { current: InteractTarget | null },
+  facingRef: RefObject<number>,
   pressFireStart: () => void,
   pressFireEnd: () => void
 ): void {
@@ -239,7 +251,8 @@ function useActions(
     const onDown = (event: KeyboardEvent): void => {
       if (event.repeat) return;
       const key = event.key.toLowerCase();
-      if (key === 'e') pressDoor(sendIntent, statics, snapshot, pawnId, predictedRef.current);
+      if (key === 'e')
+        pressUse(sendIntent, statics, snapshot, pawnId, targetRef, facingRef.current);
       else if (key === 'h') pressTalk(sendIntent, snapshot);
       else if (key === 'j' && offer !== null) {
         const job = offer.jobs[0];
@@ -269,52 +282,69 @@ function useActions(
     pawnId,
     offer,
     toggleSeal,
-    predictedRef,
+    targetRef,
+    facingRef,
     pressFireStart,
     pressFireEnd,
   ]);
 }
 
-function pressDoor(
+/** [E]: uses the viewport's shared target (prompt and action agree); falls back
+ * to a cursor-less resolve on the very first frames before the loop runs. */
+function pressUse(
   sendIntent: SendIntent,
   statics: World,
   snapshot: Snapshot,
   pawnId: string | null,
-  predicted: { x: number; y: number } | null
+  targetRef: { current: InteractTarget | null },
+  facing: number
 ): void {
   if (snapshot === null || pawnId === null) return;
   const pawn = snapshot.pawns.find((entry) => entry.id === pawnId);
   if (pawn === undefined) return;
-  const at = { x: predicted?.x ?? pawn.x, y: predicted?.y ?? pawn.y };
-  const target = scanDoors(statics, snapshot, pawn.frameId, at);
+  const at = { x: pawn.x, y: pawn.y };
+  const target = targetRef.current ?? resolveUseTarget(statics, snapshot, pawn.frameId, at, facing);
   if (target === null) return;
-  sendIntent({ type: 'DOOR', seq: 0, portalId: target.id, wantOpen: !target.open });
-  ShipAudioEngine.getInstance().playDoorToggle(at.x, at.y, !target.open);
+  sendUseIntent(sendIntent, target, at);
 }
 
-function scanDoors(
+function resolveUseTarget(
   statics: World,
   snapshot: NonNullable<Snapshot>,
   frameId: string,
+  at: { x: number; y: number },
+  facing: number
+): InteractTarget | null {
+  return selectInteractTarget({
+    fixtures: snapshot.fixtures,
+    doors: doorSpotsOf(statics, frameId),
+    openById: new Map(snapshot.portals.map((portal) => [portal.id, portal.open] as const)),
+    frameId,
+    at,
+    facing,
+    blockers: sightBlockers(statics, frameId, snapshot.portals),
+  });
+}
+
+function sendUseIntent(
+  sendIntent: SendIntent,
+  target: InteractTarget,
   at: { x: number; y: number }
-): { id: string; open: boolean } | null {
-  const states = new Map(snapshot.portals.map((portal) => [portal.id, portal.open]));
-  const dockGates = new Set(dockGateIds());
-  let best: { id: string; open: boolean; dist: number } | null = null;
-  for (const edge of Object.values(statics.portals)) {
-    const room = statics.rooms[edge.roomA];
-    if (room === undefined || room.frameId !== frameId) continue;
-    // Dock leaves belong to the approach cycle; E never toggles them.
-    if (dockGates.has(edge.id)) continue;
-    const dist = Math.hypot(
-      at.x - (edge.segment.x1 + edge.segment.x2) / 2,
-      at.y - (edge.segment.y1 + edge.segment.y2) / 2
-    );
-    if (dist < 90 && (best === null || dist < best.dist)) {
-      best = { id: edge.id, open: states.get(edge.id) ?? false, dist };
-    }
+): void {
+  const intent = targetIntent(target);
+  sendIntent(intent);
+  if (target.kind === 'door') {
+    ShipAudioEngine.getInstance().playDoorToggle(at.x, at.y, !target.open);
+  } else {
+    playUseSound(intent.type, at);
   }
-  return best === null ? null : { id: best.id, open: best.open };
+}
+
+function playUseSound(intentType: string, at: { x: number; y: number }): void {
+  const engine = ShipAudioEngine.getInstance();
+  if (intentType === 'REPAIR') engine.playDoorToggle(at.x, at.y, true);
+  else if (intentType === 'CLAIM') engine.playUiClick();
+  else engine.playStationInteract();
 }
 
 function pressTalk(sendIntent: SendIntent, snapshot: Snapshot): void {

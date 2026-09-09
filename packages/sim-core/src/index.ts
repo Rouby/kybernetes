@@ -24,6 +24,7 @@ export * from './world/dockStatus';
 export * from './world/doors';
 export * from './world/frames';
 export * from './world/hullCompiler';
+export * from './world/living';
 export * from './world/los';
 export * from './world/movement';
 export * from './world/scenarios';

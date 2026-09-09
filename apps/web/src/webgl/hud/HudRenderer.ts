@@ -34,6 +34,7 @@ import {
 import { isPawnHovered, resolveCrewDossier } from './crewDossier';
 import { HudAtlas, type TextRenderOptions } from './HudAtlas';
 import { HudHitTester } from './HudHitTester';
+import { formatLivingStrip, type LivingSummary } from './livingFormatters';
 import {
   formatAtmosphereStatus,
   formatIncapacitatedNotice,
@@ -50,6 +51,8 @@ export interface HudDrawState {
   alertLevel?: 'nominal' | 'yellow' | 'red';
   nearestStation?: StationFixture | null;
   promptActionName?: string;
+  livingSummary?: LivingSummary;
+  mealBuffS?: number;
   activeInteraction?: ActiveInteraction | null;
   beaconCode?: string;
   crewCount?: number;
@@ -538,6 +541,32 @@ export class HudRenderer {
       this.addText('[W][A][S][D] Move • [H] Visor • [E] Action • [V] Sensor', x + 15, y + 198, {
         fontSize: 14,
         color: '#55708a',
+      });
+    }
+  }
+
+  private renderLivingStrip(state: HudDrawState, width: number, height: number): void {
+    if (state.livingSummary === undefined) return;
+    const formatted = formatLivingStrip(state.livingSummary, state.mealBuffS ?? 0);
+    const marginX = Math.max(72, Math.round(width * 0.055));
+    const marginY = Math.max(52, Math.round(height * 0.065));
+    const panelW = 410;
+    const panelH = formatted.alert === null ? 86 : 106;
+    const x = marginX;
+    const y = height - 228 - marginY - 12 - panelH;
+    this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
+    this.addText(formatted.title, x + 15, y + 10, {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: '#00e5ff',
+    });
+    this.addText(formatted.line1, x + 15, y + 30, { fontSize: 14, color: '#c0d0e0' });
+    this.addText(formatted.line2, x + 15, y + 48, { fontSize: 14, color: '#c0d0e0' });
+    if (formatted.alert !== null) {
+      this.addText(formatted.alert, x + 15, y + 68, {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: formatted.alertIsCritical ? '#ff2244' : '#ffb000',
       });
     }
   }
@@ -1096,6 +1125,7 @@ export class HudRenderer {
 
     // 2. COMPOSE HUD WIDGETS
     this.renderLowerLeftVitals(state, width, height);
+    this.renderLivingStrip(state, width, height);
     this.renderLowerRightCombat(state, width, height);
     this.renderTopVisor(state, width, height);
     this.renderTopLeftShiftChecklist(state, width, height);

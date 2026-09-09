@@ -18,6 +18,7 @@ export interface PawnVitals {
   readonly bodyTempC: number;
   readonly bleedoutS: number;
   readonly sleeping: boolean;
+  readonly mealBuffS: number;
   readonly mags: readonly number[];
   readonly reloadingS: number;
 }
@@ -52,6 +53,7 @@ export function defaultVitals(suitSealed: boolean): PawnVitals {
     bodyTempC: 37,
     bleedoutS: 0,
     sleeping: false,
+    mealBuffS: 0,
     mags: Array.from({ length: MAG_COUNT }, () => MAG_SIZE),
     reloadingS: 0,
   };
@@ -78,18 +80,30 @@ export function setSuitSealed(world: World, pawnId: string, sealed: boolean): Wo
   };
 }
 
-export function applyConsume(world: World, pawnId: string): World {
+export function mealValues(itemId: string): { hunger: number; thirst: number; buffS: number } {
+  if (itemId === 'hot_meal') return { hunger: 35, thirst: 10, buffS: 60 };
+  if (itemId === 'raw_greens') return { hunger: 10, thirst: 5, buffS: 0 };
+  if (itemId === 'recycled_water') return { hunger: 0, thirst: 25, buffS: 0 };
+  if (itemId === 'ration_tin') return { hunger: 25, thirst: 5, buffS: 0 };
+  if (itemId === 'recaf') return { hunger: 5, thirst: 15, buffS: 0 };
+  return { hunger: 20, thirst: 20, buffS: 0 };
+}
+
+export function applyConsume(world: World, pawnId: string, itemId = 'nutrient_paste'): World {
   const pawn = world.pawns[pawnId];
   if (pawn === undefined) return world;
   const vitals = ensureVitals(world, pawnId);
+  const meal = mealValues(itemId);
   return {
     ...world,
     vitals: {
       ...world.vitals,
       [pawnId]: {
         ...vitals,
-        hunger: Math.min(100, vitals.hunger + 20),
-        thirst: Math.min(100, vitals.thirst + 20),
+        hunger: Math.min(100, vitals.hunger + meal.hunger),
+        thirst: Math.min(100, vitals.thirst + meal.thirst),
+        mealBuffS: Math.max(vitals.mealBuffS, meal.buffS),
+        fatigue: meal.buffS > 0 ? Math.max(0, vitals.fatigue - 10) : vitals.fatigue,
       },
     },
   };
@@ -203,7 +217,8 @@ function metabolize(world: World, pawn: PawnBody, vitals: PawnVitals, dt: number
   const fatigue = vitals.sleeping
     ? Math.max(0, vitals.fatigue - dt)
     : Math.min(100, vitals.fatigue + fatigueRate(world, pawn.id) * dt);
-  return { ...vitals, hunger, thirst, fatigue };
+  const mealBuffS = Math.max(0, vitals.mealBuffS - dt);
+  return { ...vitals, hunger, thirst, fatigue, mealBuffS };
 }
 
 function fatigueRate(world: World, pawnId: string): number {

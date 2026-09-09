@@ -9,19 +9,25 @@
 import type { ValidateErr, ValidateFailure, ValidateResult } from './intentValidators.js';
 import {
   isRecord,
+  validateClaim,
   validateConsume,
+  validateCook,
   validateDoor,
   validateFire,
+  validateHarvest,
   validateHello,
   validateHire,
   validateInput,
   validateInteract,
   validateJoinBeacon,
   validateObserve,
+  validateRecycle,
   validateReload,
+  validateRepair,
   validateSleep,
   validateSuit,
   validateTalk,
+  validateVend,
 } from './intentValidators.js';
 
 function fail(reason: ValidateFailure, field?: string): ValidateErr {
@@ -58,6 +64,18 @@ export function validateClientIntent(raw: unknown): ValidateResult {
       return validateFire(raw);
     case 'RELOAD':
       return validateReload(raw);
+    case 'CLAIM':
+      return validateClaim(raw);
+    case 'VEND':
+      return validateVend(raw);
+    case 'COOK':
+      return validateCook(raw);
+    case 'HARVEST':
+      return validateHarvest(raw);
+    case 'RECYCLE':
+      return validateRecycle(raw);
+    case 'REPAIR':
+      return validateRepair(raw);
     default:
       return fail('unknown-type');
   }
@@ -78,4 +96,10 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   FIRE: 30,
   RELOAD: 2,
   OBSERVE: 2,
+  CLAIM: 4,
+  VEND: 4,
+  COOK: 4,
+  HARVEST: 4,
+  RECYCLE: 4,
+  REPAIR: 8,
 };

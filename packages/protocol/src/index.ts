@@ -8,6 +8,7 @@ export * from './envelope';
 export * from './intents';
 export * from './intentValidators';
 export * from './intro';
+export * from './living';
 export * from './quant';
 export * from './seq';
 export * from './snapshots';

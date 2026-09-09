@@ -29,3 +29,71 @@ describe('dock gate door discipline', () => {
     expect(result.notice).not.toBe('DOOR_dock-cycle');
   });
 });
+
+describe('living intents', () => {
+  it('claims a bunk when standing next to it', async () => {
+    const core = await import('@kybernetes/sim-core');
+    let world = core.buildHarborWorld();
+    world = core.spawnPawn(world, {
+      id: 'pawn:u1',
+      owner: 'u1',
+      frameId: 'ship',
+      roomId: 'ship.kajute_sued',
+      x: 120,
+      y: 380,
+      color: '#fff',
+    });
+    const result = routeIntent(
+      world,
+      'pawn:u1',
+      { type: 'CLAIM', seq: 1, fixtureId: 'ship.bunk_a' },
+      []
+    );
+    expect(result.notice).toBe('CLAIM_ok');
+    expect(result.world.fixtures['ship.bunk_a']?.claimedBy).toBe('pawn:u1');
+  });
+
+  it('refuses living verbs from across the map', async () => {
+    const core = await import('@kybernetes/sim-core');
+    let world = core.buildHarborWorld();
+    world = core.spawnPawn(world, {
+      id: 'pawn:far',
+      owner: 'u1',
+      frameId: 'station',
+      roomId: 'station.habitat',
+      x: 160,
+      y: 100,
+      color: '#fff',
+    });
+    const result = routeIntent(
+      world,
+      'pawn:far',
+      { type: 'COOK', seq: 1, stoveId: 'ship.stove' },
+      []
+    );
+    expect(result.notice).toBe('COOK_too-far');
+  });
+
+  it('repairs a damaged stove', async () => {
+    const core = await import('@kybernetes/sim-core');
+    let world = core.buildHarborWorld();
+    world = core.spawnPawn(world, {
+      id: 'pawn:eng',
+      owner: 'u1',
+      frameId: 'ship',
+      roomId: 'ship.kajute_nord',
+      x: 110,
+      y: 180,
+      color: '#fff',
+    });
+    world = core.damageFixture(world, 'ship.stove', 60);
+    const result = routeIntent(
+      world,
+      'pawn:eng',
+      { type: 'REPAIR', seq: 1, fixtureId: 'ship.stove' },
+      []
+    );
+    expect(result.notice).toBe('REPAIR_ok');
+    expect(result.world.fixtures['ship.stove']?.integrity ?? 0).toBeGreaterThan(40);
+  });
+});

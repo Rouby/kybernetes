@@ -32,6 +32,8 @@ export const BOT_LINES = [
   'Watch rotation steady.',
   'Mind the gauges.',
   'Gauntlet sealed.',
+  'Fresh greens from the trays.',
+  'Rations hot at the mess.',
 ] as const;
 
 export const BOT_ARRIVE_RADIUS = 24;

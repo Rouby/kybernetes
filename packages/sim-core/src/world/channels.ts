@@ -49,6 +49,7 @@ export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {
     portals,
     projectiles: snapshotShotsOf(world),
     frames,
+    fixtures: snapshotFixturesOf(world),
     decals: snapshotDecalsOf(world),
     full: true,
     portalRev: portalRevOf(portals),
@@ -113,6 +114,34 @@ export function snapshotFramesOf(world: World): SnapshotFrame[] {
     originX: q2(frame.origin.x),
     originY: q2(frame.origin.y),
     angle: q2(frame.angle),
+  }));
+}
+
+export function snapshotFixturesOf(world: World) {
+  return Object.values(world.fixtures).map((fix) => ({
+    id: fix.id,
+    kind: (fix.kind ?? 'stool') as import('@kybernetes/protocol').FixtureKind,
+    roomId: fix.roomId,
+    x: q1(fix.pos.x),
+    y: q1(fix.pos.y),
+    integrity: q0(fix.integrity ?? 100),
+    online: (fix.integrity ?? 100) > 0 && (fix.online ?? true),
+    ...(fix.claimedBy === undefined ? {} : { claimedBy: fix.claimedBy }),
+    ...((fix.progress01 ?? 0) > 0 ? { progressPct: q0((fix.progress01 ?? 0) * 100) } : {}),
+    ...(fix.level01 !== undefined ? { levelPct: q0(fix.level01 * 100) } : {}),
+  }));
+}
+
+export function snapshotLivingOf(world: World) {
+  return Object.values(world.living).map((room) => ({
+    roomId: room.roomId,
+    powerKw: q1(room.powerKw),
+    heatC: q1(room.heatC),
+    waterCleanL: q1(room.waterCleanL),
+    waterGreyL: q1(room.waterGreyL),
+    growthPct: q0(room.growth01 * 100),
+    mealsReady: q0(room.mealsReady),
+    breakerTripped: room.breakerTripped,
   }));
 }
 
@@ -299,6 +328,7 @@ export function buildTelemetry(
     full,
     atmos: atmos.map(quantizeAtmosRoom),
     flows: significantFlows(flows),
+    living: snapshotLivingOf(world),
   };
 }
 
@@ -358,6 +388,7 @@ export function buildVitals(
       reserve: vitals === undefined ? 120 : spareRounds(vitals),
       mags: vitals === undefined ? [30, 30, 30, 30] : [...vitals.mags.slice(1)],
       reloading: (vitals?.reloadingS ?? 0) > 0,
+      mealBuffS: q0(vitals?.mealBuffS ?? 0),
     },
     credits,
     clearance,

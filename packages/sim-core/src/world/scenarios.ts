@@ -56,6 +56,8 @@ export function buildHarborWorld(): World {
     docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK },
   };
   world = ensureCaptain(world, HARBOR_SHIP);
+  world = ensureLivingFixtures(world);
+  world = ensureLivingCrew(world);
   return ensureStationCrowd(world);
 }
 
@@ -77,6 +79,92 @@ const STATION_CROWD: ReadonlyArray<{
   { id: 'npc:station:habitat', roomId: 'station.habitat', x: 160, y: 100, color: '#b55fe6' },
   { id: 'npc:station:fracht', roomId: 'station.frachthalle', x: 410, y: 380, color: '#ffd166' },
 ];
+
+/** Living crew: barkeep, trader, ship cook, and deckhand on fixed work loops. */
+const LIVING_CREW: ReadonlyArray<{
+  id: string;
+  frameId: string;
+  roomId: string;
+  x: number;
+  y: number;
+  color: string;
+  waypoints: ReadonlyArray<{ x: number; y: number; roomId: string }>;
+}> = [
+  {
+    id: 'npc:station:barkeep',
+    frameId: HARBOR_STATION,
+    roomId: 'station.frachthalle',
+    x: 360,
+    y: 295,
+    color: '#ff9f6b',
+    waypoints: [
+      { x: 350, y: 295, roomId: 'station.frachthalle' },
+      { x: 372, y: 295, roomId: 'station.frachthalle' },
+    ],
+  },
+  {
+    id: 'npc:station:trader',
+    frameId: HARBOR_STATION,
+    roomId: 'station.frachthalle',
+    x: 470,
+    y: 440,
+    color: '#7ee787',
+    waypoints: [
+      { x: 462, y: 438, roomId: 'station.frachthalle' },
+      { x: 494, y: 318, roomId: 'station.frachthalle' },
+    ],
+  },
+  {
+    id: 'npc:ship:cook',
+    frameId: HARBOR_SHIP,
+    roomId: 'ship.kajute_nord',
+    x: 150,
+    y: 210,
+    color: '#ffd166',
+    waypoints: [
+      { x: 160, y: 172, roomId: 'ship.kajute_nord' },
+      { x: 165, y: 246, roomId: 'ship.kajute_nord' },
+    ],
+  },
+  {
+    id: 'npc:ship:deckhand',
+    frameId: HARBOR_SHIP,
+    roomId: 'ship.kajute_sued',
+    x: 140,
+    y: 350,
+    color: '#2dd4bf',
+    waypoints: [
+      { x: 190, y: 325, roomId: 'ship.kajute_sued' },
+      { x: 198, y: 200, roomId: 'ship.kajute_nord' },
+    ],
+  },
+];
+
+function ensureLivingCrew(world: World): World {
+  let next = world;
+  for (const npc of LIVING_CREW) {
+    if (next.pawns[npc.id] === undefined) {
+      next = spawnPawn(next, {
+        id: npc.id,
+        owner: npc.id,
+        frameId: npc.frameId,
+        roomId: npc.roomId,
+        x: npc.x,
+        y: npc.y,
+        color: npc.color,
+      });
+    }
+    next = ensureBot(next, npc.id);
+    const sched = next.bots[npc.id];
+    if (sched !== undefined) {
+      next = {
+        ...next,
+        bots: { ...next.bots, [npc.id]: { ...sched, waypoints: [...npc.waypoints] } },
+      };
+    }
+  }
+  return next;
+}
 
 function ensureStationCrowd(world: World): World {
   let next = world;
@@ -117,4 +205,169 @@ export function bindWorldAir(auth: AirAuthorityState, world: World): void {
       Object.values(world.portals).filter((portal) => portal.id.startsWith(`${frameId}.`))
     );
   }
+}
+
+/** V1 living fixtures against walls with walkways clear:
+ * galley counters on the north/east cabin walls, bunks head-to-south-wall,
+ * bar on the freight hall north stretch, lockers stacked on the west wall. */
+const LIVING_FIXTURES: ReadonlyArray<{
+  id: string;
+  roomId: string;
+  kind: string;
+  x: number;
+  y: number;
+  prompt?: string;
+}> = [
+  {
+    id: 'station.bar_counter',
+    roomId: 'station.frachthalle',
+    kind: 'bar_counter',
+    x: 360,
+    y: 310,
+    prompt: '[E] Order Drink',
+  },
+  { id: 'station.stool_a', roomId: 'station.frachthalle', kind: 'stool', x: 350, y: 335 },
+  { id: 'station.stool_b', roomId: 'station.frachthalle', kind: 'stool', x: 370, y: 335 },
+  { id: 'station.stool_c', roomId: 'station.frachthalle', kind: 'stool', x: 390, y: 335 },
+  {
+    id: 'station.job_board',
+    roomId: 'station.korridor_mitte',
+    kind: 'job_board',
+    x: 460,
+    y: 240,
+    prompt: '[E] Browse Contracts',
+  },
+  {
+    id: 'station.vending_wall',
+    roomId: 'station.frachthalle',
+    kind: 'vending_wall',
+    x: 500,
+    y: 310,
+    prompt: '[E] Vend',
+  },
+  {
+    id: 'station.market_stall',
+    roomId: 'station.frachthalle',
+    kind: 'market_stall',
+    x: 470,
+    y: 445,
+    prompt: '[E] Trade',
+  },
+  {
+    id: 'station.locker_a',
+    roomId: 'station.frachthalle',
+    kind: 'personal_locker',
+    x: 315,
+    y: 300,
+    prompt: '[E] Claim Locker',
+  },
+  {
+    id: 'station.locker_b',
+    roomId: 'station.frachthalle',
+    kind: 'personal_locker',
+    x: 315,
+    y: 332,
+    prompt: '[E] Claim Locker',
+  },
+  {
+    id: 'ship.stove',
+    roomId: 'ship.kajute_nord',
+    kind: 'stove',
+    x: 160,
+    y: 145,
+    prompt: '[E] Cook',
+  },
+  {
+    id: 'ship.freezer',
+    roomId: 'ship.kajute_nord',
+    kind: 'freezer',
+    x: 206,
+    y: 190,
+    prompt: '[E] Check Freezer',
+  },
+  { id: 'ship.sink', roomId: 'ship.kajute_nord', kind: 'sink', x: 110, y: 142 },
+  {
+    id: 'ship.mess_table',
+    roomId: 'ship.kajute_nord',
+    kind: 'mess_table',
+    x: 165,
+    y: 258,
+    prompt: '[E] Eat Together',
+  },
+  {
+    id: 'ship.hydro_tray',
+    roomId: 'ship.kajute_sued',
+    kind: 'hydro_tray',
+    x: 200,
+    y: 315,
+    prompt: '[E] Harvest',
+  },
+  {
+    id: 'ship.recycler',
+    roomId: 'ship.kajute_sued',
+    kind: 'water_recycler',
+    x: 200,
+    y: 395,
+    prompt: '[E] Recycle Water',
+  },
+  {
+    id: 'ship.bunk_a',
+    roomId: 'ship.kajute_sued',
+    kind: 'claim_bunk',
+    x: 115,
+    y: 412,
+    prompt: '[E] Claim Bunk',
+  },
+  {
+    id: 'ship.bunk_b',
+    roomId: 'ship.kajute_sued',
+    kind: 'claim_bunk',
+    x: 165,
+    y: 412,
+    prompt: '[E] Claim Bunk',
+  },
+  {
+    id: 'ship.breaker',
+    roomId: 'ship.korridor_schiff',
+    kind: 'breaker_box',
+    x: 48,
+    y: 500,
+    prompt: '[E] Reset Breaker',
+  },
+  {
+    id: 'ship.aid',
+    roomId: 'ship.bruecke',
+    kind: 'aid_cabinet',
+    x: 195,
+    y: 25,
+    prompt: '[E] Bandage',
+  },
+];
+
+function ensureLivingFixtures(world: World): World {
+  let next = world;
+  let changed = false;
+  for (const spec of LIVING_FIXTURES) {
+    if (next.fixtures[spec.id] !== undefined) continue;
+    changed = true;
+    next = {
+      ...next,
+      fixtures: {
+        ...next.fixtures,
+        [spec.id]: {
+          id: spec.id,
+          roomId: spec.roomId,
+          kind: spec.kind,
+          pos: { x: spec.x, y: spec.y },
+          radius: 24,
+          prompt: spec.prompt,
+          integrity: 100,
+          online: true,
+          progress01: 0,
+          level01: spec.kind === 'freezer' ? 0.2 : 0,
+        },
+      },
+    };
+  }
+  return changed ? next : world;
 }

@@ -92,6 +92,43 @@ export interface ObserveIntent {
   readonly beacon: string;
 }
 
+export interface ClaimIntent {
+  readonly type: 'CLAIM';
+  readonly seq: number;
+  readonly fixtureId: string;
+}
+
+export interface VendIntent {
+  readonly type: 'VEND';
+  readonly seq: number;
+  readonly fixtureId: string;
+  readonly vendId: string;
+}
+
+export interface CookIntent {
+  readonly type: 'COOK';
+  readonly seq: number;
+  readonly stoveId: string;
+}
+
+export interface HarvestIntent {
+  readonly type: 'HARVEST';
+  readonly seq: number;
+  readonly trayId: string;
+}
+
+export interface RecycleIntent {
+  readonly type: 'RECYCLE';
+  readonly seq: number;
+  readonly recyclerId: string;
+}
+
+export interface RepairIntent {
+  readonly type: 'REPAIR';
+  readonly seq: number;
+  readonly fixtureId: string;
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
@@ -105,7 +142,13 @@ export type ClientIntent =
   | ConsumeIntent
   | SleepIntent
   | FireIntent
-  | ReloadIntent;
+  | ReloadIntent
+  | ClaimIntent
+  | VendIntent
+  | CookIntent
+  | HarvestIntent
+  | RecycleIntent
+  | RepairIntent;
 
 export type ClientIntentType = ClientIntent['type'];
 
@@ -123,4 +166,10 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'SLEEP',
   'FIRE',
   'RELOAD',
+  'CLAIM',
+  'VEND',
+  'COOK',
+  'HARVEST',
+  'RECYCLE',
+  'REPAIR',
 ] as const;

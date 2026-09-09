@@ -10,6 +10,7 @@ import { tickBots } from './bots.js';
 import { tickImpacts, tickProjectiles, tickSpread } from './combat.js';
 import { stepCrossFrame } from './dockCrossing.js';
 import { advanceFrameOrigin } from './frames.js';
+import { tickLiving } from './living.js';
 import { unionRooms, visibleRooms } from './los.js';
 import {
   carryByFrame,
@@ -47,7 +48,8 @@ export function tickWorld(
   const scheduled = tickSchedule(crossed, dt);
   const watched = tickWatches(scheduled, dt);
   const survived = tickSurvival(watched, dt);
-  const shot = tickProjectiles(survived, dt);
+  const lived = tickLiving(survived, dt);
+  const shot = tickProjectiles(lived, dt);
   const cooled = tickSpread(tickImpacts(shot), dt);
   const framed = stepFrames(cooled, dt);
   const ticked = { ...framed, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };

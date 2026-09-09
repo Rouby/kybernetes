@@ -288,13 +288,22 @@ export class SimHost {
       case 'SLEEP':
       case 'FIRE':
       case 'RELOAD':
+      case 'INTERACT':
+      case 'CLAIM':
+      case 'VEND':
+      case 'COOK':
+      case 'HARVEST':
+      case 'RECYCLE':
+      case 'REPAIR':
         return this.handleKernelIntent(clientId, intent);
       case 'TALK':
         return this.handleTalk(intent.npcId);
       case 'HIRE':
         return this.handleHire(clientId, intent.offerId, intent.job);
-      default:
-        return { notice: intent.type };
+      default: {
+        const exhaustive: never = intent;
+        return { notice: `unknown-intent:${String(exhaustive)}` };
+      }
     }
   }
 
