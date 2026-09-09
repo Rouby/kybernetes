@@ -13,6 +13,7 @@ import {
   BREACH_AREA_M2,
   BREACH_GROWTH_M2,
   BULLET_BREACH_M2,
+  breachHalfLength,
   fireBlock,
   fireWeapon,
   MAX_BREACH_PORTALS,
@@ -226,6 +227,37 @@ describe('simulated projectiles', () => {
     expect(world.impacts).toEqual([]);
   });
 
+  it('stamps impact pressure from the room atmosphere', () => {
+    let world = spawnAt(
+      assembleWorld([{ frameId: 'box', hull: DOUBLE_SPEC }]),
+      'p1',
+      'box',
+      'box.a',
+      30,
+      20
+    );
+    world = {
+      ...world,
+      atmos: {
+        ...world.atmos,
+        'box.a': {
+          roomId: 'box.a',
+          pressureKpa: 12,
+          tempCelsius: 21,
+          o2Percent: 20.9,
+          co2Ppm: 600,
+          repressurizing: false,
+        },
+      },
+    };
+    const fired = fireWeapon(world, 'p1', 0, 'kinetic_carbine');
+    expect(fired.result.kind).toBe('fired');
+    world = fired.world;
+    for (let i = 0; i < 4; i += 1) world = tickWorld(world, 0.05, []);
+    expect(world.impacts.length).toBeGreaterThan(0);
+    for (const impact of world.impacts) expect(impact.pressureKpa).toBe(12);
+  });
+
   it('breaches interior walls into the neighboring room', () => {
     let world = spawnAt(
       assembleWorld([{ frameId: 'box', hull: DOUBLE_SPEC }]),
@@ -342,6 +374,20 @@ describe('simulated projectiles', () => {
     expect(world.spread.p1 ?? 0).toBeGreaterThan(0);
     world = tickSpread(world, 10);
     expect(world.spread.p1).toBeUndefined();
+  });
+
+  it('widens breach cuts progressively instead of popping', () => {
+    let world = shootNorthWall();
+    for (let shot = 0; shot < 4; shot += 1) world = shootNorthWall(world);
+    const holes = Object.values(world.portals).filter((portal) => portal.kind === 'hole');
+    expect(holes).toHaveLength(1);
+    const seg = holes[0]?.segment;
+    if (seg === undefined) throw new Error('missing breach');
+    const half = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1) / 2;
+    expect(half).toBeGreaterThanOrEqual(12);
+    expect(half).toBeLessThanOrEqual(30);
+    expect(breachHalfLength(0)).toBeLessThan(breachHalfLength(BREACH_AREA_M2));
+    expect(breachHalfLength(999)).toBeCloseTo(15.6, 5);
   });
 
   it('vents exterior rooms through shot walls once air reconciles', () => {

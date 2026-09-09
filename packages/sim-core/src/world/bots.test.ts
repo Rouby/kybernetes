@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { assembleWorld, spawnPawn } from './assemble.js';
-import { BOT_LINES, botTarget, defaultWaypoints, ensureBot, tickBots } from './bots.js';
+import {
+  BOT_LINES,
+  BOT_STUCK_TICKS,
+  botTarget,
+  defaultWaypoints,
+  ensureBot,
+  routeSubTarget,
+  tickBots,
+} from './bots.js';
 import { HesperiaV2Spec } from './content/HesperiaV2.hull.js';
 import { tickWorld } from './tickWorld.js';
 import type { World } from './types.js';
@@ -64,8 +72,50 @@ describe('bot schedules', () => {
       }
     }
     expect(BOT_LINES as readonly string[]).toContain(said);
+    // Pin the bot mid-dwell so no second arrival can speak: the line expires.
+    const bot = world.bots.b1;
+    const pawn = world.pawns.b1;
+    if (bot === undefined || pawn === undefined) throw new Error('missing bot');
+    world = {
+      ...world,
+      bots: { ...world.bots, b1: { ...bot, waitUntilTick: world.tick + 1000 } },
+    };
     for (let i = 0; i < 200; i += 1) world = tickWorld(world, 0.05, []);
     expect(world.pawns.b1?.say ?? 'loud').toBe('');
+  });
+
+  it('routes cross-room legs through door midpoints, not bulkheads', () => {
+    const world = shipBotWorld();
+    const door = routeSubTarget(world, 'ship.bridge', 'ship.corridor');
+    expect(door).toBeDefined();
+    // Bridge door segment midpoint (160-200 at y:320).
+    expect(door?.x).toBeCloseTo(180, 0);
+    expect(door?.y).toBeCloseTo(320, 0);
+    expect(routeSubTarget(world, 'ship.corridor', 'ship.corridor')).toBeUndefined();
+    expect(routeSubTarget(world, 'ship.bridge', 'void.nowhere')).toBeUndefined();
+  });
+
+  it('skips a waypoint it cannot make progress toward', () => {
+    let world = shipBotWorld();
+    // One target behind a sealed door: the bot leans on it with no progress.
+    const bot = world.bots.b1;
+    const door = world.portals['ship.door_bridge'];
+    if (bot === undefined || door === undefined) throw new Error('missing rig');
+    world = {
+      ...world,
+      portals: { ...world.portals, 'ship.door_bridge': { ...door, state: 'sealed' } },
+      bots: {
+        ...world.bots,
+        b1: {
+          ...bot,
+          waypoints: [{ x: 180, y: 260, roomId: 'ship.bridge' }],
+          index: 0,
+          waitUntilTick: 0,
+        },
+      },
+    };
+    for (let i = 0; i < BOT_STUCK_TICKS + 120; i += 1) world = tickWorld(world, 0.05, []);
+    expect(world.bots.b1?.index ?? 0).toBeGreaterThan(0);
   });
 
   it('dwells on arrival before moving to the next waypoint', () => {

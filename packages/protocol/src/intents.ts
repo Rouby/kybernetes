@@ -86,9 +86,16 @@ export interface ReloadIntent {
   readonly seq: number;
 }
 
+export interface ObserveIntent {
+  readonly type: 'OBSERVE';
+  readonly seq: number;
+  readonly beacon: string;
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
+  | ObserveIntent
   | InputIntent
   | InteractIntent
   | DoorIntent
@@ -105,6 +112,7 @@ export type ClientIntentType = ClientIntent['type'];
 export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'HELLO',
   'JOIN_BEACON',
+  'OBSERVE',
   'INPUT',
   'INTERACT',
   'DOOR',

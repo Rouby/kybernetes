@@ -1,16 +1,19 @@
 /**
- * DebugWorldView: top-down 2D debug canvas for the live harbor world plus
- * the authoritative air sim. Static hull geometry comes from the local
- * buildHarborWorld; every dynamic fact (pawns, doors, room air, portal wind)
- * comes from the same v2 SNAPSHOT/TELEMETRY the player viewport reads, so
- * the view is synced to the connected player by construction. Camera follows
- * the owned pawn when follow is on; O cycles the air overlay, F toggles
- * follow. All world-to-primitive mapping lives in debugWorld.ts; this file
- * only paints primitives and wires canvas chrome.
+ * DebugWorldView: pawn-less observer canvas for the live harbor world plus
+ * the authoritative air sim. Fed by the same-port OBSERVE transport, so it
+ * never owns a pawn, never sends INPUT, and never evicts the player.
+ * Camera defaults to whole-sim overview; click a pawn to follow it, F for
+ * overview, O cycles the air overlay. Server TPS + pawn link quality come
+ * from SERVER_STATS; docking legibility from DOCK_STATUS.
  */
 
-import type { SnapshotBroadcast, TelemetryBroadcast } from '@kybernetes/protocol';
-import type { World } from '@kybernetes/sim-core';
+import type {
+  DockStatusBroadcast,
+  ServerStatsBroadcast,
+  SnapshotBroadcast,
+  TelemetryBroadcast,
+} from '@kybernetes/protocol';
+import { HARBOR_DOCK, type World } from '@kybernetes/sim-core';
 import { hudColors, hudTypography } from '@kybernetes/ui-tokens/tokens.stylex';
 import * as stylex from '@stylexjs/stylex';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -23,12 +26,13 @@ import {
   type DebugPawn,
   type DebugPortal,
   type DebugRoom,
-  debugBounds,
   debugOrigins,
   formatKpa,
+  overviewFraming,
   portalColor,
   roomOverlayColor,
 } from './debugWorld';
+import { dockChipText, formatPawnLink, formatServerStats } from './renderState';
 
 const styles = stylex.create({
   root: {
@@ -55,7 +59,7 @@ const styles = stylex.create({
     fontFamily: hudTypography.fontMono,
     fontSize: 12,
     color: hudColors.textPrimary,
-    maxWidth: 340,
+    maxWidth: 380,
   },
   title: {
     color: hudColors.cyanTelemetry,
@@ -88,7 +92,8 @@ export interface DebugWorldViewProps {
   readonly staticWorld: World;
   readonly snapshot: SnapshotBroadcast | null;
   readonly telemetry: TelemetryBroadcast | null;
-  readonly pawnId: string | null;
+  readonly stats: ServerStatsBroadcast | null;
+  readonly dock: DockStatusBroadcast | null;
 }
 
 const OVERLAY_ORDER: readonly DebugOverlayMode[] = ['pressure', 'o2', 'temp'];
@@ -96,7 +101,7 @@ const OVERLAY_ORDER: readonly DebugOverlayMode[] = ['pressure', 'o2', 'temp'];
 export function DebugWorldView(props: DebugWorldViewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [overlay, setOverlay] = useState<DebugOverlayMode>('pressure');
-  const [follow, setFollow] = useState(true);
+  const [followId, setFollowId] = useState<string | null>(null);
   const rooms = useMemo(
     () => buildDebugRooms(props.staticWorld, props.snapshot, props.telemetry),
     [props.staticWorld, props.snapshot, props.telemetry]
@@ -105,23 +110,22 @@ export function DebugWorldView(props: DebugWorldViewProps) {
     () => buildDebugPortals(props.staticWorld, props.snapshot, props.telemetry),
     [props.staticWorld, props.snapshot, props.telemetry]
   );
-  const pawns = useMemo(
-    () => buildDebugPawns(props.snapshot, props.pawnId),
-    [props.snapshot, props.pawnId]
-  );
-  useOverlayKeys(setOverlay, setFollow);
-  useDebugPaint(canvasRef, rooms, portals, pawns, props.snapshot, overlay, follow, props.pawnId);
+  const pawns = useMemo(() => buildDebugPawns(props.snapshot, null), [props.snapshot]);
+  useOverlayKeys(setOverlay, setFollowId);
+  useDebugPaint(canvasRef, rooms, portals, pawns, props.snapshot, overlay, followId);
+  useFollowClick(canvasRef, rooms, pawns, followId, setFollowId);
   return (
     <div {...stylex.props(styles.root)}>
       <canvas ref={canvasRef} data-testid="debug-world-canvas" {...stylex.props(styles.canvas)} />
       <DebugPanel
         snapshot={props.snapshot}
         telemetry={props.telemetry}
-        pawnId={props.pawnId}
+        stats={props.stats}
+        dock={props.dock}
         rooms={rooms}
         portals={portals}
         overlay={overlay}
-        follow={follow}
+        followId={followId}
       />
     </div>
   );
@@ -129,17 +133,17 @@ export function DebugWorldView(props: DebugWorldViewProps) {
 
 function useOverlayKeys(
   setOverlay: (updater: (mode: DebugOverlayMode) => DebugOverlayMode) => void,
-  setFollow: (updater: (value: boolean) => boolean) => void
+  setFollowId: (id: string | null) => void
 ): void {
   useEffect(() => {
     const onDown = (event: KeyboardEvent): void => {
       const key = event.key.toLowerCase();
       if (key === 'o') setOverlay((mode) => nextOverlay(mode));
-      if (key === 'f') setFollow((value) => !value);
+      if (key === 'f') setFollowId(null);
     };
     window.addEventListener('keydown', onDown);
     return () => window.removeEventListener('keydown', onDown);
-  }, [setOverlay, setFollow]);
+  }, [setOverlay, setFollowId]);
 }
 
 function nextOverlay(mode: DebugOverlayMode): DebugOverlayMode {
@@ -154,8 +158,7 @@ function useDebugPaint(
   pawns: readonly DebugPawn[],
   snapshot: SnapshotBroadcast | null,
   overlay: DebugOverlayMode,
-  follow: boolean,
-  pawnId: string | null
+  followId: string | null
 ): void {
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -165,8 +168,8 @@ function useDebugPaint(
     fitCanvas(canvas, parent);
     const ctx = canvas.getContext('2d');
     if (ctx === null) return;
-    paintDebug(ctx, canvas, rooms, portals, pawns, snapshot, overlay, follow, pawnId);
-  }, [canvasRef, rooms, portals, pawns, snapshot, overlay, follow, pawnId]);
+    paintDebug(ctx, canvas, rooms, portals, pawns, snapshot, overlay, followId);
+  }, [canvasRef, rooms, portals, pawns, snapshot, overlay, followId]);
 }
 
 function fitCanvas(canvas: HTMLCanvasElement, parent: HTMLElement): void {
@@ -188,14 +191,13 @@ function cameraFor(
   canvas: HTMLCanvasElement,
   rooms: readonly DebugRoom[],
   pawns: readonly DebugPawn[],
-  follow: boolean,
-  pawnId: string | null
+  followId: string | null
 ): Camera {
-  const own = pawns.find((pawn) => pawn.id === pawnId);
-  if (follow && own !== undefined) return { x: own.x, y: own.y, scale: 0.55 };
-  const bounds = debugBounds(rooms);
-  if (bounds === undefined) return { x: 0, y: 0, scale: 0.5 };
-  return fitCamera(canvas, bounds);
+  const target = followId === null ? undefined : pawns.find((pawn) => pawn.id === followId);
+  if (target !== undefined) return { x: target.x, y: target.y, scale: 0.55 };
+  const framing = overviewFraming(rooms);
+  if (framing === undefined) return { x: 0, y: 0, scale: 0.5 };
+  return fitCamera(canvas, framing.bounds);
 }
 
 function fitCamera(
@@ -221,6 +223,34 @@ function toScreen(
   };
 }
 
+function useFollowClick(
+  canvasRef: { current: HTMLCanvasElement | null },
+  rooms: readonly DebugRoom[],
+  pawns: readonly DebugPawn[],
+  followId: string | null,
+  setFollowId: (id: string | null) => void
+): void {
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas === null) return;
+    const onClick = (event: MouseEvent): void => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = (event.clientX - rect.left) * (canvas.width / Math.max(rect.width, 1));
+      const sy = (event.clientY - rect.top) * (canvas.height / Math.max(rect.height, 1));
+      const camera = cameraFor(canvas, rooms, pawns, followId);
+      let best: { id: string; dist: number } | null = null;
+      for (const pawn of pawns) {
+        const at = toScreen(canvas, camera, pawn.x, pawn.y);
+        const dist = Math.hypot(at.x - sx, at.y - sy);
+        if (dist < 24 && (best === null || dist < best.dist)) best = { id: pawn.id, dist };
+      }
+      setFollowId(best === null ? null : best.id);
+    };
+    canvas.addEventListener('click', onClick);
+    return () => canvas.removeEventListener('click', onClick);
+  }, [canvasRef, rooms, pawns, followId, setFollowId]);
+}
+
 function paintDebug(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
@@ -229,17 +259,19 @@ function paintDebug(
   pawns: readonly DebugPawn[],
   snapshot: SnapshotBroadcast | null,
   overlay: DebugOverlayMode,
-  follow: boolean,
-  pawnId: string | null
+  followId: string | null
 ): void {
-  const camera = cameraFor(canvas, rooms, pawns, follow, pawnId);
+  const camera = cameraFor(canvas, rooms, pawns, followId);
   ctx.fillStyle = '#07090d';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   paintRooms(ctx, canvas, camera, rooms, overlay);
   paintPortals(ctx, canvas, camera, portals);
   paintWind(ctx, canvas, camera, portals);
   paintImpacts(ctx, canvas, camera, snapshot);
-  paintPawns(ctx, canvas, camera, pawns);
+  paintDecals(ctx, canvas, camera, snapshot);
+  paintDockLink(ctx, canvas, camera, snapshot);
+  paintPawns(ctx, canvas, camera, pawns, followId);
+  paintShipMarker(ctx, canvas, rooms, followId);
 }
 
 function paintRooms(
@@ -345,25 +377,125 @@ function paintImpacts(
 ): void {
   if (snapshot === null) return;
   const origins = debugOrigins(snapshot);
-  ctx.strokeStyle = '#ffb000';
-  ctx.lineWidth = 2;
   for (const impact of snapshot.impacts) {
+    if (impact.kind === 'miss') continue;
     const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
     const at = toScreen(canvas, camera, impact.x + origin.x, impact.y + origin.y);
+    const angle = impact.angle ?? 0;
+    const energy = Math.min(1, Math.max(0, impact.energy ?? 0.5));
+    drawOrientedHit(ctx, at.x, at.y, angle, energy, impact.weapon ?? 'kinetic_carbine');
+  }
+}
+
+function drawOrientedHit(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  angle: number,
+  energy: number,
+  weapon: string
+): void {
+  const len = 4 + energy * 6;
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const px = -dy;
+  const py = dx;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = weapon === 'pulse_laser' ? '#7fe7ff' : '#ffb000';
+  ctx.beginPath();
+  ctx.moveTo(x - dx * len, y - dy * len);
+  ctx.lineTo(x + dx * len, y + dy * len);
+  ctx.moveTo(x - px * len * 0.6, y - py * len * 0.6);
+  ctx.lineTo(x + px * len * 0.6, y + py * len * 0.6);
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(x, y, 1.5 + energy, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function paintDecals(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  camera: Camera,
+  snapshot: SnapshotBroadcast | null
+): void {
+  if (snapshot?.decals === undefined) return;
+  const origins = debugOrigins(snapshot);
+  for (const decal of snapshot.decals) {
+    const origin = origins.get(decal.frameId) ?? { x: 0, y: 0 };
+    const at = toScreen(canvas, camera, decal.x + origin.x, decal.y + origin.y);
+    const r = Math.max(2, decal.radius * camera.scale * 0.6);
+    ctx.fillStyle = 'rgba(8,10,14,0.9)';
     ctx.beginPath();
-    ctx.moveTo(at.x - 5, at.y - 5);
-    ctx.lineTo(at.x + 5, at.y + 5);
-    ctx.moveTo(at.x + 5, at.y - 5);
-    ctx.lineTo(at.x - 5, at.y + 5);
+    ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#8a94a6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
     ctx.stroke();
   }
+}
+
+/** Dashed logical umbilical: station gauntlet mouth to ship ramp mouth. */
+function paintDockLink(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  camera: Camera,
+  snapshot: SnapshotBroadcast | null
+): void {
+  if (snapshot === null) return;
+  const origins = debugOrigins(snapshot);
+  const ship = origins.get(HARBOR_DOCK.vesselFrame) ?? { x: 0, y: 0 };
+  const a = toScreen(canvas, camera, HARBOR_DOCK.stationX, HARBOR_DOCK.stationY);
+  const b = toScreen(canvas, camera, HARBOR_DOCK.vesselX + ship.x, HARBOR_DOCK.vesselY + ship.y);
+  ctx.save();
+  ctx.strokeStyle = '#3a4a63';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 5]);
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#00e5ff';
+  for (const pt of [a, b]) {
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Bearing label while the vessel holds off-station (overview stays pinned). */
+function paintShipMarker(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  rooms: readonly DebugRoom[],
+  followId: string | null
+): void {
+  if (followId !== null) return;
+  const framing = overviewFraming(rooms);
+  const bearing = framing?.shipOffscreen;
+  if (bearing === undefined || bearing === null) return;
+  const cx = canvas.width / 2 + bearing.x * (canvas.width / 2 - 90);
+  const cy = canvas.height / 2 + bearing.y * (canvas.height / 2 - 60);
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = '#00e5ff';
+  ctx.fillText(
+    'SHIP ▸ IN TRANSIT',
+    Math.min(Math.max(cx - 60, 8), canvas.width - 140),
+    Math.min(Math.max(cy, 20), canvas.height - 12)
+  );
 }
 
 function paintPawns(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
   camera: Camera,
-  pawns: readonly DebugPawn[]
+  pawns: readonly DebugPawn[],
+  followId: string | null
 ): void {
   for (const pawn of pawns) {
     const at = toScreen(canvas, camera, pawn.x, pawn.y);
@@ -373,7 +505,7 @@ function paintPawns(
     ctx.arc(at.x, at.y, radius, 0, Math.PI * 2);
     ctx.fill();
     paintFacing(ctx, at, pawn.facing, radius);
-    if (pawn.isOwn) ringOwn(ctx, at, radius);
+    if (pawn.id === followId) ringFollowed(ctx, at, radius);
   }
 }
 
@@ -391,7 +523,7 @@ function paintFacing(
   ctx.stroke();
 }
 
-function ringOwn(
+function ringFollowed(
   ctx: CanvasRenderingContext2D,
   at: { x: number; y: number },
   radius: number
@@ -406,30 +538,37 @@ function ringOwn(
 function DebugPanel(props: {
   readonly snapshot: SnapshotBroadcast | null;
   readonly telemetry: TelemetryBroadcast | null;
-  readonly pawnId: string | null;
+  readonly stats: ServerStatsBroadcast | null;
+  readonly dock: DockStatusBroadcast | null;
   readonly rooms: readonly DebugRoom[];
   readonly portals: readonly DebugPortal[];
   readonly overlay: DebugOverlayMode;
-  readonly follow: boolean;
+  readonly followId: string | null;
 }): React.JSX.Element {
-  const own = props.snapshot?.pawns.find((pawn) => pawn.id === props.pawnId);
   const vents = props.rooms.filter((room) => room.venting).length;
   const winds = props.portals.filter((portal) => Math.abs(portal.velocityMps) >= 0.5).length;
+  const links = props.stats?.pawns ?? [];
   return (
     <div {...stylex.props(styles.panel)} data-testid="debug-world-panel">
-      <div {...stylex.props(styles.title)}>WORLD + AIR DEBUG</div>
+      <div {...stylex.props(styles.title)}>WORLD + AIR DEBUG · OBSERVER</div>
       <div {...stylex.props(styles.row)} data-testid="debug-world-tick">
         {props.snapshot === null
           ? 'offline'
-          : `tick:${props.snapshot.tick} pawns:${props.snapshot.pawns.length}`}
+          : `tick:${props.snapshot.tick} pawns:${props.snapshot.pawns.length} decals:${props.snapshot.decals?.length ?? 0}`}
       </div>
-      <div {...stylex.props(styles.row)} data-testid="debug-world-self">
-        {own === undefined
-          ? `self:${props.pawnId ?? '-'}`
-          : `self:${props.pawnId} ${own.frameId} ${bareDebugId(own.roomHint)}`}
+      <div {...stylex.props(styles.row)} data-testid="debug-world-server">
+        {formatServerStats(props.stats)}
+      </div>
+      <div {...stylex.props(styles.row)} data-testid="debug-world-dock">
+        {props.dock === null
+          ? 'dock:?'
+          : `${dockChipText(props.dock)} phase:${props.dock.phase} seals:${props.dock.secondsToSeal}s`}
       </div>
       <div {...stylex.props(styles.row)} data-testid="debug-world-air">
-        {`rooms:${props.rooms.length} vents:${vents} winds:${winds} overlay:${props.overlay} ${props.follow ? 'follow' : 'overview'}`}
+        {`rooms:${props.rooms.length} vents:${vents} winds:${winds} overlay:${props.overlay} ${props.followId === null ? 'overview' : `follow:${props.followId}`}`}
+      </div>
+      <div {...stylex.props(styles.row)} data-testid="debug-world-links">
+        {links.length === 0 ? 'links:-' : links.map((link) => formatPawnLink(link)).join(' | ')}
       </div>
       <div {...stylex.props(styles.legend)}>
         <LegendDot color="#3fb950" label="nominal" />
@@ -437,7 +576,9 @@ function DebugPanel(props: {
         <LegendDot color="#f85149" label="vent" />
         <LegendDot color="#00e5ff" label="wind" />
       </div>
-      <div {...stylex.props(styles.hint)}>O overlay · F follow · synced to connected player</div>
+      <div {...stylex.props(styles.hint)}>
+        O overlay · F overview · click pawn to follow · read-only OBSERVE
+      </div>
     </div>
   );
 }

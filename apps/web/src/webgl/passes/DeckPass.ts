@@ -18,18 +18,20 @@ import {
   bufferAndDraw,
   createProgram,
   drawQuad,
-  translateMatrixX,
+  translateMatrix,
 } from '../glUtils';
 import { DECK_FLOOR_FS, DECK_FLOOR_VS } from '../shaders';
+import { accumulatePit, emptyPitLayers, type PremiumDecal, scorchPalette } from './ImpactDecalPass';
 
 /** Hull plate in ship-local coords; every v2 room rect must sit inside it. */
 export const HULL_PLATE = { x: 70, y: 180, w: 850, h: 350 } as const;
 
-/** Aft bell nozzle exits in ship-local coords; exhaust streams +X to space. */
+/** Stern bell nozzle exits in ship-local coords; the stern faces the
+ * station while docked, so exhaust streams -X (main burn pushes east). */
 export const THRUSTER_BELLS: ReadonlyArray<{ x: number; y: number }> = [
-  { x: 922, y: 306 },
-  { x: 924, y: 420 },
-  { x: 922, y: 494 },
+  { x: 36, y: 306 },
+  { x: 34, y: 420 },
+  { x: 36, y: 494 },
 ];
 
 function drawDoorBrackets(
@@ -95,8 +97,8 @@ function breachScale(model: BreachRenderModel): number {
   return Math.max(0.15, Math.min(1, model.areaM2 / 1.5));
 }
 
-function breachDx(model: BreachRenderModel, shipDx: number): number {
-  return model.frameId === 'ship' ? shipDx : 0;
+function breachDxy(model: BreachRenderModel, shipDx: number, shipDy = 0): { x: number; y: number } {
+  return model.frameId === 'ship' ? { x: shipDx, y: shipDy } : { x: 0, y: 0 };
 }
 
 /** Dark vacuum inset behind the carved gap so holes read as depth. */
@@ -105,12 +107,13 @@ function renderBreachVoids(
   dynamicBuffer: WebGLBuffer,
   flatProg: WebGLProgram,
   breaches: readonly BreachRenderModel[],
-  shipDx: number
+  shipDx: number,
+  shipDy = 0
 ): void {
   const voids: number[] = [];
   for (const breach of breaches) {
     if (breach.sizeClass !== 'breach') continue;
-    const dx = breachDx(breach, shipDx);
+    const { x: dx, y: dy } = breachDxy(breach, shipDx, shipDy);
     const tx = -breach.ny;
     const ty = breach.nx;
     const over = 2;
@@ -118,9 +121,9 @@ function renderBreachVoids(
     addThickSegment(
       voids,
       breach.cx + dx - tx * half,
-      breach.cy - ty * half,
+      breach.cy + dy - ty * half,
       breach.cx + dx + tx * half,
-      breach.cy + ty * half,
+      breach.cy + dy + ty * half,
       7 + 6 * breachScale(breach)
     );
   }
@@ -133,6 +136,7 @@ function addMoltenLips(
   glowLines: number[],
   breach: BreachRenderModel,
   dx: number,
+  dy: number,
   scale: number
 ): void {
   const tx = -breach.ny;
@@ -140,28 +144,29 @@ function addMoltenLips(
   const half = breach.lenPx / 2;
   const lip = 4 + 6 * scale;
   const cx = breach.cx + dx;
+  const cy = breach.cy + dy;
   addThickSegment(
     glowLines,
     cx - tx * half,
-    breach.cy - ty * half,
+    cy - ty * half,
     cx - tx * half - breach.nx * lip * 0.5,
-    breach.cy - ty * half - breach.ny * lip * 0.5,
+    cy - ty * half - breach.ny * lip * 0.5,
     2 + 1.6 * scale
   );
   addThickSegment(
     glowLines,
     cx + tx * half,
-    breach.cy + ty * half,
+    cy + ty * half,
     cx + tx * half - breach.nx * lip * 0.5,
-    breach.cy + ty * half - breach.ny * lip * 0.5,
+    cy + ty * half - breach.ny * lip * 0.5,
     2 + 1.6 * scale
   );
   addThickSegment(
     glowLines,
     cx - tx * half * 0.8,
-    breach.cy - ty * half * 0.8,
+    cy - ty * half * 0.8,
     cx + tx * half * 0.8,
-    breach.cy + ty * half * 0.8,
+    cy + ty * half * 0.8,
     1.8
   );
 }
@@ -170,6 +175,7 @@ function addFrostSpurs(
   frostLines: number[],
   breach: BreachRenderModel,
   dx: number,
+  dy: number,
   scale: number,
   glow: number
 ): void {
@@ -178,20 +184,21 @@ function addFrostSpurs(
   const half = breach.lenPx / 2;
   const reach = 3 + 5 * (1 - glow) + 3 * scale;
   const cx = breach.cx + dx;
+  const cy = breach.cy + dy;
   addThickSegment(
     frostLines,
     cx - tx * (half + 2),
-    breach.cy - ty * (half + 2),
+    cy - ty * (half + 2),
     cx - tx * (half + 2 + reach) + breach.nx * 3,
-    breach.cy - ty * (half + 2 + reach) + breach.ny * 3,
+    cy - ty * (half + 2 + reach) + breach.ny * 3,
     1.5
   );
   addThickSegment(
     frostLines,
     cx + tx * (half + 2),
-    breach.cy + ty * (half + 2),
+    cy + ty * (half + 2),
     cx + tx * (half + 2 + reach) + breach.nx * 3,
-    breach.cy + ty * (half + 2 + reach) + breach.ny * 3,
+    cy + ty * (half + 2 + reach) + breach.ny * 3,
     1.5
   );
 }
@@ -203,7 +210,8 @@ function renderBreachDressing(
   flatProg: WebGLProgram,
   breaches: readonly BreachRenderModel[],
   timeSec: number,
-  shipDx: number
+  shipDx: number,
+  shipDy = 0
 ): void {
   const glowLines: number[] = [];
   const frostLines: number[] = [];
@@ -213,11 +221,11 @@ function renderBreachDressing(
     if (breach.sizeClass !== 'breach') continue;
     const glow = breachGlow(breach);
     const scale = breachScale(breach);
-    const dx = breachDx(breach, shipDx);
+    const { x: dx, y: dy } = breachDxy(breach, shipDx, shipDy);
     glowAlpha = Math.max(glowAlpha, 0.25 + 0.65 * glow);
     frostAlpha = Math.max(frostAlpha, 0.35 + 0.5 * (1 - glow));
-    addMoltenLips(glowLines, breach, dx, scale);
-    addFrostSpurs(frostLines, breach, dx, scale, glow);
+    addMoltenLips(glowLines, breach, dx, dy, scale);
+    addFrostSpurs(frostLines, breach, dx, dy, scale, glow);
   }
   if (glowLines.length > 0) {
     const flicker = 0.9 + 0.1 * Math.sin(timeSec * 9);
@@ -252,40 +260,23 @@ function renderWindowGlass(
   bufferAndDraw(gl, dynamicBuffer, new Float32Array(frameLines));
 }
 
-/** Puncture decals: scorch + rim + core, scaled by hole area. No carve. */
-function renderPunctureDecals(
-  gl: WebGL2RenderingContext,
-  dynamicBuffer: WebGLBuffer,
-  flatProg: WebGLProgram,
+/**
+ * Puncture breaches join the shared pit layers: radius from hole area,
+ * cooling from breach age. No carve, no crosses.
+ */
+function accumulatePuncturePits(
+  layers: ReturnType<typeof emptyPitLayers>,
   breaches: readonly BreachRenderModel[],
-  shipDx: number
+  shipDx: number,
+  shipDy = 0
 ): void {
-  const scorchVerts: number[] = [];
-  const coreVerts: number[] = [];
-  const rimVerts: number[] = [];
-
   for (const breach of breaches) {
     if (breach.sizeClass !== 'puncture') continue;
-    const hx = breach.cx + breachDx(breach, shipDx);
-    const hy = breach.cy;
-    const s = 0.55 + 0.45 * Math.min(1, breach.areaM2 / 0.2);
-
-    addThickSegment(scorchVerts, hx - 3.5 * s, hy, hx + 3.5 * s, hy, 3.5 * s);
-    addThickSegment(scorchVerts, hx, hy - 3.5 * s, hx, hy + 3.5 * s, 3.5 * s);
-    addThickSegment(rimVerts, hx - 2.5 * s, hy - 1.5 * s, hx + 2.5 * s, hy - 1.5 * s, 1.2);
-    addThickSegment(coreVerts, hx - 1.5 * s, hy, hx + 1.5 * s, hy, 2.0 * s);
-    addThickSegment(coreVerts, hx, hy - 1.5 * s, hx, hy + 1.5 * s, 2.0 * s);
+    const { x: dx, y: dy } = breachDxy(breach, shipDx, shipDy);
+    const radius = 1.2 + Math.min(1, breach.areaM2 / 0.2) * 1.6;
+    const cool = Math.min(1, Math.max(0, breach.ageTicks / 200));
+    accumulatePit(layers, breach.cx + dx, breach.cy + dy, radius, 'kinetic_carbine', cool);
   }
-
-  if (scorchVerts.length === 0) return;
-  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.08, 0.1, 0.14, 0.95);
-  bufferAndDraw(gl, dynamicBuffer, new Float32Array(scorchVerts));
-
-  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.65, 0.72, 0.82, 0.9);
-  bufferAndDraw(gl, dynamicBuffer, new Float32Array(rimVerts));
-
-  gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.02, 0.02, 0.04, 1.0);
-  bufferAndDraw(gl, dynamicBuffer, new Float32Array(coreVerts));
 }
 
 export class DeckPass {
@@ -394,7 +385,8 @@ export class DeckPass {
     flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
     breaches: readonly BreachRenderModel[] = [],
-    timeSec = 0
+    timeSec = 0,
+    decals: readonly PremiumDecal[] = []
   ): void {
     const gl = this.gl;
     gl.useProgram(flatProg);
@@ -443,12 +435,129 @@ export class DeckPass {
     renderWindowGlass(gl, this.dynamicBuffer, flatProg, glass);
 
     // 5. Vacuum insets behind carved gaps
-    renderBreachVoids(gl, this.dynamicBuffer, flatProg, breaches, this.shipOffset.x);
+    renderBreachVoids(
+      gl,
+      this.dynamicBuffer,
+      flatProg,
+      breaches,
+      this.shipOffset.x,
+      this.shipOffset.y
+    );
 
     // 6. Molten lips cooling into frost + puncture impact decals
-    renderBreachDressing(gl, this.dynamicBuffer, flatProg, breaches, timeSec, this.shipOffset.x);
-    renderPunctureDecals(gl, this.dynamicBuffer, flatProg, breaches, this.shipOffset.x);
+    renderBreachDressing(
+      gl,
+      this.dynamicBuffer,
+      flatProg,
+      breaches,
+      timeSec,
+      this.shipOffset.x,
+      this.shipOffset.y
+    );
+    this.renderPits(flatProg, breaches, decals, timeSec);
 
+    gl.bindVertexArray(null);
+  }
+
+  /**
+   * Persistent bullet chips, batched into a handful of draw calls for the
+   * whole table: faint halo, lit upper edge, dark pit, hot pixel while
+   * fresh, frost tick once cold. Small by design — breaches carry the
+   * spectacle through the carve + plume passes.
+   */
+  /** One shared pit table per frame: punctures plus persistent scorch. */
+  public renderPits(
+    flatProg: WebGLProgram,
+    breaches: readonly BreachRenderModel[],
+    decals: readonly PremiumDecal[],
+    timeSec: number
+  ): void {
+    if (breaches.length === 0 && decals.length === 0) return;
+    const layers = emptyPitLayers();
+    accumulatePuncturePits(layers, breaches, this.shipOffset.x, this.shipOffset.y);
+    for (const decal of decals.slice(-64)) {
+      accumulatePit(layers, decal.x, decal.y, decal.radius, decal.weapon, decal.cool);
+    }
+    this.drawPitLayers(flatProg, layers, timeSec);
+  }
+
+  private drawPitLayers(
+    flatProg: WebGLProgram,
+    layers: ReturnType<typeof emptyPitLayers>,
+    timeSec: number
+  ): void {
+    const gl = this.gl;
+    const flicker = 0.9 + 0.1 * Math.sin(timeSec * 9);
+    const base = scorchPalette('kinetic_carbine');
+    if (layers.scorch.length > 0) {
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), ...base.scorch);
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(layers.scorch));
+    }
+    if (layers.edge.length > 0) {
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), ...base.rim);
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(layers.edge));
+    }
+    if (layers.core.length > 0) {
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), ...base.core);
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(layers.core));
+    }
+    for (const [weapon, verts] of layers.glowByWeapon) {
+      const palette = scorchPalette(weapon);
+      gl.uniform4f(
+        gl.getUniformLocation(flatProg, 'u_color'),
+        palette.glow[0],
+        palette.glow[1],
+        palette.glow[2],
+        0.8 * flicker
+      );
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(verts));
+    }
+    if (layers.frost.length > 0) {
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.55, 0.9, 1.0, 0.4);
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(layers.frost));
+    }
+  }
+
+  /**
+   * Gauntlet dock tube: while the docked origin holds the stern ramp at
+   * world (1090, 200), a 70px umbilical spans the gauntlet east face (1020)
+   * to the ramp mouth. Sealed otherwise: red ticks on both gate leaves.
+   */
+  public renderDockTube(
+    flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
+    matrix: Float32Array,
+    dock: { walkable: boolean; phase: string; secondsToSeal: number } | undefined,
+    timeSec: number
+  ): void {
+    const gl = this.bindFlat(flatProg, flatVAO, matrix);
+    const walkable = dock?.walkable === true;
+    if (walkable) {
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.16, 0.19, 0.26, 1.0);
+      drawQuad(gl, this.dynamicBuffer, 1020, 184, 70, 32);
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.9, 1.0, 0.85);
+      const guides: number[] = [];
+      addThickSegment(guides, 1020, 184, 1090, 184, 2);
+      addThickSegment(guides, 1020, 216, 1090, 216, 2);
+      addThickSegment(guides, 1020, 176, 1020, 224, 2.4);
+      addThickSegment(guides, 1090, 180, 1090, 220, 2.4);
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(guides));
+    } else {
+      const blink = 0.5 + 0.5 * Math.sin(timeSec * 6);
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
+      const seals: number[] = [];
+      addThickSegment(seals, 1020, 170, 1020, 230, 4);
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(seals));
+      this.bindFlat(
+        flatProg,
+        flatVAO,
+        translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
+      );
+      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
+      const shipSeals: number[] = [];
+      addThickSegment(shipSeals, 100, 340, 100, 380, 4);
+      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(shipSeals));
+    }
     gl.bindVertexArray(null);
   }
 
@@ -460,18 +569,19 @@ export class DeckPass {
   ): void {
     const gl = this.bindFlat(flatProg, flatVAO, matrix);
 
-    // Station block hull plate (static south wing)
+    // Station block hull plate backing the live hub footprint
+    // (lobby/bay/gauntlet/concourse/security/overlook/lounge).
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.09, 0.11, 0.16, 1.0);
-    drawQuad(gl, this.dynamicBuffer, 110, 640, 920, 320);
+    drawQuad(gl, this.dynamicBuffer, -24, -164, 1068, 748);
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.22, 0.28, 0.38, 1.0);
     const stationLines: number[] = [];
-    addThickSegment(stationLines, 110, 640, 1030, 640, 4);
-    addThickSegment(stationLines, 1030, 640, 1030, 960, 4);
-    addThickSegment(stationLines, 1030, 960, 110, 960, 4);
-    addThickSegment(stationLines, 110, 960, 110, 640, 4);
+    addThickSegment(stationLines, -24, -164, 1044, -164, 4);
+    addThickSegment(stationLines, 1044, -164, 1044, 584, 4);
+    addThickSegment(stationLines, 1044, 584, -24, 584, 4);
+    addThickSegment(stationLines, -24, 584, -24, -164, 4);
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(stationLines));
 
-    this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
+    this.bindFlat(flatProg, flatVAO, translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y));
 
     // Dark armor hull base hugging the v2 room block (x100-880, y200-500)
     // with even margins; the east strip is the engine mount for the bells.
@@ -489,13 +599,13 @@ export class DeckPass {
     addThickSegment(hullLines, 70, 530, 40, 355, 4);
     bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(hullLines));
 
-    // Thruster bell housings mounted on the aft edge (aligned to Y=400).
+    // Thruster bell housings mounted on the stern wedge (west edge).
     // Plumes are live exhaust particles (see emitThrusterExhaust), not quads,
     // so docked ships idle instead of burning at full scale.
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.14, 0.17, 0.24, 1.0);
-    drawQuad(gl, this.dynamicBuffer, 898, 296, 22, 20);
-    drawQuad(gl, this.dynamicBuffer, 898, 404, 22, 32);
-    drawQuad(gl, this.dynamicBuffer, 898, 484, 22, 20);
+    drawQuad(gl, this.dynamicBuffer, 18, 296, 20, 20);
+    drawQuad(gl, this.dynamicBuffer, 18, 404, 20, 32);
+    drawQuad(gl, this.dynamicBuffer, 18, 484, 20, 20);
 
     gl.bindVertexArray(null);
   }
@@ -506,7 +616,7 @@ export class DeckPass {
     matrix: Float32Array,
     time: number
   ): void {
-    this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
+    this.bindFlat(flatProg, flatVAO, translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y));
     renderDeckFurniture(this.gl, this.dynamicBuffer, flatProg, time);
     this.gl.bindVertexArray(null);
   }
@@ -606,7 +716,11 @@ export class DeckPass {
     nearestDoorId?: string
   ): void {
     // Ship doors rendered with GPU translated model matrix
-    const glShip = this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
+    const glShip = this.bindFlat(
+      flatProg,
+      flatVAO,
+      translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
+    );
     for (const door of doors) {
       if (isStationSideDoor(door)) continue;
       this.drawSingleDoor(glShip, flatProg, door, dt, nearestDoorId === door.id);
@@ -628,7 +742,11 @@ export class DeckPass {
     matrix: Float32Array,
     time: number
   ): void {
-    const gl = this.bindFlat(flatProg, flatVAO, translateMatrixX(matrix, this.shipOffset.x));
+    const gl = this.bindFlat(
+      flatProg,
+      flatVAO,
+      translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
+    );
 
     const corridorLights = HESPERIA_LIGHTS.filter((l) => l.room === 'corridor');
     for (const cl of corridorLights) {

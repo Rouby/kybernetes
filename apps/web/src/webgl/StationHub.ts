@@ -41,14 +41,3 @@ export function resolveClientShipKinematics(
 ): VesselKinematics {
   return getShipKinematics(buildClientIntroState(phase, etaSeconds, legIndex));
 }
-
-export interface StationNpc {
-  x: number;
-  y: number;
-  color: string;
-}
-
-export const STATION_NPCS: readonly StationNpc[] = [
-  { x: 660, y: 725, color: '#2dd4bf' },
-  { x: 500, y: 875, color: '#b55fe6' },
-];

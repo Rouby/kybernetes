@@ -6,6 +6,7 @@
 import type { ClientIntent } from '@kybernetes/protocol';
 import {
   applyConsume,
+  dockLinkForPortal,
   fireWeapon,
   setSleeping,
   setSuitSealed,
@@ -117,6 +118,13 @@ function routeDoor(
 ): RouteResult {
   if (!pawnInReach(world, pawnId, intent.portalId)) {
     return { world, movement: pending, notice: 'DOOR_too-far' };
+  }
+  // Dock gates belong to the approach cycle while the vessel holds them:
+  // hands off, or the corridor vents through the open leaf.
+  const dock = dockLinkForPortal(world, intent.portalId);
+  const schedule = dock === undefined ? undefined : world.vessels[dock.vesselFrame]?.schedule;
+  if (dock !== undefined && schedule !== 'in_transit' && schedule !== 'inbound') {
+    return { world, movement: pending, notice: 'DOOR_dock-cycle' };
   }
   const result = tryToggleDoor(world, intent.portalId, intent.wantOpen, 0);
   if (!result.ok) return { world, movement: pending, notice: `DOOR_${result.reason}` };

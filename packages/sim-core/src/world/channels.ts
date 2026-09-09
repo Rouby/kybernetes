@@ -29,6 +29,7 @@ import type {
 import { digestStrings, q0, q1, q2 } from '@kybernetes/protocol';
 import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
 import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
+import { snapshotDecalsOf } from './decals.js';
 import { spareRounds } from './survival.js';
 import type { World } from './types.js';
 import { projectGrade, type WatchState } from './watch.js';
@@ -48,6 +49,7 @@ export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {
     portals,
     projectiles: snapshotShotsOf(world),
     frames,
+    decals: snapshotDecalsOf(world),
     full: true,
     portalRev: portalRevOf(portals),
     frameRev: frameRevOf(frames),
@@ -84,6 +86,12 @@ export function snapshotImpactsOf(world: World): SnapshotBroadcast['impacts'] {
     x: q1(impact.x),
     y: q1(impact.y),
     kind: impact.kind,
+    angle: q2(impact.angle),
+    weapon: impact.weapon,
+    energy: q2(impact.energy),
+    surface: impact.surface,
+    ...(impact.breachId === undefined ? {} : { breachId: impact.breachId }),
+    pressureKpa: q1(impact.pressureKpa),
   }));
 }
 
@@ -192,11 +200,18 @@ export function buildSnapshotDelta(
   prevFrames: readonly SnapshotFrame[],
   baseTick: number,
   world: World,
-  nowMs: number
+  nowMs: number,
+  prevDecalIds?: readonly string[]
 ): SnapshotDeltaBroadcast {
   const portals = snapshotPortalsOf(world);
   const frames = snapshotFramesOf(world);
   const portalDiff = diffPortals(prevPortals, portals);
+  const decals = snapshotDecalsOf(world);
+  const prevSet = new Set(prevDecalIds ?? []);
+  const decalsChanged =
+    prevDecalIds === undefined ||
+    decals.length !== prevSet.size ||
+    decals.some((decal) => !prevSet.has(decal.id));
   return {
     type: 'SNAPSHOT_DELTA',
     v: 2,
@@ -212,6 +227,7 @@ export function buildSnapshotDelta(
     removedPortalIds: portalDiff.removed,
     projectiles: snapshotShotsOf(world),
     frames: diffFrames(prevFrames, frames),
+    ...(decalsChanged ? { decals } : {}),
   };
 }
 

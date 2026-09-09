@@ -50,9 +50,11 @@ export function createCameraMatrix(
   return new Float32Array([sx, 0, 0, 0, sy, 0, tx, ty, 1]);
 }
 
-export function translateMatrixX(matrix: Float32Array, dx: number): Float32Array {
+/** Full 2D model translate for docked-frame geometry (column-major 3x3). */
+export function translateMatrix(matrix: Float32Array, dx: number, dy: number): Float32Array {
   const out = matrix.slice();
   out[6] += dx * matrix[0];
+  out[7] += dy * matrix[4];
   return out;
 }
 

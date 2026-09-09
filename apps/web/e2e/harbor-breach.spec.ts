@@ -58,6 +58,8 @@ test.describe('Harbor structural damage (own daemon: venting is permanent)', () 
       15000
     );
     await page.keyboard.up('f');
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: 'test-results/scene-breach.png' });
     await waitForHarbor(
       page,
       'harbor-status',

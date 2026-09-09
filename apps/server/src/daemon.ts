@@ -15,8 +15,10 @@
 
 import {
   type ClientIntent,
+  type DockStatusBroadcast,
   makeHelloMismatch,
   SESSION_RESUMED_ELSEWHERE_CODE,
+  type ServerStatsBroadcast,
   type SnapshotFrame,
   type SnapshotPortal,
 } from '@kybernetes/protocol';
@@ -35,6 +37,7 @@ import {
   buildWatch,
   createAirAuthority,
   diffAtmos,
+  dockStatusOf,
   mergeAtmos,
   mergeFrames,
   mergePortals,
@@ -136,8 +139,12 @@ export class HarborDaemon {
   private stats: ChannelStats = emptyStats();
   private lastPortals: SnapshotPortal[] = [];
   private lastFrames: SnapshotFrame[] = [];
+  private lastDecalIds: string[] = [];
   private lastSnapshotTick = 0;
   private snapshotsSinceFull = SNAPSHOT_FULL_EVERY;
+  private lastStatsMs = 0;
+  private lastDockMs = 0;
+  private lastDockKey = '';
   private lastAtmos: AtmosRoom[] = [];
   private telemetrySinceFull = TELEMETRY_FULL_EVERY;
   private lastManifestRev: number | undefined;
@@ -189,6 +196,10 @@ export class HarborDaemon {
   public async stop(): Promise<void> {
     this.host.stop();
     this.listening = false;
+    this.lastDecalIds = [];
+    this.lastStatsMs = 0;
+    this.lastDockMs = 0;
+    this.lastDockKey = '';
     this.dropClients();
     const server = this.wss;
     this.wss = null;
@@ -321,8 +332,15 @@ export class HarborDaemon {
   private routeIntent(ws: WebSocket, clientId: string, intent: ClientIntent): void {
     const result = this.host.handleIntent(clientId, intent);
     if (intent.type === 'JOIN_BEACON') this.evictStolenSessions();
+    if (intent.type === 'OBSERVE' && result.notice === undefined) {
+      this.welcomeObserver(ws, intent.beacon);
+    }
     if (intent.type === 'JOIN_BEACON' && result.notice === undefined) {
       this.welcomeAboard(ws, intent.beacon);
+    }
+    if (result.notice === 'observer-readonly') {
+      this.droppedLimited += 1;
+      return;
     }
     if (result.offer !== undefined) {
       this.send(ws, buildHireOffer(this.host.currentWorld.tick, Date.now(), result.offer));
@@ -377,6 +395,80 @@ export class HarborDaemon {
     this.sendFullTelemetryTo(ws, world, nowMs);
     this.sendManifestTo(ws, world, nowMs);
     this.sendWatchTo(ws, world, nowMs);
+    this.sendDockTo(ws, world, nowMs);
+  }
+
+  /** Observers get read-only baselines: no pawn, no seat, no eviction. */
+  private welcomeObserver(ws: WebSocket, beacon: string): void {
+    const meta = this.meta.get(ws);
+    if (meta === undefined) return;
+    if (!this.host.isObserver(meta.clientId)) return;
+    const world = this.host.currentWorld;
+    const nowMs = Date.now();
+    this.send(ws, {
+      type: 'JOINED',
+      v: 2,
+      tick: world.tick,
+      serverTimeMs: nowMs,
+      pawnId: '',
+      beacon,
+    });
+    this.send(ws, buildSnapshot(world, nowMs));
+    this.sendFullTelemetryTo(ws, world, nowMs);
+    this.sendStatsTo(ws, world, nowMs);
+    this.sendDockTo(ws, world, nowMs);
+  }
+
+  private sendToObservers(payload: unknown): void {
+    const text = JSON.stringify(payload);
+    for (const [ws, meta] of this.meta) {
+      if (!this.host.isObserver(meta.clientId)) continue;
+      if (ws.readyState === WebSocket.OPEN) ws.send(text);
+    }
+  }
+
+  private buildStats(world: World, nowMs: number): ServerStatsBroadcast {
+    const health = this.host.tickHealth(nowMs);
+    return {
+      type: 'SERVER_STATS',
+      v: 2,
+      tick: world.tick,
+      serverTimeMs: nowMs,
+      tpsActual: health.tpsActual,
+      tpsTarget: 20,
+      tickMsLast: health.tickMsLast,
+      tickMsAvg: health.tickMsAvg,
+      droppedSteps: health.droppedSteps,
+      accumulatorMs: health.accumulatorMs,
+      observers: this.host.observerCount,
+      pawns: this.host.pawnLinks(nowMs),
+    };
+  }
+
+  private sendStatsTo(ws: WebSocket, world: World, nowMs: number): void {
+    this.send(ws, this.buildStats(world, nowMs));
+  }
+
+  private maybeSendStats(world: World, nowMs: number): void {
+    if (nowMs - this.lastStatsMs < 1000) return;
+    this.lastStatsMs = nowMs;
+    if (this.host.observerCount === 0) return;
+    this.sendToObservers(this.buildStats(world, nowMs));
+  }
+
+  private sendDockTo(ws: WebSocket, world: World, nowMs: number): void {
+    const dock = dockStatusOf(world, 'harbor', nowMs);
+    if (dock !== undefined) this.send(ws, dock);
+  }
+
+  private maybeSendDock(world: World, nowMs: number): void {
+    const dock = dockStatusOf(world, 'harbor', nowMs);
+    if (dock === undefined) return;
+    const key = `${dock.phase}:${dock.walkable}:${dock.secondsToSeal}`;
+    if (key === this.lastDockKey && nowMs - this.lastDockMs < 1000) return;
+    this.lastDockKey = key;
+    this.lastDockMs = nowMs;
+    this.sendAll(dock as DockStatusBroadcast);
   }
 
   private firstVesselId(world: World): string | undefined {
@@ -401,6 +493,8 @@ export class HarborDaemon {
     this.sendSnapshot(world, nowMs);
     this.maybeSendManifest(world, nowMs);
     this.maybeSendWatch(world, nowMs);
+    this.maybeSendStats(world, nowMs);
+    this.maybeSendDock(world, nowMs);
   }
 
   private sendSnapshot(world: World, nowMs: number): void {
@@ -409,6 +503,7 @@ export class HarborDaemon {
       const bytes = this.sendAll(full);
       this.lastPortals = [...full.portals];
       this.lastFrames = [...full.frames];
+      this.lastDecalIds = (full.decals ?? []).map((decal) => decal.id);
       this.lastSnapshotTick = full.tick;
       this.snapshotsSinceFull = 0;
       this.bump('snapshotFull', 'snapshotBytes', bytes);
@@ -419,11 +514,13 @@ export class HarborDaemon {
       this.lastFrames,
       this.lastSnapshotTick,
       world,
-      nowMs
+      nowMs,
+      this.lastDecalIds
     );
     const bytes = this.sendAll(delta);
     this.lastPortals = mergePortals(this.lastPortals, delta.portals, delta.removedPortalIds);
     this.lastFrames = mergeFrames(this.lastFrames, delta.frames);
+    if (delta.decals !== undefined) this.lastDecalIds = delta.decals.map((decal) => decal.id);
     this.lastSnapshotTick = delta.tick;
     this.snapshotsSinceFull += 1;
     this.bump('snapshotDelta', 'snapshotBytes', bytes);

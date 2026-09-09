@@ -9,7 +9,7 @@ describe('world assemble', () => {
       { frameId: 'station', hull: StationHubSpec },
       { frameId: 'ship', hull: HesperiaV2Spec, vessel: { name: 'Hesperia', beacon: 'HESP' } },
     ]);
-    expect(Object.keys(world.rooms)).toHaveLength(12);
+    expect(Object.keys(world.rooms)).toHaveLength(16);
     expect(world.rooms['ship.bridge']?.frameId).toBe('ship');
     expect(world.rooms['station.lobby']?.frameId).toBe('station');
     expect(world.portals['ship.door_bridge']?.roomA).toBe('ship.bridge');

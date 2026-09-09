@@ -2,6 +2,8 @@ export * from './actions';
 export * from './boarding';
 export * from './broadcasts';
 export * from './content';
+export * from './debug';
+export * from './docking';
 export * from './envelope';
 export * from './intents';
 export * from './intro';

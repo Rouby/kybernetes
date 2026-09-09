@@ -9,6 +9,8 @@
  */
 
 import type { Role } from './content.js';
+import type { ServerStatsBroadcast } from './debug.js';
+import type { DockStatusBroadcast } from './docking.js';
 
 export interface SnapshotPawn {
   readonly id: string;
@@ -50,11 +52,38 @@ export interface SnapshotProjectile {
   readonly weapon: string;
 }
 
+export type ImpactSurface = 'wall' | 'door' | 'pawn' | 'hull' | 'shield';
+
 export interface SnapshotImpact {
   readonly frameId: string;
   readonly x: number;
   readonly y: number;
   readonly kind: 'pawn' | 'door' | 'breach' | 'miss';
+  /** Surface normal / shot direction in radians (q2). Orients decals + sparks. */
+  readonly angle?: number;
+  /** Weapon id that produced the hit (e.g. kinetic_carbine). */
+  readonly weapon?: string;
+  /** Normalized hit energy 0-1 (q2). Scales crater + scorch + sparks. */
+  readonly energy?: number;
+  /** Material surface struck; defaults from kind when absent. */
+  readonly surface?: ImpactSurface;
+  /** Live breach portal id when this hit cut or widened a breach. */
+  readonly breachId?: string;
+  /** Room pressure kPa at the hit (q1, vacuum≈0). Scales sparks/plumes. */
+  readonly pressureKpa?: number;
+}
+
+export interface ScorchDecal {
+  readonly id: string;
+  readonly frameId: string;
+  readonly x: number;
+  readonly y: number;
+  /** Decal orientation in radians (q2): crater major axis / wall tangent. */
+  readonly angle: number;
+  /** Crater radius in px (q1). */
+  readonly radius: number;
+  readonly weapon: string;
+  readonly bornTick: number;
 }
 
 export interface SnapshotFrame {
@@ -74,6 +103,8 @@ export interface SnapshotBroadcast {
   readonly portals: readonly SnapshotPortal[];
   readonly projectiles: readonly SnapshotProjectile[];
   readonly frames: readonly SnapshotFrame[];
+  /** Persistent scorch decals (server LRU, oldest first). Absent on pre-decal senders. */
+  readonly decals?: readonly ScorchDecal[];
   /** True when portals/frames are complete. Absent on pre-delta senders. */
   readonly full?: boolean;
   /** FNV-1a digest of portal id+state; clients memoize colliders on it. */
@@ -104,6 +135,8 @@ export interface SnapshotDeltaBroadcast {
   readonly removedPortalIds: readonly string[];
   readonly projectiles: readonly SnapshotProjectile[];
   readonly frames: readonly SnapshotFrame[];
+  /** Complete decal table when changed; clients replace on newer tick. */
+  readonly decals?: readonly ScorchDecal[];
 }
 
 export interface AirFlow {
@@ -228,6 +261,8 @@ export type ServerSnapshot =
   | HireOfferBroadcast
   | JoinedBroadcast
   | ManifestBroadcast
-  | WatchBroadcast;
+  | WatchBroadcast
+  | ServerStatsBroadcast
+  | DockStatusBroadcast;
 
 export type ServerSnapshotType = ServerSnapshot['type'];

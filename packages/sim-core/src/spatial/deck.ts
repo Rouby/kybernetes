@@ -21,7 +21,7 @@ import type {
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
 import { StationHubSpec } from '../world/content/StationHub.hull.js';
 import { compileHull, toLegacyWalls } from '../world/hullCompiler.js';
-import { SHIP_ORIGIN } from '../world/scenarios.js';
+import { SHIP_ORIGIN } from '../world/schedule.js';
 
 export interface RoomDefinition {
   id: string;
@@ -47,6 +47,10 @@ const ROOM_NAMES: Record<string, string> = {
   lobby: 'Station Lobby',
   bay: 'Shuttle Bay',
   gauntlet: 'Boarding Gauntlet',
+  concourse: 'Transit Concourse',
+  security: 'Security Checkpoint',
+  overlook: 'Overlook Gallery',
+  lounge: 'Bay Lounge',
   bridge: 'Command Bridge',
   avionics: 'Avionics & Sensor Matrix',
   life_support: 'Life Support & Recycler Bay',
@@ -220,6 +224,36 @@ export const HESPERIA_STATIONS: StationFixture[] = [
     y: 200,
     radius: 24,
     prompt: '[E] Cycle Airlock',
+  },
+  {
+    id: 'concourse_departures',
+    deckId: 'station',
+    name: 'Departures Board',
+    stationType: 'job_board',
+    x: 300,
+    y: 480,
+    radius: 30,
+    prompt: '[E] View Departures',
+  },
+  {
+    id: 'concourse_kiosk',
+    deckId: 'station',
+    name: 'Ticket Kiosk',
+    stationType: 'avionics',
+    x: 420,
+    y: 480,
+    radius: 22,
+    prompt: '[E] Buy Passage',
+  },
+  {
+    id: 'lounge_vendor',
+    deckId: 'station',
+    name: 'Lounge Vendor',
+    stationType: 'mess',
+    x: 750,
+    y: 350,
+    radius: 24,
+    prompt: '[E] Buy Recaf',
   },
 ];
 

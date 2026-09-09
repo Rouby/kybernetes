@@ -69,8 +69,6 @@ export interface RoomAtmosphereSummary {
   windY?: number;
 }
 
-export type AtmosOverlayMode = 'off' | 'o2' | 'temp' | 'pressure';
-
 export type BreachKind = 'puncture' | 'breach' | 'door';
 
 export interface BreachDescriptor {

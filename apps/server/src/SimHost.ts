@@ -9,7 +9,7 @@
  * releases the latch and the pawn coasts to a stop through damping.
  */
 
-import type { ClientIntent, ManifestBroadcast, Role } from '@kybernetes/protocol';
+import type { ClientIntent, ManifestBroadcast, PawnLinkQuality, Role } from '@kybernetes/protocol';
 import {
   type AirAuthorityState,
   FIXED_DT,
@@ -73,6 +73,11 @@ export interface HostIntentResult {
 /** How long a held INPUT keeps driving its pawn without a refresh. */
 export const INPUT_LATCH_MS = 1000;
 
+interface HostObserver {
+  readonly beacon: string;
+  readonly connectedAtMs: number;
+}
+
 export class SimHost {
   private world: World;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -84,8 +89,13 @@ export class SimHost {
   private lastTelemetryMs = 0;
   private lastVitalsMs = 0;
   private readonly clients = new Map<string, HostClient>();
+  private readonly observers = new Map<string, HostObserver>();
   private readonly beacons = new Map<string, BeaconEntry>();
   private readonly latched = new Map<string, { input: WorldInput; atMs: number }>();
+  private readonly lastInputAt = new Map<string, number>();
+  private readonly msgCounts = new Map<string, { count: number; windowStartMs: number }>();
+  private tickSamples: { atMs: number; durationMs: number }[] = [];
+  private tickMsLast = 0;
   private evictedClients: string[] = [];
 
   constructor(
@@ -122,6 +132,83 @@ export class SimHost {
 
   clientOf(clientId: string): HostClient | undefined {
     return this.clients.get(clientId);
+  }
+
+  isObserver(clientId: string): boolean {
+    return this.observers.has(clientId);
+  }
+
+  get observerCount(): number {
+    return this.observers.size;
+  }
+
+  get accumulatorDepthMs(): number {
+    return Math.round(this.accumulatorMs * 100) / 100;
+  }
+
+  /** Rolling TPS + tick health for SERVER_STATS (same-port observer view). */
+  tickHealth(nowMs: number): {
+    tpsActual: number;
+    tickMsAvg: number;
+    tickMsLast: number;
+    droppedSteps: number;
+    accumulatorMs: number;
+  } {
+    const cutoff = nowMs - 5000;
+    const inWindow = this.tickSamples.filter((sample) => sample.atMs >= cutoff);
+    let tpsActual = 0;
+    if (inWindow.length >= 2) {
+      const spanS = Math.max(0.001, (nowMs - inWindow[0].atMs) / 1000);
+      tpsActual = Math.round((inWindow.length / spanS) * 10) / 10;
+    }
+    const tickMsAvg =
+      inWindow.length === 0
+        ? 0
+        : Math.round((inWindow.reduce((sum, s) => sum + s.durationMs, 0) / inWindow.length) * 100) /
+          100;
+    return {
+      tpsActual,
+      tickMsAvg,
+      tickMsLast: this.tickMsLast,
+      droppedSteps: this.droppedSteps,
+      accumulatorMs: this.accumulatorDepthMs,
+    };
+  }
+
+  /** Per-pawn link quality for the observer debug panel. */
+  pawnLinks(nowMs: number): PawnLinkQuality[] {
+    const links: PawnLinkQuality[] = [];
+    for (const client of this.clients.values()) {
+      const pawn = this.world.pawns[client.pawnId];
+      if (pawn === undefined) continue;
+      const lastAt = this.lastInputAt.get(client.pawnId) ?? 0;
+      const counter = this.msgCounts.get(client.pawnId);
+      const windowMs = counter === undefined ? 5000 : Math.max(1, nowMs - counter.windowStartMs);
+      const msgsPerS =
+        counter === undefined ? 0 : Math.round((counter.count / (windowMs / 1000)) * 10) / 10;
+      links.push({
+        pawnId: client.pawnId,
+        callsign: client.callsign,
+        frameId: pawn.frameId,
+        roomHint: pawn.roomHint,
+        lastInputAgeMs: lastAt <= 0 ? -1 : Math.max(0, Math.round(nowMs - lastAt)),
+        latched: this.latched.has(client.pawnId),
+        msgsPerS,
+      });
+    }
+    return links.sort((a, b) => (a.pawnId < b.pawnId ? -1 : 1));
+  }
+
+  joinObserver(
+    clientId: string,
+    beacon: string,
+    nowMs: number = Date.now()
+  ): { ok: true } | { denied: JoinDenied } {
+    const vessel = Object.values(this.world.vessels).find((entry) => entry.beacon === beacon);
+    if (vessel === undefined) return { denied: 'unknown-beacon' };
+    // Observers never take a beacon seat, spawn a pawn, or evict a player.
+    this.observers.set(clientId, { beacon, connectedAtMs: nowMs });
+    return { ok: true };
   }
 
   joinBeacon(
@@ -169,6 +256,7 @@ export class SimHost {
   }
 
   leaveClient(clientId: string): void {
+    this.observers.delete(clientId);
     const client = this.clients.get(clientId);
     this.clients.delete(clientId);
     if (client === undefined) return;
@@ -182,11 +270,17 @@ export class SimHost {
   }
 
   handleIntent(clientId: string, intent: ClientIntent): HostIntentResult {
+    if (this.observers.has(clientId)) {
+      if (intent.type === 'OBSERVE') return this.handleObserve(clientId, intent.beacon);
+      return { notice: 'observer-readonly' };
+    }
     switch (intent.type) {
       case 'HELLO':
         return this.handleHello(clientId, intent.callsign, intent.color);
       case 'JOIN_BEACON':
         return this.handleJoin(clientId, intent.beacon, intent.userId);
+      case 'OBSERVE':
+        return this.handleObserve(clientId, intent.beacon);
       case 'INPUT':
       case 'DOOR':
       case 'SUIT':
@@ -238,6 +332,11 @@ export class SimHost {
     }
     this.pending = [];
     this.latched.clear();
+    this.observers.clear();
+    this.lastInputAt.clear();
+    this.msgCounts.clear();
+    this.tickSamples = [];
+    this.tickMsLast = 0;
     this.accumulatorMs = 0;
   }
 
@@ -281,9 +380,25 @@ export class SimHost {
     return 'denied' in joined ? { notice: joined.denied } : {};
   }
 
+  private handleObserve(clientId: string, beacon: string): HostIntentResult {
+    const joined = this.joinObserver(clientId, beacon, Date.now());
+    return 'denied' in joined ? { notice: joined.denied } : {};
+  }
+
+  private trackIngress(pawnId: string, nowMs: number): void {
+    this.lastInputAt.set(pawnId, nowMs);
+    const entry = this.msgCounts.get(pawnId);
+    if (entry === undefined || nowMs - entry.windowStartMs >= 5000) {
+      this.msgCounts.set(pawnId, { count: 1, windowStartMs: nowMs });
+      return;
+    }
+    this.msgCounts.set(pawnId, { count: entry.count + 1, windowStartMs: entry.windowStartMs });
+  }
+
   private handleKernelIntent(clientId: string, intent: ClientIntent): HostIntentResult {
     const client = this.clients.get(clientId);
     if (client === undefined) return { notice: 'not-joined' };
+    this.trackIngress(client.pawnId, Date.now());
     const routed = routeIntent(this.world, client.pawnId, intent, this.pending);
     this.world = routed.world;
     this.pending = [...routed.movement];
@@ -329,10 +444,19 @@ export class SimHost {
     }
   }
 
+  private recordTickSample(nowMs: number, durationMs: number): void {
+    this.tickMsLast = Math.round(durationMs * 100) / 100;
+    this.tickSamples.push({ atMs: nowMs, durationMs: this.tickMsLast });
+    const cutoff = nowMs - 5000;
+    this.tickSamples = this.tickSamples.filter((sample) => sample.atMs >= cutoff).slice(-100);
+  }
+
   private stepOnce(nowMs: number): void {
+    const started = Date.now();
     const inputs = [...this.heldInputs(nowMs), ...this.pending];
     this.pending = [];
     this.world = tickWorld(this.world, FIXED_DT, inputs, this.options.air);
+    this.recordTickSample(nowMs, Date.now() - started);
   }
 
   private heldInputs(nowMs: number): WorldInput[] {

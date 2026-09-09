@@ -88,6 +88,20 @@ describe('Fog of War & Line of Sight Math', () => {
       expect(isWorldPointExplored(grid, 10, 180)).toBe(false);
     });
 
+    it('covers off-origin harbors with an explicit grid origin', () => {
+      const grid = createExplorationGrid(400, 200, 20, -200, -200);
+      const poly = [
+        { x: -150, y: -150 },
+        { x: -50, y: -150 },
+        { x: -50, y: -50 },
+        { x: -150, y: -50 },
+      ];
+      updateExplorationGrid(grid, poly, { x: -100, y: -100 }, 10);
+      expect(isWorldPointVisible(grid, -100, -100)).toBe(true);
+      expect(isWorldPointExplored(grid, -100, -100)).toBe(true);
+      expect(isWorldPointExplored(grid, 500, 500)).toBe(false);
+    });
+
     it('reveals all and resets grid properly', () => {
       const grid = createExplorationGrid(100, 100, 20);
       revealAllGrid(grid);

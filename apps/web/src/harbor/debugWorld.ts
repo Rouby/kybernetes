@@ -229,6 +229,52 @@ export function debugBounds(rooms: readonly DebugRoom[]): DebugBounds | undefine
   return { minX, minY, maxX, maxY };
 }
 
+export interface OverviewFraming {
+  readonly bounds: DebugBounds;
+  /** Normalized station→ship direction while the vessel is off-screen. */
+  readonly shipOffscreen: { x: number; y: number } | null;
+}
+
+/** Edge gap past which the ship stops stretching the overview. */
+export const SHIP_OVERVIEW_LEASH_PX = 300;
+
+/**
+ * Stable debug framing: the station always fits; the ship joins the frame
+ * only while moored against it (bounds nearly touching). Off-station legs
+ * pin the camera on the harbor and report the vessel bearing instead of
+ * shrinking the station to a dot beside empty transit void.
+ */
+export function overviewFraming(
+  rooms: readonly DebugRoom[],
+  leashPx = SHIP_OVERVIEW_LEASH_PX
+): OverviewFraming | undefined {
+  const station = debugBounds(rooms.filter((room) => room.frameId !== 'ship'));
+  const ship = debugBounds(rooms.filter((room) => room.frameId === 'ship'));
+  if (station === undefined) {
+    if (ship === undefined) return undefined;
+    return { bounds: ship, shipOffscreen: null };
+  }
+  if (ship === undefined) return { bounds: station, shipOffscreen: null };
+  const gapX = Math.max(ship.minX - station.maxX, station.minX - ship.maxX);
+  const gapY = Math.max(ship.minY - station.maxY, station.minY - ship.maxY);
+  const gap = Math.max(gapX, gapY);
+  if (gap <= leashPx) {
+    return {
+      bounds: {
+        minX: Math.min(station.minX, ship.minX),
+        minY: Math.min(station.minY, ship.minY),
+        maxX: Math.max(station.maxX, ship.maxX),
+        maxY: Math.max(station.maxY, ship.maxY),
+      },
+      shipOffscreen: null,
+    };
+  }
+  const dx = (ship.minX + ship.maxX) / 2 - (station.minX + station.maxX) / 2;
+  const dy = (ship.minY + ship.maxY) / 2 - (station.minY + station.maxY) / 2;
+  const len = Math.hypot(dx, dy) || 1;
+  return { bounds: station, shipOffscreen: { x: dx / len, y: dy / len } };
+}
+
 export function pressureColor(pressureKpa: number): string {
   if (!Number.isFinite(pressureKpa) || pressureKpa < 20) return '#f85149';
   if (pressureKpa < 90) return '#d29922';

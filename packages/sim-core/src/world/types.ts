@@ -12,12 +12,34 @@ import type { DockLink, TransitState } from './schedule.js';
 import type { PawnVitals } from './survival.js';
 import type { WatchState } from './watch.js';
 
+export type ImpactSurface = 'wall' | 'door' | 'pawn' | 'hull' | 'shield';
+
 export interface WorldImpact {
   readonly frameId: string;
   readonly x: number;
   readonly y: number;
   readonly kind: 'pawn' | 'door' | 'breach' | 'miss';
   readonly untilTick: number;
+  /** Surface normal / shot direction in radians. Orients decals + sparks. */
+  readonly angle: number;
+  readonly weapon: string;
+  /** Normalized hit energy 0-1. Scales crater + scorch + sparks. */
+  readonly energy: number;
+  readonly surface: ImpactSurface;
+  readonly breachId?: string;
+  /** Room pressure kPa at the hit; 0 in vacuum. Scales sparks/plumes. */
+  readonly pressureKpa: number;
+}
+
+export interface WorldDecal {
+  readonly id: string;
+  readonly frameId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly radius: number;
+  readonly weapon: string;
+  readonly bornTick: number;
 }
 
 export type PortalKind = 'door' | 'hole' | 'open' | 'airlock' | 'window';
@@ -183,6 +205,8 @@ export interface World {
   readonly spread: Readonly<Record<string, number>>;
   /** Recent shot impacts with expiry ticks; pruned every tick. */
   readonly impacts: readonly WorldImpact[];
+  /** Persistent scorch decals (server LRU, oldest first). */
+  readonly decals: readonly WorldDecal[];
 }
 
 export const FIXED_DT = 1 / 20;
@@ -211,5 +235,6 @@ export function createEmptyWorld(timeMs = 0): World {
     bots: {},
     spread: {},
     impacts: [],
+    decals: [],
   };
 }

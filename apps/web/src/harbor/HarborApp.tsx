@@ -2,6 +2,8 @@
  * HarborApp: the v2 client slice served at `?harbor=1`. Static harbor geometry
  * compiled locally, all dynamic state from v2 snapshots: predicted own pawn
  * with authoritative reconcile, snapshot remotes/doors, HUD from channels.
+ * `?view=debug` mounts the pawn-less observer root (OBSERVE, read-only) so
+ * the debug view never steals or drives the player pawn.
  */
 
 import type { Role, SnapshotPortal } from '@kybernetes/protocol';
@@ -18,7 +20,9 @@ import { DebugWorldView } from './DebugWorldView';
 import { shouldFireShot } from './fireGate';
 import { HarborViewport } from './HarborViewport';
 import { dropYoungShots, type PredictedShot, spawnPredictedShot } from './predictedShots';
+import { dockChipText, dockGateIds, withDockWalkable } from './renderState';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
+import { useHarborObserver } from './useHarborObserver';
 import { useHarborSocket } from './useHarborSocket';
 
 const EMPTY_PORTALS: readonly SnapshotPortal[] = [];
@@ -34,6 +38,15 @@ function storedIdentity(): { callsign: string; color: string; userId: string } {
 }
 
 export function HarborApp() {
+  const showDebugWorld = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('debug-world') === '1' || params.get('view') === 'debug';
+  }, []);
+  if (showDebugWorld) return <HarborObserverRoot />;
+  return <HarborPlayerRoot />;
+}
+
+function useAudioUnlock(): void {
   useEffect(() => {
     const initAudio = (): void => {
       ShipAudioEngine.getInstance().init();
@@ -46,6 +59,30 @@ export function HarborApp() {
       window.removeEventListener('pointerdown', initAudio);
     };
   }, []);
+}
+
+function HarborObserverRoot() {
+  const staticWorld = useMemo(() => buildHarborWorld(), []);
+  const beacon = useMemo(
+    () => new URLSearchParams(window.location.search).get('beacon') ?? 'HESP01',
+    []
+  );
+  const observer = useHarborObserver({ beacon });
+  return (
+    <div style={{ background: '#07090d', width: '100vw', height: '100vh', color: '#cfd8e3' }}>
+      <DebugWorldView
+        staticWorld={staticWorld}
+        snapshot={observer.snapshot}
+        telemetry={observer.telemetry}
+        stats={observer.stats}
+        dock={observer.dock}
+      />
+    </div>
+  );
+}
+
+function HarborPlayerRoot() {
+  useAudioUnlock();
   const identity = useMemo(() => {
     const stored = storedIdentity();
     const params = new URLSearchParams(window.location.search);
@@ -57,18 +94,14 @@ export function HarborApp() {
     () => new URLSearchParams(window.location.search).get('debug') === '1',
     []
   );
-  const showDebugWorld = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('debug-world') === '1' || params.get('view') === 'debug';
-  }, []);
   const staticWorld = useMemo(() => buildHarborWorld(), []);
   const socket = useHarborSocket(identity);
   const ownPawn = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
   const ownFrameId = ownPawn?.frameId ?? 'station';
   const snapshotPortals = socket.snapshot?.portals ?? EMPTY_PORTALS;
   const predictionView = useMemo(
-    () => withSnapshotStates(staticWorld, snapshotPortals),
-    [staticWorld, snapshotPortals]
+    () => withDockWalkable(withSnapshotStates(staticWorld, snapshotPortals), socket.dock),
+    [staticWorld, snapshotPortals, socket.dock]
   );
   const colliders = useMemo(
     () => collidersForFrame(predictionView, ownFrameId),
@@ -81,6 +114,7 @@ export function HarborApp() {
   predictedRef.current = movement.predicted;
   const shotsRef = useRef<PredictedShot[]>([]);
   const shotIdRef = useRef(0);
+  const fireSignalRef = useRef(0);
   const fire = useCallback((): void => {
     const self = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
     if (self === undefined || !shouldFireShot(socket.vitals, true)) return;
@@ -110,7 +144,6 @@ export function HarborApp() {
   }, [socket.snapshot, socket.pawnId, socket.vitals, socket.sendIntent, movement.facingRef]);
   const fireRef = useRef(fire);
   fireRef.current = fire;
-  const fireSignalRef = useRef(0);
   const fireHeldRef = useRef(false);
   const pressFireStart = useCallback((): void => {
     fireHeldRef.current = true;
@@ -157,23 +190,6 @@ export function HarborApp() {
     pressFireEnd
   );
 
-  if (showDebugWorld) {
-    return (
-      <div style={{ background: '#07090d', width: '100vw', height: '100vh', color: '#cfd8e3' }}>
-        {showDebug ? (
-          <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 10, pointerEvents: 'none' }}>
-            <HarborHud socket={socket} predicted={movement.predicted} />
-          </div>
-        ) : null}
-        <DebugWorldView
-          staticWorld={staticWorld}
-          snapshot={socket.snapshot}
-          telemetry={socket.telemetry}
-          pawnId={socket.pawnId}
-        />
-      </div>
-    );
-  }
   return (
     <div style={{ background: '#07090d', width: '100vw', height: '100vh', color: '#cfd8e3' }}>
       {showDebug ? (
@@ -188,6 +204,7 @@ export function HarborApp() {
         telemetry={socket.telemetry}
         vitals={socket.vitals}
         manifest={socket.manifest}
+        dock={socket.dock}
         notices={socket.notices}
         facingRef={movement.facingRef}
         aimLockedRef={aimLockedRef}
@@ -280,10 +297,13 @@ function scanDoors(
   at: { x: number; y: number }
 ): { id: string; open: boolean } | null {
   const states = new Map(snapshot.portals.map((portal) => [portal.id, portal.open]));
+  const dockGates = new Set(dockGateIds());
   let best: { id: string; open: boolean; dist: number } | null = null;
   for (const edge of Object.values(statics.portals)) {
     const room = statics.rooms[edge.roomA];
     if (room === undefined || room.frameId !== frameId) continue;
+    // Dock leaves belong to the approach cycle; E never toggles them.
+    if (dockGates.has(edge.id)) continue;
     const dist = Math.hypot(
       at.x - (edge.segment.x1 + edge.segment.x2) / 2,
       at.y - (edge.segment.y1 + edge.segment.y2) / 2
@@ -316,6 +336,7 @@ function HarborHud({ socket, predicted }: { socket: HarborSocket; predicted: Pre
     <>
       <div data-testid="harbor-pawn">{socket.pawnId ?? '-'}</div>
       <HudStatus socket={socket} />
+      <div data-testid="harbor-dock">{dockChipText(socket.dock)}</div>
       <div data-testid="harbor-pos">
         {predicted ? `x:${Math.round(predicted.x)} y:${Math.round(predicted.y)}` : 'x:? y:?'}
       </div>

@@ -6,6 +6,7 @@
 import type { SnapshotPortal, WallSegment } from '@kybernetes/protocol';
 import { resolvePawnMovement } from '../spatial/collision.js';
 import { isPortalConnecting } from './doors.js';
+import { isDockGateWalkable } from './schedule.js';
 import type { PawnBody, PortalEdge, Vec2, World } from './types.js';
 
 export interface MoveInput {
@@ -77,11 +78,16 @@ function pointInRect(p: Vec2, rect: { x: number; y: number; w: number; h: number
   return p.x >= rect.x && p.x <= rect.x + rect.w && p.y >= rect.y && p.y <= rect.y + rect.h;
 }
 
-/** Colliders for a frame: compiled walls plus shut-portal segments (closed doors block). */
+/**
+ * Colliders for a frame: compiled walls plus shut-portal segments. Closed
+ * doors block — except dock gates while the cycle holds them walkable, so
+ * crews stroll the tube instead of teleporting through it.
+ */
 export function collidersForFrame(world: World, frameId: string): WallSegment[] {
   const colliders = [...(world.wallsByFrame[frameId] ?? [])];
   for (const portal of Object.values(world.portals)) {
     if (isPortalConnecting(portal)) continue;
+    if (isDockGateWalkable(world, portal.id)) continue;
     const room = world.rooms[portal.roomA];
     if (room === undefined || room.frameId !== frameId) continue;
     colliders.push(portalCollider(portal));

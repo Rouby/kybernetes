@@ -394,22 +394,3 @@ export function renderJobBoard(
   drawJobBoardRow(ctx, st.x - 24, st.y + 2, 0.0, 0.9, 1.0, true);
   drawJobBoardRow(ctx, st.x - 24, st.y + 12, 1.0, 0.67, 0.2, isNear || pulse > 0.7);
 }
-
-export function renderStationNpc(
-  ctx: RenderContext,
-  x: number,
-  y: number,
-  color: string,
-  time: number
-): void {
-  const bob = Math.sin(time * 1.6 + x * 0.05) * 1.5;
-  const r = parseInt(color.slice(1, 3), 16) / 255;
-  const g = parseInt(color.slice(3, 5), 16) / 255;
-  const b = parseInt(color.slice(5, 7), 16) / 255;
-  setColor(ctx, 0.1, 0.12, 0.17);
-  ctx.drawCircle(x, y + bob, 13, 14);
-  setColor(ctx, r, g, b, 0.9);
-  ctx.drawQuad(x - 7, y - 6 + bob, 14, 14);
-  setColor(ctx, 0.0, 0.9, 1.0, 0.85);
-  ctx.drawQuad(x - 4, y - 3 + bob, 8, 3);
-}

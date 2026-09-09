@@ -7,14 +7,18 @@
 
 import type {
   AirFlow,
+  DockStatusBroadcast,
   DoorState,
   ManifestBroadcast,
   PawnState,
   PlayerVitals,
   ProjectileState,
   RoomAtmosphereSummary,
+  ScorchDecal,
+  ServerStatsBroadcast,
   SnapshotBroadcast,
   SnapshotDeltaBroadcast,
+  SnapshotImpact,
   SnapshotPawn,
   SnapshotPortal,
   SnapshotProjectile,
@@ -26,6 +30,7 @@ import type {
 import {
   type BreachRenderModel,
   breachFlowAxis,
+  HARBOR_DOCK,
   HESPERIA_ROOMS,
   isShipSideRoom,
   MAG_SIZE,
@@ -34,6 +39,7 @@ import {
   mergePortals,
   PUNCTURE_MAX_M2,
   SHIP_ORIGIN,
+  type World,
 } from '@kybernetes/sim-core';
 import type { PredictedShot } from './predictedShots';
 import type { PredictedPawn } from './useHarborMovement';
@@ -128,6 +134,12 @@ export function mergeSnapshotDelta(
       portals: [...delta.portals],
       projectiles: [...delta.projectiles],
       frames: [...delta.frames],
+      decals:
+        delta.decals !== undefined
+          ? [...delta.decals]
+          : base.decals !== undefined
+            ? [...base.decals]
+            : [],
       full: true,
       portalRev: delta.portalRev,
       frameRev: delta.frameRev,
@@ -143,6 +155,12 @@ export function mergeSnapshotDelta(
     portals: mergePortals(base.portals, delta.portals, delta.removedPortalIds),
     projectiles: [...delta.projectiles],
     frames: mergeFrames(base.frames, delta.frames),
+    decals:
+      delta.decals !== undefined
+        ? [...delta.decals]
+        : base.decals !== undefined
+          ? [...base.decals]
+          : [],
     full: false,
     portalRev: delta.portalRev,
     frameRev: delta.frameRev,
@@ -161,6 +179,100 @@ export function mergeTelemetry(
     atmos: mergeAtmos(base.atmos, msg.atmos),
     flows: msg.flows ?? base.flows ?? [],
   };
+}
+
+/** Dock gate leaves by portal id for the walkable overlay below. */
+export function dockGateIds(): readonly string[] {
+  return [HARBOR_DOCK.stationPortal, HARBOR_DOCK.vesselPortal];
+}
+
+/**
+ * Paint dock gates open while the cycle holds them walkable. Snapshots keep
+ * the sealed-safe states for the air graph; feet, eyes, and prediction
+ * read the overlaid doors.
+ */
+export function applyDockGates(doors: DoorState[], walkable: boolean): DoorState[] {
+  if (!walkable) return doors;
+  const gates = new Set(dockGateIds());
+  let changed = false;
+  const next = doors.map((door) => {
+    if (!gates.has(door.id) || door.isOpen) return door;
+    changed = true;
+    return { ...door, isOpen: true };
+  });
+  return changed ? next : doors;
+}
+
+/** Vessel schedule implied by a dock broadcast for prediction colliders. */
+export function dockVesselSchedule(
+  dock: DockStatusBroadcast | null
+): 'docked' | 'departing' | 'in_transit' | 'inbound' {
+  if (dock === null) return 'docked';
+  if (dock.phase === 'boarding_closing') return 'docked';
+  return dock.phase;
+}
+
+export interface FrameMotion {
+  readonly velX: number;
+  readonly velY: number;
+  readonly x: number;
+  readonly y: number;
+  readonly ms: number;
+}
+
+/** Cruise ceiling px/s for frame-motion feedforward (docking burns). */
+export const FRAME_VEL_MAX = 600;
+
+/**
+ * Smooth frame-origin velocity from snapshot arrivals so the camera can
+ * lead a vessel underway instead of juddering behind each 10Hz delta.
+ */
+export function stepFrameMotion(
+  prev: FrameMotion | null,
+  x: number,
+  y: number,
+  ms: number
+): FrameMotion {
+  if (prev === null) return { velX: 0, velY: 0, x, y, ms };
+  const dt = (ms - prev.ms) / 1000;
+  if (!(dt > 0.02)) return { ...prev, x, y, ms };
+  const clampVel = (v: number): number => Math.min(FRAME_VEL_MAX, Math.max(-FRAME_VEL_MAX, v));
+  const instX = clampVel((x - prev.x) / dt);
+  const instY = clampVel((y - prev.y) / dt);
+  return {
+    velX: prev.velX + (instX - prev.velX) * 0.2,
+    velY: prev.velY + (instY - prev.velY) * 0.2,
+    x,
+    y,
+    ms,
+  };
+}
+
+/**
+ * Prediction-world dock overlay: real vessel phase for colliders plus
+ * open leaves while walkable, mirroring the server movement exception.
+ */
+export function withDockWalkable(world: World, dock: DockStatusBroadcast | null): World {
+  const schedule = dockVesselSchedule(dock);
+  let next = world;
+  const vessel = next.vessels[HARBOR_DOCK.vesselFrame];
+  if (vessel !== undefined && vessel.schedule !== schedule) {
+    next = {
+      ...next,
+      vessels: { ...next.vessels, [HARBOR_DOCK.vesselFrame]: { ...vessel, schedule } },
+    };
+  }
+  if (dock?.walkable !== true) return next;
+  const gates = new Set(dockGateIds());
+  let changed = false;
+  const portals = { ...next.portals };
+  for (const id of gates) {
+    const portal = portals[id];
+    if (portal === undefined || portal.state === 'open') continue;
+    portals[id] = { ...portal, state: 'open' };
+    changed = true;
+  }
+  return changed ? { ...next, portals } : next;
 }
 
 export function syncDoors(base: DoorState[], snapshot: SnapshotBroadcast): DoorState[] {
@@ -495,4 +607,120 @@ export function mapTelemetry(
     activeFires: [],
     roomAtmospheres,
   };
+}
+
+export interface DecalRenderModel {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly radius: number;
+  readonly weapon: string;
+  readonly ageTicks: number;
+  /** 0 fresh .. 1 cooled. Drives emissive -> matte -> frost. */
+  readonly cool: number;
+}
+
+/** Ticks to cool a fresh crater (matches BREACH_GLOW_S * 20). */
+export const DECAL_COOL_TICKS = 200;
+
+export function mapDecals(
+  snapshot: SnapshotBroadcast | null,
+  origins: Map<string, { x: number; y: number }>
+): DecalRenderModel[] {
+  if (snapshot === null) return [];
+  return (snapshot.decals ?? []).map((decal) => mapDecal(decal, origins, snapshot.tick));
+}
+
+export function mapDecal(
+  decal: ScorchDecal,
+  origins: Map<string, { x: number; y: number }>,
+  nowTick: number
+): DecalRenderModel {
+  const origin = origins.get(decal.frameId) ?? { x: 0, y: 0 };
+  const ageTicks = Math.max(0, nowTick - decal.bornTick);
+  return {
+    id: decal.id,
+    x: decal.x + origin.x,
+    y: decal.y + origin.y,
+    angle: decal.angle,
+    radius: decal.radius,
+    weapon: decal.weapon,
+    ageTicks,
+    cool: Math.min(1, ageTicks / DECAL_COOL_TICKS),
+  };
+}
+
+export function weaponScorchTint(weapon: string): { core: string; rim: string; glow: string } {
+  if (weapon === 'pulse_laser') {
+    return { core: '#0a2b33', rim: '#7fe7ff', glow: '#c8fbff' };
+  }
+  if (weapon === 'arc_welder') {
+    return { core: '#1c1a12', rim: '#ffd166', glow: '#fff3c4' };
+  }
+  if (weapon === 'railgun_pistol') {
+    return { core: '#05070c', rim: '#e8eef7', glow: '#ffffff' };
+  }
+  return { core: '#0b0d12', rim: '#8a94a6', glow: '#ffb000' };
+}
+
+export interface ImpactRenderModel {
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly weapon: string;
+  readonly energy: number;
+  readonly type: 'kinetic' | 'breach';
+  /** Live breach area m2 when the hit cut or widened one (else puncture size). */
+  readonly breachAreaM2: number;
+  /** Room pressure kPa at the hit; vacuum damps the spark throw. */
+  readonly pressureKpa: number;
+}
+
+export function mapFreshImpacts(
+  snapshot: SnapshotBroadcast,
+  origins: Map<string, { x: number; y: number }>
+): ImpactRenderModel[] {
+  const areas = new Map(snapshot.portals.map((portal) => [portal.id, portal.areaM2] as const));
+  const out: ImpactRenderModel[] = [];
+  for (const impact of snapshot.impacts) {
+    if (impact.kind === 'miss') continue;
+    const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
+    out.push({
+      x: impact.x + origin.x,
+      y: impact.y + origin.y,
+      angle: impact.angle ?? 0,
+      weapon: impact.weapon ?? 'kinetic_carbine',
+      energy: impact.energy ?? 0.5,
+      type: impact.kind === 'breach' ? 'breach' : 'kinetic',
+      breachAreaM2:
+        (impact.breachId === undefined ? undefined : areas.get(impact.breachId)) ?? 0.05,
+      pressureKpa: impact.pressureKpa ?? 101.3,
+    });
+  }
+  return out;
+}
+
+export function dockChipText(dock: DockStatusBroadcast | null): string {
+  if (dock === null) return 'dock:?';
+  if (dock.phase === 'docked' && dock.walkable) return 'DOCKED · walk aboard';
+  if (dock.phase === 'boarding_closing')
+    return `BOARDING · seals in ${dock.secondsToSeal.toFixed(0)}s`;
+  if (dock.phase === 'departing') return 'SEALED · departing';
+  if (dock.phase === 'in_transit') return 'SEALED · in transit';
+  return 'INBOUND · stand by';
+}
+
+export function formatServerStats(stats: ServerStatsBroadcast | null): string {
+  if (stats === null) return 'server: offline';
+  return `tps:${stats.tpsActual.toFixed(1)}/${stats.tpsTarget} tick:${stats.tickMsLast.toFixed(1)}ms avg:${stats.tickMsAvg.toFixed(1)}ms dropped:${stats.droppedSteps} acc:${stats.accumulatorMs.toFixed(0)}ms obs:${stats.observers}`;
+}
+
+export function formatPawnLink(link: ServerStatsBroadcast['pawns'][number]): string {
+  const age = link.lastInputAgeMs < 0 ? 'idle' : `${link.lastInputAgeMs}ms`;
+  return `${link.callsign} ${link.frameId} ${link.roomHint} age:${age}${link.latched ? ' latch' : ''} ${link.msgsPerS.toFixed(1)}/s`;
+}
+
+export function snapshotImpactKey(impact: SnapshotImpact): string {
+  return `${impact.frameId}:${Math.round(impact.x)}:${Math.round(impact.y)}:${impact.kind}:${impact.weapon ?? ''}`;
 }

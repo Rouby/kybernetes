@@ -144,10 +144,18 @@ describe('snapshot deltas and quantization', () => {
   it('carries door toggles and merges back onto the full table', () => {
     const { world } = liveWorld();
     const before = snapshotPortalsOf(world);
-    const target = before[0];
+    // Bots roam liveWorld and may already have opened the first portal:
+    // flip a shut one so the state digest provably moves.
+    const target = before.find((portal) => portal.state !== 'open') ?? before[0];
     if (target === undefined) throw new Error('no portals');
     const flipped = before.map((portal) =>
-      portal.id === target.id ? { ...portal, open: !portal.open, state: 'open' as const } : portal
+      portal.id === target.id
+        ? {
+            ...portal,
+            open: !portal.open,
+            state: (portal.state === 'open' ? 'closed' : 'open') as 'open' | 'closed',
+          }
+        : portal
     );
     const diff = diffPortals(before, flipped);
     expect(diff.changed).toHaveLength(1);

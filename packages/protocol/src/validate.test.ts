@@ -32,6 +32,17 @@ describe('protocol v2 validate', () => {
     expect(validateClientIntent('hello').ok).toBe(false);
   });
 
+  it('accepts OBSERVE for pawn-less debug viewers', () => {
+    const result = validateClientIntent({ type: 'OBSERVE', seq: 0, beacon: 'HESP01' });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.intent.type).toBe('OBSERVE');
+  });
+
+  it('rejects OBSERVE without a beacon', () => {
+    expect(validateClientIntent({ type: 'OBSERVE', seq: 0 }).ok).toBe(false);
+    expect(validateClientIntent({ type: 'OBSERVE', seq: 0, beacon: '' }).ok).toBe(false);
+  });
+
   it('round-trips hire intents through JSON', () => {
     const raw = { type: 'HIRE', seq: 7, offerId: 'offer_1', job: 'engineer' };
     const parsed = JSON.parse(JSON.stringify(raw));

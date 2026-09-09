@@ -127,6 +127,65 @@ export class ParticleSystem {
     if (this.airflowParticles.length > 500) this.airflowParticles.shift();
   }
 
+  public addDirectionalImpact(hit: {
+    x: number;
+    y: number;
+    type: 'kinetic' | 'laser' | 'welder' | 'breach';
+    angle: number;
+    weapon: string;
+    energy: number;
+    breachAreaM2?: number;
+    pressureKpa?: number;
+    shipVelocity?: { vx: number; vy: number };
+  }): void {
+    // Directional cone around the surface normal + hot core + lingering ember.
+    // Throw scales with the hole being cut and the air shoving through it:
+    // full breaches in shirt-sleeves vent dramatically, punctures in vacuum
+    // barely spit.
+    const energy = Math.min(1, Math.max(0, hit.energy));
+    const areaFactor = 0.55 + 0.65 * Math.min(1, (hit.breachAreaM2 ?? 0.05) / 1.5);
+    const pressureFactor = 0.4 + 0.6 * Math.min(1, (hit.pressureKpa ?? 101.3) / 101.3);
+    const throwScale = areaFactor * pressureFactor;
+    const count = Math.max(3, Math.round((4 + energy * 6) * throwScale));
+    const baseSpeed = (90 + energy * 160) * (0.6 + 0.4 * pressureFactor);
+    const palette = weaponSpark(hit.weapon, hit.type);
+    const svx = hit.shipVelocity?.vx ?? 0;
+    const svy = hit.shipVelocity?.vy ?? 0;
+    for (let i = 0; i < count; i += 1) {
+      const spread = (Math.random() - 0.5) * 1.1;
+      const a = hit.angle + Math.PI / 2 + spread;
+      const spd = baseSpeed * (0.5 + Math.random() * 0.9);
+      this.particles.push({
+        x: hit.x,
+        y: hit.y,
+        vx: Math.cos(a) * spd + svx,
+        vy: Math.sin(a) * spd + svy,
+        r: palette.r,
+        g: palette.g + Math.random() * 0.2,
+        b: palette.b,
+        size: 2 + Math.random() * (2 + energy * 2),
+        life: 0.22 + Math.random() * (0.15 + energy * 0.25),
+        maxLife: 0.5,
+      });
+    }
+    // Hot core flash + slow ember.
+    this.particles.push({
+      x: hit.x,
+      y: hit.y,
+      vx: svx * 0.2,
+      vy: svy * 0.2,
+      r: 1.0,
+      g: 0.95,
+      b: 0.85,
+      size: 4 + energy * 3,
+      life: 0.08,
+      maxLife: 0.08,
+    });
+    if (this.particles.length > 600) {
+      this.particles.splice(0, this.particles.length - 600);
+    }
+  }
+
   public addImpact(
     x: number,
     y: number,
@@ -431,4 +490,14 @@ export class ParticleSystem {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.bindVertexArray(null);
   }
+}
+
+function weaponSpark(
+  weapon: string,
+  type: 'kinetic' | 'laser' | 'welder' | 'breach'
+): { r: number; g: number; b: number } {
+  if (weapon === 'pulse_laser' || type === 'laser') return { r: 0.1, g: 0.9, b: 1.0 };
+  if (weapon === 'arc_welder' || type === 'welder') return { r: 0.4, g: 0.85, b: 1.0 };
+  if (type === 'breach') return { r: 1.0, g: 0.5, b: 0.15 };
+  return { r: 1.0, g: 0.68, b: 0.2 };
 }

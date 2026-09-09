@@ -66,6 +66,8 @@ export function validateClientIntent(raw: unknown): ValidateResult {
       return validateHello(raw);
     case 'JOIN_BEACON':
       return validateJoinBeacon(raw);
+    case 'OBSERVE':
+      return validateObserve(raw);
     case 'INPUT':
       return validateInput(raw);
     case 'INTERACT':
@@ -120,6 +122,15 @@ function validateJoinBeacon(raw: Record<string, unknown>): ValidateResult {
       userId === undefined
         ? { type: 'JOIN_BEACON', beacon: raw.beacon, seq: raw.seq }
         : { type: 'JOIN_BEACON', beacon: raw.beacon, seq: raw.seq, userId },
+  };
+}
+
+function validateObserve(raw: Record<string, unknown>): ValidateResult {
+  if (!isShortId(raw.beacon)) return fail('bad-field', 'beacon');
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return {
+    ok: true,
+    intent: { type: 'OBSERVE', seq: raw.seq as number, beacon: raw.beacon as string },
   };
 }
 
@@ -222,4 +233,5 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   // FIRE is spam-guarded only; magazine depth is the real fire limiter.
   FIRE: 30,
   RELOAD: 2,
+  OBSERVE: 2,
 };

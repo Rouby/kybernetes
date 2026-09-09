@@ -26,6 +26,25 @@ describe('thruster exhaust', () => {
     expect(particleCount(system)).toBe(before);
   });
 
+  it('scales impact throw with hole size and cabin pressure', () => {
+    const base = {
+      x: 0,
+      y: 0,
+      type: 'kinetic' as const,
+      angle: 0,
+      weapon: 'kinetic_carbine',
+      energy: 1,
+    };
+    const full = new ParticleSystem();
+    full.addDirectionalImpact({ ...base, breachAreaM2: 1.5, pressureKpa: 101.3 });
+    const fullCount = particleCount(full);
+    const vacuum = new ParticleSystem();
+    vacuum.addDirectionalImpact({ ...base, breachAreaM2: 0.05, pressureKpa: 0 });
+    const vacuumCount = particleCount(vacuum);
+    expect(fullCount).toBeGreaterThan(vacuumCount);
+    expect(vacuumCount).toBeGreaterThanOrEqual(3);
+  });
+
   it('caps the shared pool under sustained burn', () => {
     const system = new ParticleSystem();
     for (let i = 0; i < 2000; i += 1) system.emitExhaust(100, 100, 1, 0, 1);

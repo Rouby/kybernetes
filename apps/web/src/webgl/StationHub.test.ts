@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { liveEtaSeconds, resolveClientShipOffset, STATION_NPCS } from './StationHub';
+import { liveEtaSeconds, resolveClientShipOffset } from './StationHub';
 
 describe('resolveClientShipOffset', () => {
   it('matches the authoritative offset at the dock and away', () => {
@@ -13,12 +13,5 @@ describe('resolveClientShipOffset', () => {
     expect(liveEtaSeconds(20, 1000, 1000)).toBe(20);
     expect(liveEtaSeconds(20, 1000, 6000)).toBe(15);
     expect(liveEtaSeconds(20, 1000, 30000)).toBe(0);
-  });
-
-  it('stations two flavor NPCs on the station side', () => {
-    expect(STATION_NPCS).toHaveLength(2);
-    for (const npc of STATION_NPCS) {
-      expect(npc.y).toBeGreaterThan(640);
-    }
   });
 });

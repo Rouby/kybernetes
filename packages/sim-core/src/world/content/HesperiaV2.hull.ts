@@ -88,11 +88,13 @@ export const HesperiaV2Spec: HullSpec = {
       areaM2: 2.4,
     },
     {
+      // Stern boarding ramp on the corridor west wall: mates with the
+      // station gauntlet when the vessel holds the docked origin.
       id: 'ship_mouth',
       roomA: 'corridor',
       roomB: 'space',
       kind: 'airlock',
-      segment: { x1: 880, y1: 350, x2: 880, y2: 390 },
+      segment: { x1: 100, y1: 340, x2: 100, y2: 380 },
       areaM2: 2.4,
     },
   ],

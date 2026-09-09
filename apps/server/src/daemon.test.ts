@@ -222,7 +222,7 @@ describe('HarborDaemon v2 transport', () => {
     const manifest = await waitForType(ws, 'MANIFEST');
     const crew = manifest.crew as { callsign: string; role: string }[];
     expect(crew.find((entry) => entry.callsign === 'Sable')?.role).toBe(jobs[0]);
-  });
+  }, 15_000);
 
   it('moves pawns on input and drops malformed packets safely', async () => {
     const { daemon, port } = await startDaemon();

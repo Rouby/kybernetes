@@ -3,7 +3,19 @@ import { createProgram } from '../glUtils';
 import { FOW_AMBIENT_FS, FOW_AMBIENT_VS, FOW_STAMP_FS, FOW_STAMP_VS } from '../shaders';
 import type { FramebufferManager } from '../systems/FramebufferManager';
 
-// fallow-ignore-next-line complexity
+/**
+ * Shortest edge of the fan triangle (origin, a, b). Long-thin slivers from
+ * near-duplicate ray hits read as GPU streaks even when their area is not
+ * tiny, so the edge length — not the area — is the skip signal.
+ */
+export function fanShortEdge(origin: { x: number; y: number }, a: Point2D, b: Point2D): number {
+  return Math.min(
+    Math.hypot(a.x - origin.x, a.y - origin.y),
+    Math.hypot(b.x - origin.x, b.y - origin.y),
+    Math.hypot(b.x - a.x, b.y - a.y)
+  );
+}
+
 export function buildPolygonFanVertices(
   origin: { x: number; y: number },
   poly: Point2D[]
@@ -12,34 +24,16 @@ export function buildPolygonFanVertices(
     poly.length > 0 &&
     Math.abs(poly[0].x - origin.x) < 0.01 &&
     Math.abs(poly[0].y - origin.y) < 0.01;
-
-  if (hasOrigin) {
-    const count = Math.max(0, poly.length - 2);
-    const verts = new Float32Array(count * 6);
-    let vIdx = 0;
-    for (let i = 1; i < poly.length - 1; i++) {
-      verts[vIdx++] = origin.x;
-      verts[vIdx++] = origin.y;
-      verts[vIdx++] = poly[i].x;
-      verts[vIdx++] = poly[i].y;
-      verts[vIdx++] = poly[i + 1].x;
-      verts[vIdx++] = poly[i + 1].y;
-    }
-    return verts;
+  const ring = hasOrigin ? poly.slice(1) : poly;
+  const verts: number[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    if (a === undefined || b === undefined) continue;
+    if (fanShortEdge(origin, a, b) < 0.5) continue;
+    verts.push(origin.x, origin.y, a.x, a.y, b.x, b.y);
   }
-
-  const verts = new Float32Array(poly.length * 6);
-  let vIdx = 0;
-  for (let i = 0; i < poly.length; i++) {
-    const next = (i + 1) % poly.length;
-    verts[vIdx++] = origin.x;
-    verts[vIdx++] = origin.y;
-    verts[vIdx++] = poly[i].x;
-    verts[vIdx++] = poly[i].y;
-    verts[vIdx++] = poly[next].x;
-    verts[vIdx++] = poly[next].y;
-  }
-  return verts;
+  return new Float32Array(verts);
 }
 
 export class FogOfWarPass {
@@ -128,7 +122,8 @@ export class FogOfWarPass {
   public renderShipAmbientRooms(
     fboManager: FramebufferManager,
     matrix: Float32Array,
-    shipDx = 0
+    shipDx = 0,
+    shipDy = 0
   ): void {
     const gl = this.gl;
     fboManager.ensureFowFBO();
@@ -141,12 +136,17 @@ export class FogOfWarPass {
       fboManager.fowWidth,
       fboManager.fowHeight
     );
+    gl.uniform2f(
+      gl.getUniformLocation(this.fowAmbientProg, 'u_worldOrigin'),
+      fboManager.fowOriginX,
+      fboManager.fowOriginY
+    );
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, fboManager.getFowTexture());
     gl.uniform1i(gl.getUniformLocation(this.fowAmbientProg, 'u_fowTexture'), 0);
 
-    for (const room of getWorldRooms({ x: shipDx, y: 0 })) {
+    for (const room of getWorldRooms({ x: shipDx, y: shipDy })) {
       const amb = ROOM_AMBIENTS[room.id] ?? [0.2, 0.2, 0.2];
       gl.uniform3f(
         gl.getUniformLocation(this.fowAmbientProg, 'u_roomAmbient'),

@@ -10,9 +10,11 @@
 
 import type {
   ClientIntent,
+  DockStatusBroadcast,
   HireOfferBroadcast,
   ManifestBroadcast,
   NoticeBroadcast,
+  ServerStatsBroadcast,
   SnapshotBroadcast,
   SnapshotDeltaBroadcast,
   TelemetryBroadcast,
@@ -88,6 +90,8 @@ export function useHarborSocket(identity: HarborIdentity) {
   const [vitals, setVitals] = useState<VitalsBroadcast | null>(null);
   const [watch, setWatch] = useState<WatchBroadcast | null>(null);
   const [manifest, setManifest] = useState<ManifestBroadcast | null>(null);
+  const [stats, setStats] = useState<ServerStatsBroadcast | null>(null);
+  const [dock, setDock] = useState<DockStatusBroadcast | null>(null);
   const [offer, setOffer] = useState<HireOfferBroadcast | null>(null);
   const [notices, setNotices] = useState<HarborNotice[]>([]);
   const [takenOver, setTakenOver] = useState(false);
@@ -157,6 +161,8 @@ export function useHarborSocket(identity: HarborIdentity) {
           setOffer,
           setPawnId,
           setNotices,
+          setStats,
+          setDock,
         });
       };
       socket.onclose = (event) => {
@@ -208,13 +214,15 @@ export function useHarborSocket(identity: HarborIdentity) {
     vitals,
     watch,
     manifest,
+    stats,
+    dock,
     offer,
     notices,
     sendIntent,
   };
 }
 
-interface SnapshotSetters {
+export interface SnapshotSetters {
   setSnapshot: (s: SnapshotBroadcast) => void;
   setTelemetry: (t: TelemetryBroadcast) => void;
   setVitals: (v: VitalsBroadcast) => void;
@@ -223,6 +231,8 @@ interface SnapshotSetters {
   setOffer: (o: HireOfferBroadcast | null) => void;
   setPawnId: (id: string) => void;
   setNotices: Dispatch<SetStateAction<HarborNotice[]>>;
+  setStats?: (s: ServerStatsBroadcast) => void;
+  setDock?: (d: DockStatusBroadcast) => void;
 }
 
 type ChannelHandler = (
@@ -287,6 +297,12 @@ const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
     setters.setManifest(next);
   },
   HIRE_OFFER: (msg, _caches, setters) => setters.setOffer(msg as unknown as HireOfferBroadcast),
+  SERVER_STATS: (msg, _caches, setters) => {
+    setters.setStats?.(msg as unknown as ServerStatsBroadcast);
+  },
+  DOCK_STATUS: (msg, _caches, setters) => {
+    setters.setDock?.(msg as unknown as DockStatusBroadcast);
+  },
   JOINED: (msg, _caches, setters) => {
     setters.setPawnId((msg as { pawnId?: string }).pawnId ?? '');
     setters.setOffer(null);
@@ -323,6 +339,7 @@ function emptySnapshot(delta: SnapshotDeltaBroadcast): SnapshotBroadcast {
     portals: [],
     projectiles: [],
     frames: [],
+    decals: [],
   };
 }
 

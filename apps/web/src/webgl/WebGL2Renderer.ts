@@ -23,12 +23,10 @@ import {
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
 import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
-import { AtmosOverlayPass } from './passes/AtmosOverlayPass';
 import { DeckPass, THRUSTER_BELLS } from './passes/DeckPass';
 import { FogOfWarPass } from './passes/FogOfWarPass';
 import { LightingPass } from './passes/LightingPass';
 import { StarfieldPass } from './passes/StarfieldPass';
-import { STATION_NPCS } from './StationHub';
 import {
   type RenderContext,
   renderAirlockConsole,
@@ -43,7 +41,6 @@ import {
   renderJobBoard,
   renderReactorConsole,
   renderStationInteractionAura,
-  renderStationNpc,
 } from './StationModels';
 import {
   FLAT_FS,
@@ -56,16 +53,47 @@ import {
 import { FramebufferManager } from './systems/FramebufferManager';
 import { ParticleSystem } from './systems/ParticleSystem';
 
+export interface ImpactRenderState {
+  readonly x: number;
+  readonly y: number;
+  readonly type: 'kinetic' | 'laser' | 'welder' | 'breach';
+  readonly shipVelocity?: { vx: number; vy: number };
+  /** Surface tangent in radians. Orients spark cone + crater. */
+  readonly angle?: number;
+  readonly weapon?: string;
+  /** Normalized hit energy 0-1. Scales sparks + flash. */
+  readonly energy?: number;
+  /** Live breach area m2; punctures read as 0.05. Scales the throw. */
+  readonly breachAreaM2?: number;
+  /** Room pressure kPa; vacuum damps sparks, ΔP drives vapor. */
+  readonly pressureKpa?: number;
+}
+
+export interface DecalRenderState {
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly radius: number;
+  readonly weapon: string;
+  /** 0 fresh .. 1 cooled. */
+  readonly cool: number;
+}
+
+export interface DockRenderState {
+  readonly walkable: boolean;
+  readonly phase: string;
+  readonly secondsToSeal: number;
+}
+
 export interface WebGLRenderState extends HudDrawState {
   shipOffset?: { x: number; y: number };
   /** True while the vessel is underway (in transit); exhaust burns full. */
   shipUnderway?: boolean;
-  impacts?: Array<{
-    x: number;
-    y: number;
-    type: 'kinetic' | 'laser' | 'welder' | 'breach';
-    shipVelocity?: { vx: number; vy: number };
-  }>;
+  impacts?: Array<ImpactRenderState>;
+  /** Persistent scorch decals (server LRU, world-space). */
+  decals?: DecalRenderState[];
+  /** Dock walkway state for the gauntlet tube visual. */
+  dock?: DockRenderState;
   /** Live breach models cut from snapshot portal geometry (oldest first). */
   breaches?: BreachRenderModel[];
   /** TELEMETRY throat velocities keyed by portal id. */
@@ -154,7 +182,6 @@ export class WebGL2Renderer {
   private deckPass: DeckPass;
   private lightingPass: LightingPass;
   private fogOfWarPass: FogOfWarPass;
-  private atmosOverlayPass: AtmosOverlayPass;
   private hudRenderer: HudRenderer;
   private currentFrostIntensity = 0;
 
@@ -218,7 +245,6 @@ export class WebGL2Renderer {
     this.particleSystem = new ParticleSystem();
     this.starfieldPass = new StarfieldPass(gl, this.quadBuffer);
     this.deckPass = new DeckPass(gl, this.dynamicBuffer);
-    this.atmosOverlayPass = new AtmosOverlayPass(gl);
     this.fogOfWarPass = new FogOfWarPass(gl, this.dynamicBuffer);
     this.lightingPass = new LightingPass(gl, this.quadBuffer, this.dynamicBuffer);
   }
@@ -337,15 +363,6 @@ export class WebGL2Renderer {
       } else if (st.stationType === 'job_board') {
         renderJobBoard(ctx, st, isNear, timeSec);
       }
-    }
-    this.gl.bindVertexArray(null);
-  }
-
-  private renderStationNpcs(matrix: Float32Array, timeSec: number): void {
-    this.bindFlatProgram(matrix);
-    const ctx = this.getRenderContext();
-    for (const npc of STATION_NPCS) {
-      renderStationNpc(ctx, npc.x, npc.y, npc.color, timeSec);
     }
     this.gl.bindVertexArray(null);
   }
@@ -703,9 +720,10 @@ export class WebGL2Renderer {
     const sign = velocityMps >= 0 ? 1 : -1;
     const intensity = Math.min(1, speed / 30) * Math.min(1, pressure / 101.3);
     const wx = breach.frameId === 'ship' ? frameOffset.x : 0;
+    const wy = breach.frameId === 'ship' ? frameOffset.y : 0;
     this.particleSystem.emitBreachPlume(
       breach.cx + wx,
-      breach.cy,
+      breach.cy + wy,
       breach.nx * sign,
       breach.ny * sign,
       Math.abs(throatFlowToPx(velocityMps)),
@@ -720,14 +738,24 @@ export class WebGL2Renderer {
     this.particleSystem.setAmbientWind(wind?.windX ?? 0, wind?.windY ?? 0);
   }
 
-  private emitThrusterExhaust(offsetX: number, underway: boolean, dt: number): void {
+  private emitThrusterExhaust(
+    offset: { x: number; y: number },
+    underway: boolean,
+    dt: number
+  ): void {
     this.exhaustAcc += dt * (underway ? 90 : 8);
     while (this.exhaustAcc >= 1) {
       this.exhaustAcc -= 1;
       this.exhaustBell = (this.exhaustBell + 1) % THRUSTER_BELLS.length;
       const bell = THRUSTER_BELLS[this.exhaustBell];
       if (bell === undefined) return;
-      this.particleSystem.emitExhaust(bell.x + offsetX, bell.y, 1, 0, underway ? 1 : 0.3);
+      this.particleSystem.emitExhaust(
+        bell.x + offset.x,
+        bell.y + offset.y,
+        -1,
+        0,
+        underway ? 1 : 0.3
+      );
     }
   }
 
@@ -770,7 +798,17 @@ export class WebGL2Renderer {
         if (
           isImpactVisible({ x: state.pawn.x, y: state.pawn.y }, { x: imp.x, y: imp.y }, impactDoors)
         ) {
-          this.particleSystem.addImpact(imp.x, imp.y, imp.type, imp.shipVelocity);
+          this.particleSystem.addDirectionalImpact({
+            x: imp.x,
+            y: imp.y,
+            type: imp.type,
+            angle: imp.angle ?? 0,
+            weapon: imp.weapon ?? 'kinetic_carbine',
+            energy: imp.energy ?? 0.5,
+            breachAreaM2: imp.breachAreaM2 ?? 0.05,
+            pressureKpa: imp.pressureKpa ?? 101.3,
+            shipVelocity: imp.shipVelocity,
+          });
         }
       }
     }
@@ -782,7 +820,7 @@ export class WebGL2Renderer {
     this.emitBreachPlumes(state, frameOffset);
     this.applyAmbientWind(state);
     this.particleSystem.update(dt);
-    this.emitThrusterExhaust(frameOffset.x, state.shipUnderway === true, dt);
+    this.emitThrusterExhaust(frameOffset, state.shipUnderway === true, dt);
 
     const opaqueWalls = getWorldOpaqueWalls(HESPERIA_WALLS, doors, state.breaches, frameOffset);
     const doorsHash = (state.boarding?.doors || [])
@@ -803,7 +841,8 @@ export class WebGL2Renderer {
       height,
       this.framebufferManager,
       this.fogOfWarPass,
-      frameOffset.x
+      frameOffset.x,
+      frameOffset.y
     );
 
     const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
@@ -827,25 +866,26 @@ export class WebGL2Renderer {
       this.lightingPass.currentLights,
       this.lightingPass.currentLightColors
     );
-    this.atmosOverlayPass.render(
-      matrix,
-      state.telemetry?.roomAtmospheres,
-      state.overlayMode ?? 'off',
-      timeSec,
-      frameOffset.x
-    );
     this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
     this.deckPass.renderBulkheads(
       this.flatProg,
       this.flatVAO,
       matrix,
       state.breaches ?? [],
-      timeSec
+      timeSec,
+      (state.decals ?? []).map((decal) => ({
+        x: decal.x,
+        y: decal.y,
+        angle: decal.angle,
+        radius: decal.radius,
+        weapon: decal.weapon,
+        cool: decal.cool,
+      }))
     );
+    this.deckPass.renderDockTube(this.flatProg, this.flatVAO, matrix, state.dock, timeSec);
     this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);
     this.renderStations(matrix, state.nearestStation?.id, timeSec, frameOffset);
-    this.renderStationNpcs(matrix, timeSec);
 
     this.renderPawn(matrix, state.pawn, state.equippedWeapon, timeSec);
     if (state.remotePawns) {
@@ -950,7 +990,6 @@ export class WebGL2Renderer {
     this.framebufferManager.dispose();
     this.starfieldPass.dispose();
     this.deckPass.dispose();
-    this.atmosOverlayPass.dispose();
     this.lightingPass.dispose();
     this.fogOfWarPass.dispose();
     gl.deleteProgram(this.flatProg);

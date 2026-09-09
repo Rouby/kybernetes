@@ -97,9 +97,22 @@ function raySegmentIntersection(
   return null;
 }
 
+/** Angular nudge separating grazing rays at shared wall endpoints. */
+export const RAY_EDGE_EPS = 0.0003;
+/** Hits closer than this collapse: sub-pixel jitter breeds degenerate fan tris. */
+export const HIT_MERGE_PX = 0.75;
+/** A hit nearer than this to the eye is the eye: keeps the fan star-shaped. */
+export const HIT_MIN_DIST_PX = 1;
+
 function forEachWallEndpoint(wall: WallSegment, fn: (x: number, y: number) => void): void {
   fn(wall.x1, wall.y1);
   fn(wall.x2, wall.y2);
+}
+
+function nudgeAngles(angles: Set<number>, baseAngle: number): void {
+  angles.add(baseAngle);
+  angles.add(baseAngle - RAY_EDGE_EPS);
+  angles.add(baseAngle + RAY_EDGE_EPS);
 }
 
 function collectRayAngles(
@@ -121,10 +134,7 @@ function collectRayAngles(
     forEachWallEndpoint(wall, (x, y) => {
       const dsq = (x - origin.x) ** 2 + (y - origin.y) ** 2;
       if (dsq <= maxDistSq) {
-        const baseAngle = Math.atan2(y - origin.y, x - origin.x);
-        angles.add(baseAngle);
-        angles.add(baseAngle - 0.0001);
-        angles.add(baseAngle + 0.0001);
+        nudgeAngles(angles, Math.atan2(y - origin.y, x - origin.x));
       }
     });
   }
@@ -164,8 +174,8 @@ function collectConeRayAngles(
         const rel = normalizeAngleDiff(baseAngle, facingAngle);
         if (Math.abs(rel) <= halfFov) {
           relAngles.add(rel);
-          if (rel - 0.0001 >= -halfFov) relAngles.add(rel - 0.0001);
-          if (rel + 0.0001 <= halfFov) relAngles.add(rel + 0.0001);
+          if (rel - RAY_EDGE_EPS >= -halfFov) relAngles.add(rel - RAY_EDGE_EPS);
+          if (rel + RAY_EDGE_EPS <= halfFov) relAngles.add(rel + RAY_EDGE_EPS);
         }
       }
     });
@@ -191,9 +201,7 @@ function addVertexAngles(
     const rel = normalizeAngleDiff(baseAngle, facingAngle);
     const limitSq = Math.abs(rel) <= halfFov ? limitConeSq : limitRearSq;
     if (dsq <= limitSq) {
-      angles.add(baseAngle);
-      angles.add(baseAngle - 0.0001);
-      angles.add(baseAngle + 0.0001);
+      nudgeAngles(angles, baseAngle);
     }
   });
 }
@@ -257,6 +265,42 @@ export interface ConeVisibilityOptions {
   perceptionRadius?: number;
 }
 
+/**
+ * Collapse sub-pixel jitter out of a freshly cast fan: hits nearer than
+ * HIT_MIN_DIST_PX to the eye become the eye (never a spike), and runs of
+ * hits closer than HIT_MERGE_PX keep only their first point so the fan
+ * stays star-shaped with no degenerate slivers at door jambs and corners.
+ */
+export function sanitizeVisibilityHits(origin: Point2D, hits: readonly Point2D[]): Point2D[] {
+  const out: Point2D[] = [];
+  for (const hit of hits) {
+    if (!Number.isFinite(hit.x) || !Number.isFinite(hit.y)) continue;
+    const dx = hit.x - origin.x;
+    const dy = hit.y - origin.y;
+    if (Math.hypot(dx, dy) < HIT_MIN_DIST_PX) {
+      pushIfFar(out, origin);
+      continue;
+    }
+    pushIfFar(out, hit);
+  }
+  dropWrapDuplicate(out);
+  return out;
+}
+
+function pushIfFar(out: Point2D[], hit: Point2D): void {
+  const prev = out[out.length - 1];
+  if (prev !== undefined && Math.hypot(hit.x - prev.x, hit.y - prev.y) < HIT_MERGE_PX) return;
+  out.push({ x: hit.x, y: hit.y });
+}
+
+function dropWrapDuplicate(out: Point2D[]): void {
+  if (out.length < 2) return;
+  const first = out[0];
+  const last = out[out.length - 1];
+  if (first === undefined || last === undefined) return;
+  if (Math.hypot(last.x - first.x, last.y - first.y) < HIT_MERGE_PX) out.pop();
+}
+
 // fallow-ignore-next-line complexity
 export function computeVisibilityPolygon(
   origin: Point2D,
@@ -317,10 +361,11 @@ export function computeVisibilityPolygon(
     });
   }
 
+  const clean = sanitizeVisibilityHits(origin, hits);
   if (cone && !hasPerception) {
-    return [{ x: origin.x, y: origin.y }, ...hits];
+    return [{ x: origin.x, y: origin.y }, ...clean];
   }
-  return hits;
+  return clean;
 }
 
 export function isPointInFlashlightCone(

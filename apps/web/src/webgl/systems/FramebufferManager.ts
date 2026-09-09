@@ -27,8 +27,11 @@ export class FramebufferManager {
 
   private fowFBO: WebGLFramebuffer | null = null;
   private fowTexture: WebGLTexture | null = null;
-  public readonly fowWidth = 1200;
-  public readonly fowHeight = 800;
+  /** Fog world window: harbor + docked vessel with margin for the overlook. */
+  public readonly fowWidth = 2400;
+  public readonly fowHeight = 1000;
+  public readonly fowOriginX = -200;
+  public readonly fowOriginY = -200;
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;

@@ -194,21 +194,22 @@ export class LightingPass {
     matrix: Float32Array,
     timeSec: number,
     opaqueWalls: WallSegment[],
-    shipDx = 0
+    shipDx = 0,
+    shipDy = 0
   ): void {
-    for (const light of getWorldLights({ x: shipDx, y: 0 })) {
+    for (const light of getWorldLights({ x: shipDx, y: shipDy })) {
       let intensity = light.intensity;
       if (light.flickerSpeed && light.flickerAmount) {
         intensity += Math.sin(timeSec * light.flickerSpeed) * light.flickerAmount;
       }
 
       let poly: Point2D[] | undefined;
-      if (shipDx === 0) {
+      if (shipDx === 0 && shipDy === 0) {
         poly = this.cachedStaticLights.get(light.id);
       }
       if (!poly) {
         poly = computeVisibilityPolygon({ x: light.x, y: light.y }, light.radius, opaqueWalls, 36);
-        if (shipDx === 0) {
+        if (shipDx === 0 && shipDy === 0) {
           this.cachedStaticLights.set(light.id, poly);
         }
       }
@@ -329,7 +330,8 @@ export class LightingPass {
     height: number,
     fboManager: FramebufferManager,
     fogOfWarPass: FogOfWarPass,
-    shipDx = 0
+    shipDx = 0,
+    shipDy = 0
   ): Point2D[] {
     const gl = this.gl;
     const { fbo } = fboManager.ensureLightFBO(width, height);
@@ -361,10 +363,10 @@ export class LightingPass {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ZERO);
 
-    fogOfWarPass.renderShipAmbientRooms(fboManager, matrix, shipDx);
+    fogOfWarPass.renderShipAmbientRooms(fboManager, matrix, shipDx, shipDy);
 
     gl.blendFunc(gl.ONE, gl.ONE);
-    this.renderStaticShipLights(matrix, timeSec, opaqueWalls, shipDx);
+    this.renderStaticShipLights(matrix, timeSec, opaqueWalls, shipDx, shipDy);
 
     this.drawLightPolygonFan(
       matrix,

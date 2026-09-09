@@ -34,29 +34,6 @@ void main() {
 }
 `;
 
-export const ATMOS_ROOM_VS = `#version 300 es
-precision highp float;
-in vec2 a_position;
-in vec4 a_color;
-uniform mat3 u_matrix;
-out vec4 v_color;
-
-void main() {
-  v_color = a_color;
-  gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
-}
-`;
-
-export const ATMOS_ROOM_FS = `#version 300 es
-precision highp float;
-in vec4 v_color;
-out vec4 fragColor;
-
-void main() {
-  fragColor = v_color;
-}
-`;
-
 export const STARFIELD_VS = `#version 300 es
 precision highp float;
 in vec2 a_position;
@@ -496,11 +473,12 @@ precision highp float;
 in vec2 v_worldPos;
 uniform sampler2D u_fowTexture;
 uniform vec2 u_worldBounds;
+uniform vec2 u_worldOrigin;
 uniform vec3 u_roomAmbient;
 out vec4 fragColor;
 
 void main() {
-  vec2 uv = clamp(v_worldPos / u_worldBounds, 0.0, 1.0);
+  vec2 uv = clamp((v_worldPos - u_worldOrigin) / u_worldBounds, 0.0, 1.0);
   float explored = texture(u_fowTexture, uv).r;
   vec3 amb = u_roomAmbient * clamp(explored, 0.0, 1.0);
   fragColor = vec4(amb, 0.0);

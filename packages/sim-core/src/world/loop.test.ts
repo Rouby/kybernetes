@@ -15,10 +15,18 @@ function drive(world: World, seconds: number): World {
 }
 
 function driveEast(world: World, pawnId: string, seconds: number): World {
+  return driveDir(world, pawnId, seconds, 1);
+}
+
+function driveWest(world: World, pawnId: string, seconds: number): World {
+  return driveDir(world, pawnId, seconds, -1);
+}
+
+function driveDir(world: World, pawnId: string, seconds: number, dir: 1 | -1): World {
   let current = world;
   const ticks = Math.round(seconds / 0.05);
   for (let i = 0; i < ticks; i += 1) {
-    current = tickWorld(current, 0.05, [{ pawnId, moveX: 1, moveY: 0, sprint: false }]);
+    current = tickWorld(current, 0.05, [{ pawnId, moveX: dir, moveY: 0, sprint: false }]);
   }
   return current;
 }
@@ -56,6 +64,10 @@ describe('harbor loop', () => {
     const aboard = eastUntilFrame(staged, 'p1', 'ship', 200);
     expect(aboard.pawns.p1?.frameId).toBe('ship');
     expect(aboard.pawns.p1?.roomHint).toBe('ship.corridor');
+    // The flip lands a stride past the ramp leaf, facing still east.
+    const pos = aboard.pawns.p1?.pos;
+    expect(pos?.x ?? 0).toBeGreaterThanOrEqual(0);
+    expect(pos?.x ?? 999).toBeLessThan(120);
   });
 
   it('ignores return transfers until the gauntlet cycle ends', () => {
@@ -70,10 +82,12 @@ describe('harbor loop', () => {
     });
     const aboard = eastUntilFrame(staged, 'p1', 'ship', 200);
     expect(aboard.pawns.p1?.frameId).toBe('ship');
+    // Stroll east into the corridor, then walk back out through the ramp:
+    // the gauntlet leaf is a stride past the flip, not a teleport pad.
     const held = driveEast(aboard, 'p1', 1);
     expect(held.pawns.p1?.frameId).toBe('ship');
-    const cycled = drive(held, 3);
-    expect(cycled.pawns.p1?.frameId).toBe('station');
+    const returned = driveWest(held, 'p1', 4);
+    expect(returned.pawns.p1?.frameId).toBe('station');
   });
 
   it('runs station to hire to grade to redock', () => {

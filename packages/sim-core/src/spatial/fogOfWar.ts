@@ -10,6 +10,9 @@ export interface ExplorationGrid {
   cellSize: number;
   cols: number;
   rows: number;
+  /** World-space origin of cell (0,0); lets grids cover off-origin harbors. */
+  ox: number;
+  oy: number;
   cells: Uint8Array;
   exploredCount: number;
 }
@@ -33,7 +36,13 @@ export function isPointInPolygon(pt: Point2D, polygon: Point2D[]): boolean {
   return inside;
 }
 
-export function createExplorationGrid(width = 1200, height = 800, cellSize = 20): ExplorationGrid {
+export function createExplorationGrid(
+  width = 1200,
+  height = 800,
+  cellSize = 20,
+  ox = 0,
+  oy = 0
+): ExplorationGrid {
   const cols = Math.ceil(width / cellSize);
   const rows = Math.ceil(height / cellSize);
   return {
@@ -42,6 +51,8 @@ export function createExplorationGrid(width = 1200, height = 800, cellSize = 20)
     cellSize,
     cols,
     rows,
+    ox,
+    oy,
     cells: new Uint8Array(cols * rows),
     exploredCount: 0,
   };
@@ -110,36 +121,41 @@ export function updateExplorationGrid(
 
   // 2. Compute bounding cell range
   const bb = getPolygonBoundingBox(polygon);
-  const minCol = Math.max(0, Math.floor(bb.minX / grid.cellSize));
-  const maxCol = Math.min(grid.cols - 1, Math.floor(bb.maxX / grid.cellSize));
-  const minRow = Math.max(0, Math.floor(bb.minY / grid.cellSize));
-  const maxRow = Math.min(grid.rows - 1, Math.floor(bb.maxY / grid.cellSize));
+  const minCol = Math.max(0, Math.floor((bb.minX - grid.ox) / grid.cellSize));
+  const maxCol = Math.min(grid.cols - 1, Math.floor((bb.maxX - grid.ox) / grid.cellSize));
+  const minRow = Math.max(0, Math.floor((bb.minY - grid.oy) / grid.cellSize));
+  const maxRow = Math.min(grid.rows - 1, Math.floor((bb.maxY - grid.oy) / grid.cellSize));
   const ambientSq = ambientRadius * ambientRadius;
 
   for (let r = minRow; r <= maxRow; r++) {
     const rowOffset = r * grid.cols;
-    const cy = (r + 0.5) * grid.cellSize;
+    const cy = grid.oy + (r + 0.5) * grid.cellSize;
     for (let c = minCol; c <= maxCol; c++) {
-      const cx = (c + 0.5) * grid.cellSize;
+      const cx = grid.ox + (c + 0.5) * grid.cellSize;
       const idx = rowOffset + c;
       updateCellVisibility(grid, cx, cy, idx, polygon, pawnPos, ambientSq);
     }
   }
 }
 
+function cellIndex(grid: ExplorationGrid, x: number, y: number): number {
+  const lx = x - grid.ox;
+  const ly = y - grid.oy;
+  if (lx < 0 || lx >= grid.width || ly < 0 || ly >= grid.height) return -1;
+  const col = Math.floor(lx / grid.cellSize);
+  const row = Math.floor(ly / grid.cellSize);
+  return row * grid.cols + col;
+}
+
 export function isWorldPointExplored(grid: ExplorationGrid, x: number, y: number): boolean {
-  if (x < 0 || x >= grid.width || y < 0 || y >= grid.height) return false;
-  const col = Math.floor(x / grid.cellSize);
-  const row = Math.floor(y / grid.cellSize);
-  const idx = row * grid.cols + col;
+  const idx = cellIndex(grid, x, y);
+  if (idx < 0) return false;
   return grid.cells[idx] !== CELL_UNEXPLORED;
 }
 
 export function isWorldPointVisible(grid: ExplorationGrid, x: number, y: number): boolean {
-  if (x < 0 || x >= grid.width || y < 0 || y >= grid.height) return false;
-  const col = Math.floor(x / grid.cellSize);
-  const row = Math.floor(y / grid.cellSize);
-  const idx = row * grid.cols + col;
+  const idx = cellIndex(grid, x, y);
+  if (idx < 0) return false;
   return grid.cells[idx] === CELL_VISIBLE;
 }
 

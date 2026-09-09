@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { StartingRole } from './actions.js';
 import { isRole, LEGACY_ROLE_MAP, normalizeRole, ROLES } from './content.js';
+import type { ServerStatsBroadcast } from './debug.js';
+import type { DockStatusBroadcast } from './docking.js';
 import { isV2Packet, makeHelloMismatch, PROTOCOL_VERSION, readPacketVersion } from './envelope.js';
 import { advanceSeq, isFreshSeq, isNewerTick, type SeqCursor } from './seq.js';
-import type { JoinedBroadcast, ServerSnapshot, SnapshotBroadcast } from './snapshots.js';
+import type {
+  JoinedBroadcast,
+  ScorchDecal,
+  ServerSnapshot,
+  SnapshotBroadcast,
+  SnapshotImpact,
+} from './snapshots.js';
 import { INTENT_RATE_LIMIT_PER_SECOND, validateClientIntent } from './validate.js';
 
 function roundTrip<T>(value: T): T {
@@ -78,6 +86,7 @@ describe('protocol v2 rate-limit vectors', () => {
     expect(INTENT_RATE_LIMIT_PER_SECOND.TALK).toBe(2);
     expect(INTENT_RATE_LIMIT_PER_SECOND.HELLO).toBe(2);
     expect(INTENT_RATE_LIMIT_PER_SECOND.JOIN_BEACON).toBe(2);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.OBSERVE).toBe(2);
   });
 });
 
@@ -140,7 +149,7 @@ describe('protocol v2 snapshot tick monotonicity', () => {
       tick: 120,
       serverTimeMs: 6000,
       pawns: [],
-      impacts: [{ x: 10, y: 20, kind: 'pawn' }],
+      impacts: [{ frameId: 'ship', x: 10, y: 20, kind: 'pawn' }],
       portals: [],
       projectiles: [],
       frames: [],
@@ -149,6 +158,94 @@ describe('protocol v2 snapshot tick monotonicity', () => {
     expect(parsed.v).toBe(2);
     expect(isNewerTick(119, parsed.tick)).toBe(true);
     expect(isNewerTick(120, parsed.tick)).toBe(false);
+  });
+
+  it('round-trips enriched impacts and persistent decals', () => {
+    const impact: SnapshotImpact = {
+      frameId: 'ship',
+      x: 100.5,
+      y: 200.25,
+      kind: 'breach',
+      angle: 1.57,
+      weapon: 'kinetic_carbine',
+      energy: 0.8,
+      surface: 'wall',
+      breachId: 'breach.ship.cabin.12.3',
+      pressureKpa: 98.6,
+    };
+    expect(roundTrip(impact)).toEqual(impact);
+    const decal: ScorchDecal = {
+      id: 'decal.1',
+      frameId: 'ship',
+      x: 100,
+      y: 200,
+      angle: 0,
+      radius: 6,
+      weapon: 'kinetic_carbine',
+      bornTick: 120,
+    };
+    const snapshot: SnapshotBroadcast = {
+      type: 'SNAPSHOT',
+      v: 2,
+      tick: 121,
+      serverTimeMs: 6050,
+      pawns: [],
+      impacts: [impact],
+      portals: [],
+      projectiles: [],
+      frames: [],
+      decals: [decal],
+    };
+    expect(roundTrip(snapshot)).toEqual(snapshot);
+  });
+
+  it('round-trips SERVER_STATS for pawn-less observers', () => {
+    const stats: ServerStatsBroadcast = {
+      type: 'SERVER_STATS',
+      v: 2,
+      tick: 400,
+      serverTimeMs: 20000,
+      tpsActual: 19.8,
+      tpsTarget: 20,
+      tickMsLast: 2.1,
+      tickMsAvg: 1.8,
+      droppedSteps: 0,
+      accumulatorMs: 12,
+      observers: 1,
+      pawns: [
+        {
+          pawnId: 'pawn:u1',
+          callsign: 'Rook',
+          frameId: 'station',
+          roomHint: 'station.lobby',
+          lastInputAgeMs: 120,
+          latched: true,
+          msgsPerS: 12,
+        },
+      ],
+    };
+    const parsed = roundTrip<ServerSnapshot>(stats);
+    expect(parsed.type).toBe('SERVER_STATS');
+    if (parsed.type === 'SERVER_STATS') expect(parsed.pawns).toHaveLength(1);
+  });
+
+  it('round-trips DOCK_STATUS for physical boarding', () => {
+    const dock: DockStatusBroadcast = {
+      type: 'DOCK_STATUS',
+      v: 2,
+      tick: 400,
+      serverTimeMs: 20000,
+      vesselId: 'ship',
+      dockId: 'harbor',
+      phase: 'docked',
+      walkable: true,
+      secondsToSeal: 0,
+      stationGate: 'station.bay_gauntlet',
+      vesselGate: 'ship.ship_mouth',
+    };
+    const parsed = roundTrip<ServerSnapshot>(dock);
+    expect(parsed.type).toBe('DOCK_STATUS');
+    if (parsed.type === 'DOCK_STATUS') expect(parsed.walkable).toBe(true);
   });
 
   it('identifies the joining pawn with a JOINED handshake', () => {

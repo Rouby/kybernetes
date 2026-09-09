@@ -1,5 +1,4 @@
 import type {
-  AtmosOverlayMode,
   BoardingTacticsTelemetry,
   DualProtocolBroadcast,
   PawnState,
@@ -25,7 +24,6 @@ import {
 import { isPawnHovered, resolveCrewDossier } from './crewDossier';
 import { HudAtlas, type TextRenderOptions } from './HudAtlas';
 import { HudHitTester } from './HudHitTester';
-import { getSensorOverlayConfig } from './sensorOverlay';
 import {
   formatAtmosphereStatus,
   formatIncapacitatedNotice,
@@ -104,8 +102,6 @@ export interface HudDrawState {
   onToggleHelmet?: () => void;
   onRefillSuit?: () => void;
   currentRoomId?: string;
-  overlayMode?: AtmosOverlayMode;
-  onCycleOverlay?: () => void;
 }
 
 export class HudRenderer {
@@ -711,7 +707,7 @@ export class HudRenderer {
       color: '#7090b0',
     });
 
-    // Minimal navigation buttons: BCN, CREW, BILLET, AUDIO, SENSOR, and DISEMBARK
+    // Minimal navigation buttons: BCN, CREW, BILLET, AUDIO, and DISEMBARK
     this.addButton(
       'btn_beacon',
       x + 10,
@@ -753,23 +749,9 @@ export class HudRenderer {
       state.onAudioClick
     );
 
-    const mode = state.overlayMode ?? 'off';
-    const modeLabel = mode === 'o2' ? 'SENSOR: O2' : 'SENSOR [V]';
-    const modeColor = mode === 'o2' ? '#00e5ff' : '#7090b0';
-
-    this.addButton(
-      'btn_sensor',
-      x + 305,
-      y + 21,
-      140,
-      27,
-      modeLabel,
-      { fontSize: 13, color: modeColor },
-      state.onCycleOverlay
-    );
     this.addButton(
       'btn_leave',
-      x + 450,
+      x + 305,
       y + 21,
       135,
       27,
@@ -1080,45 +1062,6 @@ export class HudRenderer {
     });
   }
 
-  private renderSensorOverlayLegend(state: HudDrawState, width: number, height: number): void {
-    const mode = state.overlayMode;
-    if (!mode || mode === 'off') return;
-
-    const cfg = getSensorOverlayConfig(mode);
-    if (!cfg) return;
-
-    const marginY = Math.max(38, Math.round(height * 0.055));
-    const panelW = 540;
-    const panelH = 48;
-    const x = Math.floor((width - panelW) / 2);
-    const y = marginY + 58;
-
-    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.08, 0.82);
-
-    this.addText(cfg.title, x + 12, y + 6, {
-      fontSize: 13,
-      fontWeight: 'bold',
-      color: cfg.badgeColor,
-    });
-    this.addText('[V] CYCLE SENSOR', x + panelW - 130, y + 6, {
-      fontSize: 11,
-      color: '#7090b0',
-    });
-
-    const entries = cfg.scaleEntries;
-    const stepW = Math.floor((panelW - 24) / entries.length);
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-      const ex = x + 12 + i * stepW;
-      const ey = y + 26;
-      this.addQuad(ex, ey + 2, 8, 8, entry.color[0], entry.color[1], entry.color[2], 0.95);
-      this.addText(entry.label, ex + 12, ey, {
-        fontSize: 11,
-        color: '#d0e0f0',
-      });
-    }
-  }
-
   // fallow-ignore-next-line complexity
   public render(
     state: HudDrawState,
@@ -1165,10 +1108,6 @@ export class HudRenderer {
     const zoom = state.zoom ?? 1.0;
     const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
     this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
-
-    if (state.overlayMode && state.overlayMode !== 'off') {
-      this.renderSensorOverlayLegend(state, width, height);
-    }
 
     const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
     if (hovered) {

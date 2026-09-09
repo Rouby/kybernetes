@@ -30,8 +30,8 @@ describe('hullCompiler scaffold', () => {
   it('compiles station hub with no errors', () => {
     const compiled = compileHull(StationHubSpec);
     expect(compiled.errors).toEqual([]);
-    expect(compiled.rooms).toHaveLength(3);
-    expect(compiled.airRooms).toHaveLength(3);
+    expect(compiled.rooms).toHaveLength(7);
+    expect(compiled.airRooms).toHaveLength(7);
     expect(compiled.spawns.fresh_spawn).toBeDefined();
   });
 

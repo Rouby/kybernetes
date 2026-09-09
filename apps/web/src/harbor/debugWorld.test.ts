@@ -11,10 +11,12 @@ import {
   flowFor,
   formatKpa,
   o2Color,
+  overviewFraming,
   portalAxis,
   portalColor,
   pressureColor,
   roomOverlayColor,
+  SHIP_OVERVIEW_LEASH_PX,
   tempColor,
 } from './debugWorld';
 
@@ -134,6 +136,25 @@ describe('debug world mapping', () => {
     expect(pawns[0]).toMatchObject({ x: 300, y: 200 });
     expect(buildDebugPawns(null, 'pawn:u1')).toEqual([]);
     expect(buildDebugPawns(snapshot(), 'pawn:other')[0]?.isOwn).toBe(false);
+  });
+
+  it('pins the overview on the harbor while the ship is off-station', () => {
+    const world = buildHarborWorld();
+    const rooms = buildDebugRooms(world, snapshot(), telemetry());
+    // Fixture parks the ship at the legacy far origin: pinned with east bearing.
+    const pinned = overviewFraming(rooms);
+    expect(pinned?.shipOffscreen).not.toBeNull();
+    expect(pinned?.shipOffscreen?.x ?? 0).toBeGreaterThan(0.9);
+    // Moored against the gauntlet (10px edge gap): one shared frame.
+    const docked = rooms.map((room) =>
+      room.frameId === 'ship' ? { ...room, x: room.x - 410, y: room.y - 160 } : room
+    );
+    expect(overviewFraming(docked)?.shipOffscreen).toBeNull();
+    // A generous leash reunites even a departed vessel with the harbor.
+    expect(overviewFraming(rooms, SHIP_OVERVIEW_LEASH_PX + 5000)?.shipOffscreen).toBeNull();
+    const stationOnly = overviewFraming(rooms.filter((room) => room.frameId !== 'ship'));
+    expect(stationOnly?.shipOffscreen).toBeNull();
+    expect(overviewFraming([])).toBeUndefined();
   });
 
   it('bounds rooms for fit-view cameras', () => {

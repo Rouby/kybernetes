@@ -8,6 +8,7 @@
 import type { WallSegment } from '@kybernetes/protocol';
 import { closestPointOnSegment, segmentsIntersect } from '../spatial/collision.js';
 import { roomContainingPoint } from './crew.js';
+import { addDecal, decalRadiusFor, makeDecalId, shouldDecal } from './decals.js';
 import { destroyPortal } from './doors.js';
 import { carryByFrame, collidersForFrame } from './movement.js';
 import { ensureVitals, startBleeding } from './survival.js';
@@ -191,12 +192,22 @@ function stepProjectile(
   };
 }
 
+function impactAngleOf(shot: ProjectileBody): number {
+  return Math.atan2(shot.vel.y, shot.vel.x);
+}
+
+function impactEnergyOf(damage: number): number {
+  return Math.min(1, Math.max(0, damage / RIFLE_DAMAGE));
+}
+
 function collideShot(
   world: World,
   shot: ProjectileBody,
   prev: Vec2,
   colliders: Map<string, WallSegment[]>
 ): World | undefined {
+  const angle = impactAngleOf(shot);
+  const energy = impactEnergyOf(shot.damage);
   for (const target of Object.values(world.pawns)) {
     if (target.frameId !== shot.frameId) continue;
     if (target.id === shot.fromPawnId && shot.graceTicks > 0) continue;
@@ -204,20 +215,37 @@ function collideShot(
       continue;
     }
     const struck = strikePawn(dropProjectile(world, shot.id), target.id, shot.damage, shot.pos);
-    return recordImpact(struck, shot.pos, 'pawn', shot.frameId);
+    return recordImpact(struck, shot.pos, 'pawn', shot.frameId, {
+      angle,
+      weapon: shot.weapon,
+      energy,
+      surface: 'pawn',
+    });
   }
   for (const wall of colliders.get(shot.frameId) ?? []) {
     const a = { x: wall.x1, y: wall.y1 };
     const b = { x: wall.x2, y: wall.y2 };
     if (!segmentsIntersect(prev, shot.pos, a, b)) continue;
     const contact = closestPointOnSegment(shot.pos, a, b);
+    const wallAngle = Math.atan2(b.y - a.y, b.x - a.x);
     if (wall.id.startsWith('portal-shut.')) {
       const portalId = wall.id.slice('portal-shut.'.length);
       const damaged = damageDoor(dropProjectile(world, shot.id), portalId, shot.damage);
-      return recordImpact(damaged.world, contact, 'door', shot.frameId);
+      return recordImpact(damaged.world, contact, 'door', shot.frameId, {
+        angle: wallAngle,
+        weapon: shot.weapon,
+        energy,
+        surface: 'door',
+      });
     }
     const breached = breachWall(dropProjectile(world, shot.id), shot.frameId, wall, contact);
-    return recordImpact(breached.world, contact, 'breach', shot.frameId);
+    return recordImpact(breached.world, contact, 'breach', shot.frameId, {
+      angle: wallAngle,
+      weapon: shot.weapon,
+      energy,
+      surface: breached.breachId === undefined ? 'wall' : 'hull',
+      breachId: breached.breachId,
+    });
   }
   return undefined;
 }
@@ -277,11 +305,11 @@ function breachWall(
   frameId: string,
   wall: { x1: number; y1: number; x2: number; y2: number },
   point: Vec2
-): { world: World } {
+): { world: World; breachId?: string } {
   const roomA = roomContainingPoint(world, frameId, point.x, point.y);
   if (roomA === undefined) return { world };
   const joined = nearbyBreach(world, frameId, point);
-  if (joined !== undefined) return { world: widenBreach(world, joined) };
+  if (joined !== undefined) return { world: widenBreach(world, joined), breachId: joined.id };
   if (breachList(world).length >= MAX_BREACH_PORTALS) return { world };
   const roomB = roomBeyondWall(world, frameId, roomA, wall, point);
   const id = `breach.${roomA}.${world.tick}.${Object.keys(world.portals).length}`;
@@ -297,7 +325,7 @@ function breachWall(
     clearance: 0,
     integrity: 0,
   };
-  return { world: { ...world, portals: { ...world.portals, [id]: hole } } };
+  return { world: { ...world, portals: { ...world.portals, [id]: hole } }, breachId: id };
 }
 
 function breachList(world: World): PortalEdge[] {
@@ -308,10 +336,39 @@ function nearbyBreach(world: World, frameId: string, point: Vec2): PortalEdge | 
   return breachList(world).find((portal) => breachNear(world, portal, frameId, point));
 }
 
+/** Half-length px of a breach cut: tears widen progressively, never pop. */
+export function breachHalfLength(areaM2: number): number {
+  return Math.min(30, 12 * (0.7 + 0.6 * Math.min(1, Math.max(0, areaM2) / BREACH_AREA_M2)));
+}
+
 function widenBreach(world: World, portal: PortalEdge): World {
   const areaM2 = Math.min(BREACH_AREA_M2, portal.areaM2 + BREACH_GROWTH_M2);
   if (areaM2 === portal.areaM2) return world;
-  return { ...world, portals: { ...world.portals, [portal.id]: { ...portal, areaM2 } } };
+  const midX = (portal.segment.x1 + portal.segment.x2) / 2;
+  const midY = (portal.segment.y1 + portal.segment.y2) / 2;
+  const dx = portal.segment.x2 - portal.segment.x1;
+  const dy = portal.segment.y2 - portal.segment.y1;
+  const len = Math.hypot(dx, dy) || 1;
+  // Never narrower than the cut that started it: tears only grow.
+  const half = Math.max(len / 2, breachHalfLength(areaM2));
+  const ux = dx / len;
+  const uy = dy / len;
+  return {
+    ...world,
+    portals: {
+      ...world.portals,
+      [portal.id]: {
+        ...portal,
+        areaM2,
+        segment: {
+          x1: midX - ux * half,
+          y1: midY - uy * half,
+          x2: midX + ux * half,
+          y2: midY + uy * half,
+        },
+      },
+    },
+  };
 }
 
 function breachNear(world: World, portal: PortalEdge, frameId: string, point: Vec2): boolean {
@@ -321,18 +378,60 @@ function breachNear(world: World, portal: PortalEdge, frameId: string, point: Ve
   return Math.hypot(point.x - midX, point.y - midY) <= BREACH_MERGE_PX;
 }
 
+export interface ImpactDetail {
+  readonly angle: number;
+  readonly weapon: string;
+  readonly energy: number;
+  readonly surface: 'wall' | 'door' | 'pawn' | 'hull' | 'shield';
+  readonly breachId?: string;
+}
+
 function recordImpact(
   world: World,
   point: Vec2,
   kind: 'pawn' | 'door' | 'breach' | 'miss',
-  frameId: string
+  frameId: string,
+  detail?: ImpactDetail
 ): World {
-  return {
+  const angle = detail?.angle ?? 0;
+  const weapon = detail?.weapon ?? 'kinetic_carbine';
+  const energy = detail === undefined ? 0.5 : Math.min(1, Math.max(0, detail.energy));
+  const surface = detail?.surface ?? (kind === 'pawn' ? 'pawn' : kind === 'door' ? 'door' : 'wall');
+  const roomA = roomContainingPoint(world, frameId, point.x, point.y);
+  const pressureKpa = roomA === undefined ? 0 : (world.atmos[roomA]?.pressureKpa ?? 101.3);
+  const withImpact: World = {
     ...world,
     impacts: [
       ...world.impacts,
-      { frameId, x: point.x, y: point.y, kind, untilTick: world.tick + IMPACT_TTL_TICKS },
+      {
+        frameId,
+        x: point.x,
+        y: point.y,
+        kind,
+        untilTick: world.tick + IMPACT_TTL_TICKS,
+        angle,
+        weapon,
+        energy,
+        surface,
+        ...(detail?.breachId === undefined ? {} : { breachId: detail.breachId }),
+        pressureKpa,
+      },
     ],
+  };
+  if (detail === undefined || !shouldDecal(kind)) return withImpact;
+  const wallAngle = angle;
+  return {
+    ...withImpact,
+    decals: addDecal(withImpact.decals, {
+      id: makeDecalId(frameId, world.tick, withImpact.decals.length),
+      frameId,
+      x: point.x,
+      y: point.y,
+      angle: wallAngle,
+      radius: decalRadiusFor(weapon, energy),
+      weapon,
+      bornTick: world.tick,
+    }),
   };
 }
 

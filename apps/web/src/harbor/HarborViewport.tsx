@@ -7,6 +7,7 @@
  */
 
 import type {
+  DockStatusBroadcast,
   DoorState,
   ManifestBroadcast,
   PlayerVitals,
@@ -18,19 +19,22 @@ import type {
 } from '@kybernetes/protocol';
 import { createInitialDoors } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
+import type { FrameMotion } from './renderState';
 import {
   aimPoint,
+  applyDockGates,
   bareId,
   breachCountsByRoom,
   callsignFor,
   frameOrigins,
   mapAtmos,
   mapBreaches,
+  mapDecals,
   mapKineticAmmo,
   mapPawn,
   mapPredictedProjectiles,
@@ -43,6 +47,7 @@ import {
   roomWindVectors,
   shipOffsetOf,
   snapshotAgeS,
+  stepFrameMotion,
   syncDoors,
   ventedBareIds,
 } from './renderState';
@@ -66,6 +71,7 @@ export interface HarborViewportProps {
   telemetry: TelemetryBroadcast | null;
   vitals: VitalsBroadcast | null;
   manifest: ManifestBroadcast | null;
+  dock: DockStatusBroadcast | null;
   notices: readonly HarborNoticed[];
   facingRef: RefObject<number>;
   aimLockedRef: RefObject<boolean>;
@@ -82,12 +88,10 @@ interface MuzzleFlash {
   until: number;
 }
 
-type OverlayMode = 'off' | 'o2';
-const OVERLAY_CYCLE: OverlayMode[] = ['off', 'o2'];
-
 interface ViewportSession {
   renderer: WebGL2Renderer | null;
   camera: { x: number; y: number };
+  frameMotion: FrameMotion | null;
   doors: DoorState[];
   seenImpacts: Set<string>;
   lastFrameMs: number;
@@ -119,6 +123,7 @@ export function HarborViewport(props: HarborViewportProps) {
   const sessionRef = useRef<ViewportSession>({
     renderer: null,
     camera: { x: 650, y: 200 },
+    frameMotion: null,
     doors: createInitialDoors(),
     seenImpacts: new Set<string>(),
     lastFrameMs: 0,
@@ -141,21 +146,6 @@ export function HarborViewport(props: HarborViewportProps) {
   });
   const viewRef = useRef(props);
   viewRef.current = props;
-  const [overlayMode, setOverlayMode] = useState<OverlayMode>('o2');
-  const overlayRef = useRef(overlayMode);
-  overlayRef.current = overlayMode;
-
-  useEffect(() => {
-    const onDown = (event: KeyboardEvent): void => {
-      if (event.key.toLowerCase() !== 'o') return;
-      ShipAudioEngine.getInstance().playUiClick();
-      setOverlayMode(
-        (mode) => OVERLAY_CYCLE[(OVERLAY_CYCLE.indexOf(mode) + 1) % OVERLAY_CYCLE.length] ?? 'off'
-      );
-    };
-    window.addEventListener('keydown', onDown);
-    return () => window.removeEventListener('keydown', onDown);
-  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -207,7 +197,7 @@ export function HarborViewport(props: HarborViewportProps) {
     let raf = 0;
     const frame = (): void => {
       if (canvas.width > 0 && canvas.height > 0) {
-        renderViewport(session, viewRef.current, overlayRef.current, canvas);
+        renderViewport(session, viewRef.current, canvas);
       }
       raf = requestAnimationFrame(frame);
     };
@@ -235,7 +225,6 @@ export function HarborViewport(props: HarborViewportProps) {
 function renderViewport(
   session: ViewportSession,
   view: HarborViewportProps,
-  overlayMode: OverlayMode,
   canvas: HTMLCanvasElement
 ): void {
   const renderer = session.renderer;
@@ -248,13 +237,20 @@ function renderViewport(
   const now = performance.now();
   stampSnapshotArrival(session, snapshot, now);
   const aim = trackAim(session, view, canvas, at);
-  const look = lookTarget(at, aim);
+  const motion = stepFrameMotion(
+    session.frameMotion ?? null,
+    origins.get('ship')?.x ?? 0,
+    origins.get('ship')?.y ?? 0,
+    now
+  );
+  session.frameMotion = motion;
+  const look = leadLookTarget(at, aim, motion, own.frameId);
   stepCamera(session, look);
   trackShots(session, view, at, now);
   stepShots(session, view, snapshot, now);
   session.lastFrameMs = now;
   trackNotices(session, view, now);
-  session.doors = syncDoors(session.doors, snapshot);
+  session.doors = applyDockGates(syncDoors(session.doors, snapshot), view.dock?.walkable === true);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
   const { rooms: roomAtmos, delta, breaches, flows } = telemetryView(session, view, snapshot);
   const mappedVitals = mapVitals(view.vitals);
@@ -288,9 +284,17 @@ function renderViewport(
       crewCount: view.manifest?.crew.length,
       currentRoomId: bareId(own.roomHint),
       kineticAmmo: mapKineticAmmo(view.vitals),
-      overlayMode,
       breaches,
       breachFlows: flows,
+      decals: mapDecals(snapshot, origins),
+      dock:
+        view.dock === null
+          ? undefined
+          : {
+              walkable: view.dock.walkable,
+              phase: view.dock.phase,
+              secondsToSeal: view.dock.secondsToSeal,
+            },
       impacts: freshImpacts(session, snapshot, origins),
       camera: shakenCamera(session, now),
       zoom: VIEW_ZOOM,
@@ -422,6 +426,21 @@ function lookTarget(
   return { x: at.x + (dx / dist) * pull, y: at.y + (dy / dist) * pull };
 }
 
+/**
+ * Lead the look target along frame motion while embarked so a vessel
+ * underway pans smoothly instead of juddering behind each snapshot delta.
+ */
+function leadLookTarget(
+  at: { x: number; y: number },
+  aim: { x: number; y: number } | null,
+  motion: FrameMotion,
+  frameId: string
+): { x: number; y: number } {
+  const look = lookTarget(at, aim);
+  if (frameId === 'station') return look;
+  return { x: look.x + motion.velX * 0.15, y: look.y + motion.velY * 0.15 };
+}
+
 function stepCamera(session: ViewportSession, look: { x: number; y: number }): void {
   const dist = Math.hypot(look.x - session.camera.x, look.y - session.camera.y);
   const rate = dist > 200 ? CAMERA_LERP : 0.25;
@@ -487,34 +506,64 @@ function stepShots(
   );
 }
 
-function impactKey(frameId: string, x: number, y: number, kind: string): string {
-  return `${frameId}:${Math.round(x)}:${Math.round(y)}:${kind}`;
+function impactKey(frameId: string, x: number, y: number, kind: string, weapon?: string): string {
+  return `${frameId}:${Math.round(x)}:${Math.round(y)}:${kind}:${weapon ?? ''}`;
+}
+
+interface FreshImpact {
+  readonly x: number;
+  readonly y: number;
+  readonly type: 'kinetic' | 'breach';
+  readonly angle: number;
+  readonly weapon: string;
+  readonly energy: number;
+  readonly breachAreaM2: number;
+  readonly pressureKpa: number;
+}
+
+function toFreshImpact(
+  impact: SnapshotBroadcast['impacts'][number],
+  origins: Map<string, { x: number; y: number }>,
+  areas: Map<string, number | undefined>
+): FreshImpact | undefined {
+  if (impact.kind === 'miss') return undefined;
+  const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
+  return {
+    x: impact.x + origin.x,
+    y: impact.y + origin.y,
+    type: impact.kind === 'breach' ? 'breach' : 'kinetic',
+    angle: impact.angle ?? 0,
+    weapon: impact.weapon ?? 'kinetic_carbine',
+    energy: impact.energy ?? 0.5,
+    breachAreaM2: (impact.breachId === undefined ? undefined : areas.get(impact.breachId)) ?? 0.05,
+    pressureKpa: impact.pressureKpa ?? 101.3,
+  };
+}
+
+function pruneSeen(seen: Set<string>, live: Set<string>): void {
+  for (const key of [...seen]) {
+    if (!live.has(key)) seen.delete(key);
+  }
 }
 
 function freshImpacts(
   session: ViewportSession,
   snapshot: SnapshotBroadcast,
   origins: Map<string, { x: number; y: number }>
-): { x: number; y: number; type: 'kinetic' | 'breach' }[] {
+): FreshImpact[] {
   const live = new Set<string>();
-  const fresh: { x: number; y: number; type: 'kinetic' | 'breach' }[] = [];
+  const fresh: FreshImpact[] = [];
+  const areas = new Map(snapshot.portals.map((portal) => [portal.id, portal.areaM2] as const));
   const impacts = Array.isArray(snapshot.impacts) ? snapshot.impacts : [];
   for (const impact of impacts) {
-    const key = impactKey(impact.frameId, impact.x, impact.y, impact.kind);
+    const key = impactKey(impact.frameId, impact.x, impact.y, impact.kind, impact.weapon);
     live.add(key);
     if (session.seenImpacts.has(key)) continue;
     session.seenImpacts.add(key);
-    if (impact.kind === 'miss') continue;
-    const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
-    fresh.push({
-      x: impact.x + origin.x,
-      y: impact.y + origin.y,
-      type: impact.kind === 'breach' ? 'breach' : 'kinetic',
-    });
+    const mapped = toFreshImpact(impact, origins, areas);
+    if (mapped !== undefined) fresh.push(mapped);
   }
-  for (const key of [...session.seenImpacts]) {
-    if (!live.has(key)) session.seenImpacts.delete(key);
-  }
+  pruneSeen(session.seenImpacts, live);
   return fresh;
 }
 

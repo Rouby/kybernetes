@@ -21,6 +21,7 @@ import {
   getOpaqueWallSegments,
   isImpactVisible,
   isPointInFlashlightCone,
+  sanitizeVisibilityHits,
 } from './spatial/visibility';
 
 describe('Deck Layout & Geometry', () => {
@@ -29,8 +30,8 @@ describe('Deck Layout & Geometry', () => {
     expect(deck.width).toBe(2400);
     expect(deck.height).toBe(800);
     expect(deck.walls.length).toBeGreaterThan(15);
-    expect(deck.stations.length).toBe(10);
-    expect(HESPERIA_ROOMS.length).toBe(12);
+    expect(deck.stations.length).toBe(13);
+    expect(HESPERIA_ROOMS.length).toBe(16);
   });
 
   it('defines valid spawn points for all 5 starting roles', () => {
@@ -190,6 +191,43 @@ describe('2D Raycast Visibility & Lighting Cones', () => {
       const dist = Math.hypot(pt.x - origin.x, pt.y - origin.y);
       expect(dist).toBeLessThanOrEqual(200.01);
     }
+  });
+
+  it('sanitizes fans pressed against wall corners and door jambs', () => {
+    // Pawn radius away from a T-junction corner with a hairline jamb gap.
+    const walls = [
+      { id: 'w1', x1: 0, y1: 0, x2: 200, y2: 0, isOpaque: true },
+      { id: 'w2', x1: 100, y1: 0, x2: 100, y2: 120, isOpaque: true },
+      { id: 'jamb', x1: 100.4, y1: 0, x2: 100.4, y2: 120, isOpaque: true },
+    ];
+    const origin = { x: 87, y: 12 };
+    const polygon = computeVisibilityPolygon(origin, 200, walls);
+    expect(polygon.length).toBeGreaterThan(3);
+    for (const pt of polygon) {
+      expect(Number.isFinite(pt.x) && Number.isFinite(pt.y)).toBe(true);
+      expect(Math.hypot(pt.x - origin.x, pt.y - origin.y)).toBeLessThanOrEqual(200.01);
+    }
+    for (let i = 1; i < polygon.length; i++) {
+      const a = polygon[i - 1];
+      const b = polygon[i];
+      expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThanOrEqual(0.75);
+    }
+  });
+
+  it('collapses sub-pixel jitter and near-eye hits in sanitizeVisibilityHits', () => {
+    const origin = { x: 50, y: 50 };
+    const clean = sanitizeVisibilityHits(origin, [
+      { x: 50.2, y: 50.1 },
+      { x: 100, y: 50 },
+      { x: 100.4, y: 50.2 },
+      { x: Number.NaN, y: 60 },
+      { x: 50, y: 120 },
+    ]);
+    expect(clean).toEqual([
+      { x: 50, y: 50 },
+      { x: 100, y: 50 },
+      { x: 50, y: 120 },
+    ]);
   });
 
   it('evaluates directional flashlight and ambient cone', () => {
