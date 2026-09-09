@@ -7,7 +7,7 @@
 import type { Role } from '@kybernetes/protocol';
 import { spawnPawn } from './assemble.js';
 import { ensureBot } from './bots.js';
-import { departVessel } from './schedule.js';
+import { departVessel, roomAt } from './schedule.js';
 import type { World } from './types.js';
 
 export interface CrewRecord {
@@ -78,24 +78,14 @@ export function vesselSpawnPoint(
   return { roomId, x: room.rect.x + room.rect.w / 2, y: room.rect.y + room.rect.h / 2 };
 }
 
+/** Alias kept for combat/server call sites; canonical logic lives in {@link roomAt}. */
 export function roomContainingPoint(
   world: World,
   frameId: string,
   x: number,
   y: number
 ): string | undefined {
-  for (const room of Object.values(world.rooms)) {
-    if (room.frameId !== frameId) continue;
-    if (
-      x >= room.rect.x &&
-      x <= room.rect.x + room.rect.w &&
-      y >= room.rect.y &&
-      y <= room.rect.y + room.rect.h
-    ) {
-      return room.id;
-    }
-  }
-  return undefined;
+  return roomAt(world, frameId, x, y);
 }
 
 export function talkToCaptain(

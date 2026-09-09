@@ -270,7 +270,8 @@ function transferThroughDock(
   return undefined;
 }
 
-function roomAt(world: World, frameId: string, x: number, y: number): string | undefined {
+/** Room id containing a frame-local point; bounds are edge-inclusive. Canonical lookup shared by schedule, crew, and combat. */
+export function roomAt(world: World, frameId: string, x: number, y: number): string | undefined {
   for (const room of Object.values(world.rooms)) {
     if (room.frameId !== frameId) continue;
     if (
