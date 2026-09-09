@@ -229,6 +229,60 @@ function fatigueRate(world: World, pawnId: string): number {
   return 0.02;
 }
 
+interface HarmAcc {
+  hp: number;
+  bleedoutS: number;
+  harmed: boolean;
+}
+
+function applyVacuumDrain(acc: HarmAcc, suitOn: boolean, pressureKpa: number, dt: number): HarmAcc {
+  if (suitOn || pressureKpa >= 5) return acc;
+  return { ...acc, hp: acc.hp - VACUUM_DRAIN * dt, harmed: true };
+}
+
+function thermalGap(bodyTempC: number): number {
+  if (bodyTempC < 35) return 35 - bodyTempC;
+  if (bodyTempC > 39) return bodyTempC - 39;
+  return 0;
+}
+
+function applyThermalDrain(acc: HarmAcc, bodyTempC: number, dt: number): HarmAcc {
+  const gap = thermalGap(bodyTempC);
+  if (gap <= 0) return acc;
+  return { ...acc, hp: acc.hp - Math.abs(gap) * 0.05 * dt, harmed: true };
+}
+
+function applyHungerDrain(acc: HarmAcc, hunger: number, thirst: number, dt: number): HarmAcc {
+  let hp = acc.hp;
+  let harmed = acc.harmed;
+  if (hunger <= 0) {
+    hp -= 0.5 * dt;
+    harmed = true;
+  }
+  if (thirst <= 0) {
+    hp -= dt;
+    harmed = true;
+  }
+  return { ...acc, hp, harmed };
+}
+
+function applyBleedout(acc: HarmAcc, dt: number): HarmAcc {
+  if (acc.bleedoutS <= 0) return acc;
+  return {
+    bleedoutS: Math.max(0, acc.bleedoutS - dt),
+    hp: acc.hp - BLEED_RATE * dt,
+    harmed: true,
+  };
+}
+
+function settleHarm(pawn: PawnBody, vitals: PawnVitals, acc: HarmAcc, dt: number): HurtResult {
+  let hp = acc.harmed ? acc.hp : Math.min(pawn.health.maxHp, acc.hp + dt);
+  hp = Math.min(pawn.health.maxHp, Math.max(0, hp));
+  if (hp <= 0) return { vitals: { ...vitals, bleedoutS: acc.bleedoutS }, hp, incapacitated: true };
+  const stillDown = pawn.health.incapacitated && (acc.bleedoutS > 0 || hp < REVIVE_HP);
+  return { vitals: { ...vitals, bleedoutS: acc.bleedoutS }, hp, incapacitated: stillDown };
+}
+
 function harm(
   pawn: PawnBody,
   vitals: PawnVitals,
@@ -236,38 +290,17 @@ function harm(
   suitOn: boolean,
   dt: number
 ): HurtResult {
-  let hp = pawn.health.hp;
-  let bleedoutS = vitals.bleedoutS;
-  let harmed = false;
-  if (!suitOn && pressureKpa < 5) {
-    hp -= VACUUM_DRAIN * dt;
-    harmed = true;
-  }
-  if (vitals.bodyTempC < 35 || vitals.bodyTempC > 39) {
-    hp -=
-      Math.abs(vitals.bodyTempC < 35 ? 35 - vitals.bodyTempC : vitals.bodyTempC - 39) * 0.05 * dt;
-    harmed = true;
-  }
-  if (vitals.hunger <= 0) {
-    hp -= 0.5 * dt;
-    harmed = true;
-  }
-  if (vitals.thirst <= 0) {
-    hp -= dt;
-    harmed = true;
-  }
-  if (bleedoutS > 0) {
-    bleedoutS = Math.max(0, bleedoutS - dt);
-    hp -= BLEED_RATE * dt;
-    harmed = true;
-  }
-  if (!harmed && hp < pawn.health.maxHp) hp = Math.min(pawn.health.maxHp, hp + dt);
-  hp = Math.min(pawn.health.maxHp, Math.max(0, hp));
-  if (hp <= 0) return { vitals: { ...vitals, bleedoutS }, hp, incapacitated: true };
-  if (pawn.health.incapacitated && (bleedoutS > 0 || hp < REVIVE_HP)) {
-    return { vitals: { ...vitals, bleedoutS }, hp, incapacitated: true };
-  }
-  return { vitals: { ...vitals, bleedoutS }, hp, incapacitated: false };
+  const start: HarmAcc = { hp: pawn.health.hp, bleedoutS: vitals.bleedoutS, harmed: false };
+  const drained = applyBleedout(
+    applyHungerDrain(
+      applyThermalDrain(applyVacuumDrain(start, suitOn, pressureKpa, dt), vitals.bodyTempC, dt),
+      vitals.hunger,
+      vitals.thirst,
+      dt
+    ),
+    dt
+  );
+  return settleHarm(pawn, vitals, drained, dt);
 }
 
 function writeVitals(

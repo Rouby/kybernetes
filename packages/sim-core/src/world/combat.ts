@@ -200,6 +200,75 @@ function impactEnergyOf(damage: number): number {
   return Math.min(1, Math.max(0, damage / RIFLE_DAMAGE));
 }
 
+function pawnHitTarget(world: World, shot: ProjectileBody): PawnBody | undefined {
+  for (const target of Object.values(world.pawns)) {
+    if (target.frameId !== shot.frameId) continue;
+    if (target.id === shot.fromPawnId && shot.graceTicks > 0) continue;
+    if (Math.hypot(target.pos.x - shot.pos.x, target.pos.y - shot.pos.y) >= target.radius + 2) {
+      continue;
+    }
+    return target;
+  }
+  return undefined;
+}
+
+function strikeDoorSurface(
+  world: World,
+  shot: ProjectileBody,
+  wall: WallSegment,
+  contact: Vec2,
+  wallAngle: number,
+  energy: number
+): World {
+  const portalId = wall.id.slice('portal-shut.'.length);
+  const damaged = damageDoor(dropProjectile(world, shot.id), portalId, shot.damage);
+  return recordImpact(damaged.world, contact, 'door', shot.frameId, {
+    angle: wallAngle,
+    weapon: shot.weapon,
+    energy,
+    surface: 'door',
+  });
+}
+
+function strikeHullSurface(
+  world: World,
+  shot: ProjectileBody,
+  wall: WallSegment,
+  contact: Vec2,
+  wallAngle: number,
+  energy: number
+): World {
+  const breached = breachWall(dropProjectile(world, shot.id), shot.frameId, wall, contact);
+  return recordImpact(breached.world, contact, 'breach', shot.frameId, {
+    angle: wallAngle,
+    weapon: shot.weapon,
+    energy,
+    surface: breached.breachId === undefined ? 'wall' : 'hull',
+    breachId: breached.breachId,
+  });
+}
+
+function collideWalls(
+  world: World,
+  shot: ProjectileBody,
+  prev: Vec2,
+  colliders: Map<string, WallSegment[]>,
+  energy: number
+): World | undefined {
+  for (const wall of colliders.get(shot.frameId) ?? []) {
+    const a = { x: wall.x1, y: wall.y1 };
+    const b = { x: wall.x2, y: wall.y2 };
+    if (!segmentsIntersect(prev, shot.pos, a, b)) continue;
+    const contact = closestPointOnSegment(shot.pos, a, b);
+    const wallAngle = Math.atan2(b.y - a.y, b.x - a.x);
+    if (wall.id.startsWith('portal-shut.')) {
+      return strikeDoorSurface(world, shot, wall, contact, wallAngle, energy);
+    }
+    return strikeHullSurface(world, shot, wall, contact, wallAngle, energy);
+  }
+  return undefined;
+}
+
 function collideShot(
   world: World,
   shot: ProjectileBody,
@@ -208,12 +277,8 @@ function collideShot(
 ): World | undefined {
   const angle = impactAngleOf(shot);
   const energy = impactEnergyOf(shot.damage);
-  for (const target of Object.values(world.pawns)) {
-    if (target.frameId !== shot.frameId) continue;
-    if (target.id === shot.fromPawnId && shot.graceTicks > 0) continue;
-    if (Math.hypot(target.pos.x - shot.pos.x, target.pos.y - shot.pos.y) >= target.radius + 2) {
-      continue;
-    }
+  const target = pawnHitTarget(world, shot);
+  if (target !== undefined) {
     const struck = strikePawn(dropProjectile(world, shot.id), target.id, shot.damage, shot.pos);
     return recordImpact(struck, shot.pos, 'pawn', shot.frameId, {
       angle,
@@ -222,32 +287,7 @@ function collideShot(
       surface: 'pawn',
     });
   }
-  for (const wall of colliders.get(shot.frameId) ?? []) {
-    const a = { x: wall.x1, y: wall.y1 };
-    const b = { x: wall.x2, y: wall.y2 };
-    if (!segmentsIntersect(prev, shot.pos, a, b)) continue;
-    const contact = closestPointOnSegment(shot.pos, a, b);
-    const wallAngle = Math.atan2(b.y - a.y, b.x - a.x);
-    if (wall.id.startsWith('portal-shut.')) {
-      const portalId = wall.id.slice('portal-shut.'.length);
-      const damaged = damageDoor(dropProjectile(world, shot.id), portalId, shot.damage);
-      return recordImpact(damaged.world, contact, 'door', shot.frameId, {
-        angle: wallAngle,
-        weapon: shot.weapon,
-        energy,
-        surface: 'door',
-      });
-    }
-    const breached = breachWall(dropProjectile(world, shot.id), shot.frameId, wall, contact);
-    return recordImpact(breached.world, contact, 'breach', shot.frameId, {
-      angle: wallAngle,
-      weapon: shot.weapon,
-      energy,
-      surface: breached.breachId === undefined ? 'wall' : 'hull',
-      breachId: breached.breachId,
-    });
-  }
-  return undefined;
+  return collideWalls(world, shot, prev, colliders, energy);
 }
 
 function dropProjectile(world: World, id: string): World {
@@ -386,20 +426,35 @@ export interface ImpactDetail {
   readonly breachId?: string;
 }
 
-function recordImpact(
+interface ImpactStyle {
+  readonly angle: number;
+  readonly weapon: string;
+  readonly energy: number;
+  readonly surface: ImpactDetail['surface'];
+}
+
+export function resolveImpactStyle(
+  detail: ImpactDetail | undefined,
+  kind: 'pawn' | 'door' | 'breach' | 'miss'
+): ImpactStyle {
+  return {
+    angle: detail?.angle ?? 0,
+    weapon: detail?.weapon ?? 'kinetic_carbine',
+    energy: detail === undefined ? 0.5 : Math.min(1, Math.max(0, detail.energy)),
+    surface: detail?.surface ?? (kind === 'pawn' ? 'pawn' : kind === 'door' ? 'door' : 'wall'),
+  };
+}
+
+function appendImpact(
   world: World,
   point: Vec2,
   kind: 'pawn' | 'door' | 'breach' | 'miss',
   frameId: string,
-  detail?: ImpactDetail
+  detail: ImpactDetail | undefined,
+  style: ImpactStyle,
+  pressureKpa: number
 ): World {
-  const angle = detail?.angle ?? 0;
-  const weapon = detail?.weapon ?? 'kinetic_carbine';
-  const energy = detail === undefined ? 0.5 : Math.min(1, Math.max(0, detail.energy));
-  const surface = detail?.surface ?? (kind === 'pawn' ? 'pawn' : kind === 'door' ? 'door' : 'wall');
-  const roomA = roomContainingPoint(world, frameId, point.x, point.y);
-  const pressureKpa = roomA === undefined ? 0 : (world.atmos[roomA]?.pressureKpa ?? 101.3);
-  const withImpact: World = {
+  return {
     ...world,
     impacts: [
       ...world.impacts,
@@ -409,30 +464,53 @@ function recordImpact(
         y: point.y,
         kind,
         untilTick: world.tick + IMPACT_TTL_TICKS,
-        angle,
-        weapon,
-        energy,
-        surface,
+        angle: style.angle,
+        weapon: style.weapon,
+        energy: style.energy,
+        surface: style.surface,
         ...(detail?.breachId === undefined ? {} : { breachId: detail.breachId }),
         pressureKpa,
       },
     ],
   };
+}
+
+function withImpactDecal(
+  withImpact: World,
+  point: Vec2,
+  kind: 'pawn' | 'door' | 'breach' | 'miss',
+  frameId: string,
+  detail: ImpactDetail | undefined,
+  style: ImpactStyle
+): World {
   if (detail === undefined || !shouldDecal(kind)) return withImpact;
-  const wallAngle = angle;
   return {
     ...withImpact,
     decals: addDecal(withImpact.decals, {
-      id: makeDecalId(frameId, world.tick, withImpact.decals.length),
+      id: makeDecalId(frameId, withImpact.tick, withImpact.decals.length),
       frameId,
       x: point.x,
       y: point.y,
-      angle: wallAngle,
-      radius: decalRadiusFor(weapon, energy),
-      weapon,
-      bornTick: world.tick,
+      angle: style.angle,
+      radius: decalRadiusFor(style.weapon, style.energy),
+      weapon: style.weapon,
+      bornTick: withImpact.tick,
     }),
   };
+}
+
+function recordImpact(
+  world: World,
+  point: Vec2,
+  kind: 'pawn' | 'door' | 'breach' | 'miss',
+  frameId: string,
+  detail?: ImpactDetail
+): World {
+  const style = resolveImpactStyle(detail, kind);
+  const roomA = roomContainingPoint(world, frameId, point.x, point.y);
+  const pressureKpa = roomA === undefined ? 0 : (world.atmos[roomA]?.pressureKpa ?? 101.3);
+  const withImpact = appendImpact(world, point, kind, frameId, detail, style, pressureKpa);
+  return withImpactDecal(withImpact, point, kind, frameId, detail, style);
 }
 
 export function tickImpacts(world: World): World {

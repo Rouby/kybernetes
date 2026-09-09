@@ -9,6 +9,7 @@ import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
 import { StationHubSpec } from '../world/content/StationHub.hull.js';
 import { compileHull } from '../world/hullCompiler.js';
+import type { PortalEdge } from '../world/types.js';
 import { closestPointOnSegment, resolvePawnMovement } from './collision';
 import {
   type DockFrameOffset,
@@ -26,36 +27,39 @@ interface CompiledDoorSeed {
   frame: 'station' | 'ship';
 }
 
+function isDoorPortal(portal: Pick<PortalEdge, 'kind'>): boolean {
+  return portal.kind === 'door' || portal.kind === 'airlock';
+}
+
+function frameRoomId(frame: 'station' | 'ship', room: string): string {
+  if (room === 'space' || room === 'vacuum') return 'vacuum';
+  return `${frame}.${room}`;
+}
+
+function collectFrameSeeds(
+  portals: readonly PortalEdge[],
+  frame: 'station' | 'ship',
+  seeds: CompiledDoorSeed[]
+): void {
+  for (const portal of portals) {
+    if (!isDoorPortal(portal)) continue;
+    seeds.push({
+      id: `${frame}.${portal.id}`,
+      roomA: `${frame}.${portal.roomA}`,
+      roomB: frameRoomId(frame, portal.roomB),
+      kind: portal.kind,
+      segment: { ...portal.segment },
+      frame,
+    });
+  }
+}
+
 function collectDoorSeeds(): CompiledDoorSeed[] {
   const seeds: CompiledDoorSeed[] = [];
   const station = compileHull({ ...StationHubSpec, frameId: 'station' });
   const ship = compileHull({ ...HesperiaV2Spec, frameId: 'ship' });
-  for (const portal of station.portals) {
-    if (portal.kind !== 'door' && portal.kind !== 'airlock') continue;
-    seeds.push({
-      id: `station.${portal.id}`,
-      roomA: `station.${portal.roomA}`,
-      roomB:
-        portal.roomB === 'space' || portal.roomB === 'vacuum'
-          ? 'vacuum'
-          : `station.${portal.roomB}`,
-      kind: portal.kind,
-      segment: { ...portal.segment },
-      frame: 'station',
-    });
-  }
-  for (const portal of ship.portals) {
-    if (portal.kind !== 'door' && portal.kind !== 'airlock') continue;
-    seeds.push({
-      id: `ship.${portal.id}`,
-      roomA: `ship.${portal.roomA}`,
-      roomB:
-        portal.roomB === 'space' || portal.roomB === 'vacuum' ? 'vacuum' : `ship.${portal.roomB}`,
-      kind: portal.kind,
-      segment: { ...portal.segment },
-      frame: 'ship',
-    });
-  }
+  collectFrameSeeds(station.portals, 'station', seeds);
+  collectFrameSeeds(ship.portals, 'ship', seeds);
   return seeds;
 }
 

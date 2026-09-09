@@ -35,53 +35,37 @@ function fail(reason: ValidateFailure, field?: string): ValidateErr {
   return field === undefined ? { ok: false, reason } : { ok: false, reason, field };
 }
 
+type IntentValidator = (raw: Record<string, unknown>) => ValidateResult;
+
+const INTENT_VALIDATORS: Readonly<Record<string, IntentValidator>> = {
+  HELLO: validateHello,
+  JOIN_BEACON: validateJoinBeacon,
+  OBSERVE: validateObserve,
+  INPUT: validateInput,
+  INTERACT: validateInteract,
+  DOOR: validateDoor,
+  HIRE: validateHire,
+  TALK: validateTalk,
+  SUIT: validateSuit,
+  CONSUME: validateConsume,
+  SLEEP: validateSleep,
+  FIRE: validateFire,
+  RELOAD: validateReload,
+  CLAIM: validateClaim,
+  VEND: validateVend,
+  COOK: validateCook,
+  HARVEST: validateHarvest,
+  RECYCLE: validateRecycle,
+  REPAIR: validateRepair,
+  RESTART: validateRestart,
+};
+
 export function validateClientIntent(raw: unknown): ValidateResult {
   if (!isRecord(raw)) return fail('not-object');
   if (typeof raw.type !== 'string') return fail('unknown-type');
-  switch (raw.type) {
-    case 'HELLO':
-      return validateHello(raw);
-    case 'JOIN_BEACON':
-      return validateJoinBeacon(raw);
-    case 'OBSERVE':
-      return validateObserve(raw);
-    case 'INPUT':
-      return validateInput(raw);
-    case 'INTERACT':
-      return validateInteract(raw);
-    case 'DOOR':
-      return validateDoor(raw);
-    case 'HIRE':
-      return validateHire(raw);
-    case 'TALK':
-      return validateTalk(raw);
-    case 'SUIT':
-      return validateSuit(raw);
-    case 'CONSUME':
-      return validateConsume(raw);
-    case 'SLEEP':
-      return validateSleep(raw);
-    case 'FIRE':
-      return validateFire(raw);
-    case 'RELOAD':
-      return validateReload(raw);
-    case 'CLAIM':
-      return validateClaim(raw);
-    case 'VEND':
-      return validateVend(raw);
-    case 'COOK':
-      return validateCook(raw);
-    case 'HARVEST':
-      return validateHarvest(raw);
-    case 'RECYCLE':
-      return validateRecycle(raw);
-    case 'REPAIR':
-      return validateRepair(raw);
-    case 'RESTART':
-      return validateRestart(raw);
-    default:
-      return fail('unknown-type');
-  }
+  const validator = INTENT_VALIDATORS[raw.type];
+  if (validator === undefined) return fail('unknown-type');
+  return validator(raw);
 }
 
 export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {

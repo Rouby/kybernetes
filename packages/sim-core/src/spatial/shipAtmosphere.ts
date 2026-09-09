@@ -299,27 +299,52 @@ function addLinkedDoor(sim: AtmosphereSimulation, topo: HullTopology, door: Door
   return true;
 }
 
-function addResolvedDoor(sim: AtmosphereSimulation, topo: HullTopology, door: DoorState): void {
-  if (addLinkedDoor(sim, topo, door)) return;
-  const mid = doorMid(door);
-  const a = resolveDoorSide(topo, door.roomA, mid.x, mid.y);
-  const b = resolveDoorSide(topo, door.roomB, mid.x, mid.y);
-  if (a.kind === 'vacuum' && b.kind === 'vacuum') return;
+function addVacuumDoor(sim: AtmosphereSimulation, door: DoorState, roomId: string): void {
+  const room = sim.rooms.get(roomId);
+  if (room) sim.addPortal(makeDoorPortal(door.id, room, null, door));
+}
+
+function addRoomPairDoor(
+  sim: AtmosphereSimulation,
+  door: DoorState,
+  aRoomId: string,
+  bRoomId: string
+): void {
+  if (aRoomId === bRoomId) return;
+  const ra = sim.rooms.get(aRoomId);
+  const rb = sim.rooms.get(bRoomId);
+  if (!ra || !rb) return;
+  sim.addPortal(makeDoorPortal(door.id, ra, rb, door));
+}
+
+function addUnlinkedDoor(
+  sim: AtmosphereSimulation,
+  door: DoorState,
+  a: DoorSide,
+  b: DoorSide
+): void {
+  if (a.kind === 'room' && b.kind === 'room') {
+    addRoomPairDoor(sim, door, a.roomId, b.roomId);
+    return;
+  }
   if (a.kind === 'vacuum' && b.kind === 'room') {
-    const room = sim.rooms.get(b.roomId);
-    if (room) sim.addPortal(makeDoorPortal(door.id, room, null, door));
+    addVacuumDoor(sim, door, b.roomId);
     return;
   }
   if (b.kind === 'vacuum' && a.kind === 'room') {
-    const room = sim.rooms.get(a.roomId);
-    if (room) sim.addPortal(makeDoorPortal(door.id, room, null, door));
-    return;
+    addVacuumDoor(sim, door, a.roomId);
   }
-  if (a.kind !== 'room' || b.kind !== 'room' || a.roomId === b.roomId) return;
-  const ra = sim.rooms.get(a.roomId);
-  const rb = sim.rooms.get(b.roomId);
-  if (!ra || !rb) return;
-  sim.addPortal(makeDoorPortal(door.id, ra, rb, door));
+}
+
+function addResolvedDoor(sim: AtmosphereSimulation, topo: HullTopology, door: DoorState): void {
+  if (addLinkedDoor(sim, topo, door)) return;
+  const mid = doorMid(door);
+  addUnlinkedDoor(
+    sim,
+    door,
+    resolveDoorSide(topo, door.roomA, mid.x, mid.y),
+    resolveDoorSide(topo, door.roomB, mid.x, mid.y)
+  );
 }
 
 function addStaticPortals(sim: AtmosphereSimulation, topo: HullTopology): void {
@@ -579,6 +604,12 @@ function doorNeighborPair(topo: HullTopology, door: DoorState): [string, string]
   return [a.roomId, b.roomId];
 }
 
+function neighborBeyond(pair: [string, string], roomId: string): string | undefined {
+  if (pair[0] === roomId && pair[1] !== roomId) return pair[1];
+  if (pair[1] === roomId && pair[0] !== roomId) return pair[0];
+  return undefined;
+}
+
 function openNeighbors(state: ShipAirState, doors: DoorState[], roomId: string): string[] {
   const topo = hullTopologyOf(state);
   if (!topo) return [];
@@ -588,8 +619,8 @@ function openNeighbors(state: ShipAirState, doors: DoorState[], roomId: string):
     if (d.roomA === 'vacuum' || d.roomB === 'vacuum') continue;
     const pair = doorNeighborPair(topo, d);
     if (!pair) continue;
-    if (pair[0] === roomId && pair[1] !== roomId) out.push(pair[1]);
-    else if (pair[1] === roomId && pair[0] !== roomId) out.push(pair[0]);
+    const next = neighborBeyond(pair, roomId);
+    if (next !== undefined) out.push(next);
   }
   return out;
 }
@@ -1245,6 +1276,49 @@ function openingSource(
   return { roomId, x, y, u: nx * speed, v: ny * speed, intensity: ratio };
 }
 
+function vacuumDoorSource(
+  d: DoorState,
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): DecompressionAirflowSource | undefined {
+  if (!d.isOpen) return undefined;
+  if (d.roomA !== 'vacuum' && d.roomB !== 'vacuum') return undefined;
+  const roomId = d.roomA === 'vacuum' ? d.roomB : d.roomA;
+  const pressure = summaryPressure(roomId, atmospheres);
+  const midX = (d.x1 + d.x2) / 2;
+  const midY = (d.y1 + d.y2) / 2;
+  const room = HESPERIA_ROOMS.find((r) => r.id === roomId);
+  const cx = room ? room.x + room.width / 2 : midX;
+  const cy = room ? room.y + room.height / 2 : midY;
+  const len = Math.hypot(midX - cx, midY - cy) || 1;
+  return openingSource(
+    roomId,
+    midX,
+    midY,
+    (midX - cx) / len,
+    (midY - cy) / len,
+    pressure,
+    roomWindMagnitude(roomId, atmospheres)
+  );
+}
+
+function breachAirflowSource(
+  b: string,
+  atmospheres?: Record<string, RoomAtmosphereSummary>
+): DecompressionAirflowSource | undefined {
+  const roomId = normalizeBreachRoomId(b);
+  const loc = getBreachLocation(b);
+  if (!loc) return undefined;
+  return openingSource(
+    roomId,
+    loc.x,
+    loc.y,
+    loc.normalX,
+    loc.normalY,
+    summaryPressure(roomId, atmospheres),
+    roomWindMagnitude(roomId, atmospheres)
+  );
+}
+
 export function getDecompressionAirflowSources(
   doors: DoorState[],
   breaches?: string[],
@@ -1252,38 +1326,12 @@ export function getDecompressionAirflowSources(
 ): DecompressionAirflowSource[] {
   const sources: DecompressionAirflowSource[] = [];
   for (const d of doors) {
-    if (!d.isOpen) continue;
-    if (d.roomA === 'vacuum' || d.roomB === 'vacuum') {
-      const roomId = d.roomA === 'vacuum' ? d.roomB : d.roomA;
-      const pressure = summaryPressure(roomId, atmospheres);
-      const midX = (d.x1 + d.x2) / 2;
-      const midY = (d.y1 + d.y2) / 2;
-      const room = HESPERIA_ROOMS.find((r) => r.id === roomId);
-      const cx = room ? room.x + room.width / 2 : midX;
-      const cy = room ? room.y + room.height / 2 : midY;
-      const len = Math.hypot(midX - cx, midY - cy) || 1;
-      const windMag = roomWindMagnitude(roomId, atmospheres);
-      const s = openingSource(
-        roomId,
-        midX,
-        midY,
-        (midX - cx) / len,
-        (midY - cy) / len,
-        pressure,
-        windMag
-      );
-      if (s) sources.push(s);
-    }
+    const s = vacuumDoorSource(d, atmospheres);
+    if (s) sources.push(s);
   }
   for (const b of breaches ?? []) {
-    const roomId = normalizeBreachRoomId(b);
-    const pressure = summaryPressure(roomId, atmospheres);
-    const loc = getBreachLocation(b);
-    if (loc) {
-      const windMag = roomWindMagnitude(roomId, atmospheres);
-      const s = openingSource(roomId, loc.x, loc.y, loc.normalX, loc.normalY, pressure, windMag);
-      if (s) sources.push(s);
-    }
+    const s = breachAirflowSource(b, atmospheres);
+    if (s) sources.push(s);
   }
   return sources;
 }

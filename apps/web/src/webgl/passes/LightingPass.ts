@@ -31,6 +31,14 @@ export interface FowSampling {
   readonly originY: number;
 }
 
+const DEFAULT_FOW_SAMPLING: FowSampling = {
+  texture: null,
+  width: 1,
+  height: 1,
+  originX: 0,
+  originY: 0,
+};
+
 /**
  * True when a light at (x, y) must be culled: non-player sources outside
  * the player visibility polygon contribute nothing. Player sources and
@@ -48,6 +56,36 @@ export function isOccludedFromPlayer(
     playerLoSPoly.length >= 3 &&
     !isPointInPolygon({ x, y }, playerLoSPoly)
   );
+}
+
+type ProjectileGlowKind = 'laser' | 'welder' | 'spark';
+
+function projectileGlowKind(p: ProjectileState): ProjectileGlowKind {
+  if (p.weaponType === 'pulse_laser' || p.color === '#00f0ff') return 'laser';
+  if (p.weaponType === 'arc_welder') return 'welder';
+  return 'spark';
+}
+
+function projectileGlowFalloff(
+  kind: ProjectileGlowKind,
+  charge: number
+): {
+  radius: number;
+  intensity: number;
+} {
+  if (kind === 'laser') return { radius: 70.0 + charge * 45.0, intensity: 0.9 + charge * 1.0 };
+  if (kind === 'welder') return { radius: 65.0, intensity: 1.0 };
+  return { radius: 75.0, intensity: 0.9 };
+}
+
+function projectileGlowColor(
+  p: ProjectileState,
+  kind: ProjectileGlowKind
+): { r: number; g: number; b: number } {
+  if (p.color === '#ff1744') return { r: 1.0, g: 0.1, b: 0.25 };
+  if (p.color === '#00f0ff' || kind === 'laser') return { r: 0.0, g: 0.95, b: 1.0 };
+  if (kind === 'welder') return { r: 0.4, g: 0.7, b: 1.0 };
+  return { r: 0.0, g: 0.9, b: 1.0 };
 }
 
 export class LightingPass {
@@ -144,57 +182,36 @@ export class LightingPass {
       if (lightIdx >= 6) break;
       if (p.weaponType === 'kinetic_carbine') continue;
       if (isOccludedFromPlayer(p.x, p.y, p.fromPlayer, playerLoSPoly)) continue;
-
-      const isLaser = p.weaponType === 'pulse_laser' || p.color === '#00f0ff';
-      const isWelder = p.weaponType === 'arc_welder';
-
-      const charge = p.chargeRatio ?? 1.0;
-      const radius = isLaser ? 70.0 + charge * 45.0 : isWelder ? 65.0 : 75.0;
-      const intensity = isLaser ? 0.9 + charge * 1.0 : isWelder ? 1.0 : 0.9;
-
-      this.currentLights[lightIdx * 4 + 0] = p.x;
-      this.currentLights[lightIdx * 4 + 1] = p.y;
-      this.currentLights[lightIdx * 4 + 2] = radius;
-      this.currentLights[lightIdx * 4 + 3] = intensity;
-
-      let r = 0.0;
-      let g = 0.9;
-      let b = 1.0;
-      if (p.color === '#ff1744') {
-        r = 1.0;
-        g = 0.1;
-        b = 0.25;
-      } else if (p.color === '#00f0ff' || isLaser) {
-        r = 0.0;
-        g = 0.95;
-        b = 1.0;
-      } else if (isWelder) {
-        r = 0.4;
-        g = 0.7;
-        b = 1.0;
-      }
-      this.currentLightColors[lightIdx * 3 + 0] = r;
-      this.currentLightColors[lightIdx * 3 + 1] = g;
-      this.currentLightColors[lightIdx * 3 + 2] = b;
-      lightIdx++;
+      lightIdx = this.pushProjectileLight(p, lightIdx);
     }
     return lightIdx;
   }
 
+  private pushProjectileLight(p: ProjectileState, lightIdx: number): number {
+    const kind = projectileGlowKind(p);
+    const falloff = projectileGlowFalloff(kind, p.chargeRatio ?? 1.0);
+    const color = projectileGlowColor(p, kind);
+    this.currentLights[lightIdx * 4 + 0] = p.x;
+    this.currentLights[lightIdx * 4 + 1] = p.y;
+    this.currentLights[lightIdx * 4 + 2] = falloff.radius;
+    this.currentLights[lightIdx * 4 + 3] = falloff.intensity;
+    this.currentLightColors[lightIdx * 3 + 0] = color.r;
+    this.currentLightColors[lightIdx * 3 + 1] = color.g;
+    this.currentLightColors[lightIdx * 3 + 2] = color.b;
+    return lightIdx + 1;
+  }
+
   private bindFowSampling(fow?: FowSampling): void {
     const gl = this.gl;
+    const src = fow ?? DEFAULT_FOW_SAMPLING;
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, fow?.texture ?? null);
+    gl.bindTexture(gl.TEXTURE_2D, src.texture);
     gl.uniform1i(gl.getUniformLocation(this.lightFanProg, 'u_fowTexture'), 1);
-    gl.uniform2f(
-      gl.getUniformLocation(this.lightFanProg, 'u_worldBounds'),
-      fow?.width ?? 1,
-      fow?.height ?? 1
-    );
+    gl.uniform2f(gl.getUniformLocation(this.lightFanProg, 'u_worldBounds'), src.width, src.height);
     gl.uniform2f(
       gl.getUniformLocation(this.lightFanProg, 'u_worldOrigin'),
-      fow?.originX ?? 0,
-      fow?.originY ?? 0
+      src.originX,
+      src.originY
     );
     gl.activeTexture(gl.TEXTURE0);
   }

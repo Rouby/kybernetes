@@ -13,25 +13,30 @@ function drive(world: World, auth: AirAuthorityState, seconds: number): World {
   return current;
 }
 
+function walkAboard(auth: AirAuthorityState): World {
+  let world = buildHarborWorld();
+  bindWorldAir(auth, world);
+  world = spawnPawn(world, {
+    id: 'hero',
+    owner: 'hero',
+    frameId: 'station',
+    roomId: 'station.andock_a',
+    x: 1060,
+    y: 260,
+    color: '#ffd166',
+  });
+  for (let i = 0; i < 400; i += 1) {
+    if (world.pawns.hero?.frameId === 'ship') break;
+    world = tickWorld(world, 0.05, [{ pawnId: 'hero', moveX: 1, moveY: 0, sprint: false }], auth);
+  }
+  expect(world.pawns.hero?.frameId).toBe('ship');
+  return world;
+}
+
 describe('air loop', () => {
   it('walks aboard with air stepping and earns watch pay without venting', () => {
     const auth = createAirAuthority();
-    let world = buildHarborWorld();
-    bindWorldAir(auth, world);
-    world = spawnPawn(world, {
-      id: 'hero',
-      owner: 'hero',
-      frameId: 'station',
-      roomId: 'station.andock_a',
-      x: 1060,
-      y: 260,
-      color: '#ffd166',
-    });
-    for (let i = 0; i < 400; i += 1) {
-      if (world.pawns.hero?.frameId === 'ship') break;
-      world = tickWorld(world, 0.05, [{ pawnId: 'hero', moveX: 1, moveY: 0, sprint: false }], auth);
-    }
-    expect(world.pawns.hero?.frameId).toBe('ship');
+    let world = walkAboard(auth);
     const talked = talkToCaptain(world, 'captain:ship', () => 0.5);
     world = talked.world;
     if (talked.offer === undefined) throw new Error('no offer');

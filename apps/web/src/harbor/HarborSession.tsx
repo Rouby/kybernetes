@@ -6,7 +6,12 @@
  */
 
 import type { DeathCause, SnapshotPortal } from '@kybernetes/protocol';
-import { buildHarborWorld, collidersForFrame, withSnapshotStates } from '@kybernetes/sim-core';
+import {
+  buildHarborWorld,
+  collidersForFrame,
+  type World,
+  withSnapshotStates,
+} from '@kybernetes/sim-core';
 import { useMemo, useRef } from 'react';
 import { DeathOverlay } from './DeathOverlay';
 import { HarborViewport } from './HarborViewport';
@@ -16,6 +21,14 @@ import { dockChipText, withDockWalkable } from './renderState';
 import { useSessionActions } from './sessionActions';
 import { useSessionControls } from './sessionControls';
 import { useSessionFire } from './sessionFire';
+import {
+  describeTarget,
+  type HarborSocket,
+  noticesLine,
+  offerLine,
+  statusLine,
+  vitalsLine,
+} from './sessionHud';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
 import { type HarborIdentity, useHarborSocket } from './useHarborSocket';
 
@@ -24,6 +37,25 @@ const EMPTY_PORTALS: readonly SnapshotPortal[] = [];
 export interface HarborSessionProps {
   readonly identity: HarborIdentity;
   readonly onQuit: () => void;
+}
+
+function harborPortals(snapshot: HarborSocket['snapshot']): readonly SnapshotPortal[] {
+  return snapshot?.portals ?? EMPTY_PORTALS;
+}
+
+function useSessionDerived(socket: HarborSocket, staticWorld: World) {
+  const ownPawn = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
+  const ownFrameId = ownPawn?.frameId ?? 'station';
+  const snapshotPortals = harborPortals(socket.snapshot);
+  const predictionView = useMemo(
+    () => withDockWalkable(withSnapshotStates(staticWorld, snapshotPortals), socket.dock),
+    [staticWorld, snapshotPortals, socket.dock]
+  );
+  const colliders = useMemo(
+    () => collidersForFrame(predictionView, ownFrameId),
+    [predictionView, ownFrameId]
+  );
+  return { ownPawn, colliders };
 }
 
 export function HarborSession({ identity: base, onQuit }: HarborSessionProps) {
@@ -40,17 +72,7 @@ export function HarborSession({ identity: base, onQuit }: HarborSessionProps) {
   const socket = useHarborSocket(identity);
   const { paused, pausedRef, dead, togglePause, restart, sendPlayIntent } =
     useSessionControls(socket);
-  const ownPawn = socket.snapshot?.pawns.find((pawn) => pawn.id === socket.pawnId);
-  const ownFrameId = ownPawn?.frameId ?? 'station';
-  const snapshotPortals = socket.snapshot?.portals ?? EMPTY_PORTALS;
-  const predictionView = useMemo(
-    () => withDockWalkable(withSnapshotStates(staticWorld, snapshotPortals), socket.dock),
-    [staticWorld, snapshotPortals, socket.dock]
-  );
-  const colliders = useMemo(
-    () => collidersForFrame(predictionView, ownFrameId),
-    [predictionView, ownFrameId]
-  );
+  const { ownPawn, colliders } = useSessionDerived(socket, staticWorld);
   const aimLockedRef = useRef(false);
   const movement = useHarborMovement(ownPawn, sendPlayIntent, colliders, aimLockedRef);
   const targetRef = useRef<InteractTarget | null>(null);
@@ -155,7 +177,6 @@ function SessionOverlays({
   return null;
 }
 
-type HarborSocket = ReturnType<typeof useHarborSocket>;
 type Predicted = PredictedPawn | null;
 
 function HarborHud({
@@ -179,50 +200,18 @@ function HarborHud({
       <HudVitals socket={socket} />
       <HudWatch socket={socket} />
       <HudManifest socket={socket} />
-      <div data-testid="harbor-offer">
-        {socket.offer === null ? 'offer:-' : `offer:${socket.offer.jobs.join('/')}`}{' '}
-      </div>
-      <div data-testid="harbor-notices">
-        {socket.notices.length === 0
-          ? 'notices:-'
-          : socket.notices.map((notice) => `${notice.title}:${notice.message}`).join(' | ')}{' '}
-      </div>
+      <div data-testid="harbor-offer">{offerLine(socket.offer)} </div>
+      <div data-testid="harbor-notices">{noticesLine(socket.notices)} </div>
     </>
   );
 }
 
-function describeTarget(target: InteractTarget | null): string {
-  if (target === null) return 'target:-';
-  if (target.kind === 'door') return `target:door:${target.open ? 'open' : 'closed'}`;
-  return 'target:fixture';
-}
-
-function ventCount(socket: HarborSocket): number {
-  return (socket.telemetry?.atmos ?? []).filter((room) => room.pressureKpa < 50).length;
-}
-
 function HudStatus({ socket }: { socket: HarborSocket }) {
-  const pawn = socket.snapshot?.pawns.find((entry) => entry.id === socket.pawnId);
-  const room = pawn === undefined ? '-' : shortId(pawn.roomHint);
-  const face = pawn === undefined ? '?' : Math.round(((pawn.facing * 180) / Math.PI + 360) % 360);
-  return (
-    <div data-testid="harbor-status">
-      {socket.connected
-        ? `tick:${socket.snapshot?.tick ?? '-'} room:${room} sx:${pawn === undefined ? '?' : Math.round(pawn.x)} face:${face} vent:${ventCount(socket)}`
-        : 'offline'}{' '}
-    </div>
-  );
+  return <div data-testid="harbor-status">{statusLine(socket)} </div>;
 }
 
 function HudVitals({ socket }: { socket: HarborSocket }) {
-  const vitals = socket.vitals?.vitals;
-  return (
-    <div data-testid="harbor-vitals">
-      {vitals === undefined
-        ? 'vitals:-'
-        : `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} mag:${vitals.ammo}/${vitals.reserve} spares:[${vitals.mags.join(',')}]${vitals.reloading ? '(reloading)' : ''} credits:${socket.vitals?.credits ?? 0}`}{' '}
-    </div>
-  );
+  return <div data-testid="harbor-vitals">{vitalsLine(socket)} </div>;
 }
 
 function HudWatch({ socket }: { socket: HarborSocket }) {
@@ -245,9 +234,4 @@ function HudManifest({ socket }: { socket: HarborSocket }) {
         : `beacon:${socket.manifest.beacon} crew:${socket.manifest.crew.map((entry) => `${entry.callsign}:${entry.role}`).join(',')}`}{' '}
     </div>
   );
-}
-
-function shortId(id: string): string {
-  const dot = id.indexOf('.');
-  return dot < 0 ? id : id.slice(dot + 1);
 }

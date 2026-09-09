@@ -81,31 +81,37 @@ function atmosFor(telemetry: TelemetryBroadcast | null, roomId: string) {
   return telemetry?.atmos.find((room) => room.roomId === roomId);
 }
 
+export function debugRoom(
+  room: World['rooms'][string],
+  origins: Map<string, { x: number; y: number }>,
+  telemetry: TelemetryBroadcast | null
+): DebugRoom {
+  const origin = originFor(origins, room.frameId);
+  const atmos = atmosFor(telemetry, room.id);
+  const pressureKpa = atmos?.pressureKpa ?? 101.3;
+  return {
+    id: room.id,
+    frameId: room.frameId,
+    x: room.rect.x + origin.x,
+    y: room.rect.y + origin.y,
+    w: room.rect.w,
+    h: room.rect.h,
+    pressureKpa,
+    tempCelsius: atmos?.tempCelsius ?? 21,
+    o2Percent: atmos?.o2Percent ?? 20.9,
+    co2Ppm: atmos?.co2Ppm ?? 600,
+    repressurizing: atmos?.repressurizing ?? false,
+    venting: pressureKpa < 20,
+  };
+}
+
 export function buildDebugRooms(
   world: World,
   snapshot: SnapshotBroadcast | null,
   telemetry: TelemetryBroadcast | null
 ): DebugRoom[] {
   const origins = debugOrigins(snapshot);
-  return Object.values(world.rooms).map((room) => {
-    const origin = originFor(origins, room.frameId);
-    const atmos = atmosFor(telemetry, room.id);
-    const pressureKpa = atmos?.pressureKpa ?? 101.3;
-    return {
-      id: room.id,
-      frameId: room.frameId,
-      x: room.rect.x + origin.x,
-      y: room.rect.y + origin.y,
-      w: room.rect.w,
-      h: room.rect.h,
-      pressureKpa,
-      tempCelsius: atmos?.tempCelsius ?? 21,
-      o2Percent: atmos?.o2Percent ?? 20.9,
-      co2Ppm: atmos?.co2Ppm ?? 600,
-      repressurizing: atmos?.repressurizing ?? false,
-      venting: pressureKpa < 20,
-    };
-  });
+  return Object.values(world.rooms).map((room) => debugRoom(room, origins, telemetry));
 }
 
 export function flowFor(telemetry: TelemetryBroadcast | null, portalId: string): number {

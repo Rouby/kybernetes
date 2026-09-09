@@ -13,6 +13,20 @@ import { HesperiaV2Spec } from './content/HesperiaV2.hull.js';
 import { tickWorld } from './tickWorld.js';
 import type { World } from './types.js';
 
+function listenForArrival(world: World): { world: World; said: string } {
+  let current = world;
+  let said = '';
+  for (let i = 0; i < 600; i += 1) {
+    current = tickWorld(current, 0.05, []);
+    const line = current.pawns.b1?.say ?? '';
+    if (line !== '') {
+      said = line;
+      break;
+    }
+  }
+  return { world: current, said };
+}
+
 function shipBotWorld(): World {
   const assembled = assembleWorld([{ frameId: 'ship', hull: HesperiaV2Spec }]);
   const withBot = spawnPawn(assembled, {
@@ -61,17 +75,9 @@ describe('bot schedules', () => {
   });
 
   it('speaks on arrival and falls silent after its line', () => {
-    let world = shipBotWorld();
-    let said = '';
-    for (let i = 0; i < 600; i += 1) {
-      world = tickWorld(world, 0.05, []);
-      const line = world.pawns.b1?.say ?? '';
-      if (line !== '') {
-        said = line;
-        break;
-      }
-    }
-    expect(BOT_LINES as readonly string[]).toContain(said);
+    const arrival = listenForArrival(shipBotWorld());
+    let world = arrival.world;
+    expect(BOT_LINES as readonly string[]).toContain(arrival.said);
     // Pin the bot mid-dwell so no second arrival can speak: the line expires.
     const bot = world.bots.b1;
     const pawn = world.pawns.b1;

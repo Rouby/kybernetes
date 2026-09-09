@@ -142,24 +142,32 @@ export function tickWatches(world: World, dtSeconds: number): World {
   return next;
 }
 
+function maybeStartWatch(
+  world: World,
+  vesselId: string,
+  vessel: NonNullable<World['vessels'][string]>,
+  transit: NonNullable<World['transit'][string]>,
+  watch: World['watches'][string]
+): World | undefined {
+  if (vessel.schedule !== 'in_transit') return undefined;
+  if (watch !== undefined && watch.legIndex === transit.legIndex) return undefined;
+  const started = startWatch(
+    vesselId,
+    (watch?.watchNo ?? 0) + 1,
+    transit.legIndex,
+    assignmentsAboard(world, vesselId),
+    TRANSIT_S
+  );
+  return { ...world, watches: { ...world.watches, [vesselId]: started } };
+}
+
 function tickVesselWatch(world: World, vesselId: string, dtSeconds: number): World {
   const vessel = world.vessels[vesselId];
   const transit = world.transit[vesselId];
   if (vessel === undefined || transit === undefined) return world;
+  const started = maybeStartWatch(world, vesselId, vessel, transit, world.watches[vesselId]);
+  if (started !== undefined) return started;
   const watch = world.watches[vesselId];
-  if (
-    vessel.schedule === 'in_transit' &&
-    (watch === undefined || watch.legIndex !== transit.legIndex)
-  ) {
-    const started = startWatch(
-      vesselId,
-      (watch?.watchNo ?? 0) + 1,
-      transit.legIndex,
-      assignmentsAboard(world, vesselId),
-      TRANSIT_S
-    );
-    return { ...world, watches: { ...world.watches, [vesselId]: started } };
-  }
   if (watch === undefined) return world;
   const ticked = finishWatch(tickWatch(watch, dtSeconds, pawnsAboard(world, vesselId)));
   let next: World = { ...world, watches: { ...world.watches, [vesselId]: ticked } };

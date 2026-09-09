@@ -292,11 +292,7 @@ function touchesRoom(rect: Rect, segment: HullPortalSpec['segment']): boolean {
   return rectSides(rect).some((side) => overlapOnSide(side, segment) !== undefined);
 }
 
-function checkConnectivity(spec: HullSpec, portals: readonly PortalEdge[]): string[] {
-  if (spec.rooms.length === 0) return [];
-  const adjacency = buildAdjacency(portals);
-  const start = spec.rooms[0]?.id;
-  if (start === undefined) return [];
+function bfsReachable(adjacency: Map<string, string[]>, start: string): Set<string> {
   const visited = new Set<string>([start]);
   const queue: string[] = [start];
   while (queue.length > 0) {
@@ -308,6 +304,14 @@ function checkConnectivity(spec: HullSpec, portals: readonly PortalEdge[]): stri
       }
     }
   }
+  return visited;
+}
+
+function checkConnectivity(spec: HullSpec, portals: readonly PortalEdge[]): string[] {
+  if (spec.rooms.length === 0) return [];
+  const start = spec.rooms[0]?.id;
+  if (start === undefined) return [];
+  const visited = bfsReachable(buildAdjacency(portals), start);
   const errors: string[] = [];
   for (const room of spec.rooms) {
     if (!visited.has(room.id)) errors.push(`room ${room.id} unreachable with all doors open`);

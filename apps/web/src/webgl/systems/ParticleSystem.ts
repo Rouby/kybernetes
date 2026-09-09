@@ -186,6 +186,131 @@ export class ParticleSystem {
     }
   }
 
+  private burstSparks(
+    x: number,
+    y: number,
+    svx: number,
+    svy: number,
+    count: number,
+    speedBase: number,
+    speedRand: number,
+    tint: (particle: ImpactParticle) => void,
+    size: (particle: ImpactParticle) => void,
+    life: (particle: ImpactParticle) => void
+  ): void {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const spd = speedBase + Math.random() * speedRand;
+      const particle: ImpactParticle = {
+        x,
+        y,
+        vx: Math.cos(a) * spd + svx,
+        vy: Math.sin(a) * spd + svy,
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        size: 2.5,
+        life: 0.2,
+        maxLife: 0.35,
+      };
+      tint(particle);
+      size(particle);
+      life(particle);
+      this.particles.push(particle);
+    }
+  }
+
+  private burstKinetic(x: number, y: number, svx: number, svy: number): void {
+    this.burstSparks(
+      x,
+      y,
+      svx,
+      svy,
+      10,
+      70,
+      160,
+      (p) => {
+        p.g = 0.65 + Math.random() * 0.35;
+        p.b = 0.15;
+      },
+      (p) => {
+        p.size = 2.5 + Math.random() * 2.0;
+      },
+      (p) => {
+        p.life = 0.2 + Math.random() * 0.15;
+      }
+    );
+  }
+
+  private burstBreach(x: number, y: number, svx: number, svy: number): void {
+    this.burstSparks(
+      x,
+      y,
+      svx,
+      svy,
+      14,
+      90,
+      220,
+      (p) => {
+        p.g = 0.45 + Math.random() * 0.4;
+        p.b = 0.1;
+      },
+      (p) => {
+        p.size = 3.0 + Math.random() * 3.0;
+      },
+      (p) => {
+        p.life = 0.35 + Math.random() * 0.3;
+        p.maxLife = 0.65;
+      }
+    );
+  }
+
+  private burstLaser(x: number, y: number, svx: number, svy: number): void {
+    this.burstSparks(
+      x,
+      y,
+      svx,
+      svy,
+      6,
+      40,
+      90,
+      (p) => {
+        p.r = 0.0;
+        p.g = 0.95;
+      },
+      (p) => {
+        p.size = 4.0;
+      },
+      (p) => {
+        p.life = 0.16;
+        p.maxLife = 0.16;
+      }
+    );
+  }
+
+  private burstWelder(x: number, y: number, svx: number, svy: number): void {
+    this.burstSparks(
+      x,
+      y,
+      svx,
+      svy,
+      8,
+      90,
+      150,
+      (p) => {
+        p.r = Math.random() > 0.5 ? 0.0 : 0.75;
+        p.g = 0.85;
+      },
+      (p) => {
+        p.size = 3.5;
+      },
+      (p) => {
+        p.life = 0.15;
+        p.maxLife = 0.15;
+      }
+    );
+  }
+
   public addImpact(
     x: number,
     y: number,
@@ -194,75 +319,10 @@ export class ParticleSystem {
   ): void {
     const svx = shipVelocity?.vx ?? 0;
     const svy = shipVelocity?.vy ?? 0;
-    if (type === 'kinetic') {
-      for (let i = 0; i < 10; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const spd = 70 + Math.random() * 160;
-        this.particles.push({
-          x,
-          y,
-          vx: Math.cos(a) * spd + svx,
-          vy: Math.sin(a) * spd + svy,
-          r: 1.0,
-          g: 0.65 + Math.random() * 0.35,
-          b: 0.15,
-          size: 2.5 + Math.random() * 2.0,
-          life: 0.2 + Math.random() * 0.15,
-          maxLife: 0.35,
-        });
-      }
-    } else if (type === 'breach') {
-      for (let i = 0; i < 14; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const spd = 90 + Math.random() * 220;
-        this.particles.push({
-          x,
-          y,
-          vx: Math.cos(a) * spd + svx,
-          vy: Math.sin(a) * spd + svy,
-          r: 1.0,
-          g: 0.45 + Math.random() * 0.4,
-          b: 0.1,
-          size: 3.0 + Math.random() * 3.0,
-          life: 0.35 + Math.random() * 0.3,
-          maxLife: 0.65,
-        });
-      }
-    } else if (type === 'laser') {
-      for (let i = 0; i < 6; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const spd = 40 + Math.random() * 90;
-        this.particles.push({
-          x,
-          y,
-          vx: Math.cos(a) * spd + svx,
-          vy: Math.sin(a) * spd + svy,
-          r: 0.0,
-          g: 0.95,
-          b: 1.0,
-          size: 4.0,
-          life: 0.16,
-          maxLife: 0.16,
-        });
-      }
-    } else {
-      for (let i = 0; i < 8; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const spd = 90 + Math.random() * 150;
-        this.particles.push({
-          x,
-          y,
-          vx: Math.cos(a) * spd + svx,
-          vy: Math.sin(a) * spd + svy,
-          r: Math.random() > 0.5 ? 0.0 : 0.75,
-          g: 0.85,
-          b: 1.0,
-          size: 3.5,
-          life: 0.15,
-          maxLife: 0.15,
-        });
-      }
-    }
+    if (type === 'kinetic') this.burstKinetic(x, y, svx, svy);
+    else if (type === 'breach') this.burstBreach(x, y, svx, svy);
+    else if (type === 'laser') this.burstLaser(x, y, svx, svy);
+    else this.burstWelder(x, y, svx, svy);
   }
 
   public addMuzzleFlash(flash: { x: number; y: number; weaponType: WeaponType }): void {

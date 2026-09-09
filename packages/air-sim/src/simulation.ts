@@ -161,17 +161,9 @@ function molarFlowRate(
   return Math.min(Math.max(velocityRate, nozzleRate), chokedRate);
 }
 
-function proposeFlow(portal: Portal, dt: number): PortalFlow | null {
-  const deltaP = portal.roomA.pressure - (portal.roomB?.pressure ?? 0);
-  if (portal.effectiveArea <= 0 || Math.abs(deltaP) < MIN_PRESSURE_DIFFERENCE) {
-    // No driving force — let velocity decay via drag.
-    portal.velocity *= Math.max(0, 1 - 0.1 * Math.abs(portal.velocity) * dt);
-    return null;
-  }
-  const [source, target] = deltaP > 0 ? [portal.roomA, portal.roomB] : [portal.roomB, portal.roomA];
-  if (!source || source.volume === 0) return null;
-  // Update the momentum-tracked portal velocity. Velocity is signed relative
-  // to the A→B axis; acceleration follows the pressure gradient direction.
+// Update the momentum-tracked portal velocity. Velocity is signed relative
+// to the A→B axis; acceleration follows the pressure gradient direction.
+function settlePortalVelocity(portal: Portal, deltaP: number, source: Room, dt: number): void {
   const density = (source.totalMoles * source.averageMolarMass) / source.volume;
   const effectiveDistance = Math.max(1, portal.distance);
   const accel = deltaP / (density * effectiveDistance);
@@ -190,10 +182,31 @@ function proposeFlow(portal: Portal, dt: number): PortalFlow | null {
     // Within 100 Pa of balance
     portal.velocity *= Math.exp(-5 * dt); // Strong damping
   }
+}
+
+function flowResult(
+  portal: Portal,
+  source: Room,
+  target: Room | null,
+  deltaP: number
+): PortalFlow | null {
   // Only count velocity that is aligned with the current flow direction.
   const alignedVelocity = Math.max(0, portal.velocity * Math.sign(deltaP));
   const molarRate = molarFlowRate(portal, source, target?.pressure ?? 0, alignedVelocity);
   return Number.isFinite(molarRate) && molarRate > 0 ? { source, target, molarRate } : null;
+}
+
+function proposeFlow(portal: Portal, dt: number): PortalFlow | null {
+  const deltaP = portal.roomA.pressure - (portal.roomB?.pressure ?? 0);
+  if (portal.effectiveArea <= 0 || Math.abs(deltaP) < MIN_PRESSURE_DIFFERENCE) {
+    // No driving force — let velocity decay via drag.
+    portal.velocity *= Math.max(0, 1 - 0.1 * Math.abs(portal.velocity) * dt);
+    return null;
+  }
+  const [source, target] = deltaP > 0 ? [portal.roomA, portal.roomB] : [portal.roomB, portal.roomA];
+  if (!source || source.volume === 0) return null;
+  settlePortalVelocity(portal, deltaP, source, dt);
+  return flowResult(portal, source, target, deltaP);
 }
 
 function applyUpdates(updates: Map<Room, RoomUpdate>): void {

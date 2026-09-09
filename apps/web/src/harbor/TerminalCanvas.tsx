@@ -236,9 +236,7 @@ export function TerminalCanvas({ callsign, audio, onEmbark, onCustomize }: Termi
         event.preventDefault();
         return;
       }
-      if (key === 'e' || key === 'E') current.onEmbark();
-      else if (key === 'c' || key === 'C') current.onCustomize();
-      else if (key === 'm' || key === 'M') toggleMuteKey(current);
+      activateActionKey(key, current);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -347,4 +345,12 @@ function isNavKey(key: string): boolean {
 function toggleMuteKey(current: LiveTerminal): void {
   if (!current.audio.ready) current.audio.enable();
   else current.audio.setMuted(!current.audio.muted);
+}
+
+function activateActionKey(key: string, current: LiveTerminal): boolean {
+  if (key === 'e' || key === 'E') current.onEmbark();
+  else if (key === 'c' || key === 'C') current.onCustomize();
+  else if (key === 'm' || key === 'M') toggleMuteKey(current);
+  else return false;
+  return true;
 }

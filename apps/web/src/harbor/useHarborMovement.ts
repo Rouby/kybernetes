@@ -87,66 +87,27 @@ export function useHarborMovement(
 
   useEffect(() => {
     let raf = 0;
+    const net: FrameNetState = { pump: 0, lastSent: null, lastSentMs: 0, wasActive: false };
     let last = performance.now();
-    let pump = 0;
-    let lastSent: InputSample | null = null;
-    let lastSentMs = 0;
-    let wasActive = false;
     const frame = (now: number): void => {
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
       const input = readMoveInput(keysRef.current);
-      if (input !== null && mouseAimRef?.current !== true) {
-        facingRef.current = Math.atan2(input.y, input.x);
-      }
-      const prev = predictedRef.current;
-      const base = prev ?? snapshotPose(authRef.current);
-      const step = advancePose(
-        base,
+      updateAimFacing(input, facingRef, mouseAimRef?.current);
+      const { prev, next } = stepPrediction(
+        predictedRef,
+        authRef.current,
         input,
         dt,
         facingRef.current,
         collidersRef.current,
-        velRef.current
+        velRef
       );
-      velRef.current = step.vel;
-      const next = step.pose;
-      if (next !== prev) {
-        if (prev !== null && next !== null) {
-          footstepRef.current += Math.hypot(next.x - prev.x, next.y - prev.y);
-          if (footstepRef.current >= FOOTSTEP_PX) {
-            footstepRef.current = 0;
-            ShipAudioEngine.getInstance().playLocalFootstep();
-          }
-        }
-        predictedRef.current = next;
-        setPredicted(next);
+      if (next !== prev && next !== null) {
+        trackFootsteps(footstepRef, prev, next);
+        commitPrediction(predictedRef, setPredicted, next);
       }
-      pump += dt;
-      const pressed = wantsImmediateSend(wasActive, input);
-      wasActive = input !== null;
-      if (pump >= 0.05 || pressed) {
-        pump = 0;
-        const sample: InputSample = {
-          x: input?.x ?? 0,
-          y: input?.y ?? 0,
-          facing: facingRef.current,
-          sprint: false,
-          sealed: sealedRef.current,
-        };
-        if (shouldSendInput(lastSent, sample, now - lastSentMs)) {
-          lastSent = sample;
-          lastSentMs = now;
-          sendIntent({
-            type: 'INPUT',
-            seq: 0,
-            moveVec: { x: sample.x, y: sample.y },
-            facing: sample.facing,
-            sprint: sample.sprint,
-            sealed: sample.sealed,
-          });
-        }
-      }
+      pumpNetworkInput(net, input, dt, now, facingRef.current, sealedRef.current, sendIntent);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -196,6 +157,98 @@ export function useHarborMovement(
 function snapshotPose(auth: SnapshotPawn | undefined): PredictedPawn | null {
   if (auth === undefined) return null;
   return { x: auth.x, y: auth.y, facing: auth.facing };
+}
+
+interface FrameNetState {
+  pump: number;
+  lastSent: InputSample | null;
+  lastSentMs: number;
+  wasActive: boolean;
+}
+
+function updateAimFacing(
+  input: { x: number; y: number } | null,
+  facingRef: { current: number },
+  mouseAim: boolean | undefined
+): void {
+  if (input !== null && mouseAim !== true) facingRef.current = Math.atan2(input.y, input.x);
+}
+
+function stepPrediction(
+  predictedRef: { current: PredictedPawn | null },
+  auth: SnapshotPawn | undefined,
+  input: { x: number; y: number } | null,
+  dt: number,
+  facing: number,
+  colliders: readonly WallSegment[],
+  velRef: { current: { x: number; y: number } }
+): { prev: PredictedPawn | null; next: PredictedPawn | null } {
+  const prev = predictedRef.current;
+  const step = advancePose(
+    prev ?? snapshotPose(auth),
+    input,
+    dt,
+    facing,
+    colliders,
+    velRef.current
+  );
+  velRef.current = step.vel;
+  return { prev, next: step.pose };
+}
+
+function trackFootsteps(
+  footstepRef: { current: number },
+  prev: PredictedPawn | null,
+  next: PredictedPawn | null
+): void {
+  if (prev === null || next === null) return;
+  footstepRef.current += Math.hypot(next.x - prev.x, next.y - prev.y);
+  if (footstepRef.current < FOOTSTEP_PX) return;
+  footstepRef.current = 0;
+  ShipAudioEngine.getInstance().playLocalFootstep();
+}
+
+function commitPrediction(
+  predictedRef: { current: PredictedPawn | null },
+  setPredicted: (next: PredictedPawn | null) => void,
+  next: PredictedPawn | null
+): void {
+  predictedRef.current = next;
+  setPredicted(next);
+}
+
+function pumpNetworkInput(
+  net: FrameNetState,
+  input: { x: number; y: number } | null,
+  dt: number,
+  now: number,
+  facing: number,
+  sealed: boolean,
+  sendIntent: (intent: ClientIntent) => void
+): void {
+  net.pump += dt;
+  const pressed = wantsImmediateSend(net.wasActive, input);
+  net.wasActive = input !== null;
+  if (net.pump < 0.05 && !pressed) return;
+  net.pump = 0;
+  const sample: InputSample = {
+    x: input?.x ?? 0,
+    y: input?.y ?? 0,
+    facing,
+    sprint: false,
+    sealed,
+  };
+  if (!shouldSendInput(net.lastSent, sample, now - net.lastSentMs)) return;
+  net.lastSent = sample;
+  net.lastSentMs = now;
+  sendIntent({
+    type: 'INPUT',
+    seq: 0,
+    moveVec: { x: sample.x, y: sample.y },
+    facing: sample.facing,
+    sprint: sample.sprint,
+    sealed: sample.sealed,
+  });
 }
 
 function advancePose(

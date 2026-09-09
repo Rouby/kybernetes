@@ -16,6 +16,41 @@ function riggedHost(): SimHost {
   });
 }
 
+function hireDeckhand(host: SimHost): void {
+  const talk = host.handleIntent('c1', { type: 'TALK', seq: 500, npcId: 'captain:ship' });
+  if (talk.offer === undefined) throw new Error('no offer');
+  host.handleIntent('c1', {
+    type: 'HIRE',
+    seq: 501,
+    offerId: talk.offer.offerId,
+    job: 'deckhand',
+  });
+}
+
+function expectGradedJourney(host: SimHost): void {
+  const watch = buildWatch(host.currentWorld, 'ship', 1000);
+  expect(watch?.grade).toBe('S');
+  expect(watch?.checklist.length).toBe(4);
+  expect(host.vitalsFor('pawn:u1').credits).toBe(200);
+  expect(host.manifestFor().find((entry) => entry.id === 'pawn:u1')?.role).toBe('deckhand');
+}
+
+function eastStepper(host: SimHost, drive: (seconds: number) => void): () => void {
+  let seq = 0;
+  return () => {
+    seq += 1;
+    host.handleIntent('c1', {
+      type: 'INPUT',
+      seq,
+      moveVec: { x: 1, y: 0 },
+      facing: 0,
+      sprint: false,
+      sealed: false,
+    });
+    drive(0.05);
+  };
+}
+
 function driver(host: SimHost): (seconds: number) => void {
   let nowMs = 0;
   return (seconds: number) => {
@@ -163,19 +198,7 @@ describe('host loop sessions', () => {
     const host = riggedHost();
     host.joinBeacon('c1', HARBOR_BEACON, 'Rook', '#fff', 'u1');
     const drive = driver(host);
-    let seq = 0;
-    const pushEast = (): void => {
-      seq += 1;
-      host.handleIntent('c1', {
-        type: 'INPUT',
-        seq,
-        moveVec: { x: 1, y: 0 },
-        facing: 0,
-        sprint: false,
-        sealed: false,
-      });
-      drive(0.05);
-    };
+    const pushEast = eastStepper(host, drive);
     for (let i = 0; i < 400; i += 1) {
       if ((host.currentWorld.pawns['pawn:u1']?.pos.x ?? 0) > 900) break;
       pushEast();
@@ -193,20 +216,9 @@ describe('host loop sessions', () => {
       pushEast();
     }
     expect(host.currentWorld.pawns['pawn:u1']?.frameId).toBe('ship');
-    const talk = host.handleIntent('c1', { type: 'TALK', seq: 500, npcId: 'captain:ship' });
-    if (talk.offer === undefined) throw new Error('no offer');
-    host.handleIntent('c1', {
-      type: 'HIRE',
-      seq: 501,
-      offerId: talk.offer.offerId,
-      job: 'deckhand',
-    });
+    hireDeckhand(host);
     drive(3.5 + 20.5);
-    const watch = buildWatch(host.currentWorld, 'ship', 1000);
-    expect(watch?.grade).toBe('S');
-    expect(watch?.checklist.length).toBe(4);
-    expect(host.vitalsFor('pawn:u1').credits).toBe(200);
-    expect(host.manifestFor().find((entry) => entry.id === 'pawn:u1')?.role).toBe('deckhand');
+    expectGradedJourney(host);
     host.stop();
   });
 

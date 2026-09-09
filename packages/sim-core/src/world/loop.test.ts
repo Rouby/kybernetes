@@ -40,6 +40,50 @@ function eastUntilFrame(world: World, pawnId: string, frameId: string, maxTicks:
   return current;
 }
 
+function stageHiredEngineer(): World {
+  const staged = spawnPawn(buildHarborWorld(), {
+    id: 'p1',
+    owner: 'u1',
+    frameId: 'ship',
+    roomId: 'ship.korridor_schiff',
+    x: 30,
+    y: 350,
+    color: '#fff',
+  });
+  const talked = talkToCaptain(staged, captainIdFor('ship'), RIGGED_RNG);
+  expect(talked.offer?.jobs).toEqual(['engineer', 'deckhand']);
+  if (talked.offer === undefined) throw new Error('no offer');
+  const hired = hireAboard(talked.world, 'ship', 'p1', 'engineer', talked.offer.offerId);
+  expect(hired.hired).toBe(true);
+  return hired.world;
+}
+
+function expectDeparted(world: World): void {
+  expect(world.crew.p1?.role).toBe('engineer');
+  expect(world.pawns['npc:ship:cook']?.frameId).toBe('ship');
+  expect(world.vessels.ship?.schedule).toBe('departing');
+  expect(world.portals['station.korridor_ost_andock']?.state).toBe('sealed');
+}
+
+function expectInTransit(world: World): void {
+  expect(world.vessels.ship?.schedule).toBe('in_transit');
+  expect(world.watches.ship?.watchNo).toBe(1);
+  expect(world.watches.ship?.tasks).toHaveLength(4);
+}
+
+function expectGraded(world: World): void {
+  expect(world.watches.ship?.grade).toBe('S');
+  expect(world.crew.p1?.credits).toBe(200);
+  expect(world.crew.p1?.clearance).toBe(2);
+}
+
+function expectRedocked(world: World): void {
+  expect(world.vessels.ship?.schedule).toBe('docked');
+  expect(world.transit.ship?.legIndex).toBe(1);
+  expect(world.transit.ship?.destination).toBe('Kepler Yard');
+  expect(world.portals['station.korridor_ost_andock']?.state).toBe('closed');
+}
+
 describe('harbor loop', () => {
   it('stages a docked ship with a captain and a schedule', () => {
     const world = buildHarborWorld();
@@ -91,43 +135,16 @@ describe('harbor loop', () => {
   });
 
   it('runs station to hire to grade to redock', () => {
-    let world = spawnPawn(buildHarborWorld(), {
-      id: 'p1',
-      owner: 'u1',
-      frameId: 'ship',
-      roomId: 'ship.korridor_schiff',
-      x: 30,
-      y: 350,
-      color: '#fff',
-    });
-    const talked = talkToCaptain(world, captainIdFor('ship'), RIGGED_RNG);
-    world = talked.world;
-    expect(talked.offer?.jobs).toEqual(['engineer', 'deckhand']);
-    if (talked.offer === undefined) throw new Error('no offer');
+    const hired = stageHiredEngineer();
+    expectDeparted(hired);
 
-    const hired = hireAboard(world, 'ship', 'p1', 'engineer', talked.offer.offerId);
-    world = hired.world;
-    expect(hired.hired).toBe(true);
-    expect(world.crew.p1?.role).toBe('engineer');
-    expect(world.pawns['npc:ship:cook']?.frameId).toBe('ship');
-    expect(world.vessels.ship?.schedule).toBe('departing');
-    expect(world.portals['station.korridor_ost_andock']?.state).toBe('sealed');
+    const transit = drive(hired, 3.5);
+    expectInTransit(transit);
 
-    world = drive(world, 3.5);
-    expect(world.vessels.ship?.schedule).toBe('in_transit');
-    expect(world.watches.ship?.watchNo).toBe(1);
-    expect(world.watches.ship?.tasks).toHaveLength(4);
+    const graded = drive(transit, 20.5);
+    expectGraded(graded);
 
-    world = drive(world, 20.5);
-    expect(world.watches.ship?.grade).toBe('S');
-    expect(world.crew.p1?.credits).toBe(200);
-    expect(world.crew.p1?.clearance).toBe(2);
-
-    world = drive(world, 5.5);
-    expect(world.vessels.ship?.schedule).toBe('docked');
-    expect(world.transit.ship?.legIndex).toBe(1);
-    expect(world.transit.ship?.destination).toBe('Kepler Yard');
-    expect(world.portals['station.korridor_ost_andock']?.state).toBe('closed');
+    expectRedocked(drive(graded, 5.5));
   });
 
   it('starts a second watch on the next leg for the stay-aboard crew', () => {

@@ -82,7 +82,7 @@ export function useSessionFire(
   return { shotsRef, fireSignalRef, pressFireStart, pressFireEnd };
 }
 
-function fireOnce(
+export function fireOnce(
   socket: HarborSocket,
   predicted: PredictedPawn | null,
   facing: number,

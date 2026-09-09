@@ -398,51 +398,65 @@ function wallNormal(
   return dot >= 0 ? { normalX: nx, normalY: ny } : { normalX: -nx, normalY: -ny };
 }
 
+function canonicalRoomId(roomId: string): string {
+  return roomId === 'reactor' ? 'engineering' : roomId;
+}
+
+function bareBreachId(breachId: string): string {
+  if (!breachId.includes('.')) return breachId;
+  return breachId.split('.').pop() ?? breachId;
+}
+
+function punctureRoomId(bare: string): string | undefined {
+  const parts = bare.split('_');
+  if (parts.length < 4) return undefined;
+  const yStr = parts[parts.length - 1];
+  const xStr = parts[parts.length - 2];
+  if (Number.isNaN(Number(xStr)) || Number.isNaN(Number(yStr))) return undefined;
+  return parts.slice(1, parts.length - 2).join('_');
+}
+
 export function normalizeBreachRoomId(breachId: string): string {
-  const bare = breachId.includes('.') ? (breachId.split('.').pop() ?? breachId) : breachId;
-  if (bare.startsWith('puncture_')) {
-    const parts = bare.split('_');
-    if (parts.length >= 4) {
-      const yStr = parts[parts.length - 1];
-      const xStr = parts[parts.length - 2];
-      if (!Number.isNaN(Number(xStr)) && !Number.isNaN(Number(yStr))) {
-        const roomParts = parts.slice(1, parts.length - 2);
-        const clean = roomParts.join('_');
-        return clean === 'reactor' ? 'engineering' : clean;
-      }
-    }
-    const clean = bare.replace('puncture_', '');
-    return clean === 'reactor' ? 'engineering' : clean;
-  }
-  return bare === 'reactor' ? 'engineering' : bare;
+  const bare = bareBreachId(breachId);
+  if (!bare.startsWith('puncture_')) return canonicalRoomId(bare);
+  const parsed = punctureRoomId(bare);
+  if (parsed !== undefined) return canonicalRoomId(parsed);
+  return canonicalRoomId(bare.replace('puncture_', ''));
+}
+
+function punctureCoords(bare: string): { x: number; y: number } | null {
+  const parts = bare.split('_');
+  if (parts.length < 4) return null;
+  const y = Number.parseInt(parts[parts.length - 1], 10);
+  const x = Number.parseInt(parts[parts.length - 2], 10);
+  if (Number.isNaN(x) || Number.isNaN(y)) return null;
+  return { x, y };
+}
+
+function punctureLocation(breachId: string, x: number, y: number): BreachLocation {
+  const roomId = normalizeBreachRoomId(breachId);
+  const wall = nearestWall(x, y);
+  const room = HESPERIA_ROOMS.find((entry) => entry.id === roomId);
+  const normal =
+    wall === undefined || room === undefined
+      ? { normalX: 0, normalY: -1 }
+      : wallNormal(wall, room.x + room.width / 2, room.y + room.height / 2);
+  return {
+    roomId,
+    wallId: wall ? wall.id : 'hull_top_l',
+    x,
+    y,
+    normalX: normal.normalX,
+    normalY: normal.normalY,
+  };
 }
 
 export function getBreachLocation(breachId: string): BreachLocation | null {
   if (!breachId) return null;
-  const bare = breachId.includes('.') ? (breachId.split('.').pop() ?? breachId) : breachId;
+  const bare = bareBreachId(breachId);
   if (bare.startsWith('puncture_')) {
-    const parts = bare.split('_');
-    if (parts.length >= 4) {
-      const y = Number.parseInt(parts[parts.length - 1], 10);
-      const x = Number.parseInt(parts[parts.length - 2], 10);
-      if (!Number.isNaN(x) && !Number.isNaN(y)) {
-        const roomId = normalizeBreachRoomId(breachId);
-        const wall = nearestWall(x, y);
-        const room = HESPERIA_ROOMS.find((entry) => entry.id === roomId);
-        const normal =
-          wall === undefined || room === undefined
-            ? { normalX: 0, normalY: -1 }
-            : wallNormal(wall, room.x + room.width / 2, room.y + room.height / 2);
-        return {
-          roomId,
-          wallId: wall ? wall.id : 'hull_top_l',
-          x,
-          y,
-          normalX: normal.normalX,
-          normalY: normal.normalY,
-        };
-      }
-    }
+    const coords = punctureCoords(bare);
+    if (coords !== null) return punctureLocation(breachId, coords.x, coords.y);
   }
   const norm = normalizeBreachRoomId(breachId);
   return HESPERIA_BREACH_LOCATIONS[norm] || null;
@@ -507,6 +521,32 @@ interface BreachPointOnWall {
   y: number;
 }
 
+function breachOnHorizontal(
+  wall: WallSegment,
+  loc: BreachLocation,
+  halfGap: number
+): BreachPointOnWall | undefined {
+  if (Math.abs(loc.y - wall.y1) >= 4) return undefined;
+  const minX = Math.min(wall.x1, wall.x2);
+  const maxX = Math.max(wall.x1, wall.x2);
+  if (loc.x < minX - 1 || loc.x > maxX + 1) return undefined;
+  const clampedX = Math.max(minX + halfGap, Math.min(maxX - halfGap, loc.x));
+  return { t: (clampedX - wall.x1) / (wall.x2 - wall.x1), x: clampedX, y: loc.y };
+}
+
+function breachOnVertical(
+  wall: WallSegment,
+  loc: BreachLocation,
+  halfGap: number
+): BreachPointOnWall | undefined {
+  if (Math.abs(loc.x - wall.x1) >= 4) return undefined;
+  const minY = Math.min(wall.y1, wall.y2);
+  const maxY = Math.max(wall.y1, wall.y2);
+  if (loc.y < minY - 1 || loc.y > maxY + 1) return undefined;
+  const clampedY = Math.max(minY + halfGap, Math.min(maxY - halfGap, loc.y));
+  return { t: (clampedY - wall.y1) / (wall.y2 - wall.y1), x: loc.x, y: clampedY };
+}
+
 function findBreachesOnWall(
   wall: WallSegment,
   activeLocs: BreachLocation[],
@@ -517,26 +557,42 @@ function findBreachesOnWall(
   const list: BreachPointOnWall[] = [];
 
   for (const loc of activeLocs) {
-    if (isHorizontal && Math.abs(loc.y - wall.y1) < 4) {
-      const minX = Math.min(wall.x1, wall.x2);
-      const maxX = Math.max(wall.x1, wall.x2);
-      if (loc.x >= minX - 1 && loc.x <= maxX + 1) {
-        const clampedX = Math.max(minX + halfGap, Math.min(maxX - halfGap, loc.x));
-        const t = (clampedX - wall.x1) / (wall.x2 - wall.x1);
-        list.push({ t, x: clampedX, y: loc.y });
-      }
-    } else if (isVertical && Math.abs(loc.x - wall.x1) < 4) {
-      const minY = Math.min(wall.y1, wall.y2);
-      const maxY = Math.max(wall.y1, wall.y2);
-      if (loc.y >= minY - 1 && loc.y <= maxY + 1) {
-        const clampedY = Math.max(minY + halfGap, Math.min(maxY - halfGap, loc.y));
-        const t = (clampedY - wall.y1) / (wall.y2 - wall.y1);
-        list.push({ t, x: loc.x, y: clampedY });
-      }
-    }
+    const hit = isHorizontal
+      ? breachOnHorizontal(wall, loc, halfGap)
+      : isVertical
+        ? breachOnVertical(wall, loc, halfGap)
+        : undefined;
+    if (hit !== undefined) list.push(hit);
   }
 
   return list.sort((a, b) => a.t - b.t);
+}
+
+function carveDirection(wall: WallSegment, isHorizontal: boolean): number {
+  if (isHorizontal) return wall.x2 > wall.x1 ? 1 : -1;
+  return wall.y2 > wall.y1 ? 1 : -1;
+}
+
+function gapLeading(
+  wall: WallSegment,
+  breach: BreachPointOnWall,
+  halfGap: number,
+  dir: number,
+  isHorizontal: boolean
+): { x: number; y: number } {
+  if (isHorizontal) return { x: breach.x - dir * halfGap, y: wall.y1 };
+  return { x: wall.x1, y: breach.y - dir * halfGap };
+}
+
+function gapTrailing(
+  wall: WallSegment,
+  breach: BreachPointOnWall,
+  halfGap: number,
+  dir: number,
+  isHorizontal: boolean
+): { x: number; y: number } {
+  if (isHorizontal) return { x: breach.x + dir * halfGap, y: wall.y1 };
+  return { x: wall.x1, y: breach.y + dir * halfGap };
 }
 
 function carveWallAtBreaches(
@@ -545,6 +601,7 @@ function carveWallAtBreaches(
   halfGap: number
 ): WallSegment[] {
   const isHorizontal = Math.abs(wall.y1 - wall.y2) < 1;
+  const dir = carveDirection(wall, isHorizontal);
   const segments: WallSegment[] = [];
   let currX = wall.x1;
   let currY = wall.y1;
@@ -552,15 +609,21 @@ function carveWallAtBreaches(
   for (let i = 0; i < breaches.length; i++) {
     const b = breaches[i];
     if (b === undefined) continue;
-    const dir = isHorizontal ? (wall.x2 > wall.x1 ? 1 : -1) : wall.y2 > wall.y1 ? 1 : -1;
-    const p2X = isHorizontal ? b.x - dir * halfGap : wall.x1;
-    const p2Y = isHorizontal ? wall.y1 : b.y - dir * halfGap;
+    const leading = gapLeading(wall, b, halfGap, dir, isHorizontal);
 
-    if (Math.hypot(p2X - currX, p2Y - currY) > 1) {
-      segments.push({ ...wall, id: `${wall.id}_br_${i}`, x1: currX, y1: currY, x2: p2X, y2: p2Y });
+    if (Math.hypot(leading.x - currX, leading.y - currY) > 1) {
+      segments.push({
+        ...wall,
+        id: `${wall.id}_br_${i}`,
+        x1: currX,
+        y1: currY,
+        x2: leading.x,
+        y2: leading.y,
+      });
     }
-    currX = isHorizontal ? b.x + dir * halfGap : wall.x1;
-    currY = isHorizontal ? wall.y1 : b.y + dir * halfGap;
+    const trailing = gapTrailing(wall, b, halfGap, dir, isHorizontal);
+    currX = trailing.x;
+    currY = trailing.y;
   }
 
   if (Math.hypot(wall.x2 - currX, wall.y2 - currY) > 1) {

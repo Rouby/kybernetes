@@ -151,11 +151,11 @@ function needReach(
   verb: string
 ): RouteResult | undefined {
   if (world.pawns[pawnId] === undefined)
-    return { world, movement: pending, notice: verb + '_no-pawn' };
+    return { world, movement: pending, notice: `${verb}_no-pawn` };
   if (world.fixtures[fixtureId] === undefined)
-    return { world, movement: pending, notice: verb + '_unknown' };
+    return { world, movement: pending, notice: `${verb}_unknown` };
   if (!pawnNearFixture(world, pawnId, fixtureId))
-    return { world, movement: pending, notice: verb + '_too-far' };
+    return { world, movement: pending, notice: `${verb}_too-far` };
   return undefined;
 }
 
@@ -188,12 +188,20 @@ function routeVend(
   if (fix === undefined || fix.kind !== 'vending_wall')
     return { world, movement: pending, notice: 'VEND_denied' };
   if (!fixtureOnline(fix)) return { world, movement: pending, notice: 'VEND_offline' };
-  if (
-    intent.vendId !== 'ration_tin' &&
-    intent.vendId !== 'recycled_water' &&
-    intent.vendId !== 'suit_patch'
-  )
-    return { world, movement: pending, notice: 'VEND_denied' };
+  if (!isVendable(intent.vendId)) return { world, movement: pending, notice: 'VEND_denied' };
+  return routeVendItem(world, pawnId, intent, pending);
+}
+
+function isVendable(vendId: string): boolean {
+  return vendId === 'ration_tin' || vendId === 'recycled_water' || vendId === 'suit_patch';
+}
+
+function routeVendItem(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'VEND' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
   if (intent.vendId === 'suit_patch') return routeSuitPatch(world, pawnId, pending);
   const itemId = intent.vendId === 'ration_tin' ? 'ration_tin' : 'recycled_water';
   return { world: applyConsume(world, pawnId, itemId), movement: pending, notice: 'VEND_ok' };
@@ -245,9 +253,13 @@ function routeHarvest(
   if (!fixtureOnline(fix)) return { world, movement: pending, notice: 'HARVEST_offline' };
   const before = fix.progress01 ?? 0;
   const next = harvestTray(world, intent.trayId);
-  if ((next.fixtures[intent.trayId]?.progress01 ?? 0) >= before && before < 1)
+  if (stillGrowing(next.fixtures, intent.trayId, before))
     return { world, movement: pending, notice: 'HARVEST_growing' };
   return { world: next, movement: pending, notice: 'HARVEST_ok' };
+}
+
+function stillGrowing(fixtures: World['fixtures'], trayId: string, before: number): boolean {
+  return (fixtures[trayId]?.progress01 ?? 0) >= before && before < 1;
 }
 
 function routeRecycle(

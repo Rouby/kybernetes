@@ -21,6 +21,7 @@ import {
   portalRevOf,
   quantizeAirFlow,
   quantizeAtmosRoom,
+  resolveNeedVitals,
   significantFlows,
   snapshotFramesOf,
   snapshotPortalsOf,
@@ -28,6 +29,7 @@ import {
 } from './channels.js';
 import { hireAboard, talkToCaptain } from './crew.js';
 import { bindWorldAir, buildHarborWorld } from './scenarios.js';
+import { defaultVitals } from './survival.js';
 import { tickWorld } from './tickWorld.js';
 import type { World } from './types.js';
 
@@ -226,5 +228,18 @@ describe('snapshot deltas and quantization', () => {
       { portalId: 'station.korridor_ost_andock', velocityMps: 0 },
     ]);
     expect(windy.flows).toEqual([{ portalId: 'station.habitat_korridor', velocityMps: 8.7 }]);
+  });
+
+  it('resolves need vitals with nominal defaults', () => {
+    expect(resolveNeedVitals(undefined)).toMatchObject({
+      hunger: 100,
+      thirst: 100,
+      fatigue: 0,
+      hypoxia: 0,
+      mealBuffS: 0,
+    });
+    expect(resolveNeedVitals({ ...defaultVitals(false), hunger: 12.345 })).toMatchObject({
+      hunger: 12.3,
+    });
   });
 });

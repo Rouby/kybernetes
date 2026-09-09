@@ -57,6 +57,52 @@ declare global {
   }
 }
 
+/** HELLO + JOIN_BEACON handshake sent on every (re)connect. */
+function sendJoinHandshake(socket: WebSocket, id: HarborIdentity): void {
+  socket.send(
+    JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'HELLO',
+      callsign: id.callsign,
+      color: id.color,
+      clientVersion: PROTOCOL_VERSION,
+      ...(id.trim === undefined ? {} : { trim: id.trim }),
+      ...(id.thruster === undefined ? {} : { thruster: id.thruster }),
+    })
+  );
+  socket.send(
+    JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'JOIN_BEACON',
+      beacon: id.beacon,
+      seq: 0,
+      userId: id.userId,
+    })
+  );
+}
+
+function releaseSocketRef(socket: WebSocket, wsRef: { current: WebSocket | null }): void {
+  if (window.__kybernetesSocket === socket) delete window.__kybernetesSocket;
+  wsRef.current = null;
+}
+
+/**
+ * Takeover notice for the no-reconnect path. Returns true when the client
+ * should schedule a reconnect.
+ */
+function shouldReconnectAfterClose(
+  event: CloseEvent,
+  setTakenOver: (taken: boolean) => void,
+  setNotices: Dispatch<SetStateAction<HarborNotice[]>>
+): boolean {
+  // Our pawn was resumed in another tab: reconnecting would steal
+  // it straight back every 2s while both tabs flop its inputs.
+  if (shouldResumeAfterClose(event.code)) return true;
+  setTakenOver(true);
+  pushNotice(setNotices, 'warning', 'Session taken over', 'This pawn resumed in another tab.');
+  return false;
+}
+
 let noticeId = 0;
 
 function pushNotice(
@@ -93,7 +139,8 @@ export function createHarborCaches(): HarborCaches {
   };
 }
 
-export function useHarborSocket(identity: HarborIdentity) {
+/** Channel useState bundle; one hook so the socket hook stays under hook-density limits. */
+function useHarborChannelState() {
   const [connected, setConnected] = useState(false);
   const [pawnId, setPawnId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotBroadcast | null>(null);
@@ -107,6 +154,53 @@ export function useHarborSocket(identity: HarborIdentity) {
   const [notices, setNotices] = useState<HarborNotice[]>([]);
   const [death, setDeath] = useState<DeathBroadcast | null>(null);
   const [takenOver, setTakenOver] = useState(false);
+  return {
+    connected,
+    takenOver,
+    pawnId,
+    snapshot,
+    telemetry,
+    vitals,
+    watch,
+    manifest,
+    stats,
+    dock,
+    offer,
+    notices,
+    death,
+    setConnected,
+    setTakenOver,
+    setPawnId,
+    setSnapshot,
+    setTelemetry,
+    setVitals,
+    setWatch,
+    setManifest,
+    setStats,
+    setDock,
+    setOffer,
+    setNotices,
+    setDeath,
+  };
+}
+
+export function useHarborSocket(identity: HarborIdentity) {
+  const channels = useHarborChannelState();
+  const {
+    setConnected,
+    setTakenOver,
+    setPawnId,
+    setSnapshot,
+    setTelemetry,
+    setVitals,
+    setWatch,
+    setManifest,
+    setStats,
+    setDock,
+    setOffer,
+    setNotices,
+    setDeath,
+  } = channels;
   const wsRef = useRef<WebSocket | null>(null);
   const seqRef = useRef(0);
   const identityRef = useRef(identity);
@@ -122,9 +216,10 @@ export function useHarborSocket(identity: HarborIdentity) {
   }, []);
 
   // Optimistic retire for the Restart button; the next alive VITALS confirms it.
+  // setDeath is a stable useState setter, so this callback never goes stale.
   const clearDeath = useCallback((): void => {
     setDeath(null);
-  }, []);
+  }, [setDeath]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -147,27 +242,7 @@ export function useHarborSocket(identity: HarborIdentity) {
       socket.onopen = () => {
         if (isDisposed) return;
         setConnected(true);
-        const id = identityRef.current;
-        socket.send(
-          JSON.stringify({
-            v: PROTOCOL_VERSION,
-            type: 'HELLO',
-            callsign: id.callsign,
-            color: id.color,
-            clientVersion: PROTOCOL_VERSION,
-            ...(id.trim === undefined ? {} : { trim: id.trim }),
-            ...(id.thruster === undefined ? {} : { thruster: id.thruster }),
-          })
-        );
-        socket.send(
-          JSON.stringify({
-            v: PROTOCOL_VERSION,
-            type: 'JOIN_BEACON',
-            beacon: id.beacon,
-            seq: 0,
-            userId: id.userId,
-          })
-        );
+        sendJoinHandshake(socket, identityRef.current);
       };
       socket.onmessage = (event) => {
         if (isDisposed) return;
@@ -187,22 +262,11 @@ export function useHarborSocket(identity: HarborIdentity) {
       };
       socket.onclose = (event) => {
         setConnected(false);
-        if (window.__kybernetesSocket === socket) delete window.__kybernetesSocket;
-        wsRef.current = null;
+        releaseSocketRef(socket, wsRef);
         if (isDisposed) return;
-        if (!shouldResumeAfterClose(event.code)) {
-          // Our pawn was resumed in another tab: reconnecting would steal
-          // it straight back every 2s while both tabs flop its inputs.
-          setTakenOver(true);
-          pushNotice(
-            setNotices,
-            'warning',
-            'Session taken over',
-            'This pawn resumed in another tab.'
-          );
-          return;
+        if (shouldReconnectAfterClose(event, setTakenOver, setNotices)) {
+          retry = scheduleHarborReconnect(connect);
         }
-        retry = scheduleHarborReconnect(connect);
       };
       socket.onerror = () => {
         handleHarborSocketError(socket, isDisposed);
@@ -217,22 +281,38 @@ export function useHarborSocket(identity: HarborIdentity) {
       if (window.__kybernetesSocket === ws) delete window.__kybernetesSocket;
       setConnected(false);
     };
-  }, []);
+    // Channel setters are stable useState setters: listing them satisfies
+    // exhaustive-deps without ever restarting the connection.
+  }, [
+    setConnected,
+    setTakenOver,
+    setPawnId,
+    setSnapshot,
+    setTelemetry,
+    setVitals,
+    setWatch,
+    setManifest,
+    setStats,
+    setDock,
+    setOffer,
+    setNotices,
+    setDeath,
+  ]);
 
   return {
-    connected,
-    takenOver,
-    pawnId,
-    snapshot,
-    telemetry,
-    vitals,
-    watch,
-    manifest,
-    stats,
-    dock,
-    offer,
-    notices,
-    death,
+    connected: channels.connected,
+    takenOver: channels.takenOver,
+    pawnId: channels.pawnId,
+    snapshot: channels.snapshot,
+    telemetry: channels.telemetry,
+    vitals: channels.vitals,
+    watch: channels.watch,
+    manifest: channels.manifest,
+    stats: channels.stats,
+    dock: channels.dock,
+    offer: channels.offer,
+    notices: channels.notices,
+    death: channels.death,
     clearDeath,
     sendIntent,
   };

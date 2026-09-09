@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSnapshot, buildVitals, snapshotPawnsOf } from './channels.js';
-import { deathCauseFor, isDead, restartRun } from './death.js';
+import { deathCauseFor, isDead, readVitalsSignals, restartRun } from './death.js';
 import { defaultVitals } from './survival.js';
 import { createEmptyWorld, type PawnBody, type World } from './types.js';
 
@@ -118,5 +118,19 @@ describe('authoritative death', () => {
     expect(world.pawns.p1?.trim).toBe('ion');
     expect(world.pawns.p1?.color).toBe('#ffd166');
     expect(restartRun(world, 'ghost', { frameId: 's', roomId: 's.r', x: 0, y: 0 })).toBe(world);
+  });
+
+  it('reads vitals signals with nominal defaults', () => {
+    expect(readVitalsSignals(undefined)).toEqual({
+      bleedoutS: 0,
+      hypoxia: 0,
+      bodyTempC: 37,
+      hunger: 100,
+      thirst: 100,
+    });
+    expect(readVitalsSignals({ ...defaultVitals(false), bleedoutS: 12, hunger: 0 })).toMatchObject({
+      bleedoutS: 12,
+      hunger: 0,
+    });
   });
 });

@@ -10,6 +10,18 @@ import {
 } from './deck';
 import { carveWallsByFrame, getWorldOpaqueWalls } from './visibility.js';
 
+function breachSeg(
+  wall: (typeof HESPERIA_WALLS)[number],
+  midX: number,
+  midY: number,
+  half: number
+) {
+  const horizontal = Math.abs(wall.y2 - wall.y1) < Math.abs(wall.x2 - wall.x1);
+  return horizontal
+    ? { frameId: 'ship', areaM2: 1.5, x1: midX - half, y1: midY, x2: midX + half, y2: midY }
+    : { frameId: 'ship', areaM2: 1.5, x1: midX, y1: midY - half, x2: midX, y2: midY + half };
+}
+
 describe('station hub fixtures', () => {
   it('stages harbor fixtures with frame-aware world offsets', () => {
     const board = HESPERIA_STATIONS.find((s) => s.id === 'korridor_job_board');
@@ -62,13 +74,9 @@ describe('carved ship walls stay ship-side', () => {
     if (wall === undefined) return;
     const midX = (wall.x1 + wall.x2) / 2;
     const midY = (wall.y1 + wall.y2) / 2;
-    const horizontal = Math.abs(wall.y2 - wall.y1) < Math.abs(wall.x2 - wall.x1);
     const span = Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
     const half = Math.max(4, Math.min(12, span / 6));
-    const seg = horizontal
-      ? { frameId: 'ship', areaM2: 1.5, x1: midX - half, y1: midY, x2: midX + half, y2: midY }
-      : { frameId: 'ship', areaM2: 1.5, x1: midX, y1: midY - half, x2: midX, y2: midY + half };
-    const carved = carveWallsByFrame([wall], [seg]);
+    const carved = carveWallsByFrame([wall], [breachSeg(wall, midX, midY, half)]);
     expect(carved.length).toBeGreaterThan(0);
     for (const piece of carved) expect(isShipSideWall(piece)).toBe(true);
     const offset = { ...SHIP_ORIGIN };

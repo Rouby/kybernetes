@@ -28,17 +28,54 @@ export function deathCauseFor(world: World, pawnId: string): DeathCause | undefi
   return causeFromState(world, pawn);
 }
 
-function causeFromState(world: World, pawn: PawnBody): DeathCause {
-  const vitals = world.vitals[pawn.id];
-  if ((vitals?.bleedoutS ?? 0) > 0) return 'bleedout';
-  if ((vitals?.hypoxia ?? 0) >= 100) return 'hypoxia';
-  const air = world.atmos[pawn.roomHint];
-  if (air !== undefined && air.pressureKpa < 5) return 'vacuum';
-  const temp = vitals?.bodyTempC ?? 37;
-  if (temp < 35 || temp > 39) return 'thermal';
-  if ((vitals?.hunger ?? 100) <= 0) return 'starvation';
-  if ((vitals?.thirst ?? 100) <= 0) return 'dehydration';
+interface DeathSignals {
+  readonly bleedoutS: number;
+  readonly hypoxia: number;
+  readonly pressureKpa: number | undefined;
+  readonly bodyTempC: number;
+  readonly hunger: number;
+  readonly thirst: number;
+}
+
+export function readVitalsSignals(
+  vitals: World['vitals'][string] | undefined
+): Omit<DeathSignals, 'pressureKpa'> {
+  return {
+    bleedoutS: vitals?.bleedoutS ?? 0,
+    hypoxia: vitals?.hypoxia ?? 0,
+    bodyTempC: vitals?.bodyTempC ?? 37,
+    hunger: vitals?.hunger ?? 100,
+    thirst: vitals?.thirst ?? 100,
+  };
+}
+
+function readDeathSignals(world: World, pawn: PawnBody): DeathSignals {
+  return {
+    ...readVitalsSignals(world.vitals[pawn.id]),
+    pressureKpa: world.atmos[pawn.roomHint]?.pressureKpa,
+  };
+}
+
+function isVacuum(pressureKpa: number | undefined): boolean {
+  return pressureKpa !== undefined && pressureKpa < 5;
+}
+
+function isThermal(bodyTempC: number): boolean {
+  return bodyTempC < 35 || bodyTempC > 39;
+}
+
+function causeFromSignals(signals: DeathSignals): DeathCause {
+  if (signals.bleedoutS > 0) return 'bleedout';
+  if (signals.hypoxia >= 100) return 'hypoxia';
+  if (isVacuum(signals.pressureKpa)) return 'vacuum';
+  if (isThermal(signals.bodyTempC)) return 'thermal';
+  if (signals.hunger <= 0) return 'starvation';
+  if (signals.thirst <= 0) return 'dehydration';
   return 'combat';
+}
+
+function causeFromState(world: World, pawn: PawnBody): DeathCause {
+  return causeFromSignals(readDeathSignals(world, pawn));
 }
 
 /**

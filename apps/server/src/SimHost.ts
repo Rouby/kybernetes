@@ -86,6 +86,24 @@ export interface HostIntentResult {
 /** How long a held INPUT keeps driving its pawn without a refresh. */
 export const INPUT_LATCH_MS = 1000;
 
+/** Intents forwarded to the kernel movement/interaction pipeline. */
+const KERNEL_INTENT_TYPES: ReadonlySet<string> = new Set([
+  'INPUT',
+  'DOOR',
+  'SUIT',
+  'CONSUME',
+  'SLEEP',
+  'FIRE',
+  'RELOAD',
+  'INTERACT',
+  'CLAIM',
+  'VEND',
+  'COOK',
+  'HARVEST',
+  'RECYCLE',
+  'REPAIR',
+]);
+
 interface HostObserver {
   readonly beacon: string;
   readonly connectedAtMs: number;
@@ -230,6 +248,34 @@ export class SimHost {
     return { ok: true };
   }
 
+  private evictPriorSession(clientId: string, id: string): void {
+    // Single driver per pawn: a second session under the same userId evicts
+    // the previous holder. Without this both sockets drive one pawn and its
+    // facing and suit state flop between their inputs every tick.
+    for (const [otherId, other] of this.clients) {
+      if (otherId !== clientId && other.userId === id) {
+        this.clients.delete(otherId);
+        this.evictedClients.push(otherId);
+      }
+    }
+  }
+
+  private admitBeaconSeat(
+    beacon: string,
+    vesselId: string,
+    id: string,
+    nowMs: number
+  ): { entry: BeaconEntry } | { denied: JoinDenied } {
+    const entry = this.beacons.get(beacon) ?? createBeaconEntry(beacon, vesselId);
+    if (!canJoinBeacon(entry, id, nowMs)) {
+      return entry.members.size >= entry.cap
+        ? { denied: 'beacon-full' }
+        : { denied: 'join-cooldown' };
+    }
+    this.beacons.set(beacon, admitToBeacon(entry, id, nowMs));
+    return { entry };
+  }
+
   joinBeacon(
     clientId: string,
     beacon: string,
@@ -243,35 +289,21 @@ export class SimHost {
     if (vessel === undefined) return { denied: 'unknown-beacon' };
     const id = userId ?? clientId;
     const pawnId = `pawn:${id}`;
-    // Single driver per pawn: a second session under the same userId evicts
-    // the previous holder. Without this both sockets drive one pawn and its
-    // facing and suit state flop between their inputs every tick.
-    for (const [otherId, other] of this.clients) {
-      if (otherId !== clientId && other.userId === id) {
-        this.clients.delete(otherId);
-        this.evictedClients.push(otherId);
-      }
-    }
+    this.evictPriorSession(clientId, id);
     this.clients.set(clientId, {
       userId: id,
       pawnId,
       callsign,
       color,
       beacon,
-      ...(appearance?.trim === undefined ? {} : { trim: appearance.trim }),
-      ...(appearance?.thruster === undefined ? {} : { thruster: appearance.thruster }),
+      ...appearancePatch(appearance),
     });
     if (this.world.pawns[pawnId] !== undefined) {
       this.world = applyAppearance(this.world, pawnId, appearance);
       return { pawnId, resumed: true };
     }
-    const entry = this.beacons.get(beacon) ?? createBeaconEntry(beacon, vessel.id);
-    if (!canJoinBeacon(entry, id, nowMs)) {
-      return entry.members.size >= entry.cap
-        ? { denied: 'beacon-full' }
-        : { denied: 'join-cooldown' };
-    }
-    this.beacons.set(beacon, admitToBeacon(entry, id, nowMs));
+    const admitted = this.admitBeaconSeat(beacon, vessel.id, id, nowMs);
+    if ('denied' in admitted) return admitted;
     const point = stationSpawnPoint(this.world, this.stationFrame());
     if (point === undefined) return { denied: 'no-spawn' };
     this.world = spawnPawn(this.world, {
@@ -282,8 +314,7 @@ export class SimHost {
       x: point.x,
       y: point.y,
       color,
-      ...(appearance?.trim === undefined ? {} : { trim: appearance.trim }),
-      ...(appearance?.thruster === undefined ? {} : { thruster: appearance.thruster }),
+      ...appearancePatch(appearance),
     });
     return { pawnId, resumed: false };
   }
@@ -302,11 +333,16 @@ export class SimHost {
     this.latched.delete(client.pawnId);
   }
 
-  handleIntent(clientId: string, intent: ClientIntent): HostIntentResult {
-    if (this.observers.has(clientId)) {
-      if (intent.type === 'OBSERVE') return this.handleObserve(clientId, intent.beacon);
-      return { notice: 'observer-readonly' };
-    }
+  private routeObserverIntent(
+    clientId: string,
+    intent: ClientIntent
+  ): HostIntentResult | undefined {
+    if (!this.observers.has(clientId)) return undefined;
+    if (intent.type === 'OBSERVE') return this.handleObserve(clientId, intent.beacon);
+    return { notice: 'observer-readonly' };
+  }
+
+  private routeSessionIntent(clientId: string, intent: ClientIntent): HostIntentResult | undefined {
     switch (intent.type) {
       case 'HELLO':
         return this.handleHello(
@@ -322,30 +358,22 @@ export class SimHost {
         return this.handleJoin(clientId, intent.beacon, intent.userId);
       case 'OBSERVE':
         return this.handleObserve(clientId, intent.beacon);
-      case 'INPUT':
-      case 'DOOR':
-      case 'SUIT':
-      case 'CONSUME':
-      case 'SLEEP':
-      case 'FIRE':
-      case 'RELOAD':
-      case 'INTERACT':
-      case 'CLAIM':
-      case 'VEND':
-      case 'COOK':
-      case 'HARVEST':
-      case 'RECYCLE':
-      case 'REPAIR':
-        return this.handleKernelIntent(clientId, intent);
       case 'TALK':
         return this.handleTalk(intent.npcId);
       case 'HIRE':
         return this.handleHire(clientId, intent.offerId, intent.job);
-      default: {
-        const exhaustive: never = intent;
-        return { notice: `unknown-intent:${String(exhaustive)}` };
-      }
+      default:
+        return undefined;
     }
+  }
+
+  handleIntent(clientId: string, intent: ClientIntent): HostIntentResult {
+    const observer = this.routeObserverIntent(clientId, intent);
+    if (observer !== undefined) return observer;
+    const session = this.routeSessionIntent(clientId, intent);
+    if (session !== undefined) return session;
+    if (KERNEL_INTENT_TYPES.has(intent.type)) return this.handleKernelIntent(clientId, intent);
+    return { notice: `unknown-intent:${intent.type as string}` };
   }
 
   manifestFor(): ManifestBroadcast['crew'] {
@@ -418,18 +446,15 @@ export class SimHost {
     thruster?: ThrusterTint
   ): HostIntentResult {
     const prior = this.clients.get(clientId);
-    const userId = prior?.userId ?? clientId;
-    const pawnId = prior?.pawnId ?? `pawn:${userId}`;
+    const session = resumeSession(prior, clientId);
     this.clients.set(clientId, {
-      userId,
-      pawnId,
+      ...session,
       callsign,
       color,
-      beacon: prior?.beacon ?? '',
       trim: trim ?? prior?.trim,
       thruster: thruster ?? prior?.thruster,
     });
-    this.world = applyAppearance(this.world, pawnId, { trim, thruster });
+    this.world = applyAppearance(this.world, session.pawnId, { trim, thruster });
     return {};
   }
 
@@ -465,11 +490,12 @@ export class SimHost {
 
   private handleJoin(clientId: string, beacon: string, userId?: string): HostIntentResult {
     const prior = this.clients.get(clientId);
+    const display = joinDisplay(prior, clientId);
     const joined = this.joinBeacon(
       clientId,
       beacon,
-      prior?.callsign ?? clientId,
-      prior?.color ?? '#ffffff',
+      display.callsign,
+      display.color,
       userId ?? prior?.userId,
       Date.now(),
       { trim: prior?.trim, thruster: prior?.thruster }
@@ -594,6 +620,37 @@ export class SimHost {
   }
 }
 
+function resumeSession(
+  prior: HostClient | undefined,
+  clientId: string
+): { userId: string; pawnId: string; beacon: string } {
+  const userId = prior?.userId ?? clientId;
+  return {
+    userId,
+    pawnId: prior?.pawnId ?? `pawn:${userId}`,
+    beacon: prior?.beacon ?? '',
+  };
+}
+
+function joinDisplay(
+  prior: HostClient | undefined,
+  clientId: string
+): { callsign: string; color: string } {
+  return {
+    callsign: prior?.callsign ?? clientId,
+    color: prior?.color ?? '#ffffff',
+  };
+}
+
+function appearancePatch(
+  appearance: { readonly trim?: PawnTrim; readonly thruster?: ThrusterTint } | undefined
+): { readonly trim?: PawnTrim; readonly thruster?: ThrusterTint } {
+  return {
+    ...(appearance?.trim === undefined ? {} : { trim: appearance.trim }),
+    ...(appearance?.thruster === undefined ? {} : { thruster: appearance.thruster }),
+  };
+}
+
 function applyAppearance(
   world: World,
   pawnId: string,
@@ -601,16 +658,13 @@ function applyAppearance(
 ): World {
   const pawn = world.pawns[pawnId];
   if (pawn === undefined) return world;
-  if (appearance?.trim === undefined && appearance?.thruster === undefined) return world;
+  const patch = appearancePatch(appearance);
+  if (patch.trim === undefined && patch.thruster === undefined) return world;
   return {
     ...world,
     pawns: {
       ...world.pawns,
-      [pawnId]: {
-        ...pawn,
-        ...(appearance?.trim === undefined ? {} : { trim: appearance.trim }),
-        ...(appearance?.thruster === undefined ? {} : { thruster: appearance.thruster }),
-      },
+      [pawnId]: { ...pawn, ...patch },
     },
   };
 }

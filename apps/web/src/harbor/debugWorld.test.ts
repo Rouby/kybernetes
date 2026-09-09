@@ -8,6 +8,7 @@ import {
   buildDebugRooms,
   debugBounds,
   debugOrigins,
+  debugRoom,
   flowFor,
   formatKpa,
   o2Color,
@@ -194,5 +195,17 @@ describe('debug world mapping', () => {
     expect(bareDebugId('habitat')).toBe('habitat');
     expect(formatKpa(101.27)).toBe('101.3kPa');
     expect(formatKpa(Number.NaN)).toBe('--');
+  });
+
+  it('maps one room with atmos fallbacks', () => {
+    const world = buildHarborWorld();
+    const source = Object.values(world.rooms).find((room) => room.id === 'station.habitat');
+    if (source === undefined) throw new Error('expected habitat');
+    const bare = debugRoom(source, new Map(), null);
+    expect(bare.pressureKpa).toBe(101.3);
+    expect(bare.tempCelsius).toBe(21);
+    expect(bare.venting).toBe(false);
+    const lived = debugRoom(source, new Map(), telemetry());
+    expect(lived.pressureKpa).toBe(101.3);
   });
 });

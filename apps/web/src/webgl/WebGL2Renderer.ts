@@ -127,7 +127,44 @@ function bareRoomId(roomA: string): string {
   return dot < 0 ? roomA : roomA.slice(dot + 1);
 }
 
-function getPlayerAtmosphere(state: WebGLRenderState) {
+export interface DirectionalHit {
+  readonly x: number;
+  readonly y: number;
+  readonly type: 'kinetic' | 'laser' | 'welder' | 'breach';
+  readonly angle: number;
+  readonly weapon: string;
+  readonly energy: number;
+  readonly breachAreaM2: number;
+  readonly pressureKpa: number;
+  readonly shipVelocity?: { vx: number; vy: number };
+}
+
+/** Visible impacts mapped onto particle-system hits (pure; doors occlude). */
+export function visibleDirectionalHits(
+  impacts: ReadonlyArray<ImpactRenderState> | undefined,
+  pawn: { x: number; y: number },
+  doors: DoorState[],
+  frameOffset: { x: number; y: number }
+): DirectionalHit[] {
+  if (impacts === undefined) return [];
+  const impactDoors = getWorldDoors(doors, frameOffset);
+  const from = { x: pawn.x, y: pawn.y };
+  return impacts
+    .filter((imp) => isImpactVisible(from, { x: imp.x, y: imp.y }, impactDoors))
+    .map((imp) => ({
+      x: imp.x,
+      y: imp.y,
+      type: imp.type,
+      angle: imp.angle ?? 0,
+      weapon: imp.weapon ?? 'kinetic_carbine',
+      energy: imp.energy ?? 0.5,
+      breachAreaM2: imp.breachAreaM2 ?? 0.05,
+      pressureKpa: imp.pressureKpa ?? 101.3,
+      shipVelocity: imp.shipVelocity,
+    }));
+}
+
+export function getPlayerAtmosphere(state: WebGLRenderState) {
   const atmospheres = state.telemetry?.roomAtmospheres;
   if (!atmospheres) return undefined;
 
@@ -140,7 +177,7 @@ function getPlayerAtmosphere(state: WebGLRenderState) {
   return atmospheres.corridor_aft ?? atmospheres.corridor;
 }
 
-function computeTargetFrostIntensity(
+export function computeTargetFrostIntensity(
   state: WebGLRenderState,
   playerAtmosphere: RoomAtmosphereSummary | undefined
 ): number {
@@ -164,6 +201,41 @@ function computeTargetFrostIntensity(
   }
 
   return intensity;
+}
+
+export interface SceneLayerData {
+  readonly decals: Array<{
+    x: number;
+    y: number;
+    angle: number;
+    radius: number;
+    weapon: string;
+    cool: number;
+  }>;
+  readonly intruders: BoardingTacticsTelemetry['intruders'];
+  readonly sentries: BoardingTacticsTelemetry['sentries'];
+  readonly livingFixtures: NonNullable<WebGLRenderState['livingFixtures']>;
+  readonly nearestLivingId: string | null;
+  readonly nearestStationId: string | undefined;
+}
+
+/** State-derived scene inputs (pure; keeps the GL pass under complexity limits). */
+export function resolveSceneLayers(state: WebGLRenderState): SceneLayerData {
+  return {
+    decals: (state.decals ?? []).map((decal) => ({
+      x: decal.x,
+      y: decal.y,
+      angle: decal.angle,
+      radius: decal.radius,
+      weapon: decal.weapon,
+      cool: decal.cool,
+    })),
+    intruders: state.boarding?.intruders || [],
+    sentries: state.boarding?.sentries || [],
+    livingFixtures: state.livingFixtures ?? [],
+    nearestLivingId: state.nearestLivingId ?? null,
+    nearestStationId: state.nearestStation?.id,
+  };
 }
 
 // fallow-ignore-next-line complexity
@@ -934,25 +1006,8 @@ export class WebGL2Renderer {
     frameOffset: { x: number; y: number },
     doors: DoorState[]
   ): void {
-    const impactDoors = getWorldDoors(doors, frameOffset);
-    if (state.impacts) {
-      for (const imp of state.impacts) {
-        if (
-          isImpactVisible({ x: state.pawn.x, y: state.pawn.y }, { x: imp.x, y: imp.y }, impactDoors)
-        ) {
-          this.particleSystem.addDirectionalImpact({
-            x: imp.x,
-            y: imp.y,
-            type: imp.type,
-            angle: imp.angle ?? 0,
-            weapon: imp.weapon ?? 'kinetic_carbine',
-            energy: imp.energy ?? 0.5,
-            breachAreaM2: imp.breachAreaM2 ?? 0.05,
-            pressureKpa: imp.pressureKpa ?? 101.3,
-            shipVelocity: imp.shipVelocity,
-          });
-        }
-      }
+    for (const hit of visibleDirectionalHits(state.impacts, state.pawn, doors, frameOffset)) {
+      this.particleSystem.addDirectionalImpact(hit);
     }
     if (state.muzzleFlashes) {
       for (const mf of state.muzzleFlashes) {
@@ -1015,6 +1070,7 @@ export class WebGL2Renderer {
     height: number
   ): void {
     const gl = this.gl;
+    const layers = resolveSceneLayers(state);
     // PASS 2: Render Ship Base Scene into Scene FBO
     const { fbo: sceneFbo } = this.framebufferManager.ensureSceneFBO(width, height);
     gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo);
@@ -1040,31 +1096,24 @@ export class WebGL2Renderer {
       matrix,
       state.breaches ?? [],
       timeSec,
-      (state.decals ?? []).map((decal) => ({
-        x: decal.x,
-        y: decal.y,
-        angle: decal.angle,
-        radius: decal.radius,
-        weapon: decal.weapon,
-        cool: decal.cool,
-      }))
+      layers.decals
     );
     this.deckPass.renderDockTube(this.flatProg, this.flatVAO, matrix, state.dock, timeSec);
     this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);
     this.renderStations(
       matrix,
-      state.nearestStation?.id,
+      layers.nearestStationId,
       timeSec,
       frameOffset,
-      state.livingFixtures ?? [],
-      state.nearestLivingId ?? null
+      layers.livingFixtures,
+      layers.nearestLivingId
     );
 
     this.renderPawn(matrix, state.pawn, state.equippedWeapon, timeSec);
     this.renderVisibleRemotePawns(state, matrix, playerLoSPoly, timeSec);
-    this.renderIntruders(matrix, state.boarding?.intruders || [], timeSec, playerLoSPoly);
-    this.renderSentries(matrix, state.boarding?.sentries || [], timeSec, playerLoSPoly);
+    this.renderIntruders(matrix, layers.intruders, timeSec, playerLoSPoly);
+    this.renderSentries(matrix, layers.sentries, timeSec, playerLoSPoly);
     this.particleSystem.renderDustMotes(
       gl,
       this.flatProg,

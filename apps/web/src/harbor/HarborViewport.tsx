@@ -23,7 +23,7 @@ import type { RefObject } from 'react';
 import { useEffect, useRef } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { LivingView } from '../webgl/LivingFixtures';
-import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
+import { WebGL2Renderer, type WebGLRenderState } from '../webgl/WebGL2Renderer';
 import {
   doorSpotsOf,
   type InteractTarget,
@@ -33,7 +33,7 @@ import {
 } from './interactTarget';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
-import type { FocusOrigin, FrameMotion } from './renderState';
+import type { FocusOrigin, FrameMotion, ImpactRenderModel } from './renderState';
 import {
   aimPoint,
   applyDockGates,
@@ -62,6 +62,7 @@ import {
   snapshotAgeS,
   stepFrameMotion,
   syncDoors,
+  toImpactRenderModel as toFreshImpact,
   ventedBareIds,
 } from './renderState';
 import type { PredictedPawn } from './useHarborMovement';
@@ -136,6 +137,15 @@ const NOTICE_MS = 4000;
 
 const AUDIO_MS = 500;
 
+function fitCanvasToParent(canvas: HTMLCanvasElement, parent: HTMLElement): void {
+  const w = Math.max(320, Math.floor(parent.clientWidth));
+  const h = Math.max(VIEW_MIN_H, Math.floor(parent.clientHeight));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+}
+
 export function HarborViewport(props: HarborViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sessionRef = useRef<ViewportSession>({
@@ -171,14 +181,7 @@ export function HarborViewport(props: HarborViewportProps) {
     if (canvas === null) return;
     const parent = canvas.parentElement;
     if (parent === null) return;
-    const fitCanvas = (): void => {
-      const w = Math.max(320, Math.floor(parent.clientWidth));
-      const h = Math.max(VIEW_MIN_H, Math.floor(parent.clientHeight));
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-      }
-    };
+    const fitCanvas = (): void => fitCanvasToParent(canvas, parent);
     fitCanvas();
     const observer = new ResizeObserver(fitCanvas);
     observer.observe(parent);
@@ -242,6 +245,14 @@ export function HarborViewport(props: HarborViewportProps) {
   );
 }
 
+function frameDoors(
+  session: ViewportSession,
+  view: HarborViewportProps,
+  snapshot: SnapshotBroadcast
+): void {
+  session.doors = applyDockGates(syncDoors(session.doors, snapshot), view.dock?.walkable === true);
+}
+
 function renderViewport(
   session: ViewportSession,
   view: HarborViewportProps,
@@ -285,7 +296,7 @@ function renderViewport(
   stepShots(session, view, snapshot, now);
   session.lastFrameMs = now;
   trackNotices(session, view, now);
-  session.doors = applyDockGates(syncDoors(session.doors, snapshot), view.dock?.walkable === true);
+  frameDoors(session, view, snapshot);
   renderer.setFowIdentity(view.beacon, view.userId);
   ShipAudioEngine.getInstance().updateListener(at.x, at.y, session.doors);
   const { rooms: roomAtmos, delta, breaches, flows } = telemetryView(session, view, snapshot);
@@ -316,6 +327,85 @@ function renderViewport(
 }
 
 /** Pure render-state assembly for one viewport frame (single args object). */
+function boardingRenderSection(args: {
+  session: ViewportSession;
+  view: HarborViewportProps;
+  snapshot: SnapshotBroadcast;
+  viewOrigins: Map<string, { x: number; y: number }>;
+  roomAtmos: Record<string, RoomAtmosphereSummary>;
+  now: number;
+}) {
+  const { session, view, snapshot, viewOrigins, roomAtmos, now } = args;
+  return {
+    intruders: [],
+    boardingPods: [],
+    sentries: [],
+    lockedBulkheads: [],
+    ventedRooms: ventedBareIds(view.telemetry),
+    doors: session.doors,
+    projectiles: [
+      ...mapServerProjectiles(
+        snapshot.projectiles,
+        viewOrigins,
+        snapshotAgeS(session.snapshotAtMs, now)
+      ),
+      ...mapPredictedProjectiles(view.shotsRef.current, viewOrigins),
+    ],
+    roomO2: roomO2(roomAtmos),
+  };
+}
+
+function targetRenderFields(target: InteractTarget | null): {
+  nearestLivingId: string | null;
+  promptActionName: string | undefined;
+} {
+  return {
+    nearestLivingId: target?.kind === 'fixture' ? target.contact.id : null,
+    promptActionName: target === null ? undefined : targetPrompt(target),
+  };
+}
+
+function vitalsRenderFields(
+  view: HarborViewportProps,
+  mappedVitals: PlayerVitals | undefined,
+  own: SnapshotPawn
+): {
+  vitals: PlayerVitals | undefined;
+  mealBuffS: number;
+  credits: number | undefined;
+  clearanceLevel: number | undefined;
+  currentRoomId: string;
+  kineticAmmo: ReturnType<typeof mapKineticAmmo>;
+} {
+  return {
+    vitals: mappedVitals,
+    mealBuffS: view.vitals?.vitals.mealBuffS ?? 0,
+    credits: view.vitals?.credits,
+    clearanceLevel: view.vitals?.clearance,
+    currentRoomId: bareId(own.roomHint),
+    kineticAmmo: mapKineticAmmo(view.vitals),
+  };
+}
+
+function manifestRenderFields(view: HarborViewportProps): {
+  beaconCode: string | undefined;
+  crewCount: number | undefined;
+} {
+  return {
+    beaconCode: view.manifest?.beacon,
+    crewCount: view.manifest?.crew.length,
+  };
+}
+
+function dockRenderView(dock: HarborViewportProps['dock']): WebGLRenderState['dock'] {
+  if (dock === null) return undefined;
+  return {
+    walkable: dock.walkable,
+    phase: dock.phase,
+    secondsToSeal: dock.secondsToSeal,
+  };
+}
+
 function viewportRenderState(args: {
   session: ViewportSession;
   view: HarborViewportProps;
@@ -354,47 +444,17 @@ function viewportRenderState(args: {
   return {
     pawn: mapPawn(own, callsignFor(view.manifest, own.id), at, view.facingRef.current),
     remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, viewOrigins),
-    vitals: mappedVitals,
+    ...vitalsRenderFields(view, mappedVitals, own),
     telemetry: delta,
-    boarding: {
-      intruders: [],
-      boardingPods: [],
-      sentries: [],
-      lockedBulkheads: [],
-      ventedRooms: ventedBareIds(view.telemetry),
-      doors: session.doors,
-      projectiles: [
-        ...mapServerProjectiles(
-          snapshot.projectiles,
-          viewOrigins,
-          snapshotAgeS(session.snapshotAtMs, now)
-        ),
-        ...mapPredictedProjectiles(view.shotsRef.current, viewOrigins),
-      ],
-      roomO2: roomO2(roomAtmos),
-    },
+    boarding: boardingRenderSection({ session, view, snapshot, viewOrigins, roomAtmos, now }),
     livingFixtures: livingViews,
     livingSummary: mapLivingSummary(view.telemetry),
-    mealBuffS: view.vitals?.vitals.mealBuffS ?? 0,
-    nearestLivingId: target?.kind === 'fixture' ? target.contact.id : null,
-    promptActionName: target === null ? undefined : targetPrompt(target),
-    credits: view.vitals?.credits,
-    clearanceLevel: view.vitals?.clearance,
-    beaconCode: view.manifest?.beacon,
-    crewCount: view.manifest?.crew.length,
-    currentRoomId: bareId(own.roomHint),
-    kineticAmmo: mapKineticAmmo(view.vitals),
+    ...targetRenderFields(target),
+    ...manifestRenderFields(view),
     breaches,
     breachFlows: flows,
     decals: mapDecals(snapshot, viewOrigins),
-    dock:
-      view.dock === null
-        ? undefined
-        : {
-            walkable: view.dock.walkable,
-            phase: view.dock.phase,
-            secondsToSeal: view.dock.secondsToSeal,
-          },
+    dock: dockRenderView(view.dock),
     impacts: freshImpacts(session, snapshot, viewOrigins),
     camera: shakenCamera(session, now),
     zoom: VIEW_ZOOM,
@@ -446,7 +506,7 @@ function telemetryView(
   return { rooms, delta, breaches, flows };
 }
 
-function telemetryKey(view: HarborViewportProps, snapshot: SnapshotBroadcast): string {
+export function telemetryKey(view: HarborViewportProps, snapshot: SnapshotBroadcast): string {
   const teleTick = view.telemetry?.tick ?? -1;
   const manifestRev = view.manifest?.rev ?? view.manifest?.shipName ?? '?';
   const portalRev = snapshot.portalRev ?? snapshot.tick;
@@ -648,40 +708,28 @@ function impactKey(frameId: string, x: number, y: number, kind: string, weapon?:
   return `${frameId}:${Math.round(x)}:${Math.round(y)}:${kind}:${weapon ?? ''}`;
 }
 
-interface FreshImpact {
-  readonly x: number;
-  readonly y: number;
-  readonly type: 'kinetic' | 'breach';
-  readonly angle: number;
-  readonly weapon: string;
-  readonly energy: number;
-  readonly breachAreaM2: number;
-  readonly pressureKpa: number;
-}
-
-function toFreshImpact(
-  impact: SnapshotBroadcast['impacts'][number],
-  origins: Map<string, { x: number; y: number }>,
-  areas: Map<string, number | undefined>
-): FreshImpact | undefined {
-  if (impact.kind === 'miss') return undefined;
-  const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
-  return {
-    x: impact.x + origin.x,
-    y: impact.y + origin.y,
-    type: impact.kind === 'breach' ? 'breach' : 'kinetic',
-    angle: impact.angle ?? 0,
-    weapon: impact.weapon ?? 'kinetic_carbine',
-    energy: impact.energy ?? 0.5,
-    breachAreaM2: (impact.breachId === undefined ? undefined : areas.get(impact.breachId)) ?? 0.05,
-    pressureKpa: impact.pressureKpa ?? 101.3,
-  };
-}
+type FreshImpact = ImpactRenderModel;
 
 function pruneSeen(seen: Set<string>, live: Set<string>): void {
   for (const key of [...seen]) {
     if (!live.has(key)) seen.delete(key);
   }
+}
+
+function collectFreshImpact(
+  session: ViewportSession,
+  origins: Map<string, { x: number; y: number }>,
+  areas: Map<string, number | undefined>,
+  impact: SnapshotBroadcast['impacts'][number],
+  live: Set<string>,
+  fresh: FreshImpact[]
+): void {
+  const key = impactKey(impact.frameId, impact.x, impact.y, impact.kind, impact.weapon);
+  live.add(key);
+  if (session.seenImpacts.has(key)) return;
+  session.seenImpacts.add(key);
+  const mapped = toFreshImpact(impact, origins, areas);
+  if (mapped !== undefined) fresh.push(mapped);
 }
 
 function freshImpacts(
@@ -693,24 +741,26 @@ function freshImpacts(
   const fresh: FreshImpact[] = [];
   const areas = new Map(snapshot.portals.map((portal) => [portal.id, portal.areaM2] as const));
   const impacts = Array.isArray(snapshot.impacts) ? snapshot.impacts : [];
-  for (const impact of impacts) {
-    const key = impactKey(impact.frameId, impact.x, impact.y, impact.kind, impact.weapon);
-    live.add(key);
-    if (session.seenImpacts.has(key)) continue;
-    session.seenImpacts.add(key);
-    const mapped = toFreshImpact(impact, origins, areas);
-    if (mapped !== undefined) fresh.push(mapped);
-  }
+  for (const impact of impacts) collectFreshImpact(session, origins, areas, impact, live, fresh);
   pruneSeen(session.seenImpacts, live);
   return fresh;
 }
 
+function latestNoticeKey(notices: HarborViewportProps['notices']): string {
+  const latest = notices[notices.length - 1];
+  if (latest === undefined) return '';
+  return `${latest.title}:${latest.message}`;
+}
+
+function retireNotice(session: ViewportSession, now: number): void {
+  if (session.notice !== null && session.notice.until <= now) session.notice = null;
+}
+
 function trackNotices(session: ViewportSession, view: HarborViewportProps, now: number): void {
-  const latest = view.notices[view.notices.length - 1];
-  const key = latest === undefined ? '' : `${latest.title}:${latest.message}`;
+  const key = latestNoticeKey(view.notices);
   if (key !== '' && key !== session.lastNotice) {
     session.lastNotice = key;
     session.notice = { text: key.slice(0, 72), until: now + NOTICE_MS };
   }
-  if (session.notice !== null && session.notice.until <= now) session.notice = null;
+  retireNotice(session, now);
 }

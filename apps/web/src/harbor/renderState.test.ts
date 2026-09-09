@@ -44,6 +44,7 @@ import {
   smoothedOrigins,
   snapshotAgeS,
   syncDoors,
+  toImpactRenderModel,
   toView,
   ventedBareIds,
 } from './renderState';
@@ -76,6 +77,25 @@ function snapshot(over: Partial<SnapshotBroadcast> = {}): SnapshotBroadcast {
     frames: [{ id: 'ship', originX: 1400, originY: 0, angle: 0 }],
     ...over,
   };
+}
+
+function breachHole() {
+  return {
+    id: 'breach.ship.bridge.12.3',
+    open: false,
+    state: 'destroyed' as const,
+    areaM2: 1.2,
+    bornTick: 90,
+    roomA: 'ship.bridge',
+    x1: 100,
+    y1: 200,
+    x2: 124,
+    y2: 200,
+  };
+}
+
+function flowSpeed(vec: { x: number; y: number } | undefined, fallback = 0): number {
+  return Math.hypot(vec?.x ?? fallback, vec?.y ?? fallback);
 }
 
 function telemetry(over: Partial<TelemetryBroadcast> = {}): TelemetryBroadcast {
@@ -286,26 +306,14 @@ describe('render-state mapping', () => {
   });
 
   it('joins throat flows onto breach axes and averages room winds', () => {
-    const hole = {
-      id: 'breach.ship.bridge.12.3',
-      open: false,
-      state: 'destroyed' as const,
-      areaM2: 1.2,
-      bornTick: 90,
-      roomA: 'ship.bridge',
-      x1: 100,
-      y1: 200,
-      x2: 124,
-      y2: 200,
-    };
+    const hole = breachHole();
     const breaches = mapBreaches(snapshot({ portals: [hole] }));
     const vectors = breachFlowVectors(breaches, [{ portalId: hole.id, velocityMps: 20 }]);
-    const vec = vectors.get(hole.id);
-    expect(Math.hypot(vec?.x ?? 0, vec?.y ?? 0)).toBeCloseTo(20);
+    expect(flowSpeed(vectors.get(hole.id))).toBeCloseTo(20);
     const still = breachFlowVectors(breaches, []).get(hole.id);
-    expect(Math.hypot(still?.x ?? 999, still?.y ?? 999)).toBe(0);
+    expect(flowSpeed(still, 999)).toBe(0);
     const winds = roomWindVectors(breaches, [{ portalId: hole.id, velocityMps: 20 }]);
-    expect(Math.hypot(winds.bridge?.x ?? 0, winds.bridge?.y ?? 0)).toBeGreaterThan(100);
+    expect(flowSpeed(winds.bridge)).toBeGreaterThan(100);
     expect(roomWindVectors(breaches, [])).toEqual({});
     expect(breachCountsByRoom(breaches)).toEqual({ bridge: 1 });
   });
@@ -753,6 +761,37 @@ describe('render-state mapping', () => {
     const merged = mergeTelemetry(full, { ...full, full: false, atmos: [] });
     expect(merged.living).toHaveLength(1);
     expect(mapTelemetry(snapshot(), merged, null, {}).supplies.waterLitres).toBeCloseTo(12.5);
+  });
+
+  it('maps single impacts onto particle coordinates', () => {
+    const origins = new Map([['ship', { x: 1400, y: 0 }]]);
+    expect(
+      toImpactRenderModel({ frameId: 'ship', x: 100, y: 200, kind: 'miss' }, origins, new Map())
+    ).toBeUndefined();
+    expect(
+      toImpactRenderModel(
+        { frameId: 'ship', x: 100, y: 200, kind: 'pawn', weapon: 'kinetic_carbine' },
+        origins,
+        new Map()
+      )
+    ).toMatchObject({ x: 1500, y: 200, type: 'kinetic', angle: 0, energy: 0.5 });
+    expect(
+      toImpactRenderModel(
+        {
+          frameId: 'ship',
+          x: 100,
+          y: 200,
+          kind: 'breach',
+          angle: 1.1,
+          weapon: 'arc_welder',
+          energy: 0.9,
+          breachId: 'b1',
+          pressureKpa: 12,
+        },
+        origins,
+        new Map([['b1', 1.5]])
+      )
+    ).toMatchObject({ type: 'breach', angle: 1.1, breachAreaM2: 1.5, pressureKpa: 12 });
   });
 
   it('keeps focus interpolation total on bad clocks', () => {

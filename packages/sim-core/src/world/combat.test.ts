@@ -20,6 +20,7 @@ import {
   OWNER_GRACE_TICKS,
   PROJECTILE_LIFE_TICKS,
   PROJECTILE_SPEED,
+  resolveImpactStyle,
   SPREAD_MAX,
   SPREAD_PER_SHOT,
   tickSpread,
@@ -135,10 +136,12 @@ describe('simulated projectiles', () => {
     expect(fired.result.kind).toBe('fired');
     if (fired.result.kind !== 'fired') throw new Error('expected spawn');
     const shot = fired.world.projectiles[fired.result.projectileId];
-    expect(shot?.damage).toBe(25);
-    expect(shot?.weapon).toBe('kinetic_carbine');
-    expect(shot?.lifeTicks).toBe(PROJECTILE_LIFE_TICKS);
-    expect(shot?.graceTicks).toBe(OWNER_GRACE_TICKS);
+    expect(shot).toMatchObject({
+      damage: 25,
+      weapon: 'kinetic_carbine',
+      lifeTicks: PROJECTILE_LIFE_TICKS,
+      graceTicks: OWNER_GRACE_TICKS,
+    });
     // First shot leaves with one increment of bloom off the aim axis.
     expect(shot?.vel.x ?? 0).toBeCloseTo(Math.cos(SPREAD_PER_SHOT) * PROJECTILE_SPEED, 6);
     expect(shot?.vel.y ?? 0).toBeCloseTo(Math.sin(SPREAD_PER_SHOT) * PROJECTILE_SPEED, 6);
@@ -472,5 +475,18 @@ describe('simulated projectiles', () => {
     world = tickWorld(second.world, 0.05, []);
     expect(world.pawns.p2?.health.hp).toBeLessThan(100);
     expect(world.impacts.length).toBeGreaterThan(0);
+  });
+
+  it('resolves impact style with carbine defaults', () => {
+    expect(resolveImpactStyle(undefined, 'pawn')).toEqual({
+      angle: 0,
+      weapon: 'kinetic_carbine',
+      energy: 0.5,
+      surface: 'pawn',
+    });
+    expect(resolveImpactStyle(undefined, 'miss')).toMatchObject({ surface: 'wall' });
+    expect(
+      resolveImpactStyle({ angle: 1, weapon: 'pulse_laser', energy: 2, surface: 'hull' }, 'breach')
+    ).toMatchObject({ angle: 1, weapon: 'pulse_laser', energy: 1, surface: 'hull' });
   });
 });

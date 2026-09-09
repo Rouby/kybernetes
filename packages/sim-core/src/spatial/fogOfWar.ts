@@ -233,23 +233,39 @@ export function encodeGridCells(cells: Uint8Array): string {
   return out;
 }
 
+function quadPadding(b64: string): number {
+  if (b64.endsWith('==')) return 2;
+  if (b64.endsWith('=')) return 1;
+  return 0;
+}
+
+function decodeQuad(b64: string, at: number): number | null {
+  const c0 = b64Value(b64.charCodeAt(at));
+  const c1 = b64Value(b64.charCodeAt(at + 1));
+  const c2 = b64.charAt(at + 2) === '=' ? 0 : b64Value(b64.charCodeAt(at + 2));
+  const c3 = b64.charAt(at + 3) === '=' ? 0 : b64Value(b64.charCodeAt(at + 3));
+  if (c0 < 0 || c1 < 0 || c2 < 0 || c3 < 0) return null;
+  return (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
+}
+
+function appendTriple(out: Uint8Array, pos: number, triple: number): number {
+  let next = pos;
+  if (next < out.length) out[next++] = (triple >> 16) & 255;
+  if (next < out.length) out[next++] = (triple >> 8) & 255;
+  if (next < out.length) out[next++] = triple & 255;
+  return next;
+}
+
 export function decodeGridCells(b64: string): Uint8Array | null {
   if (b64.length === 0 || b64.length % 4 !== 0) return null;
-  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
-  const outLen = (b64.length / 4) * 3 - pad;
+  const outLen = (b64.length / 4) * 3 - quadPadding(b64);
   if (outLen < 0) return null;
   const out = new Uint8Array(outLen);
   let pos = 0;
   for (let i = 0; i < b64.length; i += 4) {
-    const c0 = b64Value(b64.charCodeAt(i));
-    const c1 = b64Value(b64.charCodeAt(i + 1));
-    const c2 = b64.charAt(i + 2) === '=' ? 0 : b64Value(b64.charCodeAt(i + 2));
-    const c3 = b64.charAt(i + 3) === '=' ? 0 : b64Value(b64.charCodeAt(i + 3));
-    if (c0 < 0 || c1 < 0 || c2 < 0 || c3 < 0) return null;
-    const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
-    if (pos < outLen) out[pos++] = (triple >> 16) & 255;
-    if (pos < outLen) out[pos++] = (triple >> 8) & 255;
-    if (pos < outLen) out[pos++] = triple & 255;
+    const triple = decodeQuad(b64, i);
+    if (triple === null) return null;
+    pos = appendTriple(out, pos, triple);
   }
   return out;
 }
@@ -278,6 +294,16 @@ export function serializeExplorationGrid(grid: ExplorationGrid): SerializedExplo
   };
 }
 
+function gridDimsValid(data: SerializedExplorationGrid): boolean {
+  return (
+    Number.isFinite(data.cols) &&
+    Number.isFinite(data.rows) &&
+    data.cols > 0 &&
+    data.rows > 0 &&
+    data.cols * data.rows < 1_000_000
+  );
+}
+
 function isValidSerializedGrid(data: SerializedExplorationGrid): boolean {
   return (
     data.version === FOW_SERIAL_VERSION &&
@@ -285,11 +311,7 @@ function isValidSerializedGrid(data: SerializedExplorationGrid): boolean {
     Number.isFinite(data.height) &&
     Number.isFinite(data.cellSize) &&
     data.cellSize > 0 &&
-    Number.isFinite(data.cols) &&
-    Number.isFinite(data.rows) &&
-    data.cols > 0 &&
-    data.rows > 0 &&
-    data.cols * data.rows < 1_000_000
+    gridDimsValid(data)
   );
 }
 

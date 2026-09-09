@@ -181,39 +181,21 @@ export function snapshotAgeS(arrivedMs: number, nowMs: number): number {
   return Math.min(Math.max((nowMs - arrivedMs) / 1000, 0), PROJECTILE_EXTRAPOLATE_S);
 }
 
+/** Delta list wins, else the last full table, else empty (fixtures/decals are optional). */
+function carriedList<T>(
+  deltaList: readonly T[] | undefined,
+  baseList: readonly T[] | undefined
+): T[] {
+  if (deltaList !== undefined) return [...deltaList];
+  if (baseList !== undefined) return [...baseList];
+  return [];
+}
+
 /** Merge a SNAPSHOT_DELTA onto the last full SNAPSHOT (pure, total). */
 export function mergeSnapshotDelta(
   base: SnapshotBroadcast,
   delta: SnapshotDeltaBroadcast
 ): SnapshotBroadcast {
-  if (delta.full) {
-    return {
-      type: 'SNAPSHOT',
-      v: 2,
-      tick: delta.tick,
-      serverTimeMs: delta.serverTimeMs,
-      pawns: [...delta.pawns],
-      impacts: [...delta.impacts],
-      portals: [...delta.portals],
-      projectiles: [...delta.projectiles],
-      frames: [...delta.frames],
-      fixtures:
-        delta.fixtures !== undefined
-          ? [...delta.fixtures]
-          : base.fixtures !== undefined
-            ? [...base.fixtures]
-            : [],
-      decals:
-        delta.decals !== undefined
-          ? [...delta.decals]
-          : base.decals !== undefined
-            ? [...base.decals]
-            : [],
-      full: true,
-      portalRev: delta.portalRev,
-      frameRev: delta.frameRev,
-    };
-  }
   return {
     type: 'SNAPSHOT',
     v: 2,
@@ -221,22 +203,14 @@ export function mergeSnapshotDelta(
     serverTimeMs: delta.serverTimeMs,
     pawns: [...delta.pawns],
     impacts: [...delta.impacts],
-    portals: mergePortals(base.portals, delta.portals, delta.removedPortalIds),
+    portals: delta.full
+      ? [...delta.portals]
+      : mergePortals(base.portals, delta.portals, delta.removedPortalIds),
     projectiles: [...delta.projectiles],
-    frames: mergeFrames(base.frames, delta.frames),
-    fixtures:
-      delta.fixtures !== undefined
-        ? [...delta.fixtures]
-        : base.fixtures !== undefined
-          ? [...base.fixtures]
-          : [],
-    decals:
-      delta.decals !== undefined
-        ? [...delta.decals]
-        : base.decals !== undefined
-          ? [...base.decals]
-          : [],
-    full: false,
+    frames: delta.full ? [...delta.frames] : mergeFrames(base.frames, delta.frames),
+    fixtures: carriedList(delta.fixtures, base.fixtures),
+    decals: carriedList(delta.decals, base.decals),
+    full: delta.full,
     portalRev: delta.portalRev,
     frameRev: delta.frameRev,
   };
@@ -381,10 +355,12 @@ function frameForRoom(roomA: string): string {
   return isShipSideRoom(roomA) ? 'ship' : 'station';
 }
 
-function breachFromPortal(portal: SnapshotPortal, nowTick: number): BreachRenderModel | undefined {
-  if (portal.state !== 'destroyed' || portal.areaM2 === undefined) return undefined;
+function breachSegment(
+  portal: SnapshotPortal
+): { x1: number; y1: number; x2: number; y2: number; bornTick: number } | undefined {
+  const bornTick = portal.bornTick;
   if (
-    portal.bornTick === undefined ||
+    bornTick === undefined ||
     portal.x1 === undefined ||
     portal.y1 === undefined ||
     portal.x2 === undefined ||
@@ -392,7 +368,13 @@ function breachFromPortal(portal: SnapshotPortal, nowTick: number): BreachRender
   ) {
     return undefined;
   }
-  const seg = { x1: portal.x1, y1: portal.y1, x2: portal.x2, y2: portal.y2 };
+  return { x1: portal.x1, y1: portal.y1, x2: portal.x2, y2: portal.y2, bornTick };
+}
+
+function breachFromPortal(portal: SnapshotPortal, nowTick: number): BreachRenderModel | undefined {
+  if (portal.state !== 'destroyed' || portal.areaM2 === undefined) return undefined;
+  const seg = breachSegment(portal);
+  if (seg === undefined) return undefined;
   const cx = (seg.x1 + seg.x2) / 2;
   const cy = (seg.y1 + seg.y2) / 2;
   const roomA = portal.roomA ?? '';
@@ -403,8 +385,7 @@ function breachFromPortal(portal: SnapshotPortal, nowTick: number): BreachRender
     roomA,
     roomB: '',
     areaM2: portal.areaM2,
-    bornTick: portal.bornTick,
-    ageTicks: Math.max(0, nowTick - portal.bornTick),
+    ageTicks: Math.max(0, nowTick - seg.bornTick),
     ...seg,
     cx,
     cy,
@@ -980,6 +961,26 @@ export function mapFreshImpacts(
     });
   }
   return out;
+}
+
+/** Single impact mapped onto particle-system coordinates (pure; miss yields nothing). */
+export function toImpactRenderModel(
+  impact: SnapshotBroadcast['impacts'][number],
+  origins: Map<string, { x: number; y: number }>,
+  areas: Map<string, number | undefined>
+): ImpactRenderModel | undefined {
+  if (impact.kind === 'miss') return undefined;
+  const origin = origins.get(impact.frameId) ?? { x: 0, y: 0 };
+  return {
+    x: impact.x + origin.x,
+    y: impact.y + origin.y,
+    type: impact.kind === 'breach' ? 'breach' : 'kinetic',
+    angle: impact.angle ?? 0,
+    weapon: impact.weapon ?? 'kinetic_carbine',
+    energy: impact.energy ?? 0.5,
+    breachAreaM2: (impact.breachId === undefined ? undefined : areas.get(impact.breachId)) ?? 0.05,
+    pressureKpa: impact.pressureKpa ?? 101.3,
+  };
 }
 
 export function dockChipText(dock: DockStatusBroadcast | null): string {

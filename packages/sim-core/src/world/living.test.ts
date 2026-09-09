@@ -14,9 +14,15 @@ import {
 } from './living.js';
 import { buildHarborWorld } from './scenarios.js';
 import { applyConsume, defaultVitals } from './survival.js';
+import type { World } from './types.js';
 
 function harbor() {
   return buildHarborWorld();
+}
+
+function kajuteWater(world: World): { clean: number; grey: number } {
+  const room = world.living['ship.kajute_sued'];
+  return { clean: room?.waterCleanL ?? 8, grey: room?.waterGreyL ?? 4 };
 }
 
 describe('living fixtures', () => {
@@ -71,15 +77,14 @@ describe('living fixtures', () => {
   it('recycles 2L grey into clean', () => {
     let world = harbor();
     world = tickLiving(world, 0.05);
-    const cleanBefore = world.living['ship.kajute_sued']?.waterCleanL ?? 8;
-    const greyBefore = world.living['ship.kajute_sued']?.waterGreyL ?? 4;
+    const before = kajuteWater(world);
     world = runRecycle(world, 'ship.recycler');
     expect(world.fixtures['ship.recycler']?.progress01).toBeGreaterThan(0);
     world = tickLiving(world, 6.5);
-    const room = world.living['ship.kajute_sued'];
-    expect(room).toBeDefined();
-    expect(room?.waterCleanL ?? 0).toBeGreaterThan(cleanBefore - 0.5);
-    expect(room?.waterGreyL ?? 0).toBeLessThan(greyBefore + 0.5);
+    expect(world.living['ship.kajute_sued']).toBeDefined();
+    const after = kajuteWater(world);
+    expect(after.clean).toBeGreaterThan(before.clean - 0.5);
+    expect(after.grey).toBeLessThan(before.grey + 0.5);
     expect(world.fixtures['ship.recycler']?.progress01).toBe(0);
   });
 

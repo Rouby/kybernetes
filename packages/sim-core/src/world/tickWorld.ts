@@ -77,6 +77,11 @@ function latestInputPerPawn(inputs: readonly WorldInput[]): Map<string, WorldInp
   return latest;
 }
 
+function resolveFacing(pawn: PawnBody, input: WorldInput | undefined): number {
+  const facing = input?.facing;
+  return facing !== undefined && Number.isFinite(facing) ? facing : pawn.facing;
+}
+
 function stepPawn(
   world: World,
   pawn: PawnBody,
@@ -91,12 +96,11 @@ function stepPawn(
   const target = integratePawnPosition({ ...pawn, vel }, vel, dt);
   const collided = collidePawn(pawn, target, collidersForFrame(world, pawn.frameId));
   const pos = carryByFrame(world, pawn.frameId, collided, dt);
-  const facing = input?.facing;
   return {
     ...pawn,
     pos,
     vel,
-    facing: facing !== undefined && Number.isFinite(facing) ? facing : pawn.facing,
+    facing: resolveFacing(pawn, input),
     roomHint: updateRoomHint(world, pawn, pos),
   };
 }

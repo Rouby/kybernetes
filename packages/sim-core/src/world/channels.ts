@@ -31,8 +31,8 @@ import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
 import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
 import { deathCauseFor } from './death.js';
 import { snapshotDecalsOf } from './decals.js';
-import { spareRounds } from './survival.js';
-import type { World } from './types.js';
+import { type PawnVitals, spareRounds } from './survival.js';
+import type { PawnBody, World } from './types.js';
 import { projectGrade, type WatchState } from './watch.js';
 
 export type AtmosRoom = TelemetryBroadcast['atmos'][number];
@@ -121,6 +121,18 @@ export function snapshotFramesOf(world: World): SnapshotFrame[] {
   }));
 }
 
+function fixtureExtras(fix: World['fixtures'][string]): {
+  readonly claimedBy?: string;
+  readonly progressPct?: number;
+  readonly levelPct?: number;
+} {
+  return {
+    ...(fix.claimedBy === undefined ? {} : { claimedBy: fix.claimedBy }),
+    ...((fix.progress01 ?? 0) > 0 ? { progressPct: q0((fix.progress01 ?? 0) * 100) } : {}),
+    ...(fix.level01 !== undefined ? { levelPct: q0(fix.level01 * 100) } : {}),
+  };
+}
+
 export function snapshotFixturesOf(world: World) {
   return Object.values(world.fixtures).map((fix) => ({
     id: fix.id,
@@ -130,9 +142,7 @@ export function snapshotFixturesOf(world: World) {
     y: q1(fix.pos.y),
     integrity: q0(fix.integrity ?? 100),
     online: (fix.integrity ?? 100) > 0 && (fix.online ?? true),
-    ...(fix.claimedBy === undefined ? {} : { claimedBy: fix.claimedBy }),
-    ...((fix.progress01 ?? 0) > 0 ? { progressPct: q0((fix.progress01 ?? 0) * 100) } : {}),
-    ...(fix.level01 !== undefined ? { levelPct: q0(fix.level01 * 100) } : {}),
+    ...fixtureExtras(fix),
   }));
 }
 
@@ -367,6 +377,67 @@ function crewGauge(world: World): number {
     .length;
 }
 
+interface ResolvedAmmo {
+  readonly ammo: number;
+  readonly reserve: number;
+  readonly mags: number[];
+  readonly reloading: boolean;
+}
+
+function resolveAmmo(vitals: PawnVitals | undefined): ResolvedAmmo {
+  if (vitals === undefined)
+    return { ammo: 30, reserve: 120, mags: [30, 30, 30, 30], reloading: false };
+  return {
+    ammo: vitals.mags[0] ?? 30,
+    reserve: spareRounds(vitals),
+    mags: [...vitals.mags.slice(1)],
+    reloading: vitals.reloadingS > 0,
+  };
+}
+
+interface BaseVitalsFields {
+  readonly hunger: number;
+  readonly thirst: number;
+  readonly fatigue: number;
+  readonly health: number;
+  readonly hypoxia: number;
+  readonly suitSealed: boolean;
+  readonly mealBuffS: number;
+}
+
+export function resolveNeedVitals(
+  vitals: PawnVitals | undefined
+): Pick<BaseVitalsFields, 'hunger' | 'thirst' | 'fatigue' | 'hypoxia' | 'mealBuffS'> {
+  return {
+    hunger: q1(vitals?.hunger ?? 100),
+    thirst: q1(vitals?.thirst ?? 100),
+    fatigue: q1(vitals?.fatigue ?? 0),
+    hypoxia: q1(vitals?.hypoxia ?? 0),
+    mealBuffS: q0(vitals?.mealBuffS ?? 0),
+  };
+}
+
+function resolveHealthSeal(
+  vitals: PawnVitals | undefined,
+  pawn: PawnBody | undefined
+): Pick<BaseVitalsFields, 'health' | 'suitSealed'> {
+  return {
+    health: q1(pawn?.health.hp ?? 100),
+    suitSealed: vitals?.suitSealed ?? pawn?.health.suitSealed ?? false,
+  };
+}
+
+function resolveBaseVitals(
+  vitals: PawnVitals | undefined,
+  pawn: PawnBody | undefined
+): BaseVitalsFields {
+  return { ...resolveNeedVitals(vitals), ...resolveHealthSeal(vitals, pawn) };
+}
+
+function isPawnDead(pawn: PawnBody | undefined): boolean {
+  return (pawn?.health.hp ?? 100) <= 0;
+}
+
 export function buildVitals(
   world: World,
   nowMs: number,
@@ -376,24 +447,15 @@ export function buildVitals(
 ): VitalsBroadcast {
   const pawn = world.pawns[pawnId];
   const vitals = world.vitals[pawnId];
-  const dead = (pawn?.health.hp ?? 100) <= 0;
+  const dead = isPawnDead(pawn);
   return {
     type: 'VITALS',
     v: 2,
     tick: world.tick,
     serverTimeMs: nowMs,
     vitals: {
-      hunger: q1(vitals?.hunger ?? 100),
-      thirst: q1(vitals?.thirst ?? 100),
-      fatigue: q1(vitals?.fatigue ?? 0),
-      health: q1(pawn?.health.hp ?? 100),
-      hypoxia: q1(vitals?.hypoxia ?? 0),
-      suitSealed: vitals?.suitSealed ?? pawn?.health.suitSealed ?? false,
-      ammo: vitals?.mags[0] ?? 30,
-      reserve: vitals === undefined ? 120 : spareRounds(vitals),
-      mags: vitals === undefined ? [30, 30, 30, 30] : [...vitals.mags.slice(1)],
-      reloading: (vitals?.reloadingS ?? 0) > 0,
-      mealBuffS: q0(vitals?.mealBuffS ?? 0),
+      ...resolveBaseVitals(vitals, pawn),
+      ...resolveAmmo(vitals),
       dead,
       ...(dead ? { deathCause: deathCauseFor(world, pawnId) ?? 'combat' } : {}),
     },

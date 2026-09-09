@@ -161,15 +161,11 @@ function neighborRooms(world: World, roomId: string): { room: string; via: Porta
  * walk through doorways instead of leaning on the bulkhead between rooms.
  * Returns undefined when already there, unreachable, or unknown rooms.
  */
-export function routeSubTarget(
+function bfsParents(
   world: World,
   fromRoom: string,
   targetRoom: string
-): { x: number; y: number } | undefined {
-  if (fromRoom === targetRoom) return undefined;
-  if (world.rooms[fromRoom] === undefined || world.rooms[targetRoom] === undefined) {
-    return undefined;
-  }
+): Map<string, { room: string; via: PortalEdge }> | null {
   const prev = new Map<string, { room: string; via: PortalEdge }>();
   const seen = new Set<string>([fromRoom]);
   const queue = [fromRoom];
@@ -183,7 +179,14 @@ export function routeSubTarget(
       queue.push(edge.room);
     }
   }
-  if (!seen.has(targetRoom)) return undefined;
+  return seen.has(targetRoom) ? prev : null;
+}
+
+function firstHopVia(
+  prev: Map<string, { room: string; via: PortalEdge }>,
+  fromRoom: string,
+  targetRoom: string
+): PortalEdge | undefined {
   let hop = targetRoom;
   let via: PortalEdge | undefined;
   while (hop !== fromRoom) {
@@ -192,6 +195,21 @@ export function routeSubTarget(
     via = step.via;
     hop = step.room;
   }
+  return via;
+}
+
+export function routeSubTarget(
+  world: World,
+  fromRoom: string,
+  targetRoom: string
+): { x: number; y: number } | undefined {
+  if (fromRoom === targetRoom) return undefined;
+  if (world.rooms[fromRoom] === undefined || world.rooms[targetRoom] === undefined) {
+    return undefined;
+  }
+  const prev = bfsParents(world, fromRoom, targetRoom);
+  if (prev === null) return undefined;
+  const via = firstHopVia(prev, fromRoom, targetRoom);
   if (via === undefined) return undefined;
   return { x: (via.segment.x1 + via.segment.x2) / 2, y: (via.segment.y1 + via.segment.y2) / 2 };
 }

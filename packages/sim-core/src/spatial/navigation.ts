@@ -239,26 +239,27 @@ export function getRoomAt(x: number, y: number): string {
   return getLowerRoom(x);
 }
 
+const SPINE_DOORS = [
+  { x: 440, doorId: 'door_spine_fwd' },
+  { x: 760, doorId: 'door_spine_aft' },
+] as const;
+
+/** Spine doors crossed between two corridor x positions, in travel order. */
+function spineCrossings(fromX: number, toX: number): (typeof SPINE_DOORS)[number][] {
+  const lo = Math.min(fromX, toX);
+  const hi = Math.max(fromX, toX);
+  const crossed = SPINE_DOORS.filter((door) => lo < door.x && hi > door.x);
+  return fromX < toX ? crossed : crossed.reverse();
+}
+
 function appendCorridorTransit(
   path: NavigationWaypoint[],
   fromX: number,
   toX: number,
   corridorY: number = 400
 ): void {
-  if (fromX < toX) {
-    if (fromX < 440 && toX > 440) {
-      path.push({ x: 440, y: corridorY, doorId: 'door_spine_fwd' });
-    }
-    if (fromX < 760 && toX > 760) {
-      path.push({ x: 760, y: corridorY, doorId: 'door_spine_aft' });
-    }
-  } else if (fromX > toX) {
-    if (fromX > 760 && toX < 760) {
-      path.push({ x: 760, y: corridorY, doorId: 'door_spine_aft' });
-    }
-    if (fromX > 440 && toX < 440) {
-      path.push({ x: 440, y: corridorY, doorId: 'door_spine_fwd' });
-    }
+  for (const door of spineCrossings(fromX, toX)) {
+    path.push({ x: door.x, y: corridorY, doorId: door.doorId });
   }
   if (Math.abs(fromX - toX) > 10) {
     path.push({ x: toX, y: corridorY });
