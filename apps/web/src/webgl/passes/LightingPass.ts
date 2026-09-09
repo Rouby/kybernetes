@@ -22,6 +22,25 @@ export interface LightSourceConfig {
   ambientRadius?: number;
 }
 
+/**
+ * True when a light at (x, y) must be culled: non-player sources outside
+ * the player visibility polygon contribute nothing. Player sources and
+ * missing/degenerate polys never cull.
+ */
+export function isOccludedFromPlayer(
+  x: number,
+  y: number,
+  fromPlayer: boolean,
+  playerLoSPoly?: Point2D[]
+): boolean {
+  return (
+    !fromPlayer &&
+    playerLoSPoly !== undefined &&
+    playerLoSPoly.length >= 3 &&
+    !isPointInPolygon({ x, y }, playerLoSPoly)
+  );
+}
+
 export class LightingPass {
   private gl: WebGL2RenderingContext;
   private lightFanProg: WebGLProgram;
@@ -61,7 +80,6 @@ export class LightingPass {
     gl.bindVertexArray(null);
   }
 
-  // fallow-ignore-next-line complexity
   public updateLights(
     projectiles?: ProjectileState[],
     welders?: Array<{
@@ -76,39 +94,47 @@ export class LightingPass {
     this.currentLights.fill(0);
     this.currentLightColors.fill(0);
 
-    let lightIdx = 0;
+    let lightIdx = this.accumulateWelderLights(welders, 0);
+    lightIdx = this.accumulateProjectileLights(projectiles, playerLoSPoly, lightIdx);
+  }
 
-    if (welders) {
-      for (const welder of welders) {
-        if (welder.active && lightIdx < 6) {
-          const arcMidX = welder.originX + Math.cos(welder.facingAngle) * 24;
-          const arcMidY = welder.originY + Math.sin(welder.facingAngle) * 24;
-          this.currentLights[lightIdx * 4 + 0] = arcMidX;
-          this.currentLights[lightIdx * 4 + 1] = arcMidY;
-          this.currentLights[lightIdx * 4 + 2] = 60.0;
-          this.currentLights[lightIdx * 4 + 3] = 1.6;
+  /** Welder arcs into the uniform slots; returns the next free slot. */
+  private accumulateWelderLights(
+    welders:
+      | Array<{ active: boolean; originX: number; originY: number; facingAngle: number }>
+      | undefined,
+    lightIdx: number
+  ): number {
+    if (!welders) return lightIdx;
+    for (const welder of welders) {
+      if (welder.active && lightIdx < 6) {
+        const arcMidX = welder.originX + Math.cos(welder.facingAngle) * 24;
+        const arcMidY = welder.originY + Math.sin(welder.facingAngle) * 24;
+        this.currentLights[lightIdx * 4 + 0] = arcMidX;
+        this.currentLights[lightIdx * 4 + 1] = arcMidY;
+        this.currentLights[lightIdx * 4 + 2] = 60.0;
+        this.currentLights[lightIdx * 4 + 3] = 1.6;
 
-          this.currentLightColors[lightIdx * 3 + 0] = 0.1;
-          this.currentLightColors[lightIdx * 3 + 1] = 0.9;
-          this.currentLightColors[lightIdx * 3 + 2] = 1.0;
-          lightIdx++;
-        }
+        this.currentLightColors[lightIdx * 3 + 0] = 0.1;
+        this.currentLightColors[lightIdx * 3 + 1] = 0.9;
+        this.currentLightColors[lightIdx * 3 + 2] = 1.0;
+        lightIdx++;
       }
     }
+    return lightIdx;
+  }
 
-    if (!projectiles) return;
-
+  /** Live projectiles into the uniform slots; returns the next free slot. */
+  private accumulateProjectileLights(
+    projectiles: ProjectileState[] | undefined,
+    playerLoSPoly: Point2D[] | undefined,
+    lightIdx: number
+  ): number {
+    if (!projectiles) return lightIdx;
     for (const p of projectiles) {
       if (lightIdx >= 6) break;
       if (p.weaponType === 'kinetic_carbine') continue;
-      if (
-        !p.fromPlayer &&
-        playerLoSPoly &&
-        playerLoSPoly.length >= 3 &&
-        !isPointInPolygon({ x: p.x, y: p.y }, playerLoSPoly)
-      ) {
-        continue;
-      }
+      if (isOccludedFromPlayer(p.x, p.y, p.fromPlayer, playerLoSPoly)) continue;
 
       const isLaser = p.weaponType === 'pulse_laser' || p.color === '#00f0ff';
       const isWelder = p.weaponType === 'arc_welder';
@@ -143,6 +169,7 @@ export class LightingPass {
       this.currentLightColors[lightIdx * 3 + 2] = b;
       lightIdx++;
     }
+    return lightIdx;
   }
 
   // fallow-ignore-next-line complexity
@@ -228,7 +255,6 @@ export class LightingPass {
     }
   }
 
-  // fallow-ignore-next-line complexity
   public renderDynamicLightSources(
     matrix: Float32Array,
     projectiles: ProjectileState[] | undefined,
@@ -246,34 +272,47 @@ export class LightingPass {
     timeSec: number,
     playerLoSPoly?: Point2D[]
   ): void {
-    if (projectiles) {
-      for (const p of projectiles) {
-        if (p.weaponType === 'kinetic_carbine') continue;
-        if (
-          !p.fromPlayer &&
-          playerLoSPoly &&
-          playerLoSPoly.length >= 3 &&
-          !isPointInPolygon({ x: p.x, y: p.y }, playerLoSPoly)
-        ) {
-          continue;
-        }
-        const isLaser = p.weaponType === 'pulse_laser';
-        const color: [number, number, number] =
-          p.color === '#ff1744' ? [1.0, 0.15, 0.25] : isLaser ? [0.1, 0.95, 1.0] : [0.4, 0.75, 1.0];
-        const radius = isLaser ? 110 + (p.chargeRatio ?? 1.0) * 40 : 100;
-        const poly = computeVisibilityPolygon({ x: p.x, y: p.y }, radius, opaqueWalls, 32);
-        this.drawLightPolygonFan(matrix, { x: p.x, y: p.y, radius, intensity: 0.9, color }, poly);
-      }
-    }
+    this.renderProjectileLightFans(matrix, projectiles, opaqueWalls, playerLoSPoly);
+    this.renderMuzzleLightFans(matrix, muzzleFlashes, opaqueWalls, playerLoSPoly);
+    this.renderReactorLightFan(matrix, opaqueWalls, timeSec);
+    this.renderWelderLightFan(matrix, welderState, opaqueWalls, playerLoSPoly);
+  }
 
+  /** Energy-round light fans, culled outside player sight. */
+  private renderProjectileLightFans(
+    matrix: Float32Array,
+    projectiles: ProjectileState[] | undefined,
+    opaqueWalls: WallSegment[],
+    playerLoSPoly: Point2D[] | undefined
+  ): void {
+    if (!projectiles) return;
+    for (const p of projectiles) {
+      if (p.weaponType === 'kinetic_carbine') continue;
+      if (isOccludedFromPlayer(p.x, p.y, p.fromPlayer, playerLoSPoly)) continue;
+      const isLaser = p.weaponType === 'pulse_laser';
+      const color: [number, number, number] =
+        p.color === '#ff1744' ? [1.0, 0.15, 0.25] : isLaser ? [0.1, 0.95, 1.0] : [0.4, 0.75, 1.0];
+      const radius = isLaser ? 110 + (p.chargeRatio ?? 1.0) * 40 : 100;
+      const poly = computeVisibilityPolygon({ x: p.x, y: p.y }, radius, opaqueWalls, 32);
+      this.drawLightPolygonFan(matrix, { x: p.x, y: p.y, radius, intensity: 0.9, color }, poly);
+    }
+  }
+
+  /** Muzzle-flash light fans faded by remaining life. */
+  private renderMuzzleLightFans(
+    matrix: Float32Array,
+    muzzleFlashes: ReadonlyArray<{
+      x: number;
+      y: number;
+      weaponType: string;
+      life: number;
+      maxLife: number;
+    }>,
+    opaqueWalls: WallSegment[],
+    playerLoSPoly: Point2D[] | undefined
+  ): void {
     for (const mf of muzzleFlashes) {
-      if (
-        playerLoSPoly &&
-        playerLoSPoly.length >= 3 &&
-        !isPointInPolygon({ x: mf.x, y: mf.y }, playerLoSPoly)
-      ) {
-        continue;
-      }
+      if (isOccludedFromPlayer(mf.x, mf.y, false, playerLoSPoly)) continue;
       const isLaser = mf.weaponType === 'pulse_laser';
       const radius = isLaser ? 140 : 105;
       const color: [number, number, number] = isLaser ? [0.2, 0.95, 1.0] : [1.0, 0.85, 0.4];
@@ -281,7 +320,14 @@ export class LightingPass {
       const poly = computeVisibilityPolygon({ x: mf.x, y: mf.y }, radius, opaqueWalls, 28);
       this.drawLightPolygonFan(matrix, { x: mf.x, y: mf.y, radius, intensity, color }, poly);
     }
+  }
 
+  /** Idle reactor pulse glow. */
+  private renderReactorLightFan(
+    matrix: Float32Array,
+    opaqueWalls: WallSegment[],
+    timeSec: number
+  ): void {
     const reactorPulse = 0.75 + 0.25 * Math.sin(timeSec * 4.0);
     const reactorPoly = computeVisibilityPolygon({ x: 970, y: 570 }, 140, opaqueWalls, 28);
     this.drawLightPolygonFan(
@@ -289,23 +335,27 @@ export class LightingPass {
       { x: 970, y: 570, radius: 140, intensity: 0.6 * reactorPulse, color: [1.0, 0.55, 0.1] },
       reactorPoly
     );
+  }
 
-    if (welderState?.active) {
-      const arcX = welderState.originX + Math.cos(welderState.facingAngle) * 24;
-      const arcY = welderState.originY + Math.sin(welderState.facingAngle) * 24;
-      if (
-        !playerLoSPoly ||
-        playerLoSPoly.length < 3 ||
-        isPointInPolygon({ x: arcX, y: arcY }, playerLoSPoly)
-      ) {
-        const poly = computeVisibilityPolygon({ x: arcX, y: arcY }, 90, opaqueWalls, 32);
-        this.drawLightPolygonFan(
-          matrix,
-          { x: arcX, y: arcY, radius: 90, intensity: 1.2, color: [0.2, 0.85, 1.0] },
-          poly
-        );
-      }
-    }
+  /** Live welder-arc light fan at the arc midpoint. */
+  private renderWelderLightFan(
+    matrix: Float32Array,
+    welderState:
+      | { active: boolean; originX: number; originY: number; facingAngle: number }
+      | undefined,
+    opaqueWalls: WallSegment[],
+    playerLoSPoly: Point2D[] | undefined
+  ): void {
+    if (!welderState?.active) return;
+    const arcX = welderState.originX + Math.cos(welderState.facingAngle) * 24;
+    const arcY = welderState.originY + Math.sin(welderState.facingAngle) * 24;
+    if (isOccludedFromPlayer(arcX, arcY, false, playerLoSPoly)) return;
+    const poly = computeVisibilityPolygon({ x: arcX, y: arcY }, 90, opaqueWalls, 32);
+    this.drawLightPolygonFan(
+      matrix,
+      { x: arcX, y: arcY, radius: 90, intensity: 1.2, color: [0.2, 0.85, 1.0] },
+      poly
+    );
   }
 
   // fallow-ignore-next-line complexity
