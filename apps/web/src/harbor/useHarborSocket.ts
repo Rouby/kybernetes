@@ -25,6 +25,11 @@ import { isNewerTick, PROTOCOL_VERSION, shouldResumeAfterClose } from '@kybernet
 import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { mergeSnapshotDelta, mergeTelemetry } from './renderState';
+import {
+  detachHarborSocket,
+  handleHarborSocketError,
+  scheduleHarborReconnect,
+} from './socketLifecycle';
 
 interface HarborNotice {
   readonly id: number;
@@ -182,23 +187,17 @@ export function useHarborSocket(identity: HarborIdentity) {
           );
           return;
         }
-        retry = setTimeout(connect, 2000);
+        retry = scheduleHarborReconnect(connect);
       };
       socket.onerror = () => {
-        if (!isDisposed) socket.close();
+        handleHarborSocketError(socket, isDisposed);
       };
     };
     connect();
     return () => {
       isDisposed = true;
       if (retry) clearTimeout(retry);
-      if (ws) {
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.close();
-      }
+      detachHarborSocket(ws);
       wsRef.current = null;
       if (window.__kybernetesSocket === ws) delete window.__kybernetesSocket;
       setConnected(false);

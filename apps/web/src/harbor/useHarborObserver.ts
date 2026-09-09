@@ -13,6 +13,11 @@ import type {
 } from '@kybernetes/protocol';
 import { PROTOCOL_VERSION } from '@kybernetes/protocol';
 import { useEffect, useRef, useState } from 'react';
+import {
+  detachHarborSocket,
+  handleHarborSocketError,
+  scheduleHarborReconnect,
+} from './socketLifecycle';
 import { createHarborCaches, handleMessage, type SnapshotSetters } from './useHarborSocket';
 
 export interface HarborObserverIdentity {
@@ -88,23 +93,17 @@ export function useHarborObserver(identity: HarborObserverIdentity) {
         setConnected(false);
         wsRef.current = null;
         if (isDisposed) return;
-        retry = setTimeout(connect, 2000);
+        retry = scheduleHarborReconnect(connect);
       };
       socket.onerror = () => {
-        if (!isDisposed) socket.close();
+        handleHarborSocketError(socket, isDisposed);
       };
     };
     connect();
     return () => {
       isDisposed = true;
       if (retry) clearTimeout(retry);
-      if (ws) {
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.close();
-      }
+      detachHarborSocket(ws);
       wsRef.current = null;
       setConnected(false);
     };
