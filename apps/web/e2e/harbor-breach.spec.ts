@@ -1,14 +1,8 @@
 import type { ChildProcess } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import {
-  angDiff,
-  harborBoard,
-  startDaemon,
-  statFace,
-  statX,
-  stopDaemon,
-  waitForHarbor,
-} from './helpers';
+import { harborBoard, waitForHarbor } from './boarding';
+import { startDaemon, stopDaemon } from './daemon';
+import { angDiff, statFace, statX } from './stats';
 
 test.describe('Harbor structural damage (own daemon: venting is permanent)', () => {
   let daemon: ChildProcess | null = null;

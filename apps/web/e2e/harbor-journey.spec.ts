@@ -1,14 +1,8 @@
 import type { ChildProcess } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import {
-  harborBoard,
-  startDaemon,
-  statRoom,
-  statSX,
-  statX,
-  stopDaemon,
-  waitForHarbor,
-} from './helpers';
+import { harborBoard, waitForHarbor } from './boarding';
+import { startDaemon, stopDaemon } from './daemon';
+import { statRoom, statSX, statX } from './stats';
 
 test.describe('Harbor acceptance journey (C2)', () => {
   test.setTimeout(180000);

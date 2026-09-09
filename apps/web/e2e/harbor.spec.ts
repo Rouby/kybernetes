@@ -1,16 +1,8 @@
 import type { ChildProcess } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import {
-  angDiff,
-  harborBoard,
-  startDaemon,
-  statFace,
-  statRoom,
-  statSX,
-  statX,
-  stopDaemon,
-  waitForHarbor,
-} from './helpers';
+import { harborBoard, waitForHarbor } from './boarding';
+import { startDaemon, stopDaemon } from './daemon';
+import { angDiff, statFace, statRoom, statSX, statX } from './stats';
 
 test.describe('Harbor client smoke (C2)', () => {
   let daemon: ChildProcess | null = null;
