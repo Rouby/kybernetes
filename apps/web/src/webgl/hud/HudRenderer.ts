@@ -21,6 +21,16 @@ import {
   VISOR_GLASS_FS,
   VISOR_GLASS_VS,
 } from '../shaders';
+import {
+  cartridgeLoadedStates,
+  cartridgeSlotCell,
+  combatPanelGeometry,
+  formatKineticAmmo,
+  formatLaserCharge,
+  formatWelderStatus,
+  isKineticWeapon,
+  type KineticAmmoState,
+} from './combatFormatters';
 import { isPawnHovered, resolveCrewDossier } from './crewDossier';
 import { HudAtlas, type TextRenderOptions } from './HudAtlas';
 import { HudHitTester } from './HudHitTester';
@@ -532,17 +542,11 @@ export class HudRenderer {
     }
   }
 
-  // fallow-ignore-next-line complexity
   private renderLowerRightCombat(state: HudDrawState, width: number, height: number): void {
-    const inter = state.activeInteraction;
     const eq = state.equippedWeapon ?? 'kinetic_carbine';
-    const isKinetic = eq === 'kinetic_carbine' || eq === 'railgun_pistol';
-    const marginX = Math.max(72, Math.round(width * 0.055));
-    const marginY = Math.max(52, Math.round(height * 0.065));
-    const panelW = 375;
-    const panelH = isKinetic ? (inter ? 220 : 160) : inter ? 190 : 130;
-    const x = width - panelW - marginX;
-    const y = height - panelH - marginY;
+    const isKinetic = isKineticWeapon(eq);
+    const geo = combatPanelGeometry(width, height, isKinetic, Boolean(state.activeInteraction));
+    const { x, y, panelW, panelH } = geo;
 
     this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
 
@@ -554,138 +558,130 @@ export class HudRenderer {
     });
 
     if (isKinetic) {
-      const ammo = state.kineticAmmo ?? {
-        current: 30,
-        max: 30,
-        reserve: 120,
-        isReloading: false,
-        reloadProgress: 0,
-      };
-
-      const reloadPct = Math.round((ammo.reloadProgress ?? 0) * 100);
-      const statusText = ammo.isReloading
-        ? `[RELOADING ${reloadPct}%]`
-        : ammo.current < 8
-          ? '[LOW AMMO - R TO RELOAD]'
-          : '[R] RELOAD';
-      const ammoCol = ammo.isReloading ? '#00e5ff' : ammo.current < 8 ? '#ff3344' : '#00ff88';
-
-      const weaponTitle = eq === 'railgun_pistol' ? 'RAILGUN PISTOL' : 'KINETIC CARBINE';
-      this.addText(weaponTitle, x + 15, y + 36, {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: ammoCol,
-      });
-
-      const resStr = ammo.reserve !== undefined ? `  RES: ${ammo.reserve}` : '';
-      this.addText(`MAG: ${ammo.current}/${ammo.max}${resStr}  ${statusText}`, x + 15, y + 58, {
-        fontSize: 16,
-        color: '#c8d6e5',
-      });
-
-      // Render 30 individual cartridges in double-stack magazine rack (2 rows of 15)
-      const isLow = ammo.current < 8 && !ammo.isReloading;
-      const startX = x + 18;
-      const colStep = 11.25;
-      for (let i = 0; i < 30; i++) {
-        const row = i < 15 ? 0 : 1;
-        const col = i % 15;
-        const bx = startX + col * colStep;
-        const by = y + 78 + row * 21;
-
-        let isBulletLoaded = i < ammo.current;
-        if (ammo.isReloading) {
-          const loadedCount = Math.floor((ammo.reloadProgress ?? 0) * ammo.max);
-          isBulletLoaded = i < loadedCount;
-        }
-
-        this.addCartridge(bx, by, isBulletLoaded, ammo.isReloading, isLow);
-      }
+      this.renderKineticBlock(state, x, y, eq);
     } else if (eq === 'pulse_laser') {
-      const ratio = state.chargingState?.active ? state.chargingState.ratio || 0 : 0;
-      const pct = Math.round(ratio * 100);
-      const isPrimed = ratio >= 0.8;
-      const statusText = isPrimed
-        ? '[CAPACITOR PRIMED]'
-        : ratio > 0.05
-          ? '[CHARGING]'
-          : '[STANDBY]';
-      const laserCol = isPrimed ? '#c084fc' : '#00e5ff';
-
-      this.addText('PULSE LASER', x + 15, y + 36, {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: laserCol,
-      });
-
-      this.addText(`CHARGE: ${pct}%  ${statusText}`, x + 15, y + 60, {
-        fontSize: 18,
-        color: '#e0e6ed',
-      });
-      const barCol: [number, number, number] = isPrimed ? [0.75, 0.3, 1.0] : [0.0, 0.9, 1.0];
-      this.addProgressBar(x + 15, y + 80, panelW - 30, 8, Math.max(pct, 5), barCol);
+      this.renderLaserBlock(state, x, y, panelW);
     } else {
       // arc_welder has no thermal model: status follows the live arc state.
-      const isWelding = Boolean(state.welderState?.active);
-      const statusText = isWelding ? '[DISCHARGING ARC]' : '[STANDBY]';
-      const welderCol = isWelding ? '#ffb000' : '#7090b0';
-
-      this.addText('ARC WELDER', x + 15, y + 36, {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: welderCol,
-      });
-
-      this.addText(statusText, x + 15, y + 60, {
-        fontSize: 18,
-        color: '#e0e6ed',
-      });
+      this.renderWelderBlock(state, x, y);
     }
 
-    // Station Shift progress indicator (when active)
-    const shiftY = isKinetic ? y + 124 : y + 96;
-    if (inter) {
-      const shiftPct = Math.round(inter.progress * 100);
-      this.addText(`SHIFT: ${inter.actionName.toUpperCase()} (${shiftPct}%)`, x + 15, shiftY, {
+    this.renderCombatFooter(state, x, y, panelW, isKinetic);
+  }
+
+  private renderKineticBlock(state: HudDrawState, x: number, y: number, eq: WeaponType): void {
+    const fmt = formatKineticAmmo(eq, state.kineticAmmo);
+    this.addText(fmt.weaponTitle, x + 15, y + 36, {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: fmt.ammoCol,
+    });
+    this.addText(fmt.magLine, x + 15, y + 58, { fontSize: 16, color: '#c8d6e5' });
+    this.renderCartridgeRack(fmt.ammo, x, y);
+  }
+
+  /** Double-stack magazine rack: 30 cartridges in 2 rows of 15. */
+  private renderCartridgeRack(ammo: KineticAmmoState, x: number, y: number): void {
+    const loaded = cartridgeLoadedStates(ammo);
+    const isLow = ammo.current < 8 && !ammo.isReloading;
+    loaded.forEach((isBulletLoaded, i) => {
+      const { row, col } = cartridgeSlotCell(i);
+      this.addCartridge(
+        x + 18 + col * 11.25,
+        y + 78 + row * 21,
+        isBulletLoaded,
+        ammo.isReloading,
+        isLow
+      );
+    });
+  }
+
+  private renderLaserBlock(state: HudDrawState, x: number, y: number, panelW: number): void {
+    const ratio = state.chargingState?.active ? state.chargingState.ratio || 0 : 0;
+    const fmt = formatLaserCharge(ratio);
+    const laserCol = fmt.isPrimed ? '#c084fc' : '#00e5ff';
+    this.addText('PULSE LASER', x + 15, y + 36, {
+      fontSize: 22,
+      fontWeight: 'bold',
+      color: laserCol,
+    });
+    this.addText(`CHARGE: ${fmt.pct}%  ${fmt.statusText}`, x + 15, y + 60, {
+      fontSize: 18,
+      color: '#e0e6ed',
+    });
+    const barCol: [number, number, number] = fmt.isPrimed ? [0.75, 0.3, 1.0] : [0.0, 0.9, 1.0];
+    this.addProgressBar(x + 15, y + 80, panelW - 30, 8, fmt.barValue, barCol);
+  }
+
+  private renderWelderBlock(state: HudDrawState, x: number, y: number): void {
+    const isWelding = Boolean(state.welderState?.active);
+    const welderCol = isWelding ? '#ffb000' : '#7090b0';
+    this.addText('ARC WELDER', x + 15, y + 36, {
+      fontSize: 22,
+      fontWeight: 'bold',
+      color: welderCol,
+    });
+    this.addText(formatWelderStatus(isWelding), x + 15, y + 60, { fontSize: 18, color: '#e0e6ed' });
+  }
+
+  private renderCombatFooter(
+    state: HudDrawState,
+    x: number,
+    y: number,
+    panelW: number,
+    isKinetic: boolean
+  ): void {
+    if (state.activeInteraction) {
+      this.renderShiftProgress(state, x, y, panelW, isKinetic);
+      return;
+    }
+    const hintY = isKinetic ? y + 128 : y + 98;
+    if (state.promptActionName) {
+      this.addText(`[E] ${state.promptActionName.toUpperCase()}`, x + 15, hintY, {
         fontSize: 16,
         fontWeight: 'bold',
         color: '#00e5ff',
       });
-      this.addProgressBar(x + 15, shiftY + 18, panelW - 30, 6, shiftPct, [0.0, 0.9, 1.0]);
-      this.addButton(
-        'abort_shift',
-        x + 15,
-        shiftY + 30,
-        panelW - 30,
-        24,
-        'ABORT SHIFT [ESC]',
-        { fontSize: 16, color: '#ff2244' },
-        state.onAbortInteraction
-      );
-      this.addText('[L-CLICK / SPACE] Discharge Weapon', x + 15, shiftY + 62, {
-        fontSize: 16,
-        color: '#506680',
-      });
-    } else if (state.promptActionName) {
-      this.addText(
-        `[E] ${state.promptActionName.toUpperCase()}`,
-        x + 15,
-        isKinetic ? y + 128 : y + 98,
-        {
-          fontSize: 16,
-          fontWeight: 'bold',
-          color: '#00e5ff',
-        }
-      );
-    } else {
-      const hint = isKinetic
-        ? '[L-CLICK / SPACE] Fire  •  [R] Reload'
-        : '[L-CLICK / SPACE] Discharge Tool';
-      this.addText(hint, x + 15, isKinetic ? y + 128 : y + 98, {
-        fontSize: 16,
-        color: '#506680',
-      });
+      return;
     }
+    const hint = isKinetic
+      ? '[L-CLICK / SPACE] Fire  •  [R] Reload'
+      : '[L-CLICK / SPACE] Discharge Tool';
+    this.addText(hint, x + 15, hintY, { fontSize: 16, color: '#506680' });
+  }
+
+  /** Station shift progress indicator with abort control. */
+  private renderShiftProgress(
+    state: HudDrawState,
+    x: number,
+    y: number,
+    panelW: number,
+    isKinetic: boolean
+  ): void {
+    const inter = state.activeInteraction;
+    if (!inter) return;
+    const shiftY = isKinetic ? y + 124 : y + 96;
+    const shiftPct = Math.round(inter.progress * 100);
+    this.addText(`SHIFT: ${inter.actionName.toUpperCase()} (${shiftPct}%)`, x + 15, shiftY, {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: '#00e5ff',
+    });
+    this.addProgressBar(x + 15, shiftY + 18, panelW - 30, 6, shiftPct, [0.0, 0.9, 1.0]);
+    this.addButton(
+      'abort_shift',
+      x + 15,
+      shiftY + 30,
+      panelW - 30,
+      24,
+      'ABORT SHIFT [ESC]',
+      { fontSize: 16, color: '#ff2244' },
+      state.onAbortInteraction
+    );
+    this.addText('[L-CLICK / SPACE] Discharge Weapon', x + 15, shiftY + 62, {
+      fontSize: 16,
+      color: '#506680',
+    });
   }
 
   // fallow-ignore-next-line complexity
