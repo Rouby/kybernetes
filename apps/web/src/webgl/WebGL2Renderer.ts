@@ -85,6 +85,15 @@ export interface DockRenderState {
   readonly secondsToSeal: number;
 }
 
+/** Welder arcs feeding the light and emissive passes (live state or arc list). */
+type WelderArcSet = Array<{
+  active: boolean;
+  originX: number;
+  originY: number;
+  facingAngle: number;
+  range: number;
+}>;
+
 export interface WebGLRenderState extends HudDrawState {
   shipOffset?: { x: number; y: number };
   /** True while the vessel is underway (in transit); exhaust burns full. */
@@ -772,9 +781,7 @@ export class WebGL2Renderer {
     gl.bindVertexArray(null);
   }
 
-  // fallow-ignore-next-line complexity
   public render(state: WebGLRenderState, width: number, height: number): void {
-    const gl = this.gl;
     const zoom = state.zoom ?? 1.0;
     const matrix = createCameraMatrix(width, height, state.camera.x, state.camera.y, zoom);
     const timeSec = state.timeMs * 0.001;
@@ -783,7 +790,60 @@ export class WebGL2Renderer {
     const frameOffset = state.shipOffset ?? { x: 0, y: 0 };
     this.deckPass.shipOffset = frameOffset;
 
+    const doors = this.updateFrameSimulation(state, frameOffset, dt);
+    const { playerLoSPoly, welders } = this.renderLightmapPass(
+      state,
+      matrix,
+      doors,
+      frameOffset,
+      timeSec,
+      width,
+      height
+    );
+    this.renderScenePass(
+      state,
+      matrix,
+      doors,
+      frameOffset,
+      playerLoSPoly,
+      timeSec,
+      dt,
+      width,
+      height
+    );
+    this.renderEmissivePass(
+      state,
+      matrix,
+      doors,
+      frameOffset,
+      welders,
+      playerLoSPoly,
+      timeSec,
+      dt,
+      width,
+      height
+    );
+    this.renderHudPass(state, width, height, playerLoSPoly, timeSec);
+  }
+
+  /** Tick particles, frost, impacts, and exhaust ahead of the frame passes. */
+  private updateFrameSimulation(
+    state: WebGLRenderState,
+    frameOffset: { x: number; y: number },
+    dt: number
+  ): DoorState[] {
     const doors = state.telemetry?.boarding?.doors || state.boarding?.doors || createInitialDoors();
+    this.updateFrostIntensity(state, dt);
+    this.ingestFrameEvents(state, frameOffset, doors);
+    this.emitBreachPlumes(state, frameOffset);
+    this.applyAmbientWind(state);
+    this.particleSystem.update(dt);
+    this.emitThrusterExhaust(frameOffset, state.shipUnderway === true, dt);
+    return doors;
+  }
+
+  /** Ease the visor-frost overlay toward its target intensity. */
+  private updateFrostIntensity(state: WebGLRenderState, dt: number): void {
     const playerAtmosphere = getPlayerAtmosphere(state);
     const targetFrost = computeTargetFrostIntensity(state, playerAtmosphere);
     const thawRate = targetFrost > this.currentFrostIntensity ? 0.85 : 0.45;
@@ -792,6 +852,14 @@ export class WebGL2Renderer {
     if (this.currentFrostIntensity < 0.005) {
       this.currentFrostIntensity = 0;
     }
+  }
+
+  /** Feed fresh impacts and muzzle flashes into the particle system. */
+  private ingestFrameEvents(
+    state: WebGLRenderState,
+    frameOffset: { x: number; y: number },
+    doors: DoorState[]
+  ): void {
     const impactDoors = getWorldDoors(doors, frameOffset);
     if (state.impacts) {
       for (const imp of state.impacts) {
@@ -817,11 +885,18 @@ export class WebGL2Renderer {
         this.particleSystem.addMuzzleFlash(mf);
       }
     }
-    this.emitBreachPlumes(state, frameOffset);
-    this.applyAmbientWind(state);
-    this.particleSystem.update(dt);
-    this.emitThrusterExhaust(frameOffset, state.shipUnderway === true, dt);
+  }
 
+  /** PASS 1: lightmap FBO plus dynamic light uniforms. */
+  private renderLightmapPass(
+    state: WebGLRenderState,
+    matrix: Float32Array,
+    doors: DoorState[],
+    frameOffset: { x: number; y: number },
+    timeSec: number,
+    width: number,
+    height: number
+  ): { playerLoSPoly: Point2D[]; welders: WelderArcSet } {
     const opaqueWalls = getWorldOpaqueWalls(HESPERIA_WALLS, doors, state.breaches, frameOffset);
     const doorsHash = (state.boarding?.doors || [])
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
@@ -847,7 +922,22 @@ export class WebGL2Renderer {
 
     const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
     this.lightingPass.updateLights(state.boarding?.projectiles, welders, playerLoSPoly);
+    return { playerLoSPoly, welders };
+  }
 
+  /** PASS 2: ship base scene into the scene FBO. */
+  private renderScenePass(
+    state: WebGLRenderState,
+    matrix: Float32Array,
+    doors: DoorState[],
+    frameOffset: { x: number; y: number },
+    playerLoSPoly: Point2D[],
+    timeSec: number,
+    dt: number,
+    width: number,
+    height: number
+  ): void {
+    const gl = this.gl;
     // PASS 2: Render Ship Base Scene into Scene FBO
     const { fbo: sceneFbo } = this.framebufferManager.ensureSceneFBO(width, height);
     gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo);
@@ -888,16 +978,7 @@ export class WebGL2Renderer {
     this.renderStations(matrix, state.nearestStation?.id, timeSec, frameOffset);
 
     this.renderPawn(matrix, state.pawn, state.equippedWeapon, timeSec);
-    if (state.remotePawns) {
-      for (const rp of state.remotePawns) {
-        const inLoS =
-          playerLoSPoly.length >= 3 && isPointInPolygon({ x: rp.x, y: rp.y }, playerLoSPoly);
-        if (inLoS) {
-          const rpWeapon: WeaponType = rp.isWelding ? 'arc_welder' : 'kinetic_carbine';
-          this.renderPawn(matrix, rp, rpWeapon, timeSec);
-        }
-      }
-    }
+    this.renderVisibleRemotePawns(state, matrix, playerLoSPoly, timeSec);
     this.renderIntruders(matrix, state.boarding?.intruders || [], timeSec, playerLoSPoly);
     this.renderSentries(matrix, state.boarding?.sentries || [], timeSec, playerLoSPoly);
     this.particleSystem.renderDustMotes(
@@ -911,7 +992,22 @@ export class WebGL2Renderer {
     );
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
 
+  /** PASS 3+4: lightmap composite plus emissive overlays. */
+  private renderEmissivePass(
+    state: WebGLRenderState,
+    matrix: Float32Array,
+    doors: DoorState[],
+    frameOffset: { x: number; y: number },
+    welders: WelderArcSet,
+    playerLoSPoly: Point2D[],
+    timeSec: number,
+    dt: number,
+    width: number,
+    height: number
+  ): void {
+    const gl = this.gl;
     // PASS 3: Composite Scene with Lightmap
     this.lightingPass.applyLightmap(this.framebufferManager, width, height);
 
@@ -920,20 +1016,7 @@ export class WebGL2Renderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec, playerLoSPoly);
-    const shipOffset = state.shipOffset ?? { x: 0, y: 0 };
-    const worldDoors = getWorldDoors(doors, shipOffset);
-    for (const w of welders) {
-      if (
-        w.active &&
-        isImpactVisible(
-          { x: state.pawn.x, y: state.pawn.y },
-          { x: w.originX, y: w.originY },
-          worldDoors
-        )
-      ) {
-        this.renderWelderArc(matrix, w, doors, shipOffset);
-      }
-    }
+    this.renderVisibleWelderArcs(state, matrix, doors, frameOffset, welders);
 
     if (state.chargingState?.active && state.chargingState.weaponType === 'pulse_laser') {
       this.renderChargingReticle(
@@ -964,17 +1047,70 @@ export class WebGL2Renderer {
       this.drawCircle.bind(this)
     );
     this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
+    this.renderHypoxiaOverlay(state, timeSec);
+  }
 
-    if (state.vitals) {
-      if (state.vitals.hypoxiaPercent > 20 || state.vitals.incapacitated?.isIncapacitated) {
-        this.renderHypoxiaVignette(
-          state.vitals.hypoxiaPercent,
-          Boolean(state.vitals.incapacitated?.isIncapacitated),
-          timeSec
-        );
+  /** Remote pawns culled to the player visibility polygon. */
+  private renderVisibleRemotePawns(
+    state: WebGLRenderState,
+    matrix: Float32Array,
+    playerLoSPoly: Point2D[],
+    timeSec: number
+  ): void {
+    if (!state.remotePawns) return;
+    for (const rp of state.remotePawns) {
+      const inLoS =
+        playerLoSPoly.length >= 3 && isPointInPolygon({ x: rp.x, y: rp.y }, playerLoSPoly);
+      if (inLoS) {
+        const rpWeapon: WeaponType = rp.isWelding ? 'arc_welder' : 'kinetic_carbine';
+        this.renderPawn(matrix, rp, rpWeapon, timeSec);
       }
     }
+  }
 
+  /** Live welder arcs with line-of-sight from the player. */
+  private renderVisibleWelderArcs(
+    state: WebGLRenderState,
+    matrix: Float32Array,
+    doors: DoorState[],
+    shipOffset: { x: number; y: number },
+    welders: WelderArcSet
+  ): void {
+    const worldDoors = getWorldDoors(doors, shipOffset);
+    for (const w of welders) {
+      if (
+        w.active &&
+        isImpactVisible(
+          { x: state.pawn.x, y: state.pawn.y },
+          { x: w.originX, y: w.originY },
+          worldDoors
+        )
+      ) {
+        this.renderWelderArc(matrix, w, doors, shipOffset);
+      }
+    }
+  }
+
+  /** Hypoxia vignette while oxygen-starved or incapacitated. */
+  private renderHypoxiaOverlay(state: WebGLRenderState, timeSec: number): void {
+    if (!state.vitals) return;
+    if (state.vitals.hypoxiaPercent > 20 || state.vitals.incapacitated?.isIncapacitated) {
+      this.renderHypoxiaVignette(
+        state.vitals.hypoxiaPercent,
+        Boolean(state.vitals.incapacitated?.isIncapacitated),
+        timeSec
+      );
+    }
+  }
+
+  /** PASS 5: curved visor plus tactical diegetic HUD. */
+  private renderHudPass(
+    state: WebGLRenderState,
+    width: number,
+    height: number,
+    playerLoSPoly: Point2D[],
+    timeSec: number
+  ): void {
     // PASS 5: Curved Visor & Tactical Diegetic HUD
     const hudW = state.screenWidth ?? width;
     const hudH = state.screenHeight ?? height;
