@@ -11,7 +11,6 @@
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test harbor.spec.ts",
     "test:e2e:scenes": "playwright test harbor-scenes.spec.ts",
-    "test:e2e:visibility": "playwright test visibility-snapshots.spec.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check ."
   },

@@ -2,7 +2,7 @@
 # Manual changes might be lost - proceed with caution!
 
 __metadata:
-  version: 8
+  version: 10
   cacheKey: 10c0
 
 "@babel/code-frame@npm:^7.29.7":
@@ -330,6 +330,13 @@ __metadata:
   version: 2.5.11
   resolution: "@biomejs/cli-win32-x64@npm:2.5.11"
   conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@blazediff/core@npm:1.10.0":
+  version: 1.10.0
+  resolution: "@blazediff/core@npm:1.10.0"
+  checksum: 10c0/4b6095d39338fccd09964fff06f6c5a75628e6296cb2d598149376a876b5c390e083a3769e6ebdaeaa53550f29f1ed5744688df66e4f10b0be0bbc41e9393c8c
   languageName: node
   linkType: hard
 
@@ -872,6 +879,9 @@ __metadata:
     "@kybernetes/air-sim": "workspace:*"
     "@kybernetes/protocol": "workspace:*"
     "@kybernetes/tsconfig": "workspace:*"
+    "@vitest/browser": "npm:5.0.0"
+    "@vitest/browser-playwright": "npm:5.0.0"
+    playwright: "npm:1.62.1"
     typescript: "npm:^7.0.2"
     vitest: "npm:^5.0.0"
   languageName: unknown
@@ -1446,6 +1456,42 @@ __metadata:
   peerDependencies:
     vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
   checksum: 10c0/692f23960972879485d647713663ec299c478222c96567d60285acf7c7dc5c178e71abfe9d2eefddef1eeb01514dacbc2ed68aad84628debf9c7116134734253
+  languageName: node
+  linkType: hard
+
+"@vitest/browser-playwright@npm:5.0.0":
+  version: 5.0.0
+  resolution: "@vitest/browser-playwright@npm:5.0.0"
+  dependencies:
+    "@vitest/browser": "npm:5.0.0"
+    "@vitest/mocker": "npm:5.0.0"
+    tinyrainbow: "npm:^3.1.1"
+  peerDependencies:
+    playwright: "*"
+    vitest: 5.0.0
+  peerDependenciesMeta:
+    playwright:
+      optional: false
+  checksum: 10c0/9a527bb20df6cae35fd0797b9d509041b4fd7fc98205afa61f127ec655b98ec6b4a06f8edac450a14b49173ab8bbeb1f3abd11eee016ef3da0c64b1f0754f53f
+  languageName: node
+  linkType: hard
+
+"@vitest/browser@npm:5.0.0":
+  version: 5.0.0
+  resolution: "@vitest/browser@npm:5.0.0"
+  dependencies:
+    "@blazediff/core": "npm:1.10.0"
+    "@vitest/mocker": "npm:5.0.0"
+    "@vitest/ui": "npm:5.0.0"
+    "@vitest/utils": "npm:5.0.0"
+    magic-string: "npm:^1.2.3"
+    pngjs: "npm:^7.0.0"
+    sirv: "npm:^3.0.2"
+    tinyrainbow: "npm:^3.1.1"
+    ws: "npm:^8.21.3"
+  peerDependencies:
+    vitest: 5.0.0
+  checksum: 10c0/0c20f4b72663b40ceb09b7afcbe038394a901f45db358cc83b0c0e73ac2af635f0a153de82a4cb152aa850bfa1d9625512ebb14dd50f31f0fcd7edbeba03413c
   languageName: node
   linkType: hard
 
@@ -2305,6 +2351,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"pngjs@npm:^7.0.0":
+  version: 7.0.0
+  resolution: "pngjs@npm:7.0.0"
+  checksum: 10c0/0d4c7a0fd476a9c33df7d0a2a73e1d56537628a668841f6995c2bca070cf30819f9254a64363266bc14ef2fee47659dd3b4f2b18eec7ab65143015139f497b38
+  languageName: node
+  linkType: hard
+
 "postcss-value-parser@npm:^4.1.0":
   version: 4.2.0
   resolution: "postcss-value-parser@npm:4.2.0"
@@ -2744,7 +2797,7 @@ __metadata:
 
 "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Alocator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>":
   version: 7.0.2
-  resolution: "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Aversion=7.0.2&hash=f858d2&locator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>::version=7.0.2&hash=5786d5"
+  resolution: "typescript@patch:typescript@patch%3Atypescript@npm%253A7.0.2%23./empty.patch%3A%3Aversion=7.0.2&hash=f858d2&locator=kybernetes-monorepo%2540workspace%253A.#optional!builtin<compat/typescript>::version=7.0.2&hash=3bafbf"
   dependencies:
     "@typescript/typescript-aix-ppc64": "npm:7.0.2"
     "@typescript/typescript-darwin-arm64": "npm:7.0.2"

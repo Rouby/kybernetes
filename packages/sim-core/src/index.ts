@@ -7,7 +7,7 @@ export * from './spatial/fogOfWar';
 export * from './spatial/navigation';
 export * from './spatial/shipAtmosphere';
 export * from './spatial/visibility';
-export * from './spatial/visibilitySvg';
+export * from './spatial/visibilityScenarios';
 export * from './world/airAuthority';
 export * from './world/assemble';
 export * from './world/bots';
