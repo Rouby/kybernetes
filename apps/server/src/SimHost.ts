@@ -9,12 +9,23 @@
  * releases the latch and the pawn coasts to a stop through damping.
  */
 
-import type { ClientIntent, ManifestBroadcast, PawnLinkQuality, Role } from '@kybernetes/protocol';
+import type {
+  ClientIntent,
+  DeathBroadcast,
+  ManifestBroadcast,
+  PawnLinkQuality,
+  PawnTrim,
+  Role,
+  ThrusterTint,
+} from '@kybernetes/protocol';
 import {
   type AirAuthorityState,
+  buildDeath,
   FIXED_DT,
   type HireOfferRecord,
   hireAboard,
+  isDead,
+  restartRun,
   roomContainingPoint,
   spawnPawn,
   talkToCaptain,
@@ -61,6 +72,8 @@ export interface HostClient {
   callsign: string;
   color: string;
   beacon: string;
+  trim?: PawnTrim;
+  thruster?: ThrusterTint;
 }
 
 export type JoinDenied = 'unknown-beacon' | 'beacon-full' | 'join-cooldown' | 'no-spawn';
@@ -97,6 +110,7 @@ export class SimHost {
   private tickSamples: { atMs: number; durationMs: number }[] = [];
   private tickMsLast = 0;
   private evictedClients: string[] = [];
+  private readonly knownDead = new Set<string>();
 
   constructor(
     initialWorld: World,
@@ -124,6 +138,11 @@ export class SimHost {
     const evicted = this.evictedClients;
     this.evictedClients = [];
     return evicted;
+  }
+
+  /** Test-only world swap; sessions and clocks are preserved. */
+  debugSetWorld(world: World): void {
+    this.world = world;
   }
 
   enqueueInput(input: WorldInput): void {
@@ -217,7 +236,8 @@ export class SimHost {
     callsign: string,
     color: string,
     userId?: string,
-    nowMs: number = Date.now()
+    nowMs: number = Date.now(),
+    appearance?: { readonly trim?: PawnTrim; readonly thruster?: ThrusterTint }
   ): { pawnId: string; resumed: boolean } | { denied: JoinDenied } {
     const vessel = Object.values(this.world.vessels).find((entry) => entry.beacon === beacon);
     if (vessel === undefined) return { denied: 'unknown-beacon' };
@@ -232,8 +252,19 @@ export class SimHost {
         this.evictedClients.push(otherId);
       }
     }
-    this.clients.set(clientId, { userId: id, pawnId, callsign, color, beacon });
-    if (this.world.pawns[pawnId] !== undefined) return { pawnId, resumed: true };
+    this.clients.set(clientId, {
+      userId: id,
+      pawnId,
+      callsign,
+      color,
+      beacon,
+      ...(appearance?.trim === undefined ? {} : { trim: appearance.trim }),
+      ...(appearance?.thruster === undefined ? {} : { thruster: appearance.thruster }),
+    });
+    if (this.world.pawns[pawnId] !== undefined) {
+      this.world = applyAppearance(this.world, pawnId, appearance);
+      return { pawnId, resumed: true };
+    }
     const entry = this.beacons.get(beacon) ?? createBeaconEntry(beacon, vessel.id);
     if (!canJoinBeacon(entry, id, nowMs)) {
       return entry.members.size >= entry.cap
@@ -251,6 +282,8 @@ export class SimHost {
       x: point.x,
       y: point.y,
       color,
+      ...(appearance?.trim === undefined ? {} : { trim: appearance.trim }),
+      ...(appearance?.thruster === undefined ? {} : { thruster: appearance.thruster }),
     });
     return { pawnId, resumed: false };
   }
@@ -276,7 +309,15 @@ export class SimHost {
     }
     switch (intent.type) {
       case 'HELLO':
-        return this.handleHello(clientId, intent.callsign, intent.color);
+        return this.handleHello(
+          clientId,
+          intent.callsign,
+          intent.color,
+          intent.trim,
+          intent.thruster
+        );
+      case 'RESTART':
+        return this.handleRestart(clientId);
       case 'JOIN_BEACON':
         return this.handleJoin(clientId, intent.beacon, intent.userId);
       case 'OBSERVE':
@@ -369,12 +410,57 @@ export class SimHost {
     return this.options.rng01 ?? Math.random;
   }
 
-  private handleHello(clientId: string, callsign: string, color: string): HostIntentResult {
+  private handleHello(
+    clientId: string,
+    callsign: string,
+    color: string,
+    trim?: PawnTrim,
+    thruster?: ThrusterTint
+  ): HostIntentResult {
     const prior = this.clients.get(clientId);
     const userId = prior?.userId ?? clientId;
     const pawnId = prior?.pawnId ?? `pawn:${userId}`;
-    this.clients.set(clientId, { userId, pawnId, callsign, color, beacon: prior?.beacon ?? '' });
+    this.clients.set(clientId, {
+      userId,
+      pawnId,
+      callsign,
+      color,
+      beacon: prior?.beacon ?? '',
+      trim: trim ?? prior?.trim,
+      thruster: thruster ?? prior?.thruster,
+    });
+    this.world = applyAppearance(this.world, pawnId, { trim, thruster });
     return {};
+  }
+
+  private handleRestart(clientId: string): HostIntentResult {
+    const client = this.clients.get(clientId);
+    if (client === undefined) return { notice: 'not-joined' };
+    const point = stationSpawnPoint(this.world, this.stationFrame());
+    if (point === undefined) return { notice: 'restart-no-spawn' };
+    this.world = restartRun(this.world, client.pawnId, point);
+    this.pending = this.pending.filter((input) => input.pawnId !== client.pawnId);
+    this.latched.delete(client.pawnId);
+    this.knownDead.delete(client.pawnId);
+    return { notice: 'RESTART_ok' };
+  }
+
+  drainDeaths(nowMs: number): DeathBroadcast[] {
+    const deaths: DeathBroadcast[] = [];
+    for (const pawn of Object.values(this.world.pawns)) {
+      if (!isDead(this.world, pawn.id)) {
+        this.knownDead.delete(pawn.id);
+        continue;
+      }
+      if (this.knownDead.has(pawn.id)) continue;
+      this.knownDead.add(pawn.id);
+      const built = buildDeath(this.world, pawn.id, nowMs);
+      if (built !== undefined) deaths.push(built);
+    }
+    for (const pawnId of [...this.knownDead]) {
+      if (this.world.pawns[pawnId] === undefined) this.knownDead.delete(pawnId);
+    }
+    return deaths;
   }
 
   private handleJoin(clientId: string, beacon: string, userId?: string): HostIntentResult {
@@ -384,7 +470,9 @@ export class SimHost {
       beacon,
       prior?.callsign ?? clientId,
       prior?.color ?? '#ffffff',
-      userId ?? prior?.userId
+      userId ?? prior?.userId,
+      Date.now(),
+      { trim: prior?.trim, thruster: prior?.thruster }
     );
     return 'denied' in joined ? { notice: joined.denied } : {};
   }
@@ -504,6 +592,27 @@ export class SimHost {
     this.lastVitalsMs = nowMs;
     this.callbacks?.onVitals(this.world);
   }
+}
+
+function applyAppearance(
+  world: World,
+  pawnId: string,
+  appearance: { readonly trim?: PawnTrim; readonly thruster?: ThrusterTint } | undefined
+): World {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return world;
+  if (appearance?.trim === undefined && appearance?.thruster === undefined) return world;
+  return {
+    ...world,
+    pawns: {
+      ...world.pawns,
+      [pawnId]: {
+        ...pawn,
+        ...(appearance?.trim === undefined ? {} : { trim: appearance.trim }),
+        ...(appearance?.thruster === undefined ? {} : { thruster: appearance.thruster }),
+      },
+    },
+  };
 }
 
 function stationSpawnPoint(

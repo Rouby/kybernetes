@@ -172,6 +172,21 @@ describe('render-state mapping', () => {
     expect(said.speechBubble?.expiresAt).toBe(12000);
   });
 
+  it('forwards trim and thruster accents to the renderer state', () => {
+    const plain = mapPawn(pawn(), 'Rook', { x: 0, y: 0 }, 0, 9000);
+    expect(plain.trim).toBeUndefined();
+    expect(plain.thruster).toBeUndefined();
+    const dressed = mapPawn(
+      pawn({ trim: 'ion', thruster: 'amber' }),
+      'Rook',
+      { x: 0, y: 0 },
+      0,
+      9000
+    );
+    expect(dressed.trim).toBe('ion');
+    expect(dressed.thruster).toBe('amber');
+  });
+
   it('resolves callsigns from the manifest with id fallbacks', () => {
     expect(callsignFor(manifest(), 'pawn:u1')).toBe('Rook');
     expect(callsignFor(manifest(), 'pawn:u9')).toBe('u9');

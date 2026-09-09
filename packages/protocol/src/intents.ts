@@ -4,6 +4,7 @@
  * All intents are JSON-safe plain objects with discriminant `type` tags.
  */
 
+import type { PawnTrim, ThrusterTint } from './appearance.js';
 import type { Role } from './content.js';
 
 export interface HelloIntent {
@@ -11,6 +12,8 @@ export interface HelloIntent {
   readonly callsign: string;
   readonly color: string;
   readonly clientVersion: number;
+  readonly trim?: PawnTrim;
+  readonly thruster?: ThrusterTint;
 }
 
 export interface JoinBeaconIntent {
@@ -129,6 +132,11 @@ export interface RepairIntent {
   readonly fixtureId: string;
 }
 
+export interface RestartIntent {
+  readonly type: 'RESTART';
+  readonly seq: number;
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
@@ -148,7 +156,8 @@ export type ClientIntent =
   | CookIntent
   | HarvestIntent
   | RecycleIntent
-  | RepairIntent;
+  | RepairIntent
+  | RestartIntent;
 
 export type ClientIntentType = ClientIntent['type'];
 
@@ -172,4 +181,5 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'HARVEST',
   'RECYCLE',
   'REPAIR',
+  'RESTART',
 ] as const;

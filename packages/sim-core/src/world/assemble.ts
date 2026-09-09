@@ -107,6 +107,8 @@ export interface SpawnRequest {
   readonly x: number;
   readonly y: number;
   readonly color: string;
+  readonly trim?: string;
+  readonly thruster?: string;
 }
 
 export function spawnPawn(world: World, request: SpawnRequest): World {
@@ -122,6 +124,8 @@ export function spawnPawn(world: World, request: SpawnRequest): World {
     speed: 200,
     health: { hp: 100, maxHp: 100, suitSealed: false, incapacitated: false },
     color: request.color,
+    ...(request.trim === undefined ? {} : { trim: request.trim }),
+    ...(request.thruster === undefined ? {} : { thruster: request.thruster }),
     say: '',
     sayUntilTick: 0,
   };

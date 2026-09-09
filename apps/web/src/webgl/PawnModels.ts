@@ -1,4 +1,5 @@
 import type { BoardingTacticsTelemetry, PawnState, WeaponType } from '@kybernetes/protocol';
+import { thrusterPlume, trimAccent } from './pawnAccents';
 import type { RenderContext } from './StationModels';
 
 function setColor(ctx: RenderContext, r: number, g: number, b: number, a = 1.0): void {
@@ -167,9 +168,10 @@ export function renderTacticalPawn(
   );
   ctx.bufferAndDraw(new Float32Array(packVerts));
 
-  // Micro-thruster nozzles with subtle cyan exhaust when moving
+  // Micro-thruster nozzles with accent-tinted exhaust when moving
   if (isMoving) {
-    setColor(ctx, 0.0, 0.95, 1.0, 0.65 + 0.35 * Math.sin(timeSec * 25.0));
+    const plume = thrusterPlume(pawn.thruster);
+    setColor(ctx, plume[0], plume[1], plume[2], 0.65 + 0.35 * Math.sin(timeSec * 25.0));
     ctx.drawCircle(packX - cos * 3 - normX * 5, packY - sin * 3 - normY * 5, 2, 6);
     ctx.drawCircle(packX - cos * 3 + normX * 5, packY - sin * 3 + normY * 5, 2, 6);
   }
@@ -198,10 +200,10 @@ export function renderTacticalPawn(
   ctx.drawCircle(leftX, leftY, 4.5, 10);
   ctx.drawCircle(rightX, rightY, 4.5, 10);
 
-  // Role chevrons on shoulders
+  // Shoulder chevrons: player trim accent wins, legacy role color otherwise
   const role = (pawn.role || 'tactical').toLowerCase();
-  const roleColor = ROLE_ACCENTS[role] || [1.0, 0.84, 0.0];
-  setColor(ctx, roleColor[0], roleColor[1], roleColor[2]);
+  const accent = trimAccent(pawn.trim) ?? ROLE_ACCENTS[role] ?? [1.0, 0.84, 0.0];
+  setColor(ctx, accent[0], accent[1], accent[2]);
   ctx.drawCircle(leftX, leftY, 2.2, 8);
   ctx.drawCircle(rightX, rightY, 2.2, 8);
 

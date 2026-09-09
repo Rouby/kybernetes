@@ -126,6 +126,73 @@ async function connectAndJoin(port: number, callsign: string, userId: string): P
   return ws;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function aimAngle(snapshot: WireMessage, fromId: string, toId: string): number {
+  const pawns = snapshot.pawns as { id: string; x: number; y: number }[];
+  const from = pawns.find((pawn) => pawn.id === fromId);
+  const to = pawns.find((pawn) => pawn.id === toId);
+  if (from === undefined || to === undefined) return 0;
+  return Math.atan2(to.y - from.y, to.x - from.x);
+}
+
+function vitalsDead(message: WireMessage): boolean {
+  return (message.vitals as { dead?: boolean } | undefined)?.dead === true;
+}
+
+async function stepEast(killer: WebSocket): Promise<void> {
+  send(killer, {
+    type: 'INPUT',
+    seq: 1,
+    moveVec: { x: 1, y: 0 },
+    facing: 0,
+    sprint: false,
+    sealed: false,
+  });
+  await sleep(500);
+  send(killer, {
+    type: 'INPUT',
+    seq: 2,
+    moveVec: { x: 0, y: 0 },
+    facing: 0,
+    sprint: false,
+    sealed: false,
+  });
+  await sleep(300);
+}
+
+async function shootUntilDead(
+  killer: WebSocket,
+  seen: WireMessage[],
+  angle: number
+): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  let seq = 1;
+  for (;;) {
+    const latest = seen.filter((message) => message.type === 'VITALS').pop();
+    if (latest !== undefined && vitalsDead(latest)) return;
+    if (Date.now() > deadline || seq > 28) throw new Error('victim never died');
+    send(killer, { type: 'FIRE', seq, originAngle: angle, weapon: 'kinetic_carbine' });
+    seq += 1;
+    await sleep(250);
+  }
+}
+
+async function waitForRevive(seen: WireMessage[], afterTick: number): Promise<WireMessage> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const revived = seen.find(
+      (message) =>
+        message.type === 'VITALS' && Number(message.tick) > afterTick && !vitalsDead(message)
+    );
+    if (revived !== undefined) return revived;
+    if (Date.now() > deadline) throw new Error('run never restarted');
+    await sleep(50);
+  }
+}
+
 describe('HarborDaemon v2 transport', () => {
   const daemons: HarborDaemon[] = [];
   const sockets: WebSocket[] = [];
@@ -337,6 +404,34 @@ describe('HarborDaemon v2 transport', () => {
     daemons.push(second);
     expect(second.running).toBe(true);
   });
+
+  it('declares death over the socket and restarts into a fresh run', async () => {
+    const { port } = await startDaemon();
+    // Attach the victim tap before the killer handshake: the welcome fires
+    // during the second TCP connect, and a late listener misses JOINED.
+    const victim = await connectAndJoin(port, 'Doomed', 'doom-1');
+    sockets.push(victim);
+    const tap = tapMessages(victim);
+    const victimJoined = waitForType(victim, 'JOINED');
+    const killer = await connectAndJoin(port, 'Havoc', 'doom-2');
+    sockets.push(killer);
+    await victimJoined;
+    await waitForType(killer, 'JOINED');
+    // Spawns coincide, and a muzzle starts outside its victim: step east so
+    // aimed shots travel into the victim instead of away from it.
+    await stepEast(killer);
+    const sighting = await waitForSnapshot(killer);
+    const angle = aimAngle(sighting, 'pawn:doom-2', 'pawn:doom-1');
+    await shootUntilDead(killer, tap.seen, angle);
+    const death = await waitForTapped(tap.seen, 'DEATH');
+    expect(death.pawnId).toBe('pawn:doom-1');
+    expect(typeof death.cause).toBe('string');
+    const deathTick = Number(death.tick);
+    send(victim, { type: 'RESTART', seq: 50 });
+    const revived = await waitForRevive(tap.seen, deathTick);
+    expect(Number(revived.tick)).toBeGreaterThan(deathTick);
+    tap.stop();
+  }, 45_000);
 
   it('tolerates repeated start and stop calls', async () => {
     const { daemon } = await startDaemon();

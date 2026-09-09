@@ -606,6 +606,7 @@ export class HarborDaemon {
 
   private sendVitals(world: World): void {
     const nowMs = Date.now();
+    for (const death of this.host.drainDeaths(nowMs)) this.sendAll(death);
     for (const [ws, meta] of this.meta) {
       const client = this.host.clientOf(meta.clientId);
       if (client === undefined) continue;

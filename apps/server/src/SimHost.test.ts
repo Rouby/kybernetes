@@ -262,3 +262,66 @@ describe('SimHost scaffold', () => {
     expect(result.notice).toBe('INTERACT_ok');
   });
 });
+
+describe('authoritative death and restart', () => {
+  function joinedHost(): SimHost {
+    const host = new SimHost(buildHarborWorld(), DEFAULT_CLOCKS, null);
+    host.handleIntent('c1', {
+      type: 'HELLO',
+      callsign: 'Rook',
+      color: '#ffd166',
+      clientVersion: 2,
+      trim: 'ion',
+      thruster: 'amber',
+    });
+    host.handleIntent('c1', { type: 'JOIN_BEACON', beacon: 'HESP01', seq: 1, userId: 'u1' });
+    return host;
+  }
+
+  it('stores appearance from HELLO onto the pawn', () => {
+    const host = joinedHost();
+    expect(host.currentWorld.pawns['pawn:u1']?.trim).toBe('ion');
+    expect(host.currentWorld.pawns['pawn:u1']?.thruster).toBe('amber');
+    expect(host.clientOf('c1')?.trim).toBe('ion');
+  });
+
+  it('restarts a dead run at the station spawn with fresh vitals', () => {
+    const host = joinedHost();
+    const pawnId = 'pawn:u1';
+    expect(host.currentWorld.pawns[pawnId]).toBeDefined();
+    const result = host.handleIntent('c1', { type: 'RESTART', seq: 2 });
+    expect(result.notice).toBe('RESTART_ok');
+    expect(host.currentWorld.pawns[pawnId]?.health.hp).toBe(100);
+    expect(host.currentWorld.pawns[pawnId]?.frameId).toBe('station');
+    expect(host.currentWorld.pawns[pawnId]?.trim).toBe('ion');
+  });
+
+  it('declares death once per pawn and clears on restart', () => {
+    const host = joinedHost();
+    expect(host.drainDeaths(1000)).toEqual([]);
+    const pawnId = 'pawn:u1';
+    const pawn = host.currentWorld.pawns[pawnId];
+    expect(pawn).toBeDefined();
+    if (pawn === undefined) return;
+    const world = {
+      ...host.currentWorld,
+      pawns: {
+        ...host.currentWorld.pawns,
+        [pawnId]: { ...pawn, health: { ...pawn.health, hp: 0, incapacitated: true } },
+      },
+    };
+    host.debugSetWorld(world);
+    const first = host.drainDeaths(2000);
+    expect(first).toHaveLength(1);
+    expect(first[0]?.pawnId).toBe(pawnId);
+    expect(first[0]?.type).toBe('DEATH');
+    expect(host.drainDeaths(2000)).toEqual([]);
+    host.handleIntent('c1', { type: 'RESTART', seq: 3 });
+    expect(host.drainDeaths(3000)).toEqual([]);
+  });
+
+  it('rejects restart from unknown sessions and observers', () => {
+    const host = joinedHost();
+    expect(host.handleIntent('ghost', { type: 'RESTART', seq: 1 }).notice).toBe('not-joined');
+  });
+});

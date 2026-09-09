@@ -5,6 +5,7 @@
  * never throwing inside the tick. JSON-safe inputs only.
  */
 
+import { isPawnTrim, isThrusterTint } from './appearance.js';
 import { isRole } from './content.js';
 import type { ClientIntent } from './intents.js';
 
@@ -67,6 +68,9 @@ export function validateHello(raw: Record<string, unknown>): ValidateResult {
   if (raw.callsign.length > MAX_CALLSIGN_LENGTH) return fail('bad-field', 'callsign');
   if (typeof raw.color !== 'string' || raw.color.length > 16) return fail('bad-field', 'color');
   if (!isFiniteNumber(raw.clientVersion)) return fail('bad-field', 'clientVersion');
+  if (raw.trim !== undefined && !isPawnTrim(raw.trim)) return fail('bad-field', 'trim');
+  if (raw.thruster !== undefined && !isThrusterTint(raw.thruster))
+    return fail('bad-field', 'thruster');
   return {
     ok: true,
     intent: {
@@ -74,6 +78,8 @@ export function validateHello(raw: Record<string, unknown>): ValidateResult {
       callsign: raw.callsign,
       color: raw.color,
       clientVersion: raw.clientVersion,
+      ...(raw.trim === undefined ? {} : { trim: raw.trim }),
+      ...(raw.thruster === undefined ? {} : { thruster: raw.thruster }),
     },
   };
 }
@@ -224,4 +230,9 @@ export function validateRepair(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   if (!isShortId(raw.fixtureId)) return fail('bad-field', 'fixtureId');
   return { ok: true, intent: { type: 'REPAIR', seq: raw.seq, fixtureId: raw.fixtureId } };
+}
+
+export function validateRestart(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return { ok: true, intent: { type: 'RESTART', seq: raw.seq } };
 }

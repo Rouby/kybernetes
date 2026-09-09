@@ -153,6 +153,8 @@ export interface PawnBody {
   readonly speed: number;
   readonly health: HealthSummary;
   readonly color: string;
+  readonly trim?: string;
+  readonly thruster?: string;
   /** Spoken line cleared after sayUntilTick; empty means silent. */
   readonly say: string;
   readonly sayUntilTick: number;

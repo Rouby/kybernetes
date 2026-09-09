@@ -7,11 +7,11 @@ Welcome to **Kybernetes** (*Κυβερνήτης*). This document defines the ar
 ## 1. Project Philosophy & Stack Pillars
 
 1. **Zero-DOM Core Simulation**:
-   * All game rules, physics, reactor math, survival vitals decay, 2D collisions, and combat mitigation reside in `packages/sim-core`.
-   * `packages/sim-core` must remain **100% pure TypeScript** with **0 DOM dependencies** so it runs identically on server and client.
+   * All game rules, physics, reactor math, survival vitals decay, 2D collisions, and combat mitigation reside in `simulation packages`.
+   * `simulation packages` must remain **100% pure TypeScript** with **0 DOM dependencies** so it runs identically on server and client.
 2. **Authoritative Server, Optimistic Client**:
    * `apps/server` is authoritative over ship physics, inventory, survival rates, and combat damage.
-   * `apps/web` renders the 2D Canvas viewport and StyleX HUD, performing client-side movement prediction and station docking.
+   * `apps/web` renders the WebGL2 viewport, performing client-side movement prediction and station docking.
 3. **Strict Wire Contracts**:
    * All client actions and server broadcasts must be strictly typed in `packages/protocol`. Never send untyped JSON over WebSockets.
 4. **Compile-Time Styling**:
@@ -22,51 +22,14 @@ Welcome to **Kybernetes** (*Κυβερνήτης*). This document defines the ar
 
 ## 2. The Standard Development Work Routine
 
-When implementing any feature, bug fix, or milestone task, follow this exact routine in order:
+Prefer adding fast and easy to read unit and integration tests using vitest.
 
-```mermaid
-graph TD
-    A["1. Define Wire Types (@kybernetes/protocol)"] --> B["2. Implement & Unit Test Core Math (@kybernetes/sim-core)"]
-    B --> C["3. Wire Authoritative Server Daemon (apps/server)"]
-    C --> D["4. Build WebGL Viewport Slice (apps/web)"]
-    D --> E["5. Cover With Vitest (unit + integration)"]
-    E --> F["6. Run 5-Gate Quality Pipeline"]
-    F --> G["7. Generate Changeset (yarn changeset)"]
-```
+Add important journeys or interactions as playwright tests.
 
-Playwright e2e is NOT an agent gate: it is slow, stateful, and flaky by
-nature. Agents prove behavior with Vitest (pure unit plus host/daemon
-integration that runs the real tick loop and sockets). Playwright exists to
-produce screenshots and videos for HUMAN verification — run it on demand
-(`yarn --cwd apps/web playwright test harbor-scenes.spec.ts`), never as a
-commit gate. CI keeps running the browser suite as the human signal.
+### 5-Gate Quality Pipeline (Mandatory before committing)
 
-### Step 1: Protocol First (`packages/protocol`)
-* Add or update client action intents (`ClientAction`) and server broadcasts (`ServerBroadcast`).
-* Ensure discriminant union tags (`type: '...'`) are explicit and all fields are strongly typed.
-
-### Step 2: Simulation Core & Vitest (`packages/sim-core`)
-* Implement pure math and state update functions in `src/`.
-* Write parallel Vitest unit tests in `src/*.test.ts`. Test boundary cases (e.g., zero oxygen, starving vitals, reactor overheat).
-
-### Step 3: Authoritative Server Handler (`apps/server`)
-* Ingest validated intents in `SimHost.handleIntent()` via the intent router.
-* Ensure state updates are replicated in the ticked v2 channels (SNAPSHOT 10Hz, TELEMETRY 2Hz, VITALS 5Hz).
-* Cover the loop with host/daemon integration tests (real ticks, real sockets); see `apps/server/src/*test.ts`.
-* Maintain clean process lifecycle: ensure `stop()` terminates open client sockets and closes `WebSocketServer`.
-
-### Step 4: Web Viewport Slice (`apps/web`)
-* Drive the WebGL renderer from v2 snapshots through `harbor/` adapters; the
-  renderer, passes, and models under `apps/web/src/webgl/` are editable — the
-  rework freeze is lifted, so fix render leftover mistakes at their source.
-* Keep all translation logic pure and unit-tested (see `harbor/renderState.ts`).
-
-### Step 5: Cover With Vitest (unit + integration)
-* Prove behavior where it lives: kernel math in `packages/sim-core`, host/daemon loops in `apps/server`, pure adapters in `apps/web/src`.
-* Do NOT add Playwright assertions as the primary proof for logic that Vitest can cover.
-
-### Step 6: 5-Gate Quality Pipeline (Mandatory before committing)
 Run the following verification suite:
+
 ```bash
 # 1. Formatting and linting (Biome, touched files)
 yarn lint
@@ -93,7 +56,10 @@ yarn --cwd apps/web playwright test harbor-scenes.spec.ts # screenshots
 Screenshots land in `apps/web/test-results/` (gitignored); failure videos are retained automatically (see `playwright.config.ts`).
 
 ### Step 7: Changeset
-If you touched any packages (`@kybernetes/*`), generate a changeset entry:
+If you touched any packages (`@kybernetes/*`), generate a changeset entry containing meaningful and human readable details about the introduced changes.
+
+If a related changeset already exists to the work you are doing, prefer updating the changeset instead of adding another one fixing a bug.
+
 ```bash
 yarn changeset
 ```
@@ -101,14 +67,6 @@ yarn changeset
 ---
 
 ## 3. Critical Caveats & Rules of Thumb
-
-### StyleX Rules
-- **No Dynamic Values in `stylex.create()`**: Only static CSS values and design tokens (`hudColors.*`) are allowed.
-  * ❌ *Forbidden*: `progressBarFill: (percent) => ({ width: `${percent}%` })`
-  * ✅ *Allowed*: Static `progressBarFill: { height: '100%', transition: 'width 0.2s ease' }` and dynamic `style={{ width: `${percent}%` }}` in JSX.
-- **Importing Tokens**: Always import tokens from the `.stylex` file directly:
-  * ✅ `import { hudColors } from '@kybernetes/ui-tokens/tokens.stylex';`
-  * ❌ Do not import tokens from a barrel file (`@kybernetes/ui-tokens`) inside components, as Babel cannot track `defineVars`.
 
 ### Server Port Teardown
 - On Windows, always ensure `server.stop()` is called and active WebSockets are terminated (`client.terminate()`) before closing `wss`.
@@ -119,6 +77,8 @@ yarn changeset
   1. **Unused class members and exports**: Do not add dead methods to classes.
   2. **High cyclomatic / cognitive complexity**: Keep methods under 20 lines and break complex control flows into helper functions.
   3. **Duplicate code blocks**: Shared utility logic belongs in `packages/sim-core` or shared packages.
+
+Do not adjust fallow configurations or add ignore statements without consulting a human first.
 
 ### Biome Conventions
 - Use `node:path`, `node:fs`, `node:crypto` prefix for all Node built-in imports.

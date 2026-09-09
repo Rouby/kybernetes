@@ -24,6 +24,7 @@ import {
   validateRecycle,
   validateReload,
   validateRepair,
+  validateRestart,
   validateSleep,
   validateSuit,
   validateTalk,
@@ -76,6 +77,8 @@ export function validateClientIntent(raw: unknown): ValidateResult {
       return validateRecycle(raw);
     case 'REPAIR':
       return validateRepair(raw);
+    case 'RESTART':
+      return validateRestart(raw);
     default:
       return fail('unknown-type');
   }
@@ -102,4 +105,5 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   HARVEST: 4,
   RECYCLE: 4,
   REPAIR: 8,
+  RESTART: 2,
 };

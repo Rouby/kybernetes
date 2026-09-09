@@ -22,7 +22,12 @@ test.describe('Harbor structural damage (own daemon: venting is permanent)', () 
     await page.keyboard.up('d');
     let crossed = false;
     for (let attempt = 0; attempt < 3 && !crossed; attempt += 1) {
+      // Sync the press to the shared viewport target and press before keyup:
+      // a silent press leaves the door shut and the later aim geometry off.
+      await page.keyboard.down('d');
+      await waitForHarbor(page, 'harbor-target', (t) => t.startsWith('target:door'), 20000);
       await page.keyboard.press('e');
+      await page.keyboard.up('d');
       await page.keyboard.down('d');
       try {
         await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 650, 6000);

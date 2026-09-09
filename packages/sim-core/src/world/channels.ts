@@ -29,6 +29,7 @@ import type {
 import { digestStrings, q0, q1, q2 } from '@kybernetes/protocol';
 import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
 import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
+import { deathCauseFor } from './death.js';
 import { snapshotDecalsOf } from './decals.js';
 import { spareRounds } from './survival.js';
 import type { World } from './types.js';
@@ -69,6 +70,9 @@ export function snapshotPawnsOf(world: World): SnapshotBroadcast['pawns'] {
     roomHint: pawn.roomHint,
     color: pawn.color,
     ...(pawn.say !== '' && world.tick <= pawn.sayUntilTick ? { say: pawn.say } : {}),
+    ...(pawn.health.hp <= 0 ? { dead: true as const } : {}),
+    ...(pawn.trim === undefined ? {} : { trim: pawn.trim as never }),
+    ...(pawn.thruster === undefined ? {} : { thruster: pawn.thruster as never }),
   }));
 }
 
@@ -372,6 +376,7 @@ export function buildVitals(
 ): VitalsBroadcast {
   const pawn = world.pawns[pawnId];
   const vitals = world.vitals[pawnId];
+  const dead = (pawn?.health.hp ?? 100) <= 0;
   return {
     type: 'VITALS',
     v: 2,
@@ -389,10 +394,22 @@ export function buildVitals(
       mags: vitals === undefined ? [30, 30, 30, 30] : [...vitals.mags.slice(1)],
       reloading: (vitals?.reloadingS ?? 0) > 0,
       mealBuffS: q0(vitals?.mealBuffS ?? 0),
+      dead,
+      ...(dead ? { deathCause: deathCauseFor(world, pawnId) ?? 'combat' } : {}),
     },
     credits,
     clearance,
   };
+}
+
+export function buildDeath(
+  world: World,
+  pawnId: string,
+  nowMs: number
+): import('@kybernetes/protocol').DeathBroadcast | undefined {
+  const cause = deathCauseFor(world, pawnId);
+  if (cause === undefined) return undefined;
+  return { type: 'DEATH', v: 2, tick: world.tick, serverTimeMs: nowMs, pawnId, cause };
 }
 
 export function buildNotice(

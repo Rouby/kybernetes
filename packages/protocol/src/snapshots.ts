@@ -8,7 +8,18 @@
  * merged SNAPSHOT shape below is unchanged so old consumers keep working.
  */
 
+import type { PawnTrim, ThrusterTint } from './appearance.js';
 import type { Role } from './content.js';
+
+export type DeathCause =
+  | 'combat'
+  | 'hypoxia'
+  | 'vacuum'
+  | 'thermal'
+  | 'starvation'
+  | 'dehydration'
+  | 'bleedout';
+
 import type { ServerStatsBroadcast } from './debug.js';
 import type { DockStatusBroadcast } from './docking.js';
 import type { FixtureSnapshot, LivingRoomState } from './living.js';
@@ -24,6 +35,9 @@ export interface SnapshotPawn {
   readonly roomHint: string;
   readonly color: string;
   readonly say?: string;
+  readonly dead?: boolean;
+  readonly trim?: PawnTrim;
+  readonly thruster?: ThrusterTint;
 }
 
 export interface SnapshotPortal {
@@ -190,9 +204,22 @@ export interface VitalsBroadcast {
     readonly reloading: boolean;
     /** Seconds of mess-table meal buff remaining (q0). Absent = 0. */
     readonly mealBuffS?: number;
+    /** True once the server declares the pawn dead (hp <= 0). */
+    readonly dead: boolean;
+    /** Present with dead; authoritative cause for the death screen. */
+    readonly deathCause?: DeathCause;
   };
   readonly credits: number;
   readonly clearance: number;
+}
+
+export interface DeathBroadcast {
+  readonly type: 'DEATH';
+  readonly v: 2;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly pawnId: string;
+  readonly cause: DeathCause;
 }
 
 export interface NoticeBroadcast {

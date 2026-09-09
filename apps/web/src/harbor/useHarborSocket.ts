@@ -10,20 +10,24 @@
 
 import type {
   ClientIntent,
+  DeathBroadcast,
   DockStatusBroadcast,
   HireOfferBroadcast,
   ManifestBroadcast,
   NoticeBroadcast,
+  PawnTrim,
   ServerStatsBroadcast,
   SnapshotBroadcast,
   SnapshotDeltaBroadcast,
   TelemetryBroadcast,
+  ThrusterTint,
   VitalsBroadcast,
   WatchBroadcast,
 } from '@kybernetes/protocol';
 import { isNewerTick, PROTOCOL_VERSION, shouldResumeAfterClose } from '@kybernetes/protocol';
 import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { deathTitle } from './deathNotice';
 import { mergeSnapshotDelta, mergeTelemetry } from './renderState';
 import {
   detachHarborSocket,
@@ -43,6 +47,8 @@ export interface HarborIdentity {
   readonly color: string;
   readonly beacon: string;
   readonly userId: string;
+  readonly trim?: PawnTrim;
+  readonly thruster?: ThrusterTint;
 }
 
 declare global {
@@ -99,6 +105,7 @@ export function useHarborSocket(identity: HarborIdentity) {
   const [dock, setDock] = useState<DockStatusBroadcast | null>(null);
   const [offer, setOffer] = useState<HireOfferBroadcast | null>(null);
   const [notices, setNotices] = useState<HarborNotice[]>([]);
+  const [death, setDeath] = useState<DeathBroadcast | null>(null);
   const [takenOver, setTakenOver] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const seqRef = useRef(0);
@@ -112,6 +119,11 @@ export function useHarborSocket(identity: HarborIdentity) {
     const ws = wsRef.current;
     if (ws === null || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ v: PROTOCOL_VERSION, ...intent, seq: seqRef.current }));
+  }, []);
+
+  // Optimistic retire for the Restart button; the next alive VITALS confirms it.
+  const clearDeath = useCallback((): void => {
+    setDeath(null);
   }, []);
 
   useEffect(() => {
@@ -143,6 +155,8 @@ export function useHarborSocket(identity: HarborIdentity) {
             callsign: id.callsign,
             color: id.color,
             clientVersion: PROTOCOL_VERSION,
+            ...(id.trim === undefined ? {} : { trim: id.trim }),
+            ...(id.thruster === undefined ? {} : { thruster: id.thruster }),
           })
         );
         socket.send(
@@ -168,6 +182,7 @@ export function useHarborSocket(identity: HarborIdentity) {
           setNotices,
           setStats,
           setDock,
+          setDeath,
         });
       };
       socket.onclose = (event) => {
@@ -217,6 +232,8 @@ export function useHarborSocket(identity: HarborIdentity) {
     dock,
     offer,
     notices,
+    death,
+    clearDeath,
     sendIntent,
   };
 }
@@ -232,6 +249,7 @@ export interface SnapshotSetters {
   setNotices: Dispatch<SetStateAction<HarborNotice[]>>;
   setStats?: (s: ServerStatsBroadcast) => void;
   setDock?: (d: DockStatusBroadcast) => void;
+  setDeath?: (d: DeathBroadcast | null) => void;
 }
 
 type ChannelHandler = (
@@ -273,6 +291,9 @@ const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
       return;
     caches.vitalsTick.current = next.tick;
     setters.setVitals(next);
+    // A fresh run after RESTART reports alive: retire the stale death flag
+    // so the death screen never lingers past the respawn tick.
+    if (!next.vitals.dead) setters.setDeath?.(null);
   },
   WATCH: (msg, caches, setters) => {
     const next = msg as unknown as WatchBroadcast;
@@ -305,6 +326,17 @@ const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
   JOINED: (msg, _caches, setters) => {
     setters.setPawnId((msg as { pawnId?: string }).pawnId ?? '');
     setters.setOffer(null);
+    setters.setDeath?.(null);
+  },
+  DEATH: (msg, _caches, setters) => {
+    const death = msg as unknown as DeathBroadcast;
+    setters.setDeath?.(death);
+    pushNotice(
+      setters.setNotices,
+      'critical',
+      deathTitle(death.cause),
+      'Run over. Restart or quit to menu.'
+    );
   },
   NOTICE: (msg, _caches, setters) => {
     const notice = msg as unknown as NoticeBroadcast;

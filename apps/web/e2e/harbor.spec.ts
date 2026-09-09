@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import { harborBoard, waitForHarbor } from './boarding';
+import { harborBoard, terminalZoneCenter, waitForHarbor } from './boarding';
 import { startDaemon, stopDaemon } from './daemon';
 import { angDiff, statFace, statRoom, statSX, statX } from './stats';
 
@@ -34,6 +34,9 @@ test.describe('Harbor client smoke (C2)', () => {
 
   test('hides the debug panel on the default route', async ({ page }) => {
     await page.goto('/');
+    await expect(page.getByTestId('terminal-canvas')).toBeVisible();
+    const embark = await terminalZoneCenter(page, 'embark');
+    await page.mouse.click(embark.x, embark.y);
     await expect(page.getByTestId('harbor-canvas')).toBeVisible();
     await expect(page.getByTestId('harbor-status')).toBeHidden();
   });
@@ -145,9 +148,12 @@ test.describe('Harbor client smoke (C2)', () => {
   test('toggles a corridor door open', async ({ page }) => {
     await harborBoard(page, { callsign: 'Smoke-5' });
     await page.keyboard.down('d');
-    await waitForHarbor(page, 'harbor-pos', (t) => statX(t) > 380, 20000);
-    await page.keyboard.up('d');
+    // Wait for the shared viewport target, not a position guess: pressUse
+    // fires whatever this target holds. Press before keyup so the pawn
+    // cannot coast out of the reach cone between the poll and the key.
+    await waitForHarbor(page, 'harbor-target', (t) => t.startsWith('target:door'), 20000);
     await page.keyboard.press('e');
+    await page.keyboard.up('d');
     await expect(page.getByTestId('harbor-notices')).toContainText('DOOR_ok', { timeout: 10000 });
     expect(statRoom(await page.getByTestId('harbor-status').innerText())).toBe('korridor_mitte');
   });

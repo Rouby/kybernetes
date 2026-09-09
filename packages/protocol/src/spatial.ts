@@ -14,6 +14,10 @@ export interface PawnState {
   isOperating: boolean;
   isResting: boolean;
   color: string;
+  /** v2 cosmetic carry-through (appearance.ts trim preset). Absent on v1 pawns. */
+  trim?: string;
+  /** v2 cosmetic carry-through (appearance.ts thruster preset). Absent on v1 pawns. */
+  thruster?: string;
   isWelding?: boolean;
   isBot?: boolean;
   speechBubble?: {

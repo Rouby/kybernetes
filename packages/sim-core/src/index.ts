@@ -17,6 +17,7 @@ export * from './world/combat';
 export * from './world/content/HesperiaV2.hull';
 export * from './world/content/StationHub.hull';
 export * from './world/crew';
+export * from './world/death';
 export * from './world/debugStats';
 export * from './world/decals';
 export * from './world/dockCrossing';

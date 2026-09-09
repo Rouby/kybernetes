@@ -150,6 +150,8 @@ export function mapPawn(
     isOperating: false,
     isResting: false,
     color: pawn.color,
+    ...(pawn.trim === undefined ? {} : { trim: pawn.trim }),
+    ...(pawn.thruster === undefined ? {} : { thruster: pawn.thruster }),
     isBot: pawn.id.startsWith('npc:') || pawn.id.startsWith('captain:'),
     ...(pawn.say === undefined || pawn.say === ''
       ? {}

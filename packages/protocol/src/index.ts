@@ -1,4 +1,5 @@
 export * from './actions';
+export * from './appearance';
 export * from './boarding';
 export * from './broadcasts';
 export * from './content';
