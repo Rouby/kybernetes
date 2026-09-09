@@ -69,7 +69,7 @@ commit gate. CI keeps running the browser suite as the human signal.
 Run the following verification suite:
 ```bash
 # 1. Formatting and linting (Biome, touched files)
-yarn biome check <touched files>
+yarn lint
 
 # 2. Dead code, clones, and structural health (Fallow)
 yarn quality
