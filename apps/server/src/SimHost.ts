@@ -5,8 +5,8 @@
  * (beacon join, resume by userId, hire flow). Transport-agnostic: validated
  * intents go in, snapshot payloads come out through callbacks and getters.
  * Movement inputs latch per pawn (1s expiry on the slice clock) so held keys
- * survive the 500ms client heartbeat and packet jitter; a zero moveVec
- * releases the latch and the pawn coasts to a stop through damping.
+ * survive the 500ms client heartbeat and packet jitter; a zero moveVec stops
+ * the pawn on the next tick with no glide.
  */
 
 import type {
@@ -16,8 +16,10 @@ import type {
   PawnLinkQuality,
   PawnTrim,
   Role,
+  ShipLostReason,
   ThrusterTint,
 } from '@kybernetes/protocol';
+import { makeShipLost, makeShipStatus } from '@kybernetes/protocol';
 import {
   type AirAuthorityState,
   buildDeath,
@@ -32,6 +34,7 @@ import {
   tickWorld,
   type World,
   type WorldInput,
+  wipeOnLoss,
 } from '@kybernetes/sim-core';
 import { routeIntent } from './routers/intentRouter.js';
 import {
@@ -41,6 +44,14 @@ import {
   createBeaconEntry,
   leaveBeacon,
 } from './sessions.js';
+import {
+  createShipRegistry,
+  ensureSoloShip,
+  getSoloShip,
+  type ShipRegistry,
+  saveSoloShip,
+  soloPawnIdFor,
+} from './shipRegistry.js';
 
 export interface HostBroadcastClocks {
   snapshotEveryMs: number;
@@ -122,6 +133,7 @@ export class SimHost {
   private readonly clients = new Map<string, HostClient>();
   private readonly observers = new Map<string, HostObserver>();
   private readonly beacons = new Map<string, BeaconEntry>();
+  private readonly ships: ShipRegistry = createShipRegistry();
   private readonly latched = new Map<string, { input: WorldInput; atMs: number }>();
   private readonly lastInputAt = new Map<string, number>();
   private readonly msgCounts = new Map<string, { count: number; windowStartMs: number }>();
@@ -356,6 +368,8 @@ export class SimHost {
         return this.handleRestart(clientId);
       case 'JOIN_BEACON':
         return this.handleJoin(clientId, intent.beacon, intent.userId);
+      case 'SPAWN_ABOARD':
+        return this.handleSpawnAboard(clientId, intent.userId);
       case 'OBSERVE':
         return this.handleObserve(clientId, intent.beacon);
       case 'TALK':
@@ -499,6 +513,76 @@ export class SimHost {
       userId ?? prior?.userId,
       Date.now(),
       { trim: prior?.trim, thruster: prior?.thruster }
+    );
+    return 'denied' in joined ? { notice: joined.denied } : {};
+  }
+
+  /** Solo loop (TRANSFORM M1): spawn aboard the player's own persistent ship. */
+  spawnAboardOwnShip(
+    clientId: string,
+    callsign: string,
+    color: string,
+    userId?: string,
+    appearance?: { readonly trim?: PawnTrim; readonly thruster?: ThrusterTint }
+  ): { pawnId: string; resumed: boolean } | { denied: JoinDenied } {
+    const id = userId ?? clientId;
+    const ship = ensureSoloShip(this.ships, id);
+    const pawnId = soloPawnIdFor(id);
+    this.evictPriorSession(clientId, id);
+    this.clients.set(clientId, {
+      userId: id,
+      pawnId,
+      callsign,
+      color,
+      beacon: ship.shipId,
+      ...appearancePatch(appearance),
+    });
+    if (this.world.pawns[pawnId] !== undefined) {
+      this.world = applyAppearance(this.world, pawnId, appearance);
+      return { pawnId, resumed: true };
+    }
+    const point = soloSpawnPoint(this.world, this.stationFrame());
+    if (point === undefined) return { denied: 'no-spawn' };
+    this.world = spawnPawn(this.world, soloSpawnRequest(pawnId, id, point, color, appearance));
+    return { pawnId, resumed: false };
+  }
+
+  /** Versioned SHIP_STATUS payload for one owner's ship, if known. */
+  shipStatusFor(
+    userId: string,
+    tick: number,
+    nowMs: number
+  ): ReturnType<typeof makeShipStatus> | undefined {
+    const ship = getSoloShip(this.ships, userId);
+    if (ship === undefined) return undefined;
+    return makeShipStatus(ship, tick, nowMs);
+  }
+
+  /** Hard-fail wipe: mark the owned ship lost and emit SHIP_LOST. */
+  loseShipFor(
+    userId: string,
+    reason: ShipLostReason,
+    tick: number,
+    nowMs: number
+  ): ReturnType<typeof makeShipLost> | undefined {
+    const ship = getSoloShip(this.ships, userId);
+    if (ship === undefined) return undefined;
+    saveSoloShip(this.ships, wipeOnLoss(ship));
+    return makeShipLost(ship.shipId, reason, tick, nowMs);
+  }
+
+  private handleSpawnAboard(clientId: string, userId?: string): HostIntentResult {
+    const prior = this.clients.get(clientId);
+    const display = joinDisplay(prior, clientId);
+    const joined = this.spawnAboardOwnShip(
+      clientId,
+      display.callsign,
+      display.color,
+      userId ?? prior?.userId,
+      {
+        trim: prior?.trim,
+        thruster: prior?.thruster,
+      }
     );
     return 'denied' in joined ? { notice: joined.denied } : {};
   }
@@ -667,6 +751,83 @@ function applyAppearance(
       [pawnId]: { ...pawn, ...patch },
     },
   };
+}
+
+function soloSpawnRequest(
+  pawnId: string,
+  owner: string,
+  point: { frameId: string; roomId: string; x: number; y: number },
+  color: string,
+  appearance: { readonly trim?: PawnTrim; readonly thruster?: ThrusterTint } | undefined
+): {
+  id: string;
+  owner: string;
+  frameId: string;
+  roomId: string;
+  x: number;
+  y: number;
+  color: string;
+} & ReturnType<typeof appearancePatch> {
+  return {
+    id: pawnId,
+    owner,
+    frameId: point.frameId,
+    roomId: point.roomId,
+    x: point.x,
+    y: point.y,
+    color,
+    ...appearancePatch(appearance),
+  };
+}
+
+function vesselSpawnPoint(
+  world: World,
+  vesselId: string
+): { frameId: string; roomId: string; x: number; y: number } | undefined {
+  const spawnId = Object.keys(world.spawns)
+    .filter((id) => id.startsWith(`${vesselId}.`))
+    .sort()[0];
+  if (spawnId !== undefined) return spawnPointAt(world, vesselId, world.spawns[spawnId]);
+  return firstRoomCenter(world, vesselId);
+}
+
+function spawnPointAt(
+  world: World,
+  frameId: string,
+  spawn: { x: number; y: number } | undefined
+): { frameId: string; roomId: string; x: number; y: number } | undefined {
+  if (spawn === undefined) return firstRoomCenter(world, frameId);
+  const roomId = roomContainingPoint(world, frameId, spawn.x, spawn.y);
+  if (roomId === undefined) return firstRoomCenter(world, frameId);
+  return { frameId, roomId, x: spawn.x, y: spawn.y };
+}
+
+function firstRoomCenter(
+  world: World,
+  frameId: string
+): { frameId: string; roomId: string; x: number; y: number } | undefined {
+  const room = Object.values(world.rooms)
+    .filter((entry) => entry.frameId === frameId)
+    .sort((a, b) => (a.id < b.id ? -1 : 1))[0];
+  if (room === undefined) return undefined;
+  return {
+    frameId,
+    roomId: room.id,
+    x: room.rect.x + room.rect.w / 2,
+    y: room.rect.y + room.rect.h / 2,
+  };
+}
+
+function soloSpawnPoint(
+  world: World,
+  stationFrameId: string | undefined
+): { frameId: string; roomId: string; x: number; y: number } | undefined {
+  const vesselId = Object.keys(world.vessels).sort()[0];
+  if (vesselId !== undefined) {
+    const aboard = vesselSpawnPoint(world, vesselId);
+    if (aboard !== undefined) return aboard;
+  }
+  return stationSpawnPoint(world, stationFrameId);
 }
 
 function stationSpawnPoint(

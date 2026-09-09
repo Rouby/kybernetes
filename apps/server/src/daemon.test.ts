@@ -1,4 +1,5 @@
 import { SESSION_RESUMED_ELSEWHERE_CODE } from '@kybernetes/protocol';
+import { buildHarborWorld, type World } from '@kybernetes/sim-core';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
 import { HarborDaemon } from './daemon.js';
@@ -197,8 +198,12 @@ describe('HarborDaemon v2 transport', () => {
   const daemons: HarborDaemon[] = [];
   const sockets: WebSocket[] = [];
 
-  async function startDaemon(port = 0): Promise<{ daemon: HarborDaemon; port: number }> {
-    const daemon = new HarborDaemon(port);
+  async function startDaemon(
+    port = 0,
+    worldFactory?: () => World
+  ): Promise<{ daemon: HarborDaemon; port: number }> {
+    const daemon =
+      worldFactory === undefined ? new HarborDaemon(port) : new HarborDaemon(port, worldFactory);
     await daemon.start();
     daemons.push(daemon);
     const address = (daemon as unknown as { wss: { address(): { port: number } } }).wss.address();
@@ -241,6 +246,23 @@ describe('HarborDaemon v2 transport', () => {
     tap.stop();
   });
 
+  it('spawns solo players aboard their own ship with no NPCs', async () => {
+    const { port } = await startDaemon();
+    const ws = await connect(port);
+    sockets.push(ws);
+    send(ws, { type: 'HELLO', callsign: 'Solo', color: '#ffffff', clientVersion: 2 });
+    send(ws, { type: 'SPAWN_ABOARD', seq: 0, userId: 'solo-1' });
+    const joined = await waitForType(ws, 'JOINED');
+    expect(joined.pawnId).toBe('pawn:solo-1');
+    let pawns: { id: string; frameId: string }[] = [];
+    for (let i = 0; i < 40 && !pawns.some((pawn) => pawn.id === 'pawn:solo-1'); i += 1) {
+      const snapshot = await waitForSnapshot(ws);
+      pawns = snapshot.pawns as { id: string; frameId: string }[];
+    }
+    expect(pawns.map((pawn) => pawn.id).sort()).toEqual(['pawn:solo-1']);
+    expect(pawns.find((pawn) => pawn.id === 'pawn:solo-1')?.frameId).toBe('ship');
+  });
+
   it('evicts the first socket when the same userId resumes elsewhere', async () => {
     const { port } = await startDaemon();
     const first = await connectAndJoin(port, 'Rook', 'twin-9');
@@ -278,7 +300,7 @@ describe('HarborDaemon v2 transport', () => {
   });
 
   it('runs talk to hire to departure over the socket', async () => {
-    const { port } = await startDaemon();
+    const { port } = await startDaemon(0, buildHarborWorld);
     const ws = await connectAndJoin(port, 'Sable', 'e2e-2');
     sockets.push(ws);
     send(ws, { type: 'TALK', seq: 1, npcId: 'captain:ship' });

@@ -12,6 +12,8 @@ export * from './intro';
 export * from './living';
 export * from './quant';
 export * from './seq';
+export * from './shipIntents';
+export * from './shipSnapshots';
 export * from './snapshots';
 export * from './spatial';
 export * from './subsystems';

@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest';
+import { isSecured } from './cargo.js';
+import { engineSpecFor } from './engine.js';
+import { marginFor, STARTER_CATALOG } from './market.js';
+import { DOCKED_NAV, isUnderway } from './navTransit.js';
+import { reactorSpecFor } from './reactor.js';
+
+describe('ship seams (M2-M5 placeholders)', () => {
+  it('tiers improve monotonically', () => {
+    expect(reactorSpecFor(1).maxOutputMw).toBeGreaterThan(reactorSpecFor(0).maxOutputMw);
+    expect(reactorSpecFor(2).coolingPerFlow).toBeGreaterThan(reactorSpecFor(1).coolingPerFlow);
+    expect(engineSpecFor(1).rangeSu).toBeGreaterThan(engineSpecFor(0).rangeSu);
+    expect(engineSpecFor(2).speedKps).toBeGreaterThan(engineSpecFor(1).speedKps);
+  });
+
+  it('docked nav is not underway', () => {
+    expect(isUnderway(DOCKED_NAV)).toBe(false);
+    expect(isUnderway({ phase: 'in_transit', destHubId: 'hub_b', remainingS: 30 })).toBe(true);
+  });
+
+  it('only racked crates are secured', () => {
+    expect(isSecured({ id: 'c1', goodId: 'scrap', qty: 1, where: 'rack' })).toBe(true);
+    expect(isSecured({ id: 'c2', goodId: 'scrap', qty: 1, where: 'carried' })).toBe(false);
+    expect(isSecured({ id: 'c3', goodId: 'scrap', qty: 1, where: 'bayFloor' })).toBe(false);
+  });
+
+  it('starter catalog holds six fixed goods', () => {
+    expect(STARTER_CATALOG).toHaveLength(6);
+    for (const listing of STARTER_CATALOG) {
+      expect(Number.isFinite(marginFor(listing))).toBe(true);
+    }
+  });
+});

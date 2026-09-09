@@ -61,6 +61,33 @@ export function buildHarborWorld(): World {
   return ensureStationCrowd(world);
 }
 
+/**
+ * Solo-ship start (TRANSFORM M1): the same station + docked vessel and
+ * fixtures, but zero pawns, bots, crew, or hire offers. The player spawns
+ * aboard their own ship via SPAWN_ABOARD; the hire loop never runs here.
+ */
+export function buildSoloShipWorld(): World {
+  let world = assembleWorld([
+    { frameId: HARBOR_STATION, hull: StationHubSpec },
+    {
+      frameId: HARBOR_SHIP,
+      hull: HesperiaV2Spec,
+      vessel: { name: 'CSS Hesperia', beacon: HARBOR_BEACON },
+    },
+  ]);
+  const ship = world.vessels[HARBOR_SHIP];
+  if (ship !== undefined) {
+    world = {
+      ...world,
+      vessels: { ...world.vessels, [HARBOR_SHIP]: { ...ship, origin: { ...SHIP_ORIGIN } } },
+    };
+  }
+  // No transit record: tickSchedule skips vessels without one, so the solo
+  // ship never auto-departs. Transit returns in M3 as a player-plotted leg.
+  world = { ...world, docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK } };
+  return ensureLivingFixtures(world);
+}
+
 /** Ambient harbor crowd: three wanderers that never crew, never fight. */
 const STATION_CROWD: ReadonlyArray<{
   id: string;

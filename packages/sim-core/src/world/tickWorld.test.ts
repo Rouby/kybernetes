@@ -74,6 +74,17 @@ describe('tickWorld scaffold', () => {
     expect(a.pawns.p1?.pos.x).toBe(b.pawns.p1?.pos.x);
     expect(a.pawns.p1?.pos.x ?? 0).toBeGreaterThan(140);
   });
+
+  it('stops the pawn on the first tick without input', () => {
+    const input: WorldInput = { pawnId: 'p1', moveX: 1, moveY: 0, sprint: false };
+    const cruising = drive(shipWorld(), 20, input);
+    expect(cruising.pawns.p1?.vel.x ?? 0).toBeGreaterThan(0);
+    const stopped = tickWorld(cruising, 1 / 20, []);
+    expect(stopped.pawns.p1?.vel).toEqual({ x: 0, y: 0 });
+    expect(stopped.pawns.p1?.pos).toEqual(cruising.pawns.p1?.pos);
+    const settled = tickWorld(stopped, 1 / 20, []);
+    expect(settled.pawns.p1?.pos).toEqual(cruising.pawns.p1?.pos);
+  });
 });
 
 describe('tickWorld collision', () => {

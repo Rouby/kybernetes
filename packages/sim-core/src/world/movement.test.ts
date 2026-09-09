@@ -49,6 +49,25 @@ describe('client prediction parity', () => {
     expect(predictVelocity(vel, moveVec, 0)).toBe(vel);
   });
 
+  it('stops immediately on zero input instead of coasting', () => {
+    const cruising = { x: 200, y: -140 };
+    const pawn = { vel: cruising } as Parameters<typeof integratePawnVelocity>[0];
+    expect(integratePawnVelocity(pawn, { x: 0, y: 0 }, 0.05)).toEqual({ x: 0, y: 0 });
+    expect(predictVelocity(cruising, null, 0.05)).toEqual({ x: 0, y: 0 });
+    expect(predictVelocity(cruising, { x: 0, y: 0 }, 0.05)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('still ramps up while keys are held', () => {
+    const pawn = { vel: { x: 0, y: 0 } } as Parameters<typeof integratePawnVelocity>[0];
+    const ramp = integratePawnVelocity(
+      pawn,
+      inputToAccel({ moveVec: { x: 1, y: 0 }, sprint: false }),
+      0.05
+    );
+    expect(ramp.x).toBeGreaterThan(0);
+    expect(ramp.x).toBeLessThanOrEqual(220);
+  });
+
   it('moves freely with no colliders', () => {
     expect(predictStep({ x: 30, y: 50 }, 12, { x: 40, y: 50 }, [])).toEqual({ x: 40, y: 50 });
   });

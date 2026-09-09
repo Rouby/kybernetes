@@ -236,3 +236,16 @@ export function validateRestart(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   return { ok: true, intent: { type: 'RESTART', seq: raw.seq } };
 }
+
+export function validateSpawnAboard(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (raw.userId !== undefined && !isShortId(raw.userId)) return fail('bad-field', 'userId');
+  const userId = typeof raw.userId === 'string' ? raw.userId : undefined;
+  return {
+    ok: true,
+    intent:
+      userId === undefined
+        ? { type: 'SPAWN_ABOARD', seq: raw.seq as number }
+        : { type: 'SPAWN_ABOARD', seq: raw.seq as number, userId },
+  };
+}

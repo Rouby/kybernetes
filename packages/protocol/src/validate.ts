@@ -26,6 +26,7 @@ import {
   validateRepair,
   validateRestart,
   validateSleep,
+  validateSpawnAboard,
   validateSuit,
   validateTalk,
   validateVend,
@@ -58,6 +59,7 @@ const INTENT_VALIDATORS: Readonly<Record<string, IntentValidator>> = {
   RECYCLE: validateRecycle,
   REPAIR: validateRepair,
   RESTART: validateRestart,
+  SPAWN_ABOARD: validateSpawnAboard,
 };
 
 export function validateClientIntent(raw: unknown): ValidateResult {
@@ -90,4 +92,5 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   RECYCLE: 4,
   REPAIR: 8,
   RESTART: 2,
+  SPAWN_ABOARD: 2,
 };

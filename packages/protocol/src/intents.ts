@@ -137,6 +137,12 @@ export interface RestartIntent {
   readonly seq: number;
 }
 
+export interface SpawnAboardIntent {
+  readonly type: 'SPAWN_ABOARD';
+  readonly seq: number;
+  readonly userId?: string;
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
@@ -157,7 +163,8 @@ export type ClientIntent =
   | HarvestIntent
   | RecycleIntent
   | RepairIntent
-  | RestartIntent;
+  | RestartIntent
+  | SpawnAboardIntent;
 
 export type ClientIntentType = ClientIntent['type'];
 
@@ -182,4 +189,5 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'RECYCLE',
   'REPAIR',
   'RESTART',
+  'SPAWN_ABOARD',
 ] as const;

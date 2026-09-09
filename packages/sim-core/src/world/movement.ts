@@ -27,6 +27,8 @@ export function inputToAccel(input: MoveInput): Vec2 {
 
 export function integratePawnVelocity(pawn: PawnBody, accel: Vec2, dtSeconds: number): Vec2 {
   if (!(dtSeconds > 0)) return pawn.vel;
+  // No drive, no glide: releasing the keys stops the pawn on this tick.
+  if (accel.x === 0 && accel.y === 0) return { x: 0, y: 0 };
   return dampVelocity(pawn.vel, accel, dtSeconds);
 }
 
@@ -37,14 +39,14 @@ function dampVelocity(vel: Vec2, accel: Vec2, dtSeconds: number): Vec2 {
 }
 
 /**
- * Client prediction velocity: the same accel/damping model as the server,
+ * Client prediction velocity: the same accel/stop model as the server,
  * pawn-free. Predictions using this stay glued to authority; the old
  * constant-velocity guess overshot every turn and rubbed back on reconcile.
  */
 export function predictVelocity(vel: Vec2, moveVec: Vec2 | null, dtSeconds: number): Vec2 {
   if (!(dtSeconds > 0)) return vel;
-  const accel =
-    moveVec === null ? { x: 0, y: 0 } : { x: moveVec.x * BASE_ACCEL, y: moveVec.y * BASE_ACCEL };
+  if (moveVec === null || (moveVec.x === 0 && moveVec.y === 0)) return { x: 0, y: 0 };
+  const accel = { x: moveVec.x * BASE_ACCEL, y: moveVec.y * BASE_ACCEL };
   return dampVelocity(vel, accel, dtSeconds);
 }
 

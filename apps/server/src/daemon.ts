@@ -26,12 +26,12 @@ import {
   type AirAuthorityState,
   type AtmosRoom,
   bindWorldAir,
-  buildHarborWorld,
   buildHireOffer,
   buildManifest,
   buildNotice,
   buildSnapshot,
   buildSnapshotDelta,
+  buildSoloShipWorld,
   buildTelemetry,
   buildVitals,
   buildWatch,
@@ -76,6 +76,10 @@ export interface ChannelStats {
   readonly manifestBytes: number;
   readonly watchBytes: number;
   readonly vitalsBytes: number;
+}
+
+function isJoinIntent(intent: ClientIntent): boolean {
+  return intent.type === 'JOIN_BEACON' || intent.type === 'SPAWN_ABOARD';
 }
 
 function emptyStats(): ChannelStats {
@@ -153,8 +157,11 @@ export class HarborDaemon {
   private lastWatchMs = 0;
   private readonly vitalsSent = new Map<string, { body: string; ms: number }>();
 
-  constructor(private readonly port: number = 3001) {
-    const world = buildHarborWorld();
+  constructor(
+    private readonly port: number = 3001,
+    worldFactory: () => World = buildSoloShipWorld
+  ) {
+    const world = worldFactory();
     bindWorldAir(this.air, world);
     this.host = new SimHost(
       world,
@@ -331,13 +338,11 @@ export class HarborDaemon {
 
   private routeIntent(ws: WebSocket, clientId: string, intent: ClientIntent): void {
     const result = this.host.handleIntent(clientId, intent);
-    if (intent.type === 'JOIN_BEACON') this.evictStolenSessions();
+    if (isJoinIntent(intent)) this.evictStolenSessions();
     if (intent.type === 'OBSERVE' && result.notice === undefined) {
       this.welcomeObserver(ws, intent.beacon);
     }
-    if (intent.type === 'JOIN_BEACON' && result.notice === undefined) {
-      this.welcomeAboard(ws, intent.beacon);
-    }
+    this.welcomeJoiner(ws, clientId, intent, result.notice === undefined);
     if (result.notice === 'observer-readonly') {
       this.droppedLimited += 1;
       return;
@@ -372,6 +377,20 @@ export class HarborDaemon {
           // Already gone; registry cleanup above is what matters.
         }
       }
+    }
+  }
+
+  /** JOINED plus baselines for both join paths: beacon crews and solo spawns. */
+  private welcomeJoiner(
+    ws: WebSocket,
+    clientId: string,
+    intent: ClientIntent,
+    welcomed: boolean
+  ): void {
+    if (!welcomed) return;
+    if (intent.type === 'JOIN_BEACON') this.welcomeAboard(ws, intent.beacon);
+    if (intent.type === 'SPAWN_ABOARD') {
+      this.welcomeAboard(ws, this.host.clientOf(clientId)?.beacon ?? '');
     }
   }
 

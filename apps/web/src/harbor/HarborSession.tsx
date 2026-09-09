@@ -37,6 +37,8 @@ const EMPTY_PORTALS: readonly SnapshotPortal[] = [];
 export interface HarborSessionProps {
   readonly identity: HarborIdentity;
   readonly onQuit: () => void;
+  /** Solo loop: fired on SHIP_LOST (wired in M6 alongside the socket notice). */
+  readonly onShipLost?: (shipId: string) => void;
 }
 
 function harborPortals(snapshot: HarborSocket['snapshot']): readonly SnapshotPortal[] {

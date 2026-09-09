@@ -57,7 +57,7 @@ declare global {
   }
 }
 
-/** HELLO + JOIN_BEACON handshake sent on every (re)connect. */
+/** HELLO + SPAWN_ABOARD handshake sent on every (re)connect. Solo loop: the player always spawns aboard their own persistent ship. */
 function sendJoinHandshake(socket: WebSocket, id: HarborIdentity): void {
   socket.send(
     JSON.stringify({
@@ -73,8 +73,7 @@ function sendJoinHandshake(socket: WebSocket, id: HarborIdentity): void {
   socket.send(
     JSON.stringify({
       v: PROTOCOL_VERSION,
-      type: 'JOIN_BEACON',
-      beacon: id.beacon,
+      type: 'SPAWN_ABOARD',
       seq: 0,
       userId: id.userId,
     })
