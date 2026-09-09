@@ -1,7 +1,12 @@
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { type BreachSegment, carveWallsAtBreachSegments } from '../world/breachView.js';
 import { type Point2D, segmentsIntersect } from './collision';
-import { applyShipOffsetToWalls, type DockFrameOffset, HESPERIA_WALLS } from './deck';
+import {
+  applyShipOffsetToWalls,
+  type DockFrameOffset,
+  HESPERIA_WALLS,
+  partitionFrameWalls,
+} from './deck';
 import { getWorldDoors } from './doors';
 
 export interface VisibilityRayHit {
@@ -11,14 +16,43 @@ export interface VisibilityRayHit {
   distance: number;
 }
 
+/** Breach cut tagged with its owning frame; untagged cuts keep legacy broadcast behavior. */
+export type FramedBreachSegment = BreachSegment & { readonly frameId?: string };
+
+function gapsForFrame(breaches: readonly FramedBreachSegment[], ship: boolean): BreachSegment[] {
+  const gaps: BreachSegment[] = [];
+  for (const breach of breaches) {
+    if (breach.frameId !== undefined && (breach.frameId === 'ship') !== ship) continue;
+    gaps.push({ x1: breach.x1, y1: breach.y1, x2: breach.x2, y2: breach.y2 });
+  }
+  return gaps;
+}
+
+/**
+ * Cut breach gaps only into their own frame's walls. Ship cuts are
+ * frame-local like ship walls, so carving the mixed wall soup with raw
+ * segments punched holes into station bulkheads (and poisoned sight).
+ */
+export function carveWallsByFrame(
+  walls: readonly WallSegment[],
+  breaches: readonly FramedBreachSegment[]
+): WallSegment[] {
+  if (breaches.length === 0) return [...walls];
+  const { ship, station } = partitionFrameWalls([...walls]);
+  return [
+    ...carveWallsAtBreachSegments(station, gapsForFrame(breaches, false)),
+    ...carveWallsAtBreachSegments(ship, gapsForFrame(breaches, true)),
+  ];
+}
+
 export function getOpaqueWallSegments(
   walls: WallSegment[],
   doors?: DoorState[],
-  breachSegments?: readonly BreachSegment[]
+  breachSegments?: readonly FramedBreachSegment[]
 ): WallSegment[] {
   const carvedWalls =
     breachSegments !== undefined && breachSegments.length > 0
-      ? carveWallsAtBreachSegments(walls, breachSegments)
+      ? carveWallsByFrame(walls, breachSegments)
       : walls;
   const opaqueWalls = carvedWalls.filter((w) => w.isOpaque !== false);
   if (!doors) return opaqueWalls;
@@ -43,12 +77,12 @@ export function getOpaqueWallSegments(
 export function getWorldOpaqueWalls(
   walls: WallSegment[],
   doors: DoorState[] | undefined,
-  breachSegments: readonly BreachSegment[] | undefined,
+  breachSegments: readonly FramedBreachSegment[] | undefined,
   offset: DockFrameOffset
 ): WallSegment[] {
   const carved =
     breachSegments !== undefined && breachSegments.length > 0
-      ? carveWallsAtBreachSegments(walls, breachSegments)
+      ? carveWallsByFrame(walls, breachSegments)
       : walls;
   const shifted = applyShipOffsetToWalls(carved, offset);
   if (!doors) return shifted.filter((w) => w.isOpaque !== false);

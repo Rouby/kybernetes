@@ -3,7 +3,7 @@ import {
   applyShipOffsetToWalls,
   BREACH_GLOW_S,
   type BreachRenderModel,
-  carveWallsAtBreachSegments,
+  carveWallsByFrame,
   getWorldRooms,
   HESPERIA_LIGHTS,
   HESPERIA_WALLS,
@@ -395,9 +395,9 @@ export class DeckPass {
 
     const gaps = breaches
       .filter((breach) => breach.sizeClass === 'breach')
-      .map(({ x1, y1, x2, y2 }) => ({ x1, y1, x2, y2 }));
+      .map(({ frameId, x1, y1, x2, y2 }) => ({ frameId, x1, y1, x2, y2 }));
     const walls = applyShipOffsetToWalls(
-      gaps.length > 0 ? carveWallsAtBreachSegments(HESPERIA_WALLS, gaps) : HESPERIA_WALLS,
+      gaps.length > 0 ? carveWallsByFrame(HESPERIA_WALLS, gaps) : HESPERIA_WALLS,
       this.shipOffset
     );
 
