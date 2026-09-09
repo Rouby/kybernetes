@@ -12,24 +12,37 @@ import {
   breachCountsByRoom,
   breachFlowVectors,
   callsignFor,
+  FOCUS_SNAP_DIST,
+  focusFrameId,
+  focusOriginOf,
   frameOrigins,
+  interpolateFocusOrigin,
   mapAtmos,
   mapBreaches,
+  mapDecalsView,
+  mapFreshImpactsView,
   mapKineticAmmo,
   mapPawn,
   mapPredictedProjectiles,
+  mapPredictedProjectilesView,
   mapRemotePawns,
+  mapRemotePawnsView,
   mapServerProjectiles,
+  mapServerProjectilesView,
   mapTelemetry,
   mapVitals,
   mergeSnapshotDelta,
   mergeTelemetry,
+  pawnView,
   pawnWorld,
+  relativeOffsetOf,
   roomO2,
   roomWindVectors,
   shipOffsetOf,
+  smoothedOrigins,
   snapshotAgeS,
   syncDoors,
+  toView,
   ventedBareIds,
 } from './renderState';
 
@@ -433,5 +446,183 @@ describe('render-state mapping', () => {
     expect(snapshotAgeS(2000, 1000)).toBe(0);
     expect(snapshotAgeS(Number.NaN, 1000)).toBe(0);
     expect(snapshotAgeS(1000, Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it('locks the focus frame to the active vessel', () => {
+    expect(focusFrameId('ship')).toBe('ship');
+    expect(focusFrameId('station')).toBe('station');
+    expect(focusFrameId('')).toBe('ship');
+    expect(focusFrameId('unknown')).toBe('ship');
+  });
+
+  it('resolves focus origins with vessel fallbacks', () => {
+    const origins = frameOrigins(snapshot());
+    expect(focusOriginOf(origins, 'ship')).toEqual({ x: 1400, y: 0 });
+    expect(focusOriginOf(origins, 'station')).toEqual({ x: 0, y: 0 });
+    expect(focusOriginOf(new Map(), 'ship')).toEqual({ x: 990, y: -160 });
+    expect(focusOriginOf(new Map(), 'station')).toEqual({ x: 0, y: 0 });
+  });
+
+  it('transposes world into view around the focus', () => {
+    expect(toView({ x: 1500, y: 100 }, { x: 1400, y: 0 })).toEqual({ x: 100, y: 100 });
+    const origins = frameOrigins(snapshot());
+    expect(relativeOffsetOf(origins, 'ship', { x: 1400, y: 0 })).toEqual({ x: 0, y: 0 });
+    expect(relativeOffsetOf(origins, 'station', { x: 1400, y: 0 })).toEqual({ x: -1400, y: 0 });
+  });
+
+  it('keeps own-vessel pawns stable across origin steps', () => {
+    const shipPawn = pawn({ frameId: 'ship', x: 100, y: 50 });
+    const before = frameOrigins(
+      snapshot({ frames: [{ id: 'ship', originX: 1400, originY: 0, angle: 0 }] })
+    );
+    const after = frameOrigins(
+      snapshot({ frames: [{ id: 'ship', originX: 1500, originY: 20, angle: 0 }] })
+    );
+    const focusBefore = focusOriginOf(before, 'ship');
+    const focusAfter = focusOriginOf(after, 'ship');
+    expect(pawnView(shipPawn, before, focusBefore, null)).toEqual({ x: 100, y: 50 });
+    expect(pawnView(shipPawn, after, focusAfter, null)).toEqual({ x: 100, y: 50 });
+    const stationPawn = pawn({ frameId: 'station', x: 10, y: 20 });
+    expect(pawnView(stationPawn, before, focusBefore, null)).toEqual({ x: -1390, y: 20 });
+    expect(pawnView(stationPawn, after, focusAfter, null)).toEqual({ x: -1490, y: 0 });
+  });
+
+  it('prefers predicted locals in view space', () => {
+    const origins = frameOrigins(snapshot());
+    const focus = focusOriginOf(origins, 'ship');
+    const shipPawn = pawn({ frameId: 'ship', x: 100, y: 50 });
+    expect(pawnView(shipPawn, origins, focus, { x: 110, y: 60, facing: 0 })).toEqual({
+      x: 110,
+      y: 60,
+    });
+  });
+
+  it('transposes remotes and rounds into vessel view', () => {
+    const origins = new Map([
+      ['station', { x: 0, y: 0 }],
+      ['ship', { x: 1400, y: 0 }],
+    ]);
+    const focus = { x: 1400, y: 0 };
+    const base = snapshot({
+      pawns: [
+        pawn({ id: 'pawn:u1', frameId: 'ship', x: 100, y: 50 }),
+        pawn({ id: 'pawn:u2', frameId: 'station', x: 10, y: 20 }),
+      ],
+    });
+    const remotes = mapRemotePawnsView(base, 'pawn:u1', manifest(), origins, focus);
+    expect(remotes).toHaveLength(1);
+    expect(remotes[0]).toMatchObject({ x: -1390, y: 20 });
+    const server = mapServerProjectilesView(
+      [{ id: 's1', frameId: 'ship', x: 100, y: 200, vx: 600, vy: 0, weapon: 'kinetic_carbine' }],
+      origins,
+      focus,
+      0.1
+    );
+    expect(server[0]).toMatchObject({ x: 160, y: 200 });
+    const predicted = mapPredictedProjectilesView(
+      [
+        {
+          id: 7,
+          frameId: 'ship',
+          x: 50,
+          y: 60,
+          vx: 600,
+          vy: 0,
+          bornMs: 1,
+          weapon: 'kinetic_carbine',
+        },
+      ],
+      origins,
+      focus
+    );
+    expect(predicted[0]).toMatchObject({ id: 'pred:7', x: 50, y: 60 });
+  });
+
+  it('transposes decals and impacts into vessel view', () => {
+    const origins = new Map([
+      ['station', { x: 0, y: 0 }],
+      ['ship', { x: 1400, y: 0 }],
+    ]);
+    const focus = { x: 1400, y: 0 };
+    const decals = mapDecalsView(
+      snapshot({
+        tick: 100,
+        decals: [
+          {
+            id: 'd1',
+            frameId: 'ship',
+            x: 100,
+            y: 200,
+            angle: 0,
+            radius: 5,
+            weapon: 'kinetic_carbine',
+            bornTick: 90,
+          },
+        ],
+      }),
+      origins,
+      focus
+    );
+    expect(decals[0]).toMatchObject({ x: 100, y: 200 });
+    const impacts = mapFreshImpactsView(
+      snapshot({
+        impacts: [{ frameId: 'ship', x: 100, y: 200, kind: 'pawn', weapon: 'kinetic_carbine' }],
+      }),
+      origins,
+      focus
+    );
+    expect(impacts[0]).toMatchObject({ x: 100, y: 200 });
+    expect(mapDecalsView(null, origins, focus)).toEqual([]);
+  });
+
+  it('snaps focus origins on first sight and teleports', () => {
+    expect(interpolateFocusOrigin(null, { x: 1400, y: 0 }, 1000)).toEqual({
+      x: 1400,
+      y: 0,
+      ms: 1000,
+    });
+    const prev = { x: 1400, y: 0, ms: 1000 };
+    expect(interpolateFocusOrigin(prev, { x: 1400, y: 0 }, 1000)).toBe(prev);
+    const teleport = interpolateFocusOrigin(prev, { x: 1400 + FOCUS_SNAP_DIST + 100, y: 0 }, 1100);
+    expect(teleport).toEqual({ x: 1400 + FOCUS_SNAP_DIST + 100, y: 0, ms: 1100 });
+    expect(interpolateFocusOrigin(prev, { x: 1500, y: 0 }, 5000)).toEqual({
+      x: 1500,
+      y: 0,
+      ms: 5000,
+    });
+  });
+
+  it('glides focus origins instead of stair-stepping', () => {
+    const prev = { x: 1400, y: 0, ms: 1000 };
+    const next = interpolateFocusOrigin(prev, { x: 1500, y: 0 }, 1016);
+    expect(next.x).toBeGreaterThan(1400);
+    expect(next.x).toBeLessThan(1500);
+    expect(next.ms).toBe(1016);
+    let cur = prev;
+    for (let i = 1; i <= 10; i += 1) {
+      cur = interpolateFocusOrigin(cur, { x: 1500, y: 0 }, 1000 + i * 16);
+    }
+    expect(cur.x).toBeGreaterThan(next.x);
+    expect(cur.x).toBeLessThanOrEqual(1500);
+  });
+
+  it('smooths frame origins without mutating snapshots', () => {
+    const origins = frameOrigins(snapshot());
+    const smooth = smoothedOrigins(origins, { x: 1450, y: 10 });
+    expect(smooth.get('ship')).toEqual({ x: 1450, y: 10 });
+    expect(smooth.get('station')).toEqual({ x: 0, y: 0 });
+    expect(origins.get('ship')).toEqual({ x: 1400, y: 0 });
+    expect(shipOffsetOf(smooth)).toEqual({ x: 1450, y: 10 });
+  });
+
+  it('keeps focus interpolation total on bad clocks', () => {
+    const prev = { x: 1400, y: 0, ms: 1000 };
+    expect(interpolateFocusOrigin(prev, { x: Number.NaN, y: 0 }, 1016)).toBe(prev);
+    expect(interpolateFocusOrigin(prev, { x: 1500, y: 0 }, Number.NaN)).toBe(prev);
+    expect(interpolateFocusOrigin(null, { x: Number.NaN, y: 0 }, 1016)).toEqual({
+      x: 0,
+      y: 0,
+      ms: 1016,
+    });
   });
 });

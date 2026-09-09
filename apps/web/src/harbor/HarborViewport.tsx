@@ -24,7 +24,7 @@ import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
-import type { FrameMotion } from './renderState';
+import type { FocusOrigin, FrameMotion } from './renderState';
 import {
   aimPoint,
   applyDockGates,
@@ -32,6 +32,7 @@ import {
   breachCountsByRoom,
   callsignFor,
   frameOrigins,
+  interpolateFocusOrigin,
   mapAtmos,
   mapBreaches,
   mapDecals,
@@ -46,6 +47,7 @@ import {
   roomO2,
   roomWindVectors,
   shipOffsetOf,
+  smoothedOrigins,
   snapshotAgeS,
   stepFrameMotion,
   syncDoors,
@@ -92,6 +94,7 @@ interface ViewportSession {
   renderer: WebGL2Renderer | null;
   camera: { x: number; y: number };
   frameMotion: FrameMotion | null;
+  shipInterp: FocusOrigin | null;
   doors: DoorState[];
   seenImpacts: Set<string>;
   lastFrameMs: number;
@@ -124,6 +127,7 @@ export function HarborViewport(props: HarborViewportProps) {
     renderer: null,
     camera: { x: 650, y: 200 },
     frameMotion: null,
+    shipInterp: null,
     doors: createInitialDoors(),
     seenImpacts: new Set<string>(),
     lastFrameMs: 0,
@@ -233,14 +237,18 @@ function renderViewport(
   const own = snapshot.pawns.find((pawn) => pawn.id === view.pawnId);
   if (own === undefined) return;
   const origins = frameOrigins(snapshot);
-  const at = pawnWorld(own, origins, view.predicted);
   const now = performance.now();
+  // Glide the 10Hz ship origin to render rate; the camera follow then
+  // transposes the world smoothly instead of stair-stepping each delta.
+  session.shipInterp = interpolateFocusOrigin(session.shipInterp, shipOffsetOf(origins), now);
+  const viewOrigins = smoothedOrigins(origins, session.shipInterp);
+  const at = pawnWorld(own, viewOrigins, view.predicted);
   stampSnapshotArrival(session, snapshot, now);
   const aim = trackAim(session, view, canvas, at);
   const motion = stepFrameMotion(
     session.frameMotion ?? null,
-    origins.get('ship')?.x ?? 0,
-    origins.get('ship')?.y ?? 0,
+    session.shipInterp.x,
+    session.shipInterp.y,
     now
   );
   session.frameMotion = motion;
@@ -258,7 +266,7 @@ function renderViewport(
   renderer.render(
     {
       pawn: mapPawn(own, callsignFor(view.manifest, own.id), at, view.facingRef.current),
-      remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, origins),
+      remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, viewOrigins),
       vitals: mappedVitals,
       telemetry: delta,
       boarding: {
@@ -271,10 +279,10 @@ function renderViewport(
         projectiles: [
           ...mapServerProjectiles(
             snapshot.projectiles,
-            origins,
+            viewOrigins,
             snapshotAgeS(session.snapshotAtMs, now)
           ),
-          ...mapPredictedProjectiles(view.shotsRef.current, origins),
+          ...mapPredictedProjectiles(view.shotsRef.current, viewOrigins),
         ],
         roomO2: roomO2(roomAtmos),
       },
@@ -286,7 +294,7 @@ function renderViewport(
       kineticAmmo: mapKineticAmmo(view.vitals),
       breaches,
       breachFlows: flows,
-      decals: mapDecals(snapshot, origins),
+      decals: mapDecals(snapshot, viewOrigins),
       dock:
         view.dock === null
           ? undefined
@@ -295,7 +303,7 @@ function renderViewport(
               phase: view.dock.phase,
               secondsToSeal: view.dock.secondsToSeal,
             },
-      impacts: freshImpacts(session, snapshot, origins),
+      impacts: freshImpacts(session, snapshot, viewOrigins),
       camera: shakenCamera(session, now),
       zoom: VIEW_ZOOM,
       mouseWorld: aimPoint(aim, at),
@@ -306,7 +314,7 @@ function renderViewport(
       })),
       inGameNotice: session.notice?.text,
       timeMs: now,
-      shipOffset: shipOffsetOf(origins),
+      shipOffset: shipOffsetOf(viewOrigins),
       shipUnderway: view.shipUnderway,
       screenWidth: canvas.clientWidth,
       screenHeight: canvas.clientHeight,

@@ -494,6 +494,204 @@ export function shipOffsetOf(origins: Map<string, { x: number; y: number }>): {
   return origins.get('ship') ?? { ...SHIP_ORIGIN };
 }
 
+/**
+ * Focus-frame-relative view space for ship-centered rendering.
+ * The focused frame (own pawn's vessel) stays fixed while other frames are
+ * transposed around it: view = world - focusOrigin. Own-frame items are then
+ * immune to 10Hz origin steps; only the interpolated focus drifts smoothly.
+ */
+
+/** Active focus frame; unknown frames lock to the vessel. */
+export function focusFrameId(frameId: string): string {
+  return frameId === 'station' ? 'station' : 'ship';
+}
+
+function fallbackOrigin(frameId: string): { x: number; y: number } {
+  return frameId === 'station' ? { x: 0, y: 0 } : { ...SHIP_ORIGIN };
+}
+
+function originOf(
+  origins: Map<string, { x: number; y: number }>,
+  frameId: string
+): { x: number; y: number } {
+  return origins.get(frameId) ?? fallbackOrigin(frameId);
+}
+
+/** Interpolated origin the view subtracts; station space when unknown. */
+export function focusOriginOf(
+  origins: Map<string, { x: number; y: number }>,
+  focusId: string
+): { x: number; y: number } {
+  return originOf(origins, focusFrameId(focusId));
+}
+
+/** World -> view transpose around the interpolated focus origin. */
+export function toView(
+  pos: { x: number; y: number },
+  focusOrigin: { x: number; y: number }
+): { x: number; y: number } {
+  return { x: pos.x - focusOrigin.x, y: pos.y - focusOrigin.y };
+}
+
+/** Frame offset relative to the focus (zero when on the focused frame). */
+export function relativeOffsetOf(
+  origins: Map<string, { x: number; y: number }>,
+  frameId: string,
+  focusOrigin: { x: number; y: number }
+): { x: number; y: number } {
+  const origin = originOf(origins, frameId);
+  return { x: origin.x - focusOrigin.x, y: origin.y - focusOrigin.y };
+}
+
+function pawnLocal(pawn: SnapshotPawn, predicted: PredictedPawn | null): { x: number; y: number } {
+  if (predicted !== null) return { x: predicted.x, y: predicted.y };
+  return { x: pawn.x, y: pawn.y };
+}
+
+/** View-space pawn position; stable across origin steps on the focus frame. */
+export function pawnView(
+  pawn: SnapshotPawn,
+  origins: Map<string, { x: number; y: number }>,
+  focusOrigin: { x: number; y: number },
+  predicted: PredictedPawn | null
+): { x: number; y: number } {
+  const local = pawnLocal(pawn, predicted);
+  const offset = relativeOffsetOf(origins, pawn.frameId, focusOrigin);
+  return { x: local.x + offset.x, y: local.y + offset.y };
+}
+
+/** Remotes transposed into view space for the renderer. */
+export function mapRemotePawnsView(
+  snapshot: SnapshotBroadcast,
+  pawnId: string | null,
+  manifest: ManifestBroadcast | null,
+  origins: Map<string, { x: number; y: number }>,
+  focusOrigin: { x: number; y: number }
+): PawnState[] {
+  return mapRemotePawns(snapshot, pawnId, manifest, origins).map((pawn) => ({
+    ...pawn,
+    x: pawn.x - focusOrigin.x,
+    y: pawn.y - focusOrigin.y,
+  }));
+}
+
+/** Authoritative rounds transposed into view space. */
+export function mapServerProjectilesView(
+  shots: readonly SnapshotProjectile[] | undefined,
+  origins: Map<string, { x: number; y: number }>,
+  focusOrigin: { x: number; y: number },
+  ageS: number
+): ProjectileState[] {
+  return mapServerProjectiles(shots, origins, ageS).map((shot) => ({
+    ...shot,
+    x: shot.x - focusOrigin.x,
+    y: shot.y - focusOrigin.y,
+  }));
+}
+
+/** Locally predicted rounds transposed into view space. */
+export function mapPredictedProjectilesView(
+  shots: readonly PredictedShot[],
+  origins: Map<string, { x: number; y: number }>,
+  focusOrigin: { x: number; y: number }
+): ProjectileState[] {
+  return mapPredictedProjectiles(shots, origins).map((shot) => ({
+    ...shot,
+    x: shot.x - focusOrigin.x,
+    y: shot.y - focusOrigin.y,
+  }));
+}
+
+/** Scorch decals transposed into view space. */
+export function mapDecalsView(
+  snapshot: SnapshotBroadcast | null,
+  origins: Map<string, { x: number; y: number }>,
+  focusOrigin: { x: number; y: number }
+): DecalRenderModel[] {
+  return mapDecals(snapshot, origins).map((decal) => ({
+    ...decal,
+    x: decal.x - focusOrigin.x,
+    y: decal.y - focusOrigin.y,
+  }));
+}
+
+/** Fresh impacts transposed into view space. */
+export function mapFreshImpactsView(
+  snapshot: SnapshotBroadcast,
+  origins: Map<string, { x: number; y: number }>,
+  focusOrigin: { x: number; y: number }
+): ImpactRenderModel[] {
+  return mapFreshImpacts(snapshot, origins).map((impact) => ({
+    ...impact,
+    x: impact.x - focusOrigin.x,
+    y: impact.y - focusOrigin.y,
+  }));
+}
+
+export interface FocusOrigin {
+  readonly x: number;
+  readonly y: number;
+  readonly ms: number;
+}
+
+/** Snap distance for phase-change teleports (docked <-> transit). */
+export const FOCUS_SNAP_DIST = 1200;
+
+const FOCUS_RATE_PER_S = 10;
+const FOCUS_MAX_DT_S = 0.5;
+const FOCUS_CLAMP_DT_S = 0.25;
+
+function focusRate(dtS: number): number {
+  return 1 - Math.exp(-dtS * FOCUS_RATE_PER_S);
+}
+
+function isValidTarget(target: { x: number; y: number }): boolean {
+  return Number.isFinite(target.x) && Number.isFinite(target.y);
+}
+
+function snapFocus(target: { x: number; y: number }, nowMs: number): FocusOrigin {
+  return { x: target.x, y: target.y, ms: nowMs };
+}
+
+/**
+ * Smooth the 10Hz focus origin to 60fps render time. Converges exponentially
+ * so snapshot steps glide instead of stair-stepping; teleports snap.
+ */
+export function interpolateFocusOrigin(
+  prev: FocusOrigin | null,
+  target: { x: number; y: number },
+  nowMs: number
+): FocusOrigin {
+  if (!Number.isFinite(nowMs)) return prev ?? { x: 0, y: 0, ms: 0 };
+  if (!isValidTarget(target)) return prev ?? { x: 0, y: 0, ms: nowMs };
+  if (prev === null) return snapFocus(target, nowMs);
+  const dtS = (nowMs - prev.ms) / 1000;
+  if (!(dtS > 0)) return prev;
+  if (dtS > FOCUS_MAX_DT_S) return snapFocus(target, nowMs);
+  const dist = Math.hypot(target.x - prev.x, target.y - prev.y);
+  if (dist > FOCUS_SNAP_DIST) return snapFocus(target, nowMs);
+  const rate = focusRate(Math.min(dtS, FOCUS_CLAMP_DT_S));
+  return {
+    x: prev.x + (target.x - prev.x) * rate,
+    y: prev.y + (target.y - prev.y) * rate,
+    ms: nowMs,
+  };
+}
+
+/**
+ * Frame origins for one render frame: snapshot table with the moving ship
+ * origin replaced by its interpolated value. Station and static frames pass
+ * through untouched; the input map is never mutated.
+ */
+export function smoothedOrigins(
+  origins: Map<string, { x: number; y: number }>,
+  ship: { x: number; y: number }
+): Map<string, { x: number; y: number }> {
+  const next = new Map(origins);
+  next.set('ship', { x: ship.x, y: ship.y });
+  return next;
+}
+
 /** Ammo readout for the visor combat card; absent without vitals. */
 export function mapKineticAmmo(
   vitals: VitalsBroadcast | null
