@@ -222,6 +222,8 @@ function emitWallPieces(wall: WallSegment, cuts: WallCut[]): WallSegment[] {
       pieces.push({
         ...wall,
         id: `${wall.id}_br_${i}a`,
+        x1: wall.x1 + (wall.x2 - wall.x1) * cursor,
+        y1: wall.y1 + (wall.y2 - wall.y1) * cursor,
         x2: wall.x1 + (wall.x2 - wall.x1) * c0,
         y2: wall.y1 + (wall.y2 - wall.y1) * c0,
       });

@@ -649,8 +649,15 @@ export function isAboardShip(x: number, y: number, offset: DockFrameOffset): boo
   return roomId !== null && isShipSideRoom(roomId);
 }
 
+function baseWallId(id: string): string {
+  const cut = id.indexOf('_br_');
+  return cut < 0 ? id : id.slice(0, cut);
+}
+
 export function isShipSideWall(wall: WallSegment): boolean {
-  return SHIP_WALL_IDS.has(wall.id);
+  if (SHIP_WALL_IDS.has(wall.id)) return true;
+  if (SHIP_WALL_IDS.has(baseWallId(wall.id))) return true;
+  return wall.id === 'ship' || wall.id.startsWith('ship.');
 }
 
 export function getShipFrameWalls(): WallSegment[] {

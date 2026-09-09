@@ -148,6 +148,20 @@ describe('segment carve', () => {
     expect(carved).toEqual([wall]);
     expect(carved).not.toBe([wall]);
   });
+
+  it('emits non-overlapping pieces for multiple cuts', () => {
+    const carved = carveWallsAtBreachSegments(
+      [wall],
+      [
+        { x1: 20, y1: 0, x2: 30, y2: 0 },
+        { x1: 60, y1: 0, x2: 70, y2: 0 },
+      ]
+    );
+    expect(carved).toHaveLength(3);
+    expect(carved[0]).toMatchObject({ x1: 0, x2: 20 });
+    expect(carved[1]).toMatchObject({ x1: 30, x2: 60 });
+    expect(carved[2]).toMatchObject({ x1: 70, x2: 100 });
+  });
 });
 
 describe('live combat breaches', () => {
