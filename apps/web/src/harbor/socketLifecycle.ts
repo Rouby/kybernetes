@@ -1,9 +1,9 @@
 /**
- * Shared lifecycle primitives for the harbor WebSocket hooks.
- * `useHarborSocket` (player) and `useHarborObserver` (read-only debug
- * transport) run the same connect / retry / teardown skeleton with
- * different hello payloads and close handling; these helpers keep that
- * skeleton in one place so effect cleanup cannot drift between hooks.
+ * Shared lifecycle primitives for the harbor WebSocket stores.
+ * SocketStore (player) and ObserverStore (read-only debug transport) run
+ * the same connect / retry / teardown skeleton with different hello
+ * payloads and close handling; these helpers keep that skeleton in one
+ * place so disposal cannot drift between stores.
  */
 
 export const HARBOR_RECONNECT_MS = 2000;

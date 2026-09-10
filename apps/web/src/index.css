@@ -15,6 +15,3 @@ body,
   overflow: hidden;
   user-select: none;
 }
-
-/* biome-ignore lint/suspicious/noUnknownAtRules: Required by vite-plugin-stylex */
-@stylex stylesheet;

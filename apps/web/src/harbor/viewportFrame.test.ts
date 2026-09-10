@@ -1,6 +1,6 @@
 import type { SnapshotBroadcast } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
-import { type HarborViewportProps, telemetryKey } from './HarborViewport';
+import { type HarborViewportProps, telemetryKey } from './viewportFrame';
 
 function view(over: Record<string, unknown> = {}): HarborViewportProps {
   return over as unknown as HarborViewportProps;

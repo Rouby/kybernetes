@@ -188,6 +188,19 @@ function makeButton(
   };
 }
 
+export function isNavKey(key: string): boolean {
+  return (
+    key === 'ArrowDown' ||
+    key === 'ArrowUp' ||
+    key === 'w' ||
+    key === 'W' ||
+    key === 's' ||
+    key === 'S' ||
+    key === 'Home' ||
+    key === 'End'
+  );
+}
+
 export function navigateMenu(current: number, key: string, count: number): number {
   if (count <= 0) return 0;
   const at = ((current % count) + count) % count;

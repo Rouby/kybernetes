@@ -1,12 +1,16 @@
 /**
- * Session actions: keyboard intents behind the pause/death gate. The key
- * map is pure and pinned by Vitest; the effect only wires listeners.
+ * Session actions: keyboard intents behind the pause/death gate. Pure and
+ * pinned by Vitest; the vanilla ActionRouter owns the window listeners.
  */
 
-import type { FixtureKind, Role } from '@kybernetes/protocol';
+import type {
+  ClientIntent,
+  FixtureKind,
+  HireOfferBroadcast,
+  Role,
+  SnapshotBroadcast,
+} from '@kybernetes/protocol';
 import type { World } from '@kybernetes/sim-core';
-import type { RefObject } from 'react';
-import { useEffect } from 'react';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import {
   doorSpotsOf,
@@ -15,11 +19,10 @@ import {
   sightBlockers,
   targetIntent,
 } from './interactTarget';
-import type { useHarborSocket } from './useHarborSocket';
 
-type SendIntent = ReturnType<typeof useHarborSocket>['sendIntent'];
-type Snapshot = ReturnType<typeof useHarborSocket>['snapshot'];
-type Offer = ReturnType<typeof useHarborSocket>['offer'];
+type SendIntent = (intent: ClientIntent) => void;
+type Snapshot = SnapshotBroadcast | null;
+type Offer = HireOfferBroadcast | null;
 
 export type GameplayAction = 'use' | 'talk' | 'hire' | 'seal' | 'fire' | 'reload';
 
@@ -45,89 +48,6 @@ export function actionKeyFor(key: string, hasOffer: boolean): GameplayAction | n
   if (key === 'f') return 'fire';
   if (key === 'r') return 'reload';
   return null;
-}
-
-export interface SessionActionWiring {
-  readonly sendIntent: SendIntent;
-  readonly statics: World;
-  readonly snapshot: Snapshot;
-  readonly pawnId: string | null;
-  readonly offer: Offer;
-  readonly toggleSeal: () => void;
-  readonly targetRef: { current: InteractTarget | null };
-  readonly facingRef: RefObject<number>;
-  readonly pressFireStart: () => void;
-  readonly pressFireEnd: () => void;
-  readonly pausedRef: RefObject<boolean>;
-  readonly dead: boolean;
-  readonly onTogglePause: () => void;
-  readonly onConsole: (kind: ConsoleKind) => void;
-}
-
-export function useSessionActions(wiring: SessionActionWiring): void {
-  const {
-    sendIntent,
-    statics,
-    snapshot,
-    pawnId,
-    offer,
-    toggleSeal,
-    targetRef,
-    facingRef,
-    pressFireStart,
-    pressFireEnd,
-    pausedRef,
-    dead,
-    onTogglePause,
-    onConsole,
-  } = wiring;
-  useEffect(() => {
-    const onDown = (event: KeyboardEvent): void => {
-      if (event.repeat) return;
-      const key = event.key.toLowerCase();
-      if (key === 'escape') {
-        if (!dead) onTogglePause();
-        return;
-      }
-      if (pausedRef.current === true || dead) return;
-      dispatchAction(actionKeyFor(key, offer !== null), {
-        sendIntent,
-        statics,
-        snapshot,
-        pawnId,
-        offer,
-        toggleSeal,
-        targetRef,
-        facing: facingRef.current,
-        pressFireStart,
-        onConsole,
-      });
-    };
-    const onUp = (event: KeyboardEvent): void => {
-      if (event.key.toLowerCase() === 'f') pressFireEnd();
-    };
-    window.addEventListener('keydown', onDown);
-    window.addEventListener('keyup', onUp);
-    return () => {
-      window.removeEventListener('keydown', onDown);
-      window.removeEventListener('keyup', onUp);
-    };
-  }, [
-    sendIntent,
-    statics,
-    snapshot,
-    pawnId,
-    offer,
-    toggleSeal,
-    targetRef,
-    facingRef,
-    pressFireStart,
-    pressFireEnd,
-    pausedRef,
-    dead,
-    onTogglePause,
-    onConsole,
-  ]);
 }
 
 interface DispatchContext {

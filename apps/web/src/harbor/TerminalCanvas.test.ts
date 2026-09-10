@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { activateTerminalButton, activateTerminalIndex } from './TerminalCanvas';
+import { activateTerminalButton, activateTerminalIndex } from '../client/menuActions';
 import type { TermButton } from './terminalLayout';
 
 function live() {

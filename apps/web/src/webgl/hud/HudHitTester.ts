@@ -84,6 +84,11 @@ export class HudHitTester {
     return this.hoveredZoneId === zoneId;
   }
 
+  /** Keyboard focus ring for GL menu screens (mirrors canvas focusIdx). */
+  public setHovered(zoneId: string | null): void {
+    this.hoveredZoneId = zoneId;
+  }
+
   // fallow-ignore-next-line unused-class-member
   public handleClick(
     screenX: number,

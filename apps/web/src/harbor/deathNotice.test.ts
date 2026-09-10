@@ -1,7 +1,7 @@
 import type { VitalsBroadcast } from '@kybernetes/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import { deathHint, deathTitle, isDeathVitals } from './deathNotice';
-import { createHarborCaches, handleMessage } from './useHarborSocket';
+import { createHarborCaches, handleMessage } from './socketCore';
 
 function vitals(dead: boolean, tick = 10): VitalsBroadcast {
   return {

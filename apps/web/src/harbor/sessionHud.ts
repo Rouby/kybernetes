@@ -4,10 +4,18 @@
  * specs read from the harbor-status/testid feed.
  */
 
+import type {
+  HireOfferBroadcast,
+  SnapshotBroadcast,
+  TelemetryBroadcast,
+  VitalsBroadcast,
+} from '@kybernetes/protocol';
 import type { InteractTarget } from './interactTarget';
-import type { useHarborSocket } from './useHarborSocket';
 
-export type HarborSocket = ReturnType<typeof useHarborSocket>;
+export interface HarborSocket extends HudStatusSource, HudVitalsSource {
+  readonly offer: HireOfferBroadcast | null;
+  readonly notices: ReadonlyArray<{ readonly title: string; readonly message: string }>;
+}
 
 function shortId(id: string): string {
   const dot = id.indexOf('.');
@@ -20,11 +28,18 @@ export function describeTarget(target: InteractTarget | null): string {
   return 'target:fixture';
 }
 
-function ventCount(socket: HarborSocket): number {
+function ventCount(socket: { readonly telemetry: TelemetryBroadcast | null }): number {
   return (socket.telemetry?.atmos ?? []).filter((room) => room.pressureKpa < 50).length;
 }
 
-export function statusLine(socket: HarborSocket): string {
+export interface HudStatusSource {
+  readonly connected: boolean;
+  readonly snapshot: SnapshotBroadcast | null;
+  readonly pawnId: string | null;
+  readonly telemetry: TelemetryBroadcast | null;
+}
+
+export function statusLine(socket: HudStatusSource): string {
   if (!socket.connected) return 'offline';
   const pawn = socket.snapshot?.pawns.find((entry) => entry.id === socket.pawnId);
   const room = pawn === undefined ? '-' : shortId(pawn.roomHint);
@@ -33,7 +48,11 @@ export function statusLine(socket: HarborSocket): string {
   return `tick:${socket.snapshot?.tick ?? '-'} room:${room} sx:${sx} face:${face} vent:${ventCount(socket)}`;
 }
 
-export function vitalsLine(socket: HarborSocket): string {
+export interface HudVitalsSource {
+  readonly vitals: VitalsBroadcast | null;
+}
+
+export function vitalsLine(socket: HudVitalsSource): string {
   const vitals = socket.vitals?.vitals;
   if (vitals === undefined) return 'vitals:-';
   const reload = vitals.reloading ? '(reloading)' : '';
@@ -45,7 +64,9 @@ export function offerLine(offer: HarborSocket['offer']): string {
   return `offer:${offer.jobs.join('/')}`;
 }
 
-export function noticesLine(notices: HarborSocket['notices']): string {
+export function noticesLine(
+  notices: ReadonlyArray<{ readonly title: string; readonly message: string }>
+): string {
   if (notices.length === 0) return 'notices:-';
   return notices.map((notice) => `${notice.title}:${notice.message}`).join(' | ');
 }

@@ -21,6 +21,16 @@ import {
   VISOR_GLASS_FS,
   VISOR_GLASS_VS,
 } from '../shaders';
+import { getDisplayValue } from '../ui/TextFieldModel';
+import {
+  GL_UI_BLOCKER_ID,
+  hexToRgb,
+  splashStarCount,
+  splashStarField,
+  uiTextHex,
+} from '../ui/UiPass';
+import type { UiScreenLayout } from '../ui/UiScreens';
+import type { UiField, UiSwatch } from '../ui/UiToolkit';
 import {
   cartridgeLoadedStates,
   cartridgeSlotCell,
@@ -115,6 +125,16 @@ export interface HudDrawState {
   onToggleHelmet?: () => void;
   onRefillSuit?: () => void;
   currentRoomId?: string;
+  /** Modal GL screen painted last (Phase 3: ?ui=gl pause). Null/undefined skips it. */
+  uiOverlay?: {
+    readonly layout: UiScreenLayout;
+    readonly onAction?: (id: string) => void;
+  } | null;
+}
+
+export interface SplashInput {
+  readonly mouse?: { x: number; y: number };
+  readonly focusId?: string;
 }
 
 export class HudRenderer {
@@ -1087,6 +1107,234 @@ export class HudRenderer {
     });
   }
 
+  private renderUiOverlay(
+    layout: UiScreenLayout,
+    onAction: ((id: string) => void) | undefined,
+    width: number,
+    height: number,
+    nowMs: number
+  ): void {
+    this.overlayBackdrop(width, height);
+    this.overlayCard(layout, onAction, nowMs);
+  }
+
+  private overlayCard(
+    layout: UiScreenLayout,
+    onAction: ((id: string) => void) | undefined,
+    nowMs: number
+  ): void {
+    this.overlayPanel(layout);
+    this.overlayTexts(layout);
+    this.overlaySwatches(layout, onAction);
+    this.overlayFields(layout, onAction, nowMs);
+    this.overlayButtons(layout, onAction);
+  }
+
+  private overlaySwatches(
+    layout: UiScreenLayout,
+    onAction: ((id: string) => void) | undefined
+  ): void {
+    for (const swatch of layout.swatches ?? []) this.paintSwatch(swatch, onAction);
+  }
+
+  private paintSwatch(swatch: UiSwatch, onAction: ((id: string) => void) | undefined): void {
+    const { x, y, w, h } = swatch.rect;
+    const [r, g, b] = hexToRgb(swatch.color);
+    this.addQuad(x, y, w, h, r, g, b, 1);
+    if (swatch.selected) this.addBorder(x, y, w, h, 2, 0, 0.9, 1, 0.95);
+    else this.addBorder(x, y, w, h, 1, 0.18, 0.26, 0.37, 0.8);
+    if (swatch.label !== undefined) {
+      this.addText(swatch.label, x + 6, y + Math.max(0, Math.floor((h - 15) / 2)), {
+        fontSize: 11,
+        color: swatch.selected ? '#00e5ff' : '#8a9bb5',
+      });
+    }
+    this.hitTester.register({
+      id: swatch.id,
+      type: 'rect',
+      x,
+      y,
+      width: w,
+      height: h,
+      cursor: 'pointer',
+      onClick: onAction === undefined ? () => undefined : () => onAction(swatch.id),
+    });
+  }
+
+  private overlayFields(
+    layout: UiScreenLayout,
+    onAction: ((id: string) => void) | undefined,
+    nowMs: number
+  ): void {
+    for (const field of layout.fields ?? []) this.paintField(field, onAction, nowMs);
+  }
+
+  private paintField(
+    field: UiField,
+    onAction: ((id: string) => void) | undefined,
+    nowMs: number
+  ): void {
+    const { x, y, w, h } = field.rect;
+    const focused = field.focused;
+    this.addQuad(x, y, w, h, 0.027, 0.035, 0.051, 1);
+    if (focused) this.addBorder(x, y, w, h, 2, 0, 0.9, 1, 0.95);
+    else this.addBorder(x, y, w, h, 1, 0.18, 0.26, 0.37, 0.8);
+    const display = getDisplayValue(
+      { value: field.value, caret: field.caret, focused, maxLength: 24 },
+      focused,
+      nowMs
+    );
+    this.addText(display, x + 8, y + Math.max(0, Math.floor((h - 18) / 2)), {
+      fontSize: 14,
+      color: '#e0e8f5',
+    });
+    this.hitTester.register({
+      id: 'field:' + field.id,
+      type: 'rect',
+      x,
+      y,
+      width: w,
+      height: h,
+      cursor: 'pointer',
+      onClick: onAction === undefined ? () => undefined : () => onAction('field:' + field.id),
+    });
+  }
+
+  /** Standalone menu-phase screen: visor, stars, and one modal layout. */
+  public renderSplash(
+    layout: UiScreenLayout,
+    onAction: ((id: string) => void) | undefined,
+    width: number,
+    height: number,
+    timeSec: number,
+    input?: SplashInput
+  ): void {
+    const curvature = 0.055;
+    if (input?.focusId !== undefined) this.hitTester.setHovered(input.focusId);
+    else if (input?.mouse !== undefined) {
+      this.hitTester.updateHover(input.mouse.x, input.mouse.y, width, height, curvature);
+    }
+    this.hitTester.clear();
+    this.vectorData = [];
+    this.textData = [];
+    this.renderVisorGlass(width, height, timeSec);
+    this.overlayBackdrop(width, height, 0.3);
+    this.splashStars(width, height, timeSec);
+    this.overlayCard(layout, onAction, timeSec * 1000);
+    const screenMat = createScreenMatrix(width, height);
+    this.gl.viewport(0, 0, width, height);
+    this.flushVectorPass(screenMat, curvature);
+    this.flushTextPass(screenMat, curvature);
+  }
+
+  private renderVisorGlass(width: number, height: number, timeSec: number): void {
+    const gl = this.gl;
+    gl.useProgram(this.visorProg);
+    gl.bindVertexArray(this.visorVAO);
+    gl.uniform2f(gl.getUniformLocation(this.visorProg, 'u_resolution'), width, height);
+    gl.uniform1f(gl.getUniformLocation(this.visorProg, 'u_time'), timeSec);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
+  }
+
+  private flushVectorPass(screenMat: Float32Array, curvature: number): void {
+    if (this.vectorData.length === 0) return;
+    const gl = this.gl;
+    gl.useProgram(this.vectorProg);
+    gl.bindVertexArray(this.vectorVAO);
+    gl.uniformMatrix3fv(gl.getUniformLocation(this.vectorProg, 'u_matrix'), false, screenMat);
+    gl.uniform1f(gl.getUniformLocation(this.vectorProg, 'u_glow'), 0.2);
+    gl.uniform1f(gl.getUniformLocation(this.vectorProg, 'u_curvature'), curvature);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vectorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vectorData), gl.STREAM_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, this.vectorData.length / 6);
+    gl.bindVertexArray(null);
+  }
+
+  private flushTextPass(screenMat: Float32Array, curvature: number): void {
+    if (this.textData.length === 0) return;
+    const gl = this.gl;
+    this.atlas.syncTexture(gl, this.atlasTexture);
+    gl.useProgram(this.textProg);
+    gl.bindVertexArray(this.textVAO);
+    gl.uniformMatrix3fv(gl.getUniformLocation(this.textProg, 'u_matrix'), false, screenMat);
+    gl.uniform4f(gl.getUniformLocation(this.textProg, 'u_tint'), 1.0, 1.0, 1.0, 1.0);
+    gl.uniform1f(gl.getUniformLocation(this.textProg, 'u_curvature'), curvature);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.atlasTexture);
+    gl.uniform1i(gl.getUniformLocation(this.textProg, 'u_atlas'), 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.textBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.textData), gl.STREAM_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, this.textData.length / 4);
+    gl.bindVertexArray(null);
+  }
+
+  private overlayBackdrop(width: number, height: number, alpha = 0.72): void {
+    this.hitTester.register({
+      id: GL_UI_BLOCKER_ID,
+      type: 'rect',
+      x: 0,
+      y: 0,
+      width,
+      height,
+      cursor: 'default',
+      onClick: () => undefined,
+    });
+    this.addQuad(0, 0, width, height, 0.016, 0.024, 0.039, alpha);
+  }
+
+  private splashStars(width: number, height: number, timeSec: number): void {
+    const stars = splashStarField(splashStarCount(width, height), width, height, timeSec);
+    for (const star of stars) {
+      const c = star.brightness;
+      this.addQuad(star.x, star.y, star.size, star.size, 0.81 * c, 0.9 * c, c, 0.9);
+    }
+  }
+
+  private overlayPanel(layout: UiScreenLayout): void {
+    this.addCurvedPanel(
+      layout.panel.x,
+      layout.panel.y,
+      layout.panel.w,
+      layout.panel.h,
+      9,
+      0.05,
+      0.07,
+      0.1,
+      0.95
+    );
+  }
+
+  private overlayTexts(layout: UiScreenLayout): void {
+    for (const text of layout.texts) {
+      this.addText(text.text, text.x, text.y, {
+        fontSize: text.size,
+        color: uiTextHex(text.color),
+      });
+    }
+  }
+
+  private overlayButtons(
+    layout: UiScreenLayout,
+    onAction: ((id: string) => void) | undefined
+  ): void {
+    for (const button of layout.buttons) {
+      const target = button;
+      this.addButton(
+        target.id,
+        target.rect.x,
+        target.rect.y,
+        target.rect.w,
+        target.rect.h,
+        target.label,
+        { fontSize: 14, color: target.primary ? '#00e5ff' : '#e0e8f5' },
+        onAction === undefined ? undefined : () => onAction(target.id)
+      );
+    }
+  }
+
   // fallow-ignore-next-line complexity
   public render(
     state: HudDrawState,
@@ -1095,7 +1343,6 @@ export class HudRenderer {
     timeSec: number,
     losPoly: Point2D[]
   ): void {
-    const gl = this.gl;
     const curvature = 0.055;
 
     if (state.mouseScreen) {
@@ -1113,15 +1360,7 @@ export class HudRenderer {
     this.textData = [];
 
     // 1. VISOR GLASS SHADER PASS
-    gl.useProgram(this.visorProg);
-    gl.bindVertexArray(this.visorVAO);
-    gl.uniform2f(gl.getUniformLocation(this.visorProg, 'u_resolution'), width, height);
-    gl.uniform1f(gl.getUniformLocation(this.visorProg, 'u_time'), timeSec);
-
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-    gl.bindVertexArray(null);
+    this.renderVisorGlass(width, height, timeSec);
 
     // 2. COMPOSE HUD WIDGETS
     this.renderLowerLeftVitals(state, width, height);
@@ -1140,41 +1379,17 @@ export class HudRenderer {
       this.renderHoverReticle(hovered, state.camera, width, height, zoom);
       this.renderCrewDossierWidget(hovered, width, height);
     }
+    const overlay = state.uiOverlay;
+    if (overlay !== undefined && overlay !== null) {
+      this.renderUiOverlay(overlay.layout, overlay.onAction, width, height, state.timeMs);
+    }
 
     const screenMat = createScreenMatrix(width, height);
 
     // 3. VECTOR HUD PASS (with helmet visor barrel curvature)
-    if (this.vectorData.length > 0) {
-      gl.useProgram(this.vectorProg);
-      gl.bindVertexArray(this.vectorVAO);
-      gl.uniformMatrix3fv(gl.getUniformLocation(this.vectorProg, 'u_matrix'), false, screenMat);
-      gl.uniform1f(gl.getUniformLocation(this.vectorProg, 'u_glow'), 0.2);
-      gl.uniform1f(gl.getUniformLocation(this.vectorProg, 'u_curvature'), curvature);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.vectorBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vectorData), gl.STREAM_DRAW);
-      gl.drawArrays(gl.TRIANGLES, 0, this.vectorData.length / 6);
-      gl.bindVertexArray(null);
-    }
+    this.flushVectorPass(screenMat, curvature);
 
     // 4. TEXT ATLAS HUD PASS (with helmet visor barrel curvature)
-    if (this.textData.length > 0) {
-      this.atlas.syncTexture(gl, this.atlasTexture);
-
-      gl.useProgram(this.textProg);
-      gl.bindVertexArray(this.textVAO);
-      gl.uniformMatrix3fv(gl.getUniformLocation(this.textProg, 'u_matrix'), false, screenMat);
-      gl.uniform4f(gl.getUniformLocation(this.textProg, 'u_tint'), 1.0, 1.0, 1.0, 1.0);
-      gl.uniform1f(gl.getUniformLocation(this.textProg, 'u_curvature'), curvature);
-
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.atlasTexture);
-      gl.uniform1i(gl.getUniformLocation(this.textProg, 'u_atlas'), 0);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.textBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.textData), gl.STREAM_DRAW);
-      gl.drawArrays(gl.TRIANGLES, 0, this.textData.length / 4);
-      gl.bindVertexArray(null);
-    }
+    this.flushTextPass(screenMat, curvature);
   }
 }

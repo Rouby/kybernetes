@@ -41,10 +41,10 @@ import {
   SHIP_ORIGIN,
   type World,
 } from '@kybernetes/sim-core';
+import type { PredictedPose } from '../client/stores/MovementController';
 import type { LivingSummary } from '../webgl/hud/livingFormatters';
 import type { LivingView } from '../webgl/LivingFixtures';
 import type { PredictedShot } from './predictedShots';
-import type { PredictedPawn } from './useHarborMovement';
 
 export function bareId(id: string): string {
   const dot = id.indexOf('.');
@@ -123,7 +123,7 @@ function frameOfRoom(roomId: string): string {
 export function pawnWorld(
   pawn: SnapshotPawn,
   origins: Map<string, { x: number; y: number }>,
-  predicted: PredictedPawn | null
+  predicted: PredictedPose | null
 ): { x: number; y: number } {
   const origin = origins.get(pawn.frameId) ?? { x: 0, y: 0 };
   if (predicted !== null) return { x: predicted.x + origin.x, y: predicted.y + origin.y };
@@ -600,7 +600,7 @@ export function relativeOffsetOf(
   return { x: origin.x - focusOrigin.x, y: origin.y - focusOrigin.y };
 }
 
-function pawnLocal(pawn: SnapshotPawn, predicted: PredictedPawn | null): { x: number; y: number } {
+function pawnLocal(pawn: SnapshotPawn, predicted: PredictedPose | null): { x: number; y: number } {
   if (predicted !== null) return { x: predicted.x, y: predicted.y };
   return { x: pawn.x, y: pawn.y };
 }
@@ -610,7 +610,7 @@ export function pawnView(
   pawn: SnapshotPawn,
   origins: Map<string, { x: number; y: number }>,
   focusOrigin: { x: number; y: number },
-  predicted: PredictedPawn | null
+  predicted: PredictedPose | null
 ): { x: number; y: number } {
   const local = pawnLocal(pawn, predicted);
   const offset = relativeOffsetOf(origins, pawn.frameId, focusOrigin);
