@@ -46,8 +46,7 @@ function snapshot(): SnapshotBroadcast {
     crates: [
       {
         id: 'c1',
-        goodId: 'scrap',
-        qty: 2,
+        items: [{ goodId: 'scrap', qty: 2 }],
         where: 'bayFloor',
         frameId: 'station',
         x: 3,

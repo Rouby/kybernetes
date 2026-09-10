@@ -39,6 +39,16 @@ describe('ConsoleStore', () => {
     expect(store.getSnapshot().consoleOpen).toBeNull();
   });
 
+  it('opens consoles explicitly without toggling', () => {
+    const store = new ConsoleStore();
+    store.openConsole('market');
+    expect(store.getSnapshot().consoleOpen).toBe('market');
+    store.openConsole('pack');
+    expect(store.getSnapshot().consoleOpen).toBe('pack');
+    store.openConsole('pack');
+    expect(store.getSnapshot().consoleOpen).toBe('pack');
+  });
+
   it('publishes ship systems to subscribers', () => {
     const store = new ConsoleStore();
     const seen: string[] = [];

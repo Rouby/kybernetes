@@ -69,6 +69,12 @@ describe('selectSessionOverlayId', () => {
     expect(selectSessionOverlayId({ paused: true, dead: true })).toBe('death');
   });
 
+  it('raises the pack bench above consoles but below death', () => {
+    expect(selectSessionOverlayId({ paused: false, dead: false, console: 'pack' })).toBe('pack');
+    expect(selectSessionOverlayId({ paused: false, dead: false, console: 'cargo' })).toBe('cargo');
+    expect(selectSessionOverlayId({ paused: false, dead: true, console: 'pack' })).toBe('death');
+  });
+
   it('opens the audio subscreen while paused', () => {
     expect(selectSessionOverlayId({ paused: true, dead: false, settingsOpen: true })).toBe(
       'settings'
@@ -157,8 +163,7 @@ describe('console intents', () => {
     expect(cargoConsoleIntent('seal:scrap', stock)).toEqual({
       type: 'CARGO_REPACK',
       seq: 0,
-      goodId: 'scrap',
-      qty: 5,
+      items: [{ goodId: 'scrap', qty: 5 }],
     });
     expect(cargoConsoleIntent('unpackAll', { unpackIds: [], seal: {} })).toBeNull();
     expect(cargoConsoleIntent('seal:meds', stock)).toBeNull();
@@ -171,8 +176,7 @@ describe('console intents', () => {
       type: 'MARKET_BUY',
       seq: 0,
       hubId: 'hub_a',
-      goodId: 'scrap',
-      qty: 2,
+      items: [{ goodId: 'scrap', qty: 2 }],
     });
     expect(marketConsoleIntent('sellAll', stock)).toEqual({
       type: 'MARKET_SELL',

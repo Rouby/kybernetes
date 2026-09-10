@@ -117,7 +117,7 @@ function sellIdsFor(
   const priced = new Set(market.listings.map((listing) => listing.goodId));
   return (snapshot.crates ?? [])
     .filter((crate) => crate.where === 'bayFloor' && crate.frameId === frameId)
-    .filter((crate) => priced.has(crate.goodId))
+    .filter((crate) => crate.items.every((item) => priced.has(item.goodId)))
     .slice(0, MAX_SELL_IDS)
     .map((crate) => crate.id);
 }
@@ -134,7 +134,7 @@ function sellValueFor(
   let value = 0;
   for (const id of sellIds) {
     const crate = (snapshot.crates ?? []).find((entry) => entry.id === id);
-    if (crate !== undefined) value += (prices.get(crate.goodId) ?? 0) * crate.qty;
+    for (const item of crate?.items ?? []) value += (prices.get(item.goodId) ?? 0) * item.qty;
   }
   return value;
 }

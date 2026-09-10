@@ -12,11 +12,21 @@ import {
   renderViewport,
   type ViewportSession,
 } from '../harbor/viewportFrame';
+import { packBenchTransform, uiContains } from '../webgl/ui/UiToolkit';
 import { WebGL2Renderer } from '../webgl/WebGL2Renderer';
+
+export interface PackPointerControl {
+  readonly isOpen: () => boolean;
+  readonly isDown: () => boolean;
+  readonly press: (x: number, y: number) => boolean;
+  readonly move: (x: number, y: number) => void;
+  readonly release: () => void;
+}
 
 export class ViewportDriver {
   private readonly session: ViewportSession = createViewportSession();
   private view: HarborViewportProps | null = null;
+  private packCtl: PackPointerControl | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private observer: ResizeObserver | null = null;
   private raf = 0;
@@ -24,6 +34,33 @@ export class ViewportDriver {
 
   public update(view: HarborViewportProps): void {
     this.view = view;
+  }
+
+  public setPackControl(ctl: PackPointerControl): void {
+    this.packCtl = ctl;
+  }
+
+  public canvasSize(): { w: number; h: number } | null {
+    if (this.canvas === null) return null;
+    return { w: this.canvas.width, h: this.canvas.height };
+  }
+
+  private packLocal(): { x: number; y: number } | null {
+    const canvas = this.canvas;
+    const ctl = this.packCtl;
+    if (canvas === null || ctl === null || !ctl.isOpen()) return null;
+    const bench = packBenchTransform(canvas.width, canvas.height);
+    const pad = {
+      x: bench.rect.x - 20,
+      y: bench.rect.y - 20,
+      w: bench.rect.w + 40,
+      h: bench.rect.h + 40,
+    };
+    if (!uiContains(pad, this.session.mouse.x, this.session.mouse.y)) return null;
+    return {
+      x: (this.session.mouse.x - bench.ox) / bench.scale,
+      y: (this.session.mouse.y - bench.oy) / bench.scale,
+    };
   }
 
   public attach(canvas: HTMLCanvasElement): boolean {
@@ -80,12 +117,21 @@ export class ViewportDriver {
     this.session.mouse.moved = true;
     this.session.mouse.lastMs = performance.now();
     if (this.view !== null) this.view.aimLockedRef.current = true;
+    if (this.packCtl?.isDown() === true) {
+      const at = this.packLocal();
+      if (at !== null) this.packCtl.move(at.x, at.y);
+    }
   };
 
   private readonly onDown = (): void => {
     const canvas = this.canvas;
     const view = this.view;
     if (canvas === null || view === null) return;
+    const packAt = this.packLocal();
+    if (packAt !== null) {
+      this.packCtl?.press(packAt.x, packAt.y);
+      return;
+    }
     if (this.fireZoneClicked(canvas)) return;
     view.onFireDown();
   };
@@ -98,6 +144,7 @@ export class ViewportDriver {
   }
 
   private readonly onUp = (): void => {
+    this.packCtl?.release();
     this.view?.onFireUp();
   };
 

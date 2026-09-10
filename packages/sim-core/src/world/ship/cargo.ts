@@ -6,13 +6,25 @@
  */
 
 import type { World } from '../types.js';
+import { CRATE_AREA, crateAreaOf } from './packGame.js';
 
 export type CrateWhere = 'bayFloor' | 'carriedBy' | 'shipFloor';
 
-export interface Crate {
-  readonly id: string;
+export interface CrateItem {
   readonly goodId: string;
   readonly qty: number;
+}
+
+export const MAX_ITEMS_PER_CRATE = 6;
+
+export function validCrateItems(items: readonly CrateItem[]): boolean {
+  if (!Array.isArray(items) || items.length < 1 || items.length > MAX_ITEMS_PER_CRATE) return false;
+  return items.every((item) => validId(item.goodId) && validQty(item.qty));
+}
+
+export interface Crate {
+  readonly id: string;
+  readonly items: readonly CrateItem[];
   readonly where: CrateWhere;
   readonly frameId: string;
   readonly x: number;
@@ -44,6 +56,7 @@ export interface CargoState {
 
 export type CargoReject =
   | 'bad-qty'
+  | 'overfilled'
   | 'bad-id'
   | 'duplicate-crate'
   | 'unknown-crate'
@@ -112,6 +125,13 @@ export function securedQty(hold: CargoState, vesselId: string, goodId: string): 
   return hold.secured[vesselId]?.[goodId] ?? 0;
 }
 
+/** Total units in a crate across all its goods. */
+export function crateQty(crate: Crate): number {
+  let total = 0;
+  for (const item of crate.items) total += item.qty;
+  return total;
+}
+
 function validQty(qty: number): boolean {
   return Number.isInteger(qty) && qty >= 1 && qty <= MAX_QTY_PER_CRATE;
 }
@@ -124,8 +144,7 @@ export function spawnCrate(
   hold: CargoState,
   args: {
     id: string;
-    goodId: string;
-    qty: number;
+    items: readonly CrateItem[];
     where: 'bayFloor' | 'shipFloor';
     frameId: string;
     x: number;
@@ -133,16 +152,16 @@ export function spawnCrate(
     angle?: number;
   }
 ): CargoResult {
-  if (!validId(args.id) || !validId(args.goodId)) return { ok: false, reason: 'bad-id' };
-  if (!validQty(args.qty)) return { ok: false, reason: 'bad-qty' };
+  if (!validId(args.id)) return { ok: false, reason: 'bad-id' };
+  if (!validCrateItems(args.items)) return { ok: false, reason: 'bad-qty' };
+  if (crateAreaOf(args.items) > CRATE_AREA) return { ok: false, reason: 'overfilled' };
   if (hold.crates[args.id] !== undefined) return { ok: false, reason: 'duplicate-crate' };
   if (!validId(args.frameId) || !Number.isFinite(args.x) || !Number.isFinite(args.y)) {
     return { ok: false, reason: 'wrong-frame' };
   }
   const crate: Crate = {
     id: args.id,
-    goodId: args.goodId,
-    qty: args.qty,
+    items: args.items.map((item) => ({ goodId: item.goodId, qty: item.qty })),
     where: args.where,
     frameId: args.frameId,
     x: args.x,
@@ -235,10 +254,14 @@ export function dropAllForPawn(
   return result.ok ? result.hold : hold;
 }
 
-function sumUnpackQty(hold: CargoState, crateIds: readonly string[]): number {
-  let total = 0;
-  for (const id of crateIds) total += hold.crates[id]?.qty ?? 0;
-  return total;
+function sumUnpackGoods(hold: CargoState, crateIds: readonly string[]): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const id of crateIds) {
+    for (const item of hold.crates[id]?.items ?? []) {
+      totals[item.goodId] = (totals[item.goodId] ?? 0) + item.qty;
+    }
+  }
+  return totals;
 }
 
 function cratesUnpackable(
@@ -260,6 +283,13 @@ function withoutCrates(hold: CargoState, crateIds: readonly string[]): Record<st
   return crates;
 }
 
+function securedCovers(hold: CargoState, vesselId: string, items: readonly CrateItem[]): boolean {
+  for (const item of items) {
+    if (securedQty(hold, vesselId, item.goodId) < item.qty) return false;
+  }
+  return true;
+}
+
 function addSecured(hold: CargoState, vesselId: string, goodId: string, qty: number): CargoState {
   const vessel = { ...(hold.secured[vesselId] ?? {}) };
   vessel[goodId] = (vessel[goodId] ?? 0) + qty;
@@ -275,37 +305,34 @@ export function unpackCrates(
   if (pawnFrame !== vesselId) return { ok: false, reason: 'wrong-frame' };
   if (crateIds.length < 1 || crateIds.length > 8) return { ok: false, reason: 'unknown-crate' };
   if (!cratesUnpackable(hold, vesselId, crateIds)) return { ok: false, reason: 'not-ship-floor' };
-  const first = hold.crates[crateIds[0] as string];
-  if (first === undefined) return { ok: false, reason: 'unknown-crate' };
-  if (!crateIds.every((id) => hold.crates[id]?.goodId === first.goodId)) {
-    return { ok: false, reason: 'unknown-crate' };
-  }
-  const total = sumUnpackQty(hold, crateIds);
+  const totals = sumUnpackGoods(hold, crateIds);
   const crates = withoutCrates(hold, crateIds);
-  return { ok: true, hold: addSecured({ ...hold, crates }, vesselId, first.goodId, total) };
+  let secured: CargoState = { ...hold, crates };
+  for (const [goodId, qty] of Object.entries(totals)) {
+    secured = addSecured(secured, vesselId, goodId, qty);
+  }
+  return { ok: true, hold: secured };
 }
 
 export function repackCargo(
   hold: CargoState,
   vesselId: string,
   pawnFrame: string,
-  goodId: string,
-  qty: number,
+  items: readonly CrateItem[],
   spawn: { id: string; frameId: string; x: number; y: number }
 ): CargoResult {
   if (pawnFrame !== vesselId) return { ok: false, reason: 'wrong-frame' };
-  if (!validId(goodId) || !validQty(qty)) return { ok: false, reason: 'bad-qty' };
+  if (!validCrateItems(items)) return { ok: false, reason: 'bad-qty' };
+  if (crateAreaOf(items) > CRATE_AREA) return { ok: false, reason: 'overfilled' };
   if (!validId(spawn.id) || hold.crates[spawn.id] !== undefined) {
     return { ok: false, reason: 'duplicate-crate' };
   }
-  if (securedQty(hold, vesselId, goodId) < qty)
-    return { ok: false, reason: 'insufficient-secured' };
+  if (!securedCovers(hold, vesselId, items)) return { ok: false, reason: 'insufficient-secured' };
   const vessel = { ...(hold.secured[vesselId] ?? {}) };
-  vessel[goodId] = (vessel[goodId] ?? 0) - qty;
+  for (const item of items) vessel[item.goodId] = (vessel[item.goodId] ?? 0) - item.qty;
   const crate: Crate = {
     id: spawn.id,
-    goodId,
-    qty,
+    items: items.map((item) => ({ goodId: item.goodId, qty: item.qty })),
     where: 'shipFloor',
     frameId: spawn.frameId,
     x: spawn.x,

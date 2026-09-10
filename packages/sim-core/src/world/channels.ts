@@ -164,8 +164,7 @@ export function snapshotFixturesOf(world: World) {
 export function snapshotCratesOf(world: World) {
   return Object.values(world.cargo.crates).map((crate) => ({
     id: crate.id,
-    goodId: crate.goodId,
-    qty: crate.qty,
+    items: crate.items.map((item) => ({ goodId: item.goodId, qty: item.qty })),
     where: crate.where,
     frameId: crate.frameId,
     x: q1(crate.x),

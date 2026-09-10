@@ -25,6 +25,7 @@ import type {
 import { createInitialDoors, type World } from '@kybernetes/sim-core';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { PredictedPose } from '../client/stores/MovementController';
+import type { PackScreenModel } from '../pack/packModel';
 import type { LivingView } from '../webgl/LivingFixtures';
 import {
   cargoConsoleIntent,
@@ -43,12 +44,13 @@ import {
   layoutEngineScreen,
   layoutMarketScreen,
   layoutNavScreen,
+  layoutPackScreen,
   layoutPauseScreen,
   layoutReactorScreen,
   layoutSettingsScreen,
   type UiScreenLayout,
 } from '../webgl/ui/UiScreens';
-import { publishUiZones } from '../webgl/ui/UiToolkit';
+import { packBenchTransform, packPlace, publishUiZones } from '../webgl/ui/UiToolkit';
 import type { WebGL2Renderer, WebGLRenderState } from '../webgl/WebGL2Renderer';
 import {
   doorSpotsOf,
@@ -131,6 +133,33 @@ export interface MarketWiring {
   readonly sellIds: readonly string[];
 }
 
+export interface PackSceneBody {
+  readonly id: number;
+  readonly goodId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly w: number;
+  readonly h: number;
+  readonly held: boolean;
+  readonly inside: boolean;
+  readonly settled: boolean;
+}
+
+export interface PackWiring {
+  readonly screen: PackScreenModel;
+  readonly scene: {
+    readonly bodies: readonly PackSceneBody[];
+    readonly walls: readonly { x: number; y: number; w: number; h: number }[];
+    readonly crate: { x: number; y: number; w: number; h: number };
+    readonly sealReady: boolean;
+  };
+  readonly onAdd: (goodId: string) => void;
+  readonly onSeal: () => void;
+  readonly onAuto: () => void;
+  readonly onClear: () => void;
+}
+
 export interface GlSessionWiring {
   readonly paused: boolean;
   readonly dead: boolean;
@@ -141,8 +170,10 @@ export interface GlSessionWiring {
   readonly navState: NavStateBroadcast | null;
   readonly cargo: CargoWiring | null;
   readonly market: MarketWiring | null;
+  readonly pack: PackWiring | null;
   readonly shipStatus: ShipStatusBroadcast | null;
   readonly sendIntent: (intent: ClientIntent) => void;
+  readonly onPackOpen: (ctx: import('../pack/PackStore').PackContext) => void;
   readonly onCloseConsole: () => void;
   readonly onResume: () => void;
   readonly onRestart: () => void;
@@ -369,6 +400,32 @@ function boardingRenderSection(args: {
   };
 }
 
+function packSceneOf(
+  view: HarborViewportProps,
+  canvas: HTMLCanvasElement
+): import('../webgl/PackScene').PackSceneView | null {
+  const pack = view.glOverlay?.pack;
+  if (pack === undefined || pack === null) return null;
+  const bench = packBenchTransform(canvas.width, canvas.height);
+  const rect = bench.rect;
+  const crate = pack.scene.crate;
+  const place = (x: number, y: number) => packPlace(bench, x, y);
+  const placeRect = (r: { x: number; y: number; w: number; h: number }) => {
+    const at = place(r.x, r.y);
+    return { x: at.x, y: at.y, w: r.w * bench.scale, h: r.h * bench.scale };
+  };
+  return {
+    rect,
+    walls: pack.scene.walls.map((wall) => placeRect(wall)),
+    crate: placeRect(crate),
+    bodies: pack.scene.bodies.map((body) => {
+      const at = place(body.x, body.y);
+      return { ...body, x: at.x, y: at.y, w: body.w * bench.scale, h: body.h * bench.scale };
+    }),
+    sealReady: pack.scene.sealReady,
+  };
+}
+
 function targetRenderFields(
   target: InteractTarget | null,
   snapshot: SnapshotBroadcast,
@@ -500,6 +557,20 @@ function consoleLayoutFor(
     if (market === null) return null;
     return layoutMarketScreen(width, height, market.screen);
   }
+  if (kind === 'pack') {
+    const pack = wiring.pack;
+    if (pack === null) return null;
+    return layoutPackScreen(width, height, pack.screen);
+  }
+  return shipConsoleLayoutFor(kind, wiring, width, height);
+}
+
+function shipConsoleLayoutFor(
+  kind: ConsoleKind,
+  wiring: GlSessionWiring,
+  width: number,
+  height: number
+): UiScreenLayout | null {
   const systems = wiring.console?.systems;
   if (systems === undefined) return null;
   if (kind === 'reactor_console') return layoutReactorScreen(width, height, systems);
@@ -523,6 +594,7 @@ function dispatchConsoleAction(kind: ConsoleKind, wiring: GlSessionWiring, id: s
     wiring.onCloseConsole();
     return;
   }
+  if (dispatchLocalConsoleAction(kind, wiring, id)) return;
   const intent = consoleIntentFor(kind, id, wiring);
   if (intent === null) return;
   wiring.sendIntent(intent);
@@ -553,6 +625,38 @@ function consoleIntentFor(
   if (systems === undefined) return null;
   if (kind === 'engine_console') return engineConsoleIntent(id, systems);
   return navConsoleIntent(id, wiring.navState, systems, wiring.shipStatus);
+}
+
+/** Pack bench and its entries are local (no intents); true when handled. */
+function dispatchLocalConsoleAction(
+  kind: ConsoleKind,
+  wiring: GlSessionWiring,
+  id: string
+): boolean {
+  if (kind === 'market' && id === 'packBuy' && wiring.market !== null) {
+    wiring.onPackOpen({ mode: 'buy', hubId: wiring.market.hubId });
+    ShipAudioEngine.getInstance().playUiClick();
+    return true;
+  }
+  if (kind === 'cargo' && id === 'packHold') {
+    wiring.onPackOpen({ mode: 'repack' });
+    ShipAudioEngine.getInstance().playUiClick();
+    return true;
+  }
+  if (kind === 'pack' && wiring.pack !== null) {
+    dispatchPackAction(wiring.pack, id);
+    return true;
+  }
+  return false;
+}
+
+function dispatchPackAction(pack: PackWiring, id: string): void {
+  if (id.startsWith('add:')) pack.onAdd(id.slice('add:'.length));
+  else if (id === 'seal') pack.onSeal();
+  else if (id === 'auto') pack.onAuto();
+  else if (id === 'clear') pack.onClear();
+  else return;
+  ShipAudioEngine.getInstance().playUiClick();
 }
 
 function dispatchTableAction(
@@ -615,6 +719,7 @@ function viewportRenderState(args: {
     target,
     now,
   } = args;
+  const packScene = packSceneOf(view, args.canvas);
   return {
     pawn: mapPawn(own, callsignFor(view.manifest, own.id), at, view.facingRef.current),
     remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, viewOrigins),
@@ -623,6 +728,8 @@ function viewportRenderState(args: {
     boarding: boardingRenderSection({ session, view, snapshot, viewOrigins, roomAtmos, now }),
     livingFixtures: livingViews,
     cargoCrates: attachCarriedCrates(cargoViews, view.pawnId, at, view.facingRef.current),
+    pack: packScene,
+    packOpen: packScene !== null,
     livingSummary: mapLivingSummary(view.telemetry),
     ...targetRenderFields(target, snapshot, view.pawnId),
     ...manifestRenderFields(view),

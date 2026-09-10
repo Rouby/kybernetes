@@ -55,9 +55,10 @@ export interface SessionOverlayRequest {
   readonly console?: ConsoleKind | null;
 }
 
-/** Modal priority: death, then ship console, then audio, then pause. */
+/** Modal priority: death, then pack bench, then ship console, then audio, then pause. */
 export function selectSessionOverlayId(request: SessionOverlayRequest): SessionOverlayId | null {
   if (request.dead) return 'death';
+  if (request.console === 'pack') return 'pack';
   if (request.console !== undefined && request.console !== null) return request.console;
   if (request.paused && request.settingsOpen) return 'settings';
   if (request.paused) return 'pause';
@@ -123,7 +124,11 @@ export function cargoConsoleIntent(id: string, stock: CargoConsoleStock): Client
     const goodId = id.slice('seal:'.length);
     const have = stock.seal[goodId] ?? 0;
     if (goodId.length === 0 || !(have >= 1)) return null;
-    return { type: 'CARGO_REPACK', seq: 0, goodId, qty: Math.min(10, Math.floor(have)) };
+    return {
+      type: 'CARGO_REPACK',
+      seq: 0,
+      items: [{ goodId, qty: Math.min(10, Math.floor(have)) }],
+    };
   }
   return null;
 }
@@ -144,7 +149,7 @@ export function marketConsoleIntent(id: string, stock: MarketConsoleStock): Clie
     const goodId = id.slice('buy:'.length);
     const qty = stock.buys[goodId] ?? 0;
     if (goodId.length === 0 || !(qty >= 1)) return null;
-    return { type: 'MARKET_BUY', seq: 0, hubId: stock.hubId, goodId, qty };
+    return { type: 'MARKET_BUY', seq: 0, hubId: stock.hubId, items: [{ goodId, qty }] };
   }
   return null;
 }

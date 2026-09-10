@@ -7,6 +7,7 @@
 
 import type { World } from '../types.js';
 import type { CargoState } from './cargo.js';
+import { CRATE_AREA, crateAreaOf } from './packGame.js';
 import type { ShipStores } from './shipRecord.js';
 
 export const TRADE_GOODS = ['rations', 'water', 'o2_cells', 'fuel_cells', 'scrap', 'meds'] as const;
@@ -101,8 +102,27 @@ export type MarketReject =
   | 'unknown-hub'
   | 'unknown-good'
   | 'bad-qty'
+  | 'overfilled'
   | 'out-of-stock'
   | 'insufficient-funds';
+
+export interface MarketItem {
+  readonly goodId: string;
+  readonly qty: number;
+}
+
+export const MAX_ITEMS_PER_TRADE = 6;
+
+function validTradeItems(items: readonly MarketItem[]): boolean {
+  if (!Array.isArray(items) || items.length < 1 || items.length > MAX_ITEMS_PER_TRADE) return false;
+  return items.every(
+    (item) =>
+      typeof item.goodId === 'string' &&
+      Number.isInteger(item.qty) &&
+      item.qty >= 1 &&
+      item.qty <= MARKET_MAX_QTY
+  );
+}
 
 export type BuyResult =
   | { readonly ok: true; readonly ledger: MarketLedger; readonly cost: number }
@@ -111,23 +131,37 @@ export type BuyResult =
 export function tryBuy(
   ledger: MarketLedger,
   hubId: string,
-  goodId: string,
-  qty: number,
+  items: readonly MarketItem[],
   credits: number,
   nowMs: number
 ): BuyResult {
   if (hubPrices(hubId) === undefined) return { ok: false, reason: 'unknown-hub' };
-  const price = hubBuyPrice(hubId, goodId);
-  if (price === undefined) return { ok: false, reason: 'unknown-good' };
-  if (!Number.isInteger(qty) || qty < 1 || qty > MARKET_MAX_QTY) {
-    return { ok: false, reason: 'bad-qty' };
-  }
+  if (!validTradeItems(items)) return { ok: false, reason: 'bad-qty' };
+  if (crateAreaOf(items) > CRATE_AREA) return { ok: false, reason: 'overfilled' };
   const rested = restockLedger(ledger, nowMs);
-  if ((rested.stock[hubId]?.[goodId] ?? 0) < qty) return { ok: false, reason: 'out-of-stock' };
-  if (!Number.isFinite(credits) || credits < price * qty) {
+  const cost = buyCost(hubId, items);
+  if (cost === undefined) return { ok: false, reason: 'unknown-good' };
+  for (const item of items) {
+    if ((rested.stock[hubId]?.[item.goodId] ?? 0) < item.qty) {
+      return { ok: false, reason: 'out-of-stock' };
+    }
+  }
+  if (!Number.isFinite(credits) || credits < cost) {
     return { ok: false, reason: 'insufficient-funds' };
   }
-  return { ok: true, ledger: takeStock(rested, hubId, goodId, qty), cost: price * qty };
+  let next = rested;
+  for (const item of items) next = takeStock(next, hubId, item.goodId, item.qty);
+  return { ok: true, ledger: next, cost };
+}
+
+function buyCost(hubId: string, items: readonly MarketItem[]): number | undefined {
+  let cost = 0;
+  for (const item of items) {
+    const price = hubBuyPrice(hubId, item.goodId);
+    if (price === undefined) return undefined;
+    cost += price * item.qty;
+  }
+  return cost;
 }
 
 function takeStock(ledger: MarketLedger, hubId: string, goodId: string, qty: number): MarketLedger {
@@ -143,18 +177,27 @@ export type SellResult =
 export function trySell(
   ledger: MarketLedger,
   hubId: string,
-  goodId: string,
-  qty: number,
+  items: readonly MarketItem[],
   nowMs: number
 ): SellResult {
   if (hubPrices(hubId) === undefined) return { ok: false, reason: 'unknown-hub' };
-  const price = hubSellPrice(hubId, goodId);
-  if (price === undefined) return { ok: false, reason: 'unknown-good' };
-  if (!Number.isInteger(qty) || qty < 1 || qty > MARKET_MAX_QTY) {
-    return { ok: false, reason: 'bad-qty' };
-  }
+  if (!validTradeItems(items)) return { ok: false, reason: 'bad-qty' };
   const rested = restockLedger(ledger, nowMs);
-  return { ok: true, ledger: giveStock(rested, hubId, goodId, qty), revenue: price * qty };
+  const revenue = sellRevenue(hubId, items);
+  if (revenue === undefined) return { ok: false, reason: 'unknown-good' };
+  let next = rested;
+  for (const item of items) next = giveStock(next, hubId, item.goodId, item.qty);
+  return { ok: true, ledger: next, revenue };
+}
+
+function sellRevenue(hubId: string, items: readonly MarketItem[]): number | undefined {
+  let revenue = 0;
+  for (const item of items) {
+    const price = hubSellPrice(hubId, item.goodId);
+    if (price === undefined) return undefined;
+    revenue += price * item.qty;
+  }
+  return revenue;
 }
 
 function giveStock(ledger: MarketLedger, hubId: string, goodId: string, qty: number): MarketLedger {

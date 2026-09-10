@@ -66,8 +66,6 @@ export function frameOrigins(snapshot: SnapshotBroadcast): Map<string, { x: numb
 /** Physical cargo crate in world coords (frame origin applied). */
 export interface CargoCrateView {
   readonly id: string;
-  readonly goodId: string;
-  readonly qty: number;
   readonly x: number;
   readonly y: number;
   readonly angle: number;
@@ -85,8 +83,6 @@ export function mapCargoCrates(
     const carried = crate.where === 'carriedBy';
     return {
       id: crate.id,
-      goodId: crate.goodId,
-      qty: crate.qty,
       x: crate.x + origin.x,
       y: crate.y + origin.y,
       angle: crate.angle,

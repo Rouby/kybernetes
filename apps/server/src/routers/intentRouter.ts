@@ -234,7 +234,8 @@ function routeCargoRepack(
     return { world, movement: pending, notice: 'CARGO_wrong-frame' };
   }
   const crateId = `crate:${pawn.frameId}:${world.tick}:${Object.keys(world.cargo.crates).length}`;
-  const result = repackCargo(world.cargo, pawn.frameId, pawn.frameId, intent.goodId, intent.qty, {
+  const items = intent.items.map((item) => ({ goodId: item.goodId, qty: item.qty }));
+  const result = repackCargo(world.cargo, pawn.frameId, pawn.frameId, items, {
     id: crateId,
     frameId: pawn.frameId,
     x: pawn.pos.x,

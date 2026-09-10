@@ -337,22 +337,29 @@ export function validateCargoUnpack(raw: Record<string, unknown>): ValidateResul
   };
 }
 
+function isTradeItems(value: unknown): value is { goodId: string; qty: number }[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length < 1 || value.length > 6) return false;
+  return value.every((entry) => {
+    if (!isRecord(entry)) return false;
+    if (!isGoodId(entry.goodId)) return false;
+    if (!isFiniteNumber(entry.qty)) return false;
+    const qty = entry.qty as number;
+    return Number.isInteger(qty) && qty >= 1 && qty <= MAX_CARGO_QTY;
+  });
+}
+
 export function validateMarketBuy(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   if (!isShortId(raw.hubId)) return fail('bad-field', 'hubId');
-  if (!isGoodId(raw.goodId)) return fail('bad-field', 'goodId');
-  if (!isFiniteNumber(raw.qty)) return fail('bad-field', 'qty');
-  const qty = raw.qty as number;
-  if (!Number.isInteger(qty) || qty < 1 || qty > MAX_CARGO_QTY) return fail('bad-field', 'qty');
+  if (!isTradeItems(raw.items)) return fail('bad-field', 'items');
+  const items = (raw.items as { goodId: string; qty: number }[]).map((entry) => ({
+    goodId: entry.goodId as string,
+    qty: entry.qty as number,
+  }));
   return {
     ok: true,
-    intent: {
-      type: 'MARKET_BUY',
-      seq: raw.seq as number,
-      hubId: raw.hubId as string,
-      goodId: raw.goodId as string,
-      qty,
-    },
+    intent: { type: 'MARKET_BUY', seq: raw.seq as number, hubId: raw.hubId as string, items },
   };
 }
 
@@ -373,14 +380,12 @@ export function validateMarketSell(raw: Record<string, unknown>): ValidateResult
 
 export function validateCargoRepack(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
-  if (!isGoodId(raw.goodId)) return fail('bad-field', 'goodId');
-  if (!isFiniteNumber(raw.qty)) return fail('bad-field', 'qty');
-  const qty = raw.qty as number;
-  if (!Number.isInteger(qty) || qty < 1 || qty > MAX_CARGO_QTY) return fail('bad-field', 'qty');
-  return {
-    ok: true,
-    intent: { type: 'CARGO_REPACK', seq: raw.seq as number, goodId: raw.goodId as string, qty },
-  };
+  if (!isTradeItems(raw.items)) return fail('bad-field', 'items');
+  const items = (raw.items as { goodId: string; qty: number }[]).map((entry) => ({
+    goodId: entry.goodId as string,
+    qty: entry.qty as number,
+  }));
+  return { ok: true, intent: { type: 'CARGO_REPACK', seq: raw.seq as number, items } };
 }
 
 export function validateEngineTune(raw: Record<string, unknown>): ValidateResult {

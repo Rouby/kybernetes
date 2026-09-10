@@ -33,8 +33,7 @@ describe('SimHost market trade (M5)', () => {
       type: 'MARKET_BUY',
       seq: 1,
       hubId: 'hub_a',
-      goodId: 'scrap',
-      qty: 2,
+      items: [{ goodId: 'scrap', qty: 2 }],
     });
     expect(bought.notice).toBe('MARKET_ok');
     expect(host.shipRecordFor('u1')?.credits).toBe(0);
@@ -50,8 +49,7 @@ describe('SimHost market trade (M5)', () => {
       type: 'MARKET_BUY',
       seq: 1,
       hubId: 'hub_a',
-      goodId: 'scrap',
-      qty: 2,
+      items: [{ goodId: 'scrap', qty: 2 }],
     });
     expect(aboard.notice).toBe('MARKET_wrong-frame');
     movePawn(host, pawnId, 'station', 160, 100);
@@ -59,8 +57,7 @@ describe('SimHost market trade (M5)', () => {
       type: 'MARKET_BUY',
       seq: 2,
       hubId: 'hub_a',
-      goodId: 'scrap',
-      qty: 2,
+      items: [{ goodId: 'scrap', qty: 2 }],
     });
     expect(far.notice).toBe('MARKET_too-far');
     movePawn(host, pawnId, 'station', 430, 410);
@@ -75,8 +72,7 @@ describe('SimHost market trade (M5)', () => {
       type: 'MARKET_BUY',
       seq: 4,
       hubId: 'hub_a',
-      goodId: 'scrap',
-      qty: 2,
+      items: [{ goodId: 'scrap', qty: 2 }],
     });
     expect(hands.notice).toBe('MARKET_hands-full');
     const dropped = host.handleIntent('c1', { type: 'CARGO_DROP', seq: 5 });
@@ -85,14 +81,13 @@ describe('SimHost market trade (M5)', () => {
       type: 'MARKET_BUY',
       seq: 6,
       hubId: 'hub_a',
-      goodId: 'meds',
-      qty: 2,
+      items: [{ goodId: 'meds', qty: 2 }],
     });
     expect(broke.notice).toBe('MARKET_insufficient-funds');
     host.stop();
   });
 
-  it('sells bay crates for mirror profit and restocks the hub', () => {
+  it('sells mixed bay crates for mirror profit and restocks the hub', () => {
     const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
     const pawnId = spawn(host);
     movePawn(host, pawnId, 'station', 460, 440);
@@ -101,8 +96,10 @@ describe('SimHost market trade (M5)', () => {
         type: 'MARKET_BUY',
         seq: 1,
         hubId: 'hub_a',
-        goodId: 'scrap',
-        qty: 2,
+        items: [
+          { goodId: 'scrap', qty: 1 },
+          { goodId: 'rations', qty: 1 },
+        ],
       }).notice
     ).toBe('MARKET_ok');
     const boughtId = bayCrates(host, 'station').find((id) => id.startsWith('mkt:'));
@@ -125,7 +122,7 @@ describe('SimHost market trade (M5)', () => {
       crateIds: [boughtId],
     });
     expect(sold.notice).toBe('MARKET_sold:1');
-    expect(host.shipRecordFor('u1')?.credits).toBe(26);
+    expect(host.shipRecordFor('u1')?.credits).toBe(24);
     expect(host.currentWorld.cargo.crates[boughtId]).toBeUndefined();
     host.stop();
   });
@@ -158,8 +155,7 @@ describe('SimHost market trade (M5)', () => {
           ...world.cargo.crates,
           'fuel:1': {
             id: 'fuel:1',
-            goodId: 'fuel_cells',
-            qty: 2,
+            items: [{ goodId: 'fuel_cells', qty: 2 }],
             where: 'shipFloor',
             frameId: 'ship',
             x: pawn.pos.x,

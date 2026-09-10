@@ -17,6 +17,7 @@ import {
   layoutMarketScreen,
   layoutMenuScreen,
   layoutNavScreen,
+  layoutPackScreen,
   layoutPauseScreen,
   layoutReactorScreen,
   layoutSettingsScreen,
@@ -324,6 +325,28 @@ describe('uiScreenButtonIds', () => {
     expect(layout.buttons.map((b) => b.id)).toContain('buy:scrap');
     expect(layout.buttons.map((b) => b.id)).toContain('sellAll');
     expectContained(layout.panel, layout.buttons);
+    expectNoOverlap(layout.buttons);
+  });
+
+  it('pack keeps the canvas clear with palette and strip rows', () => {
+    const layout = layoutPackScreen(W, H, {
+      title: 'PACK // BUY — HUB_A',
+      budgetLabel: 'Credits: 25cr',
+      palette: [{ buttonId: 'add:scrap', label: '+ SCRAP (1)' }],
+      sealLabel: 'SEAL',
+      sealReady: false,
+      hint: 'Drag them in',
+    });
+    const ids = layout.buttons.map((b) => b.id);
+    expect(ids).toContain('add:scrap');
+    expect(ids).toContain('seal');
+    expect(ids).toContain('auto');
+    expect(ids).toContain('clear');
+    expect(ids).toContain('close');
+    expectContained(
+      layout.panel,
+      layout.buttons.filter((b) => b.id.startsWith('add:'))
+    );
     expectNoOverlap(layout.buttons);
   });
 

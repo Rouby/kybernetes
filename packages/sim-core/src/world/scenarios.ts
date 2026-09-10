@@ -142,15 +142,22 @@ function mirrorStationFixtures(world: World): World {
 function seedSoloBayCrates(world: World): World {
   let hold = world.cargo;
   const seeds = [
-    { id: 'bay:scrap-a', goodId: 'scrap', qty: 3, x: 430, y: 410 },
-    { id: 'bay:rations-a', goodId: 'rations', qty: 4, x: 455, y: 415 },
+    { id: 'bay:scrap-a', items: [{ goodId: 'scrap', qty: 3 }], x: 430, y: 410 },
+    {
+      id: 'bay:mixed-a',
+      items: [
+        { goodId: 'rations', qty: 2 },
+        { goodId: 'water', qty: 2 },
+      ],
+      x: 455,
+      y: 415,
+    },
   ] as const;
   for (const seed of seeds) {
     if (hold.crates[seed.id] !== undefined) continue;
     const spawned = spawnCrate(hold, {
       id: seed.id,
-      goodId: seed.goodId,
-      qty: seed.qty,
+      items: [...seed.items],
       where: 'bayFloor',
       frameId: HARBOR_STATION,
       x: seed.x,

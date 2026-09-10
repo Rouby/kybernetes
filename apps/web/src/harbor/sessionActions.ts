@@ -35,7 +35,13 @@ export type GameplayAction =
   | 'drop'
   | 'unpack';
 
-export type ConsoleKind = 'reactor_console' | 'engine_console' | 'nav_console' | 'cargo' | 'market';
+export type ConsoleKind =
+  | 'reactor_console'
+  | 'engine_console'
+  | 'nav_console'
+  | 'cargo'
+  | 'market'
+  | 'pack';
 
 /** Fixture kinds that open a console panel instead of firing a one-shot intent. */
 export function consoleKindOf(target: InteractTarget | null): ConsoleKind | null {

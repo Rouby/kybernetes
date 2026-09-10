@@ -10,9 +10,12 @@ import type { CargoScreenModel } from '../webgl/ui/UiScreens';
 
 export interface CargoFloorLine {
   readonly crateId: string;
-  readonly goodId: string;
-  readonly qty: number;
+  readonly label: string;
   readonly where: string;
+}
+
+function crateContentsLabel(items: readonly { goodId: string; qty: number }[]): string {
+  return items.map((item) => `${item.goodId} x${item.qty}`).join(' + ');
 }
 
 export interface CargoSecuredLine {
@@ -46,7 +49,7 @@ export function cargoPanelModel(
   return {
     carryingId: carrying?.id ?? null,
     carryingLabel:
-      carrying === undefined ? 'Hands: empty' : `Hands: ${carrying.goodId} x${carrying.qty}`,
+      carrying === undefined ? 'Hands: empty' : `Hands: ${crateContentsLabel(carrying.items)}`,
     floor,
     floorLabel: floorLabelFor(floor, crates.length),
     secured,
@@ -78,8 +81,7 @@ function floorOf(crates: readonly CrateSnapshot[], pawnId: string | null): Cargo
     .slice(0, MAX_PANEL_LINES)
     .map((crate) => ({
       crateId: crate.id,
-      goodId: crate.goodId,
-      qty: crate.qty,
+      label: crateContentsLabel(crate.items),
       where: crate.where,
     }));
 }
@@ -87,7 +89,7 @@ function floorOf(crates: readonly CrateSnapshot[], pawnId: string | null): Cargo
 function floorLabelFor(floor: readonly CargoFloorLine[], total: number): string {
   if (total === 0) return 'Floor: no crates nearby';
   const extra = total - floor.length;
-  const head = `Floor: ${floor.map((line) => `${line.goodId} x${line.qty}`).join(', ')}`;
+  const head = `Floor: ${floor.map((line) => line.label).join(', ')}`;
   return extra > 0 ? `${head} (+${extra} more)` : head;
 }
 

@@ -194,6 +194,33 @@ Locked answers (grill 2026-09-10): 6-good catalog · mirror-pair ~30% spread, fu
 
 ---
 
+## M8 — Drag-to-pack physics (2 slices)
+
+**Goal:** buying and re-packing become a real-time physics packing ritual, not a button.
+
+Locked answers (grill 2026-09-10): pack-first-pay-per-seal · mixed crates · free infinite crates · GL-canvas mouse drag · seal-anytime (min 1) · live tick, never pauses · same game both ways · free rotation · matter-js (MIT, npm, MouseConstraint-style hand-rolled drag, sleeping; Sopiro/Physics rejected: no npm artifact, would trip Fallow).
+
+### Phase 1 — Mixed-crate model (1.5–2d)
+
+- **sim-core `ship/cargo.ts`:** `Crate { id, items: [{goodId, qty}], where, frameId, x, y, angle, carrierId? }`. `spawnCrate` takes items (1–6 entries, each qty 1–10, total footprint area ≤ crate area else `overfilled`). `unpackCrates` fans out per good; `repackCargo` takes items. Pickup/drop/rot carry-over unchanged (whole-crate moves).
+- **sim-core `ship/packGame.ts`:** footprints stay the shared size table; add `crateAreaOf(items)` for the server area bound. SAT `tryPlace` retires in Phase 2 (physics resolves overlap); `autoLayout` stays as the Tidy fallback.
+- **sim-core `ship/market.ts`:** `tryBuy(ledger, hubId, items, credits, nowMs)` (per-item stock/funds, area bound) and per-content sell revenue. Secured/stores/settle shapes unchanged (already per-good).
+- **Protocol:** `MARKET_BUY {seq, hubId, items}`, `CARGO_REPACK {seq, items}` (shape-only validators: 1–6 entries, qty 1–10; kernel enforces area/prices/stock/funds). `CrateSnapshot.items`. `MARKET_SELL {crateIds}` unchanged (server prices contents).
+- **Server:** one BUY = one mixed crate on the bay; sell pays per content and restocks per content. Hands/stall/docked gates unchanged.
+- **Web:** panels seal via auto-pack (buy rows and seal buttons build single-good items arrays — the drag screen replaces the *contents*, not the intents).
+
+**Done when:** mixed buy → haul → unpack → re-pack → haul → sell round-trips per-content pricing with Vitest on every transition.
+
+### Phase 2 — Physics screen (2d)
+
+- **Engine:** `matter-js` (+ `@types/matter-js` dev) in `apps/web`; core sim only (`Engine/Bodies/Body/Composite/Constraint/Query/Sleeping`) — no `Render`/`Mouse`, so zero-DOM discipline holds. Fixed 60Hz step in a framework-free `PackStore`.
+- **Screen:** market console grows pack mode (left BUY palette staging units with no server contact, right physics canvas: open-top static crate, gravity drop-in, drag spring, R rotates 15°, ghost fit tint). Seal → `MARKET_BUY {items}`; re-pack aboard → `CARGO_REPACK {items}`. Pointer captured while open; keys stay live.
+- **Seal gating (client):** ≥1 body, all corners inside, slow/sleeping, with hint text. Server still trusts counts + area + funds/stock only.
+
+**Done when:** full buy-pack-seal-haul loop playable with mouse only, twice, without debug intents.
+
+---
+
 ## Later (explicitly out of MVP)
 
 - **Build more space:** hull-expansion builder (new room via `hullCompiler` recompile + cost + docked-only). Needs rack-slot growth + air-room rewiring — do after tiers feel right.

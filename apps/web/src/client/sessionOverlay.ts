@@ -15,10 +15,13 @@ import type {
   ShipSystemsBroadcast,
   SnapshotBroadcast,
 } from '@kybernetes/protocol';
+import { footprintFor } from '@kybernetes/sim-core';
 import { cargoScreenFor } from '../harbor/cargoModel';
 import { hubIdForFrame, marketScreenFor } from '../harbor/marketModel';
 import type { ConsoleKind } from '../harbor/sessionActions';
 import type { GlSessionWiring } from '../harbor/viewportFrame';
+import type { PackStore } from '../pack/PackStore';
+import { packScreenFor } from '../pack/packModel';
 import type { GlAudioState } from '../webgl/ui/UiPass';
 
 export interface OverlayAudio {
@@ -33,6 +36,7 @@ export interface OverlayAudio {
 export interface OverlayConsoles {
   readonly consoleOpen: ConsoleKind | null;
   readonly shipSystems: ShipSystemsBroadcast | null;
+  readonly openConsole: (kind: ConsoleKind) => void;
   readonly closeConsole: () => void;
 }
 
@@ -45,6 +49,7 @@ export interface GlOverlayBuildArgs {
   readonly audio: OverlayAudio;
   readonly consoles: OverlayConsoles;
   readonly navState: NavStateBroadcast | null;
+  readonly packStore: PackStore;
   readonly marketStates: Readonly<Record<string, MarketStateBroadcast>>;
   readonly credits: number;
   readonly snapshot: SnapshotBroadcast | null;
@@ -76,9 +81,25 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
       args.cargoState,
       args.credits
     ),
+    pack: packWiringOf(
+      args.packStore,
+      args.marketStates,
+      args.snapshot,
+      args.pawnId,
+      args.cargoState,
+      args.credits,
+      args.sendIntent
+    ),
     shipStatus: args.shipStatus,
     sendIntent: args.sendIntent,
-    onCloseConsole: args.consoles.closeConsole,
+    onPackOpen: (ctx) => {
+      args.packStore.open(ctx);
+      args.consoles.openConsole('pack');
+    },
+    onCloseConsole: () => {
+      args.packStore.close();
+      args.consoles.closeConsole();
+    },
     onResume: closeAnd(args, args.togglePause),
     onRestart: closeAnd(args, args.restart),
     onQuit: args.onQuit,
@@ -111,6 +132,61 @@ function marketWiringOf(
   const buys: Record<string, number> = {};
   for (const row of screen.buys) buys[row.goodId] = row.qty;
   return { hubId, screen, buys, sellIds: [...screen.sellIds] };
+}
+
+function packWiringOf(
+  packStore: PackStore,
+  marketStates: Readonly<Record<string, MarketStateBroadcast>>,
+  snapshot: SnapshotBroadcast | null,
+  pawnId: string | null,
+  cargoState: CargoStateBroadcast | null,
+  credits: number,
+  sendIntent: (intent: ClientIntent) => void
+): GlSessionWiring['pack'] {
+  const ctx = packStore.context();
+  if (ctx === null) return null;
+  const snap = packStore.getSnapshot();
+  const frameId = snapshot?.pawns.find((pawn) => pawn.id === pawnId)?.frameId ?? null;
+  const hubId = ctx.mode === 'buy' ? (ctx.hubId ?? hubIdForFrame(frameId)) : null;
+  const market = hubId !== null ? marketStates[hubId] : undefined;
+  const screen = packScreenFor(
+    ctx.mode,
+    hubId,
+    market ?? null,
+    snapshot,
+    pawnId,
+    cargoState,
+    credits,
+    snap
+  );
+  return {
+    screen,
+    scene: {
+      bodies: [...snap.bodies],
+      walls: [...snap.walls],
+      crate: { ...snap.crate },
+      sealReady: snap.sealReady,
+    },
+    onAdd: (goodId: string) => {
+      const foot = footprintFor(goodId);
+      packStore.stageUnit(goodId, foot.w, foot.h);
+    },
+    onSeal: () => packSeal(packStore, sendIntent),
+    onAuto: () => packStore.tidyUp(),
+    onClear: () => packStore.clearStaged(),
+  };
+}
+
+function packSeal(packStore: PackStore, sendIntent: (intent: ClientIntent) => void): void {
+  const ctx = packStore.context();
+  if (ctx === null) return;
+  const items = packStore.takeSealed(ctx.mode === 'buy' ? 'buy' : 'repack');
+  if (items === null) return;
+  if (ctx.mode === 'buy' && ctx.hubId !== undefined) {
+    sendIntent({ type: 'MARKET_BUY', seq: 0, hubId: ctx.hubId, items });
+  } else if (ctx.mode === 'repack') {
+    sendIntent({ type: 'CARGO_REPACK', seq: 0, items });
+  }
 }
 
 function cargoWiringOf(

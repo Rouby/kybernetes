@@ -436,7 +436,7 @@ export class SimHost {
   private routeTradeIntent(clientId: string, intent: ClientIntent): HostIntentResult | undefined {
     switch (intent.type) {
       case 'MARKET_BUY':
-        return this.handleMarketBuy(clientId, intent.hubId, intent.goodId, intent.qty);
+        return this.handleMarketBuy(clientId, intent.hubId, intent.items);
       case 'MARKET_SELL':
         return this.handleMarketSell(clientId, intent.hubId, intent.crateIds);
       default:
@@ -786,12 +786,11 @@ export class SimHost {
     return { notice: 'DISTRESS_ok' };
   }
 
-  /** Market buy: funds + stock checked server-side, crate spawns on the bay. */
+  /** Market buy: funds + stock checked server-side, mixed crate spawns on the bay. */
   private handleMarketBuy(
     clientId: string,
     hubId: string,
-    goodId: string,
-    qty: number
+    items: readonly { goodId: string; qty: number }[]
   ): HostIntentResult {
     const client = this.clients.get(clientId);
     if (client === undefined) return { notice: 'not-joined' };
@@ -799,14 +798,16 @@ export class SimHost {
     if (station === undefined) return { notice: 'MARKET_wrong-frame' };
     const gate = this.marketGate(client.pawnId, station);
     if (gate !== undefined) return gate;
-    if (!isTradeGood(goodId)) return { notice: 'MARKET_unknown-good' };
+    if (!items.every((item) => isTradeGood(item.goodId))) {
+      return { notice: 'MARKET_unknown-good' };
+    }
     const record = getSoloShip(this.ships, client.userId);
     if (record === undefined) return { notice: 'MARKET_no-ship' };
-    const bought = tryBuy(this.world.market, hubId, goodId, qty, record.credits, this.world.timeMs);
+    const bought = tryBuy(this.world.market, hubId, items, record.credits, this.world.timeMs);
     if (!bought.ok) return { notice: `MARKET_${bought.reason}` };
     const paid = debitShip(record, bought.cost);
     if (paid === undefined) return { notice: 'MARKET_insufficient-funds' };
-    const spawned = this.spawnBayCrate(station, goodId, qty);
+    const spawned = this.spawnBayCrate(station, items);
     if (spawned === undefined) return { notice: 'MARKET_denied' };
     this.world = { ...this.world, market: bought.ledger, cargo: spawned };
     saveSoloShip(this.ships, paid);
@@ -866,13 +867,12 @@ export class SimHost {
     return stall === undefined ? undefined : { ...stall.pos };
   }
 
-  private spawnBayCrate(station: string, goodId: string, qty: number) {
+  private spawnBayCrate(station: string, items: readonly { goodId: string; qty: number }[]) {
     const at = this.marketStallAt(station) ?? { x: 0, y: 0 };
     const n = Object.keys(this.world.cargo.crates).length;
     const spawned = spawnCrate(this.world.cargo, {
       id: `mkt:${this.world.tick}:${n}`,
-      goodId,
-      qty,
+      items: items.map((item) => ({ goodId: item.goodId, qty: item.qty })),
       where: 'bayFloor',
       frameId: station,
       x: at.x + 30 + (n % 5) * 20,
@@ -894,8 +894,8 @@ export class SimHost {
       const crate = hold.crates[id];
       if (crate === undefined || crate.where !== 'bayFloor' || crate.frameId !== station) continue;
       if (!this.stallNear(station, crate)) continue;
-      if (!isTradeGood(crate.goodId)) continue;
-      const deal = trySell(ledger, hubId, crate.goodId, crate.qty, this.world.timeMs);
+      if (!crate.items.every((item) => isTradeGood(item.goodId))) continue;
+      const deal = trySell(ledger, hubId, crate.items, this.world.timeMs);
       if (!deal.ok) continue;
       ledger = deal.ledger;
       revenue += deal.revenue;

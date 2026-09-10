@@ -80,8 +80,7 @@ describe('tickWorld scaffold', () => {
     let world = shipWorld();
     const seeded = cargo.spawnCrate(cargo.emptyCargo(), {
       id: 'c1',
-      goodId: 'scrap',
-      qty: 2,
+      items: [{ goodId: 'scrap', qty: 2 }],
       where: 'shipFloor',
       frameId: 'ship',
       x: 150,

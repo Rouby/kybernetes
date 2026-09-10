@@ -31,6 +31,24 @@ export function footprintFor(goodId: string): { w: number; h: number } {
   return GOODS_FOOTPRINTS[goodId] ?? { w: 30, h: 20 };
 }
 
+export const CRATE_AREA = CRATE_BOUNDS.w * CRATE_BOUNDS.h;
+
+export interface PackedItem {
+  readonly goodId: string;
+  readonly qty: number;
+}
+
+/** Footprint-area bound for mixed crates: the server trusts counts, not placement. */
+export function crateAreaOf(items: readonly PackedItem[]): number {
+  let area = 0;
+  for (const item of items) {
+    if (!Number.isInteger(item.qty) || item.qty < 1) continue;
+    const foot = footprintFor(item.goodId);
+    area += foot.w * foot.h * item.qty;
+  }
+  return area;
+}
+
 export function insideBounds(candidate: Box, bounds: Box = CRATE_BOUNDS): boolean {
   return (
     candidate.x >= bounds.x &&

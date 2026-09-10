@@ -30,6 +30,7 @@ import { clearFowGrid, createFowGrid, loadFowGrid, saveFowGrid } from './fowMemo
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
 import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
 import { type LivingView, renderLivingFixtures } from './LivingFixtures';
+import { renderPackScene, screenOrthoMatrix } from './PackScene';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
 import { DeckPass, THRUSTER_BELLS } from './passes/DeckPass';
 import { FogOfWarPass } from './passes/FogOfWarPass';
@@ -124,6 +125,8 @@ export interface WebGLRenderState extends HudDrawState {
   /** Physical cargo crates in world coords (M4 floor piles + carried). */
   cargoCrates?: readonly import('../harbor/renderState').CargoCrateView[];
   nearestCargoId?: string | null;
+  /** Drag-to-pack bench in screen pixels (M8); absent while closed. */
+  pack?: import('./PackScene').PackSceneView | null;
 }
 
 function bareRoomId(roomA: string): string {
@@ -990,7 +993,22 @@ export class WebGL2Renderer {
       width,
       height
     );
+    this.renderPackOverlay(state, width, height);
     this.renderHudPass(state, width, height, playerLoSPoly, timeSec);
+  }
+
+  /** Pack bench over the world, under the HUD panels. Own framebuffer. */
+  private renderPackOverlay(state: WebGLRenderState, width: number, height: number): void {
+    const pack = state.pack;
+    if (pack === undefined || pack === null) return;
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    this.bindFlatProgram(screenOrthoMatrix(width, height));
+    renderPackScene(this.getRenderContext(), pack);
+    gl.bindVertexArray(null);
   }
 
   /** Tick particles, frost, impacts, and exhaust ahead of the frame passes. */

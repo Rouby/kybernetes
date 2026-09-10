@@ -28,6 +28,7 @@ import {
   type TerminalMenuState,
 } from '../../harbor/terminalLayout';
 import {
+  packLayoutFor,
   type UiButton,
   type UiField,
   type UiRect,
@@ -36,6 +37,7 @@ import {
   uiButtonColumn,
   uiCenteredPanel,
   uiEllipsize,
+  uiSplitRow,
   uiVisorMargins,
 } from './UiToolkit';
 
@@ -48,6 +50,7 @@ export type UiScreenId =
   | 'nav'
   | 'cargo'
   | 'market'
+  | 'pack'
   | 'pause'
   | 'death'
   | 'gameover'
@@ -597,10 +600,17 @@ function cargoTextsFor(panel: UiRect, model: CargoScreenModel): readonly UiText[
 }
 
 function cargoButtonsFor(panel: UiRect, model: CargoScreenModel): readonly UiButton[] {
-  const ids = ['unpackAll', 'drop', ...model.seal.map((line) => `seal:${line.goodId}`), 'close'];
+  const ids = [
+    'unpackAll',
+    'drop',
+    'packHold',
+    ...model.seal.map((line) => `seal:${line.goodId}`),
+    'close',
+  ];
   const labels: Record<string, string> = {
     unpackAll: 'UNPACK FLOOR',
     drop: 'SET DOWN [G]',
+    packHold: 'PACK HOLD',
     close: 'CLOSE [C]',
   };
   for (const line of model.seal)
@@ -656,8 +666,8 @@ function pairListingLines(lines: readonly string[]): string[] {
 }
 
 function marketButtonsFor(panel: UiRect, model: MarketScreenModel): readonly UiButton[] {
-  const ids = [...model.buys.map((row) => row.buttonId)];
-  const labels: Record<string, string> = {};
+  const ids = ['packBuy', ...model.buys.map((row) => row.buttonId)];
+  const labels: Record<string, string> = { packBuy: 'PACK CRATES' };
   for (const row of model.buys) labels[row.buttonId] = row.label;
   if (model.hasSell) {
     ids.push('sellAll');
@@ -672,6 +682,78 @@ function marketButtonsFor(panel: UiRect, model: MarketScreenModel): readonly UiB
 export function layoutMarketScreen(w: number, h: number, model: MarketScreenModel): UiScreenLayout {
   const panel = marketPanelFor(w, h);
   return { panel, texts: marketTextsFor(panel, model), buttons: marketButtonsFor(panel, model) };
+}
+
+function packStripButtons(
+  strip: UiRect,
+  sealLabel: string,
+  sealReady: boolean
+): readonly UiButton[] {
+  const ids = ['seal', 'auto', 'clear', 'close'];
+  const rects = uiSplitRow(strip, ids.length, GAP);
+  const labels: Record<string, string> = {
+    seal: sealLabel,
+    auto: 'TIDY',
+    clear: 'CLEAR',
+    close: 'CLOSE [C]',
+  };
+  return ids.map((id, index) => ({
+    id,
+    label: labels[id] ?? id,
+    rect: rects[index] ?? { ...strip },
+    primary: sealReady && id === 'seal',
+  }));
+}
+
+export function layoutPackScreen(
+  w: number,
+  h: number,
+  model: import('../../pack/packModel').PackScreenModel
+): UiScreenLayout {
+  const geo = packLayoutFor(w, h);
+  const tx = geo.panel.x + PAD;
+  const innerW = geo.panel.w - PAD * 2;
+  const y0 = geo.panel.y + PAD;
+  const texts = [
+    textAt('PACK // CRATES', tx, y0, KICKER_SIZE, 'dim'),
+    textAt(
+      uiEllipsize(model.title, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8,
+      BODY_SIZE,
+      'cyan'
+    ),
+    textAt(
+      uiEllipsize(model.budgetLabel, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H,
+      BODY_SIZE,
+      'primary'
+    ),
+    textAt(
+      uiEllipsize(model.hint, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * 2,
+      BODY_SIZE,
+      'muted'
+    ),
+  ];
+  const paletteIds = model.palette.map((entry) => entry.buttonId);
+  const paletteLabels: Record<string, string> = {};
+  for (const entry of model.palette) paletteLabels[entry.buttonId] = entry.label;
+  const paletteTop =
+    geo.panel.y +
+    geo.panel.h -
+    PAD -
+    (paletteIds.length * BTN_H + Math.max(0, paletteIds.length - 1) * GAP);
+  return {
+    panel: geo.panel,
+    texts,
+    buttons: [
+      ...columnFor(geo.panel, paletteTop, paletteIds, paletteLabels, undefined),
+      ...packStripButtons(geo.strip, model.sealLabel, model.sealReady),
+    ],
+  };
 }
 
 function settingsPanelFor(w: number, h: number): UiRect {
@@ -735,8 +817,9 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   reactor: ['rodsDown', 'rodsUp', 'coolantDown', 'coolantUp', 'restart', 'close'],
   engine: ['spool', 'tuneDown', 'tuneUp', 'close'],
   nav: ['plot', 'cancel', 'distress', 'close'],
-  cargo: ['unpackAll', 'drop', 'close'],
-  market: ['sellAll', 'close'],
+  cargo: ['unpackAll', 'drop', 'packHold', 'close'],
+  market: ['packBuy', 'sellAll', 'close'],
+  pack: ['seal', 'auto', 'clear', 'close'],
   pause: ['resume', 'restart', 'quit', 'audio'],
   death: ['restart', 'quit'],
   gameover: ['restart'],

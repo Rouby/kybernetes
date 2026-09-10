@@ -21,8 +21,10 @@ import {
 function holdWithBayCrate() {
   const spawned = spawnCrate(emptyCargo(), {
     id: 'c1',
-    goodId: 'scrap',
-    qty: 3,
+    items: [
+      { goodId: 'scrap', qty: 3 },
+      { goodId: 'rations', qty: 2 },
+    ],
     where: 'bayFloor',
     frameId: 'station',
     x: 100,
@@ -50,25 +52,58 @@ describe('cargo hauling (M4 floor model)', () => {
     if (!unpacked.ok) return;
     hold = unpacked.hold;
     expect(securedQty(hold, 'ship', 'scrap')).toBe(3);
+    expect(securedQty(hold, 'ship', 'rations')).toBe(2);
     expect(hold.crates.c1).toBeUndefined();
-    const repacked = repackCargo(hold, 'ship', 'ship', 'scrap', 2, {
-      id: 'c2',
-      frameId: 'ship',
-      x: 60,
-      y: 60,
-    });
+    const repacked = repackCargo(
+      hold,
+      'ship',
+      'ship',
+      [
+        { goodId: 'scrap', qty: 1 },
+        { goodId: 'rations', qty: 1 },
+      ],
+      { id: 'c2', frameId: 'ship', x: 60, y: 60 }
+    );
     expect(repacked.ok).toBe(true);
     if (!repacked.ok) return;
-    expect(securedQty(repacked.hold, 'ship', 'scrap')).toBe(1);
-    expect(repacked.hold.crates.c2?.qty).toBe(2);
+    expect(securedQty(repacked.hold, 'ship', 'scrap')).toBe(2);
+    expect(securedQty(repacked.hold, 'ship', 'rations')).toBe(1);
+    expect(repacked.hold.crates.c2?.items).toEqual([
+      { goodId: 'scrap', qty: 1 },
+      { goodId: 'rations', qty: 1 },
+    ]);
+  });
+
+  it('rejects overfilled crates by footprint area', () => {
+    const burst = spawnCrate(emptyCargo(), {
+      id: 'big',
+      items: [{ goodId: 'scrap', qty: 10 }],
+      where: 'bayFloor',
+      frameId: 'station',
+      x: 0,
+      y: 0,
+    });
+    expect(burst).toEqual({ ok: false, reason: 'overfilled' });
+    expect(
+      spawnCrate(emptyCargo(), {
+        id: 'none',
+        items: [],
+        where: 'bayFloor',
+        frameId: 'station',
+        x: 0,
+        y: 0,
+      })
+    ).toEqual({
+      ok: false,
+      reason: 'bad-qty',
+    });
   });
 
   it('rejects double-pickup while hands are full', () => {
     let hold = holdWithBayCrate();
     const second = spawnCrate(hold, {
       id: 'c2',
-      goodId: 'scrap',
-      qty: 1,
+      items: [{ goodId: 'scrap', qty: 1 }],
       where: 'bayFloor',
       frameId: 'station',
       x: 102,
@@ -185,7 +220,12 @@ describe('cargo hauling (M4 floor model)', () => {
     const hold = holdWithBayCrate();
     expect(unpackCrates(hold, 'ship', 'station', ['c1']).ok).toBe(false);
     expect(
-      repackCargo(hold, 'ship', 'ship', 'scrap', 5, { id: 'c9', frameId: 'ship', x: 1, y: 1 }).ok
+      repackCargo(hold, 'ship', 'ship', [{ goodId: 'scrap', qty: 5 }], {
+        id: 'c9',
+        frameId: 'ship',
+        x: 1,
+        y: 1,
+      }).ok
     ).toBe(false);
   });
 });

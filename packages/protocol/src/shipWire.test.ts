@@ -113,12 +113,15 @@ describe('solo-ship wire (M1)', () => {
     expect(validateClientIntent({ type: 'CARGO_DROP', seq: 3 }).ok).toBe(true);
     expect(validateClientIntent({ type: 'CARGO_UNPACK', seq: 4, crateIds: ['c1'] }).ok).toBe(true);
     expect(validateClientIntent({ type: 'CARGO_UNPACK', seq: 5, crateIds: [] }).ok).toBe(false);
-    expect(validateClientIntent({ type: 'CARGO_REPACK', seq: 6, goodId: 'scrap', qty: 3 }).ok).toBe(
-      true
-    );
     expect(
-      validateClientIntent({ type: 'CARGO_REPACK', seq: 7, goodId: 'scrap', qty: 99 }).ok
+      validateClientIntent({ type: 'CARGO_REPACK', seq: 6, items: [{ goodId: 'scrap', qty: 3 }] })
+        .ok
+    ).toBe(true);
+    expect(
+      validateClientIntent({ type: 'CARGO_REPACK', seq: 7, items: [{ goodId: 'scrap', qty: 99 }] })
+        .ok
     ).toBe(false);
+    expect(validateClientIntent({ type: 'CARGO_REPACK', seq: 8, items: [] }).ok).toBe(false);
     expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_PICKUP).toBe(8);
     expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_DROP).toBe(8);
     expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_UNPACK).toBe(8);
@@ -140,16 +143,27 @@ describe('solo-ship wire (M1)', () => {
 
   it('validates market intents and rate-limits them at 4Hz', () => {
     expect(
-      validateClientIntent({ type: 'MARKET_BUY', seq: 1, hubId: 'hub_a', goodId: 'scrap', qty: 3 })
-        .ok
+      validateClientIntent({
+        type: 'MARKET_BUY',
+        seq: 1,
+        hubId: 'hub_a',
+        items: [
+          { goodId: 'scrap', qty: 3 },
+          { goodId: 'rations', qty: 1 },
+        ],
+      }).ok
     ).toBe(true);
     expect(
-      validateClientIntent({ type: 'MARKET_BUY', seq: 2, hubId: 'hub_a', goodId: 'scrap', qty: 99 })
-        .ok
+      validateClientIntent({
+        type: 'MARKET_BUY',
+        seq: 2,
+        hubId: 'hub_a',
+        items: [{ goodId: 'scrap', qty: 99 }],
+      }).ok
     ).toBe(false);
-    expect(
-      validateClientIntent({ type: 'MARKET_BUY', seq: 3, hubId: 'hub_a', goodId: 'scrap' }).ok
-    ).toBe(false);
+    expect(validateClientIntent({ type: 'MARKET_BUY', seq: 3, hubId: 'hub_a', items: [] }).ok).toBe(
+      false
+    );
     expect(
       validateClientIntent({ type: 'MARKET_SELL', seq: 4, hubId: 'hub_b', crateIds: ['c1'] }).ok
     ).toBe(true);

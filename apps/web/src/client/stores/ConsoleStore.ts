@@ -41,6 +41,12 @@ export class ConsoleStore {
     this.emit();
   }
 
+  public openConsole(kind: ConsoleKind): void {
+    if (this.consoleOpen === kind) return;
+    this.consoleOpen = kind;
+    this.emit();
+  }
+
   public closeConsole(): void {
     this.consoleOpen = null;
     this.emit();

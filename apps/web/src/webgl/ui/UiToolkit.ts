@@ -113,6 +113,97 @@ export function uiClamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
 }
 
+/** Left palette column for the pack screen (physics canvas owns the right). */
+const PACK_PANEL_W = 300;
+/** Bottom action strip under the pack canvas (seal/auto/clear/close). */
+const PACK_STRIP_H = 52;
+
+export interface PackLayout {
+  readonly panel: UiRect;
+  readonly canvas: UiRect;
+  readonly strip: UiRect;
+}
+
+/** Pack screen geometry from canvas size only: driver, store, and layout agree. */
+export function packLayoutFor(width: number, height: number): PackLayout {
+  const m = uiVisorMargins(width, height);
+  const availH = Math.max(240, height - m.topClearance - m.marginY);
+  const panel = { x: m.marginX, y: m.topClearance, w: PACK_PANEL_W, h: availH };
+  const canvasX = m.marginX + PACK_PANEL_W + 16;
+  const stripH = PACK_STRIP_H + 12;
+  const canvas = {
+    x: canvasX,
+    y: m.topClearance,
+    w: Math.max(160, width - canvasX - m.marginX),
+    h: Math.max(160, availH - stripH),
+  };
+  const strip = { x: canvas.x, y: canvas.y + canvas.h + 12, w: canvas.w, h: PACK_STRIP_H };
+  return { panel, canvas, strip };
+}
+
+/** Crate inner box: full usable height from rim tops to floor (120x128). */
+const PACK_CRATE_W = 120;
+const PACK_CRATE_H = 128;
+/** Clearance between the crate floor and the canvas bottom. */
+const PACK_BOTTOM_MARGIN = 16;
+/** Physics floor thickness under the crate. */
+const PACK_FLOOR_THICK = 18;
+
+/** Single crate geometry source: box sat on the canvas bottom. */
+export function packCrateRect(rectW: number, rectH: number): UiRect {
+  return {
+    x: Math.max(0, rectW / 2 - PACK_CRATE_W / 2),
+    y: Math.max(0, rectH - PACK_CRATE_H - PACK_FLOOR_THICK - PACK_BOTTOM_MARGIN),
+    w: PACK_CRATE_W,
+    h: PACK_CRATE_H,
+  };
+}
+
+/**
+ * Bench camera: physics local space already spans the canvas rect, so the
+ * zoom pins the crate bottom above the canvas bottom. Screen = o + local * s.
+ */
+export interface PackBenchTransform {
+  readonly rect: UiRect;
+  readonly scale: number;
+  readonly ox: number;
+  readonly oy: number;
+}
+
+export function packBenchTransform(width: number, height: number): PackBenchTransform {
+  const rect = packLayoutFor(width, height).canvas;
+  const scale = Math.min(3, Math.max(0.75, Math.min(rect.w / 420, rect.h / 340)));
+  const box = packCrateRect(rect.w, rect.h);
+  const bottomGap = 40;
+  return {
+    rect,
+    scale,
+    ox: rect.x + rect.w / 2 - (box.x + box.w / 2) * scale,
+    oy: rect.y + rect.h - bottomGap - (box.y + box.h) * scale,
+  };
+}
+
+/** Physics-local point to screen pixels through the bench camera. */
+export function packPlace(
+  bench: PackBenchTransform,
+  x: number,
+  y: number
+): { x: number; y: number } {
+  return { x: bench.ox + x * bench.scale, y: bench.oy + y * bench.scale };
+}
+
+/** Split a strip rect into count equal buttons with gaps. */
+export function uiSplitRow(rect: UiRect, count: number, gap: number): UiRect[] {
+  if (count < 1) return [];
+  const totalGap = gap * (count - 1);
+  const w = (rect.w - totalGap) / count;
+  const rects: UiRect[] = [];
+  for (let i = 0; i < count; i += 1) {
+    rects.push({ x: Math.round(rect.x + i * (w + gap)), y: rect.y, w: Math.round(w), h: rect.h });
+  }
+  return rects;
+}
+
 /** Vertical button stack inside a panel body. */
 export function uiButtonColumn(
   innerX: number,

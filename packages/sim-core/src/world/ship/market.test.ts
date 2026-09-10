@@ -56,45 +56,70 @@ describe('market ledger', () => {
     expect(restockLedger(rested, 1_000_000_000).stock.hub_a?.scrap).toBe(MARKET_MAX_STOCK);
   });
 
-  it('rejects buys without funds, stock, or known goods', () => {
+  it('prices mixed crates per content', () => {
     const ledger = createMarketLedger();
-    const ok = tryBuy(ledger, 'hub_a', 'scrap', 2, 100, 0);
+    const mixed = [
+      { goodId: 'scrap', qty: 2 },
+      { goodId: 'rations', qty: 2 },
+    ];
+    const ok = tryBuy(ledger, 'hub_a', mixed, 100, 0);
     expect(ok.ok).toBe(true);
     if (!ok.ok) return;
-    expect(ok.cost).toBe(20);
+    expect(ok.cost).toBe(30);
     expect(ok.ledger.stock.hub_a?.scrap).toBe(MARKET_MAX_STOCK - 2);
-    expect(tryBuy(ledger, 'hub_a', 'scrap', 2, 5, 0)).toEqual({
+    expect(ok.ledger.stock.hub_a?.rations).toBe(MARKET_MAX_STOCK - 2);
+  });
+
+  it('rejects buys without funds, stock, known goods, or fitting area', () => {
+    const ledger = createMarketLedger();
+    const mixed = [
+      { goodId: 'scrap', qty: 2 },
+      { goodId: 'rations', qty: 2 },
+    ];
+    expect(tryBuy(ledger, 'hub_a', mixed, 5, 0)).toEqual({
       ok: false,
       reason: 'insufficient-funds',
     });
-    expect(tryBuy(ledger, 'hub_a', 'scrap', 60, 10_000, 0)).toEqual({
+    expect(tryBuy(ledger, 'hub_a', [{ goodId: 'scrap', qty: 60 }], 10_000, 0)).toEqual({
       ok: false,
       reason: 'bad-qty',
+    });
+    expect(tryBuy(ledger, 'hub_a', [{ goodId: 'scrap', qty: 10 }], 10_000, 0)).toEqual({
+      ok: false,
+      reason: 'overfilled',
     });
     const empty = {
       ...ledger,
       stock: { ...ledger.stock, hub_a: { ...ledger.stock.hub_a, scrap: 1 } },
     };
-    expect(tryBuy(empty, 'hub_a', 'scrap', 2, 10_000, 0)).toEqual({
+    expect(tryBuy(empty, 'hub_a', mixed, 10_000, 0)).toEqual({
       ok: false,
       reason: 'out-of-stock',
     });
-    expect(tryBuy(ledger, 'hub_c', 'scrap', 1, 10_000, 0)).toEqual({
+    expect(tryBuy(ledger, 'hub_c', mixed, 10_000, 0)).toEqual({
       ok: false,
       reason: 'unknown-hub',
     });
-    expect(tryBuy(ledger, 'hub_a', 'spice', 1, 10_000, 0)).toEqual({
+    expect(tryBuy(ledger, 'hub_a', [{ goodId: 'spice', qty: 1 }], 10_000, 0)).toEqual({
       ok: false,
       reason: 'unknown-good',
     });
   });
 
-  it('pays out sells and absorbs stock with a clamp', () => {
+  it('pays out sells per content and absorbs stock with a clamp', () => {
     const ledger = createMarketLedger();
-    const sold = trySell(ledger, 'hub_b', 'scrap', 3, 0);
+    const sold = trySell(
+      ledger,
+      'hub_b',
+      [
+        { goodId: 'scrap', qty: 3 },
+        { goodId: 'meds', qty: 1 },
+      ],
+      0
+    );
     expect(sold.ok).toBe(true);
     if (!sold.ok) return;
-    expect(sold.revenue).toBe(39);
+    expect(sold.revenue).toBe(39 + 9);
     expect(sold.ledger.stock.hub_b?.scrap).toBe(MARKET_MAX_STOCK);
   });
 
@@ -112,8 +137,10 @@ describe('ship stores integration', () => {
   it('sweeps unpacked fuel into stores counts', () => {
     const seeded = spawnCrate(emptyCargo(), {
       id: 'f1',
-      goodId: 'fuel_cells',
-      qty: 3,
+      items: [
+        { goodId: 'fuel_cells', qty: 2 },
+        { goodId: 'scrap', qty: 1 },
+      ],
       where: 'shipFloor',
       frameId: 'ship',
       x: 1,
@@ -123,7 +150,8 @@ describe('ship stores integration', () => {
     const unpacked = unpackCrates(seeded.hold, 'ship', 'ship', ['f1']);
     if (!unpacked.ok) throw new Error('unpack');
     const swept = sweepFuelToStores(unpacked.hold, 'ship');
-    expect(swept.fuel).toBe(3);
+    expect(swept.fuel).toBe(2);
+    expect(swept.hold.secured['ship']?.['scrap']).toBe(1);
     expect(swept.hold.secured['ship']?.['fuel_cells'] ?? 0).toBe(0);
     expect(sweepFuelToStores(swept.hold, 'ship').fuel).toBe(0);
   });

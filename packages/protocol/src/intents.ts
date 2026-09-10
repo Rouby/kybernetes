@@ -195,19 +195,22 @@ export interface CargoUnpackIntent {
   readonly crateIds: readonly string[];
 }
 
+export interface TradeItem {
+  readonly goodId: string;
+  readonly qty: number;
+}
+
 export interface CargoRepackIntent {
   readonly type: 'CARGO_REPACK';
   readonly seq: number;
-  readonly goodId: string;
-  readonly qty: number;
+  readonly items: readonly TradeItem[];
 }
 
 export interface MarketBuyIntent {
   readonly type: 'MARKET_BUY';
   readonly seq: number;
   readonly hubId: string;
-  readonly goodId: string;
-  readonly qty: number;
+  readonly items: readonly TradeItem[];
 }
 
 export interface MarketSellIntent {

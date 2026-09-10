@@ -1,6 +1,10 @@
 /** @vitest-environment node */
 import { describe, expect, it } from 'vitest';
 import {
+  packBenchTransform,
+  packCrateRect,
+  packLayoutFor,
+  packPlace,
   publishUiZones,
   uiButtonColumn,
   uiCenteredPanel,
@@ -10,6 +14,7 @@ import {
   uiEllipsize,
   uiFitsText,
   uiOverlaps,
+  uiSplitRow,
   uiTextWidth,
   uiVisorMargins,
 } from './UiToolkit';
@@ -24,6 +29,55 @@ describe('uiVisorMargins', () => {
       expect(m.marginY).toBe(Math.max(38, Math.round(h * 0.055)));
       expect(m.topClearance).toBe(m.marginY + 68);
     }
+  });
+});
+
+describe('packLayoutFor', () => {
+  it('splits a left panel, right canvas, and bottom strip without overlap', () => {
+    const geo = packLayoutFor(1280, 720);
+    expect(geo.panel.x).toBeGreaterThan(0);
+    expect(geo.canvas.x).toBeGreaterThan(geo.panel.x + geo.panel.w);
+    expect(geo.canvas.w).toBeGreaterThan(300);
+    expect(geo.strip.y).toBe(geo.canvas.y + geo.canvas.h + 12);
+    expect(uiOverlaps(geo.panel, geo.canvas)).toBe(false);
+  });
+
+  it('pins the crate bottom above the canvas bottom with an invertible zoom', () => {
+    const bench = packBenchTransform(1280, 720);
+    expect(bench.scale).toBeGreaterThan(1);
+    expect(bench.scale).toBeLessThanOrEqual(3);
+    const box = packCrateRect(bench.rect.w, bench.rect.h);
+    expect(bench.ox + (box.x + box.w / 2) * bench.scale).toBeCloseTo(
+      bench.rect.x + bench.rect.w / 2,
+      5
+    );
+    expect(bench.oy + (box.y + box.h) * bench.scale).toBeCloseTo(
+      bench.rect.y + bench.rect.h - 40,
+      5
+    );
+    const toScreen = (x: number, y: number) => ({
+      x: bench.ox + x * bench.scale,
+      y: bench.oy + y * bench.scale,
+    });
+    const back = (p: { x: number; y: number }) => ({
+      x: (p.x - bench.ox) / bench.scale,
+      y: (p.y - bench.oy) / bench.scale,
+    });
+    expect(packPlace(bench, 37, 91)).toEqual({
+      x: bench.ox + 37 * bench.scale,
+      y: bench.oy + 91 * bench.scale,
+    });
+    const round = back(toScreen(37, 91));
+    expect(round.x).toBeCloseTo(37, 6);
+    expect(round.y).toBeCloseTo(91, 6);
+  });
+
+  it('splits strips into equal buttons', () => {
+    const rects = uiSplitRow({ x: 0, y: 0, w: 400, h: 52 }, 4, 10);
+    expect(rects).toHaveLength(4);
+    expect(rects[0]?.x).toBe(0);
+    expect(rects[3]?.x ?? 0).toBeGreaterThan(300);
+    expect(rects.every((rect) => rect.h === 52)).toBe(true);
   });
 });
 

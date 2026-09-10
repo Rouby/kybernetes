@@ -110,10 +110,14 @@ export interface SnapshotFrame {
 
 export type CrateWhere = 'bayFloor' | 'carriedBy' | 'shipFloor';
 
-export interface CrateSnapshot {
-  readonly id: string;
+export interface CrateItemState {
   readonly goodId: string;
   readonly qty: number;
+}
+
+export interface CrateSnapshot {
+  readonly id: string;
+  readonly items: readonly CrateItemState[];
   readonly where: CrateWhere;
   readonly frameId: string;
   readonly x: number;

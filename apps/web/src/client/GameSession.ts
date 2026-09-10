@@ -18,6 +18,8 @@ import type { InteractTarget } from '../harbor/interactTarget';
 import type { PredictedShot } from '../harbor/predictedShots';
 import { withDockWalkable } from '../harbor/renderState';
 import type { HarborViewportProps } from '../harbor/viewportFrame';
+import { PackStore } from '../pack/PackStore';
+import { packLayoutFor } from '../webgl/ui/UiToolkit';
 import { DebugHud } from './DebugHud';
 import { buildGlOverlayWiring } from './sessionOverlay';
 import { attachActionRouter } from './stores/ActionRouter';
@@ -50,6 +52,7 @@ export class GameSession {
   public readonly fire: FireController;
   public readonly consoles: ConsoleStore;
   public readonly audio: AudioPrefs;
+  private readonly pack: PackStore;
   private readonly statics: World = buildHarborWorld();
   private readonly targetRef: { current: InteractTarget | null } = { current: null };
   private readonly aimLocked = { current: false };
@@ -86,6 +89,7 @@ export class GameSession {
     });
     this.consoles = new ConsoleStore((shipId) => this.props.onShipLost?.(shipId));
     this.audio = new AudioPrefs();
+    this.pack = new PackStore();
     this.lastSnapshot = null;
   }
 
@@ -114,16 +118,33 @@ export class GameSession {
       pressFireEnd: () => this.fire.pressFireEnd(),
       isPaused: () => this.controls.getSnapshot().paused,
       isDead: () => this.controls.getSnapshot().dead,
+      isPackOpen: () => this.pack.isOpen(),
+      onPackRotate: () => this.pack.rotateHeld(),
       onTogglePause: () => {
         if (this.settingsOpen) this.settingsOpen = false;
         else this.controls.togglePause();
       },
-      onConsole: (kind) => this.consoles.toggleConsole(kind),
+      onConsole: (kind) => {
+        if (kind === 'pack' && this.consoles.getSnapshot().consoleOpen === 'pack') {
+          this.pack.close();
+        }
+        this.consoles.toggleConsole(kind);
+      },
     });
     this.movement.attach();
     this.fire.attach();
     this.audio.attach();
     this.socket.connect();
+    driver.setPackControl({
+      isOpen: () =>
+        this.pack.isOpen() &&
+        !this.controls.getSnapshot().paused &&
+        !this.controls.getSnapshot().dead,
+      isDown: () => this.pack.isDragging(),
+      press: (x, y) => this.pack.pressAt(x, y),
+      move: (x, y) => this.pack.moveTo(x, y),
+      release: () => this.pack.release(),
+    });
     driver.attach(canvas);
     this.sync();
     this.raf = requestAnimationFrame(this.tick);
@@ -159,9 +180,17 @@ export class GameSession {
     this.consoles.setShipSystems(state.shipSystems);
     this.consoles.setShipLost(state.shipLost);
     this.fire.reconcileNotices(state.notices);
+    this.pack.reconcileNotices(state.notices);
+    this.pack.update(performance.now());
+    const canvasSize = this.driver?.canvasSize() ?? null;
+    if (canvasSize !== null) {
+      const rect = packLayoutFor(canvasSize.w, canvasSize.h).canvas;
+      this.pack.setViewport(rect.w, rect.h);
+    }
     const movementSnap = this.movement.getSnapshot();
     const controlsSnap = this.controls.getSnapshot();
-    if (this.aimLocked.current) this.movement.setFacing(this.facing.current);
+    if (this.pack.isOpen()) this.facing.current = this.movement.getFacing();
+    else if (this.aimLocked.current) this.movement.setFacing(this.facing.current);
     else this.facing.current = this.movement.getFacing();
     this.pausedFlag.current = controlsSnap.paused;
     this.shotsHolder.current = [...this.fire.getShots()];
@@ -237,9 +266,11 @@ export class GameSession {
       consoles: {
         consoleOpen: consoleSnap.consoleOpen,
         shipSystems: consoleSnap.shipSystems,
+        openConsole: (kind) => this.consoles.openConsole(kind),
         closeConsole: () => this.consoles.closeConsole(),
       },
       navState: state.navState,
+      packStore: this.pack,
       marketStates: state.marketStates,
       credits: state.shipStatus?.credits ?? 0,
       snapshot: state.snapshot,

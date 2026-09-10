@@ -40,6 +40,8 @@ export interface ActionWiring {
   readonly pressFireEnd: () => void;
   readonly isPaused: () => boolean;
   readonly isDead: () => boolean;
+  readonly isPackOpen: () => boolean;
+  readonly onPackRotate: () => void;
   readonly onTogglePause: () => void;
   readonly onConsole: (kind: ConsoleKind) => void;
 }
@@ -66,6 +68,11 @@ function handleKeyDown(wiring: ActionWiring, key: string): void {
     return;
   }
   if (wiring.isPaused() || wiring.isDead()) return;
+  if (wiring.isPackOpen()) {
+    if (key === 'r') wiring.onPackRotate();
+    else if (key === 'c') wiring.onConsole('pack');
+    return;
+  }
   dispatchAction(actionKeyFor(key, wiring.getOffer() !== null), wiring);
 }
 

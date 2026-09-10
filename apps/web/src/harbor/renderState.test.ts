@@ -733,8 +733,7 @@ describe('render-state mapping', () => {
       crates: [
         {
           id: 'c1',
-          goodId: 'scrap',
-          qty: 2,
+          items: [{ goodId: 'scrap', qty: 2 }],
           where: 'bayFloor',
           frameId: 'station',
           x: 10,
@@ -743,8 +742,7 @@ describe('render-state mapping', () => {
         },
         {
           id: 'c2',
-          goodId: 'rations',
-          qty: 1,
+          items: [{ goodId: 'rations', qty: 1 }],
           where: 'carriedBy',
           frameId: 'ship',
           x: 30,
@@ -782,8 +780,7 @@ describe('render-state mapping', () => {
       crates: [
         {
           id: 'c1',
-          goodId: 'scrap',
-          qty: 2,
+          items: [{ goodId: 'scrap', qty: 2 }],
           where: 'carriedBy',
           frameId: 'ship',
           x: 0,
@@ -793,8 +790,7 @@ describe('render-state mapping', () => {
         },
         {
           id: 'c2',
-          goodId: 'scrap',
-          qty: 1,
+          items: [{ goodId: 'scrap', qty: 1 }],
           where: 'bayFloor',
           frameId: 'station',
           x: 10,

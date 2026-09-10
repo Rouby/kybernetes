@@ -125,6 +125,8 @@ export interface HudDrawState {
   onToggleHelmet?: () => void;
   onRefillSuit?: () => void;
   currentRoomId?: string;
+  /** Pack bench open: ambient widgets yield so the bench reads clean. */
+  packOpen?: boolean;
   /** Modal GL screen painted last. Null/undefined skips it. */
   uiOverlay?: {
     readonly layout: UiScreenLayout;
@@ -1362,22 +1364,25 @@ export class HudRenderer {
     // 1. VISOR GLASS SHADER PASS
     this.renderVisorGlass(width, height, timeSec);
 
-    // 2. COMPOSE HUD WIDGETS
-    this.renderLowerLeftVitals(state, width, height);
-    this.renderLivingStrip(state, width, height);
-    this.renderLowerRightCombat(state, width, height);
+    // 2. COMPOSE HUD WIDGETS (ambient yields while the pack bench is open)
+    if (state.packOpen !== true) {
+      this.renderLowerLeftVitals(state, width, height);
+      this.renderLivingStrip(state, width, height);
+      this.renderLowerRightCombat(state, width, height);
+      this.renderTopLeftShiftChecklist(state, width, height);
+    }
     this.renderTopVisor(state, width, height);
-    this.renderTopLeftShiftChecklist(state, width, height);
     this.renderCenterAlerts(state, width);
 
     const zoom = state.zoom ?? 1.0;
-    const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
-    this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
-
-    const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
-    if (hovered) {
-      this.renderHoverReticle(hovered, state.camera, width, height, zoom);
-      this.renderCrewDossierWidget(hovered, width, height);
+    if (state.packOpen !== true) {
+      const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
+      this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
+      const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
+      if (hovered) {
+        this.renderHoverReticle(hovered, state.camera, width, height, zoom);
+        this.renderCrewDossierWidget(hovered, width, height);
+      }
     }
     const overlay = state.uiOverlay;
     if (overlay !== undefined && overlay !== null) {
