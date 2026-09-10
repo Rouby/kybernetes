@@ -6,6 +6,7 @@ import {
   noticesLine,
   offerLine,
   statusLine,
+  storesLine,
   vitalsLine,
 } from './sessionHud';
 
@@ -86,6 +87,18 @@ describe('offerLine', () => {
 
   it('joins offer jobs', () => {
     expect(offerLine({ jobs: ['engineer', 'deckhand'] } as never)).toBe('offer:engineer/deckhand');
+  });
+});
+
+describe('storesLine', () => {
+  it('marks missing ship status', () => {
+    expect(storesLine(null)).toBe('stores:-');
+  });
+
+  it('reads rations, water, o2, and fuel', () => {
+    expect(
+      storesLine({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 } } as never)
+    ).toBe('stores:rations x2 water x4 o2 x2 fuel x1');
   });
 });
 

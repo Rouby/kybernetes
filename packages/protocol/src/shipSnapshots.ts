@@ -229,6 +229,38 @@ export function makeCargoState(
   };
 }
 
+export interface MarketListingState {
+  readonly goodId: string;
+  readonly buyPrice: number;
+  readonly sellPrice: number;
+  readonly stock: number;
+}
+
+export interface MarketStateBroadcast {
+  readonly type: 'MARKET_STATE';
+  readonly v: typeof PROTOCOL_VERSION;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly hubId: string;
+  readonly listings: readonly MarketListingState[];
+}
+
+export function makeMarketState(
+  hubId: string,
+  listings: readonly MarketListingState[],
+  tick: number,
+  serverTimeMs: number
+): MarketStateBroadcast {
+  return {
+    type: 'MARKET_STATE',
+    v: PROTOCOL_VERSION,
+    tick,
+    serverTimeMs,
+    hubId,
+    listings: [...listings],
+  };
+}
+
 export function makeShipLost(
   shipId: string,
   reason: ShipLostReason,

@@ -337,6 +337,40 @@ export function validateCargoUnpack(raw: Record<string, unknown>): ValidateResul
   };
 }
 
+export function validateMarketBuy(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.hubId)) return fail('bad-field', 'hubId');
+  if (!isGoodId(raw.goodId)) return fail('bad-field', 'goodId');
+  if (!isFiniteNumber(raw.qty)) return fail('bad-field', 'qty');
+  const qty = raw.qty as number;
+  if (!Number.isInteger(qty) || qty < 1 || qty > MAX_CARGO_QTY) return fail('bad-field', 'qty');
+  return {
+    ok: true,
+    intent: {
+      type: 'MARKET_BUY',
+      seq: raw.seq as number,
+      hubId: raw.hubId as string,
+      goodId: raw.goodId as string,
+      qty,
+    },
+  };
+}
+
+export function validateMarketSell(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.hubId)) return fail('bad-field', 'hubId');
+  if (!isCrateIdList(raw.crateIds)) return fail('bad-field', 'crateIds');
+  return {
+    ok: true,
+    intent: {
+      type: 'MARKET_SELL',
+      seq: raw.seq as number,
+      hubId: raw.hubId as string,
+      crateIds: [...(raw.crateIds as string[])],
+    },
+  };
+}
+
 export function validateCargoRepack(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   if (!isGoodId(raw.goodId)) return fail('bad-field', 'goodId');

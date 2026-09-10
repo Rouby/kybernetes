@@ -6,6 +6,7 @@
 
 import type {
   HireOfferBroadcast,
+  ShipStatusBroadcast,
   SnapshotBroadcast,
   TelemetryBroadcast,
   VitalsBroadcast,
@@ -64,6 +65,12 @@ export function vitalsLine(socket: HudVitalsSource): string {
   if (vitals === undefined) return 'vitals:-';
   const reload = vitals.reloading ? '(reloading)' : '';
   return `hp:${Math.round(vitals.health)} hyp:${Math.round(vitals.hypoxia)} suit:${vitals.suitSealed ? 'sealed' : 'open'} hunger:${Math.round(vitals.hunger)} mag:${vitals.ammo}/${vitals.reserve} spares:[${vitals.mags.join(',')}]${reload} credits:${socket.vitals?.credits ?? 0}`;
+}
+
+export function storesLine(status: ShipStatusBroadcast | null): string {
+  const stores = status?.stores;
+  if (stores === undefined) return 'stores:-';
+  return `stores:rations x${stores.rations} water x${stores.waterL} o2 x${stores.o2Cells} fuel x${stores.fuelCells}`;
 }
 
 export function offerLine(offer: HarborSocket['offer']): string {

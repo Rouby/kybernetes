@@ -6,6 +6,7 @@ import {
   findUiButton,
   GL_UI_BLOCKER_ID,
   hexToRgb,
+  marketConsoleIntent,
   navConsoleIntent,
   reactorConsoleIntent,
   selectSessionOverlayId,
@@ -162,6 +163,26 @@ describe('console intents', () => {
     expect(cargoConsoleIntent('unpackAll', { unpackIds: [], seal: {} })).toBeNull();
     expect(cargoConsoleIntent('seal:meds', stock)).toBeNull();
     expect(cargoConsoleIntent('close', stock)).toBeNull();
+  });
+
+  it('buys and sell-alls from the market panel', () => {
+    const stock = { hubId: 'hub_a', buys: { scrap: 2 }, sellIds: ['c1'] };
+    expect(marketConsoleIntent('buy:scrap', stock)).toEqual({
+      type: 'MARKET_BUY',
+      seq: 0,
+      hubId: 'hub_a',
+      goodId: 'scrap',
+      qty: 2,
+    });
+    expect(marketConsoleIntent('sellAll', stock)).toEqual({
+      type: 'MARKET_SELL',
+      seq: 0,
+      hubId: 'hub_a',
+      crateIds: ['c1'],
+    });
+    expect(marketConsoleIntent('buy:meds', stock)).toBeNull();
+    expect(marketConsoleIntent('sellAll', { hubId: 'hub_a', buys: {}, sellIds: [] })).toBeNull();
+    expect(marketConsoleIntent('close', stock)).toBeNull();
   });
 
   it('plots the far hub and passes cancel and distress', () => {

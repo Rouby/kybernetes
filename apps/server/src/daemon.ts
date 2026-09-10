@@ -30,6 +30,7 @@ import {
   buildCargoState,
   buildHireOffer,
   buildManifest,
+  buildMarketState,
   buildNavState,
   buildNotice,
   buildShipSystems,
@@ -42,6 +43,7 @@ import {
   createAirAuthority,
   diffAtmos,
   dockStatusOf,
+  MARKET_HUBS,
   mergeAtmos,
   mergeFrames,
   mergePortals,
@@ -579,6 +581,7 @@ export class HarborDaemon {
       if (nav !== undefined) this.sendAll(nav);
       this.sendAll(buildCargoState(world, vesselId, nowMs));
     }
+    for (const hubId of MARKET_HUBS) this.sendAll(buildMarketState(world, hubId, nowMs));
   }
 
   private sendFullTelemetryTo(ws: WebSocket, world: World, nowMs: number): void {

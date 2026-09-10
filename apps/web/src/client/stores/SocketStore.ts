@@ -14,6 +14,7 @@ import type {
   DockStatusBroadcast,
   HireOfferBroadcast,
   ManifestBroadcast,
+  MarketStateBroadcast,
   NavStateBroadcast,
   ServerStatsBroadcast,
   ShipLostBroadcast,
@@ -66,6 +67,7 @@ export interface SocketStoreState {
   readonly shipLost: ShipLostBroadcast | null;
   readonly navState: NavStateBroadcast | null;
   readonly cargoState: CargoStateBroadcast | null;
+  readonly marketStates: Readonly<Record<string, MarketStateBroadcast>>;
 }
 
 export type SocketListener = (state: SocketStoreState) => void;
@@ -101,6 +103,7 @@ function initialState(): SocketStoreState {
     shipLost: null,
     navState: null,
     cargoState: null,
+    marketStates: {},
   };
 }
 
@@ -187,6 +190,8 @@ export function createSocketStore(identity: HarborIdentity, factory?: SocketFact
       },
       setNavState: (navState) => patch({ navState }),
       setCargoState: (cargoState) => patch({ cargoState }),
+      setMarketState: (market) =>
+        patch({ marketStates: { ...state.marketStates, [market.hubId]: market } }),
     };
   }
 

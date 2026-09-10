@@ -10,6 +10,7 @@ import type { BotSchedule } from './bots.js';
 import type { CrewRecord, HireOfferRecord } from './crew.js';
 import type { DockLink, TransitState } from './schedule.js';
 import type { CargoState } from './ship/cargo.js';
+import { createMarketLedger, type MarketLedger } from './ship/market.js';
 import type { ShipSystems } from './ship/systems.js';
 import type { PawnVitals } from './survival.js';
 import type { WatchState } from './watch.js';
@@ -218,6 +219,8 @@ export interface World {
   readonly ships: Readonly<Record<string, ShipSystems>>;
   /** Physical cargo crates + secured counts (M4). */
   readonly cargo: CargoState;
+  /** Per-hub market stock (M5). */
+  readonly market: MarketLedger;
   /** Open hire offers by offer id; consumed by HIRE. */
   readonly offers: Readonly<Record<string, HireOfferRecord>>;
   /** Named spawn points by namespaced id. */
@@ -259,6 +262,7 @@ export function createEmptyWorld(timeMs = 0): World {
     transit: {},
     ships: {},
     cargo: { crates: {}, secured: {} },
+    market: createMarketLedger(),
     offers: {},
     spawns: {},
     docks: {},

@@ -12,6 +12,7 @@ import type {
 } from '@kybernetes/protocol';
 import { PAWN_TRIMS, THRUSTER_TINTS } from '@kybernetes/protocol';
 import { deathHint, deathTitle } from '../../harbor/deathNotice';
+import type { MarketScreenModel } from '../../harbor/marketModel';
 import { navViewModel } from '../../harbor/navConsoleModel';
 import { engineViewModel, reactorViewModel } from '../../harbor/shipConsoleModel';
 import {
@@ -46,6 +47,7 @@ export type UiScreenId =
   | 'engine'
   | 'nav'
   | 'cargo'
+  | 'market'
   | 'pause'
   | 'death'
   | 'gameover'
@@ -612,6 +614,66 @@ export function layoutCargoScreen(w: number, h: number, model: CargoScreenModel)
   return { panel, texts: cargoTextsFor(panel, model), buttons: cargoButtonsFor(panel, model) };
 }
 
+function marketPanelFor(w: number, h: number): UiRect {
+  return visorPanelFor(w, h, 440, 620);
+}
+
+function marketTextsFor(panel: UiRect, model: MarketScreenModel): readonly UiText[] {
+  const tx = panel.x + PAD;
+  const innerW = panel.w - PAD * 2;
+  const y0 = panel.y + PAD;
+  const rows = [
+    textAt(`MARKET // ${model.hubLabel}`, tx, y0, KICKER_SIZE, 'dim'),
+    textAt(
+      uiEllipsize(model.creditsLabel, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8,
+      BODY_SIZE,
+      'primary'
+    ),
+    ...pairListingLines(model.listingLines).map((line, index) =>
+      textAt(
+        uiEllipsize(line, BODY_SIZE, innerW),
+        tx,
+        y0 + KICKER_SIZE + 8 + LINE_H * (index + 1),
+        BODY_SIZE,
+        'muted'
+      )
+    ),
+  ];
+  const hintY = y0 + KICKER_SIZE + 8 + LINE_H * (pairListingLines(model.listingLines).length + 1);
+  rows.push(textAt(uiEllipsize(model.hint, BODY_SIZE, innerW), tx, hintY, BODY_SIZE, 'muted'));
+  return rows;
+}
+
+function pairListingLines(lines: readonly string[]): string[] {
+  const paired: string[] = [];
+  for (let i = 0; i < lines.length; i += 2) {
+    const second = lines[i + 1];
+    paired.push(second === undefined ? (lines[i] ?? '') : `${lines[i]}   ${second}`);
+  }
+  return paired;
+}
+
+function marketButtonsFor(panel: UiRect, model: MarketScreenModel): readonly UiButton[] {
+  const ids = [...model.buys.map((row) => row.buttonId)];
+  const labels: Record<string, string> = {};
+  for (const row of model.buys) labels[row.buttonId] = row.label;
+  if (model.hasSell) {
+    ids.push('sellAll');
+    labels['sellAll'] = model.sellLabel;
+  }
+  ids.push('close');
+  labels['close'] = 'CLOSE [E]';
+  const top = panel.y + panel.h - PAD - (ids.length * BTN_H + (ids.length - 1) * GAP);
+  return columnFor(panel, top, ids, labels, model.buys[0]?.buttonId);
+}
+
+export function layoutMarketScreen(w: number, h: number, model: MarketScreenModel): UiScreenLayout {
+  const panel = marketPanelFor(w, h);
+  return { panel, texts: marketTextsFor(panel, model), buttons: marketButtonsFor(panel, model) };
+}
+
 function settingsPanelFor(w: number, h: number): UiRect {
   return centerPanelFor(w, h, 400, 320);
 }
@@ -674,6 +736,7 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   engine: ['spool', 'tuneDown', 'tuneUp', 'close'],
   nav: ['plot', 'cancel', 'distress', 'close'],
   cargo: ['unpackAll', 'drop', 'close'],
+  market: ['sellAll', 'close'],
   pause: ['resume', 'restart', 'quit', 'audio'],
   death: ['restart', 'quit'],
   gameover: ['restart'],

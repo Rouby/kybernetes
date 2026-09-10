@@ -226,6 +226,26 @@ describe('harbor socket merge guards', () => {
     expect(store.snapshot?.crates?.length).toBe(1);
   });
 
+  it('accepts per-hub market states while dropping stale ticks', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const sockets = { ...wire(store), setMarketState: vi.fn() };
+    const market = {
+      type: 'MARKET_STATE',
+      v: 2,
+      tick: 70,
+      serverTimeMs: 7000,
+      hubId: 'hub_a',
+      listings: [{ goodId: 'scrap', buyPrice: 10, sellPrice: 9, stock: 48 }],
+    };
+    handleMessage(JSON.stringify(market), caches, sockets);
+    expect(sockets.setMarketState).toHaveBeenCalledTimes(1);
+    handleMessage(JSON.stringify({ ...market, tick: 69 }), caches, sockets);
+    expect(sockets.setMarketState).toHaveBeenCalledTimes(1);
+    handleMessage(JSON.stringify({ ...market, hubId: 'hub_b', tick: 69 }), caches, sockets);
+    expect(sockets.setMarketState).toHaveBeenCalledTimes(2);
+  });
+
   it('accepts nav state while dropping stale ticks', () => {
     const caches: HarborCaches = createHarborCaches();
     const store = setters();

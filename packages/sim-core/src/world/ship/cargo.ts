@@ -215,6 +215,13 @@ export function dropCrate(
   return { ok: true, hold: { ...hold, crates: { ...hold.crates, [dropped.id]: dropped } } };
 }
 
+export function removeCrate(hold: CargoState, crateId: string): CargoState {
+  if (hold.crates[crateId] === undefined) return hold;
+  const crates = { ...hold.crates };
+  delete crates[crateId];
+  return { ...hold, crates };
+}
+
 export function dropAllForPawn(
   hold: CargoState,
   pawnId: string,

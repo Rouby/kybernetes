@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION } from './envelope.js';
 import {
   makeCargoState,
+  makeMarketState,
   makeNavState,
   makeShipLost,
   makeShipStatus,
@@ -135,6 +136,41 @@ describe('solo-ship wire (M1)', () => {
     expect(state.type).toBe('CARGO_STATE');
     expect(state.v).toBe(PROTOCOL_VERSION);
     expect(state.secured).toEqual([{ goodId: 'scrap', qty: 5 }]);
+  });
+
+  it('validates market intents and rate-limits them at 4Hz', () => {
+    expect(
+      validateClientIntent({ type: 'MARKET_BUY', seq: 1, hubId: 'hub_a', goodId: 'scrap', qty: 3 })
+        .ok
+    ).toBe(true);
+    expect(
+      validateClientIntent({ type: 'MARKET_BUY', seq: 2, hubId: 'hub_a', goodId: 'scrap', qty: 99 })
+        .ok
+    ).toBe(false);
+    expect(
+      validateClientIntent({ type: 'MARKET_BUY', seq: 3, hubId: 'hub_a', goodId: 'scrap' }).ok
+    ).toBe(false);
+    expect(
+      validateClientIntent({ type: 'MARKET_SELL', seq: 4, hubId: 'hub_b', crateIds: ['c1'] }).ok
+    ).toBe(true);
+    expect(
+      validateClientIntent({ type: 'MARKET_SELL', seq: 5, hubId: 'hub_b', crateIds: [] }).ok
+    ).toBe(false);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.MARKET_BUY).toBe(4);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.MARKET_SELL).toBe(4);
+  });
+
+  it('builds MARKET_STATE snapshots', () => {
+    const state = makeMarketState(
+      'hub_a',
+      [{ goodId: 'scrap', buyPrice: 10, sellPrice: 9, stock: 48 }],
+      46,
+      1400
+    );
+    expect(state.type).toBe('MARKET_STATE');
+    expect(state.v).toBe(PROTOCOL_VERSION);
+    expect(state.hubId).toBe('hub_a');
+    expect(state.listings).toHaveLength(1);
   });
 
   it('builds NAV_STATE snapshots', () => {

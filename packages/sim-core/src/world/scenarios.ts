@@ -112,7 +112,30 @@ export function buildSoloShipWorld(): World {
     docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK, [HUB_B_DOCK.id]: HUB_B_DOCK },
   };
   world = ensureLivingFixtures(world);
+  world = mirrorStationFixtures(world);
   return seedSoloBayCrates(world);
+}
+
+/** M5 trade needs: hub_b mirrors the home station fixtures (own market stall). */
+function mirrorStationFixtures(world: World): World {
+  let next = world;
+  for (const fix of Object.values(world.fixtures)) {
+    if (!fix.id.startsWith('station.')) continue;
+    const twinId = `hub_b.${fix.id.slice('station.'.length)}`;
+    if (next.fixtures[twinId] !== undefined) continue;
+    const roomId = fix.roomId.startsWith('station.')
+      ? `hub_b.${fix.roomId.slice('station.'.length)}`
+      : fix.roomId;
+    if (next.rooms[roomId] === undefined) continue;
+    next = {
+      ...next,
+      fixtures: {
+        ...next.fixtures,
+        [twinId]: { ...fix, id: twinId, roomId, claimedBy: undefined },
+      },
+    };
+  }
+  return next;
 }
 
 /** M4 drill stock: two demo crates on the home bay floor, no market needed. */

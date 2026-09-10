@@ -31,6 +31,7 @@ import type {
 import {
   digestStrings,
   makeCargoState,
+  makeMarketState,
   makeNavState,
   makeShipSystems,
   q0,
@@ -42,6 +43,7 @@ import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
 import { deathCauseFor } from './death.js';
 import { snapshotDecalsOf } from './decals.js';
 import { engineDemandMw } from './ship/engine.js';
+import { listingsFor } from './ship/market.js';
 import { reactorBandFor, reactorOutputMw } from './ship/reactor.js';
 import { type PawnVitals, spareRounds } from './survival.js';
 import type { PawnBody, World } from './types.js';
@@ -518,6 +520,14 @@ export function buildDeath(
   const cause = deathCauseFor(world, pawnId);
   if (cause === undefined) return undefined;
   return { type: 'DEATH', v: 2, tick: world.tick, serverTimeMs: nowMs, pawnId, cause };
+}
+
+export function buildMarketState(
+  world: World,
+  hubId: string,
+  nowMs: number
+): import('@kybernetes/protocol').MarketStateBroadcast {
+  return makeMarketState(hubId, listingsFor(world.market, hubId, nowMs), world.tick, nowMs);
 }
 
 export function buildShipSystems(

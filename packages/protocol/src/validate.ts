@@ -26,6 +26,8 @@ import {
   validateInput,
   validateInteract,
   validateJoinBeacon,
+  validateMarketBuy,
+  validateMarketSell,
   validateNavCancel,
   validateNavPlot,
   validateObserve,
@@ -80,6 +82,8 @@ const INTENT_VALIDATORS: Readonly<Record<string, IntentValidator>> = {
   CARGO_DROP: validateCargoDrop,
   CARGO_UNPACK: validateCargoUnpack,
   CARGO_REPACK: validateCargoRepack,
+  MARKET_BUY: validateMarketBuy,
+  MARKET_SELL: validateMarketSell,
 };
 
 export function validateClientIntent(raw: unknown): ValidateResult {
@@ -123,4 +127,6 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   CARGO_DROP: 8,
   CARGO_UNPACK: 8,
   CARGO_REPACK: 8,
+  MARKET_BUY: 4,
+  MARKET_SELL: 4,
 };

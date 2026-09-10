@@ -9,6 +9,8 @@ import type {
   CargoPickupIntent,
   CargoRepackIntent,
   CargoUnpackIntent,
+  MarketBuyIntent,
+  MarketSellIntent,
   SpawnAboardIntent,
 } from './intents.js';
 
@@ -17,6 +19,8 @@ export type {
   CargoPickupIntent,
   CargoRepackIntent,
   CargoUnpackIntent,
+  MarketBuyIntent,
+  MarketSellIntent,
   SpawnAboardIntent,
 };
 
@@ -25,7 +29,9 @@ export type ShipIntent =
   | CargoPickupIntent
   | CargoDropIntent
   | CargoUnpackIntent
-  | CargoRepackIntent;
+  | CargoRepackIntent
+  | MarketBuyIntent
+  | MarketSellIntent;
 
 export const SHIP_INTENT_TYPES: readonly ShipIntent['type'][] = [
   'SPAWN_ABOARD',
@@ -33,4 +39,6 @@ export const SHIP_INTENT_TYPES: readonly ShipIntent['type'][] = [
   'CARGO_DROP',
   'CARGO_UNPACK',
   'CARGO_REPACK',
+  'MARKET_BUY',
+  'MARKET_SELL',
 ] as const;

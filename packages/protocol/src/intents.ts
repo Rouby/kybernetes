@@ -202,6 +202,21 @@ export interface CargoRepackIntent {
   readonly qty: number;
 }
 
+export interface MarketBuyIntent {
+  readonly type: 'MARKET_BUY';
+  readonly seq: number;
+  readonly hubId: string;
+  readonly goodId: string;
+  readonly qty: number;
+}
+
+export interface MarketSellIntent {
+  readonly type: 'MARKET_SELL';
+  readonly seq: number;
+  readonly hubId: string;
+  readonly crateIds: readonly string[];
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
@@ -233,7 +248,9 @@ export type ClientIntent =
   | CargoPickupIntent
   | CargoDropIntent
   | CargoUnpackIntent
-  | CargoRepackIntent;
+  | CargoRepackIntent
+  | MarketBuyIntent
+  | MarketSellIntent;
 
 export type ClientIntentType = ClientIntent['type'];
 
@@ -269,4 +286,6 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'CARGO_DROP',
   'CARGO_UNPACK',
   'CARGO_REPACK',
+  'MARKET_BUY',
+  'MARKET_SELL',
 ] as const;

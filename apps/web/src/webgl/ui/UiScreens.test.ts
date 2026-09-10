@@ -14,6 +14,7 @@ import {
   layoutEngineScreen,
   layoutGameOverScreen,
   layoutIntroScreen,
+  layoutMarketScreen,
   layoutMenuScreen,
   layoutNavScreen,
   layoutPauseScreen,
@@ -299,6 +300,29 @@ describe('uiScreenButtonIds', () => {
     expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
     expect(layout.buttons.map((b) => b.id)).toContain('close');
     expect(layout.buttons.map((b) => b.id)).toContain('seal:scrap');
+    expectContained(layout.panel, layout.buttons);
+    expectNoOverlap(layout.buttons);
+  });
+
+  it('market respects topClearance with buy and sell-all rows', () => {
+    const m = uiVisorMargins(W, H);
+    const layout = layoutMarketScreen(W, H, {
+      hubId: 'hub_a',
+      hubLabel: 'NEW ANCHORAGE',
+      creditsLabel: 'Credits: 25cr',
+      listingLines: ['scrap 10/9 (50)', 'meds 15/13 (0)'],
+      buys: [
+        { goodId: 'scrap', qty: 2, cost: 20, label: 'BUY SCRAP x2 20cr', buttonId: 'buy:scrap' },
+      ],
+      sellLabel: 'SELL ALL BAY (1) +18cr',
+      sellIds: ['c1'],
+      hasSell: true,
+      hint: 'Buy low',
+    });
+    expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
+    expect(layout.buttons.map((b) => b.id)).toContain('close');
+    expect(layout.buttons.map((b) => b.id)).toContain('buy:scrap');
+    expect(layout.buttons.map((b) => b.id)).toContain('sellAll');
     expectContained(layout.panel, layout.buttons);
     expectNoOverlap(layout.buttons);
   });

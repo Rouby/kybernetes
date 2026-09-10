@@ -24,22 +24,33 @@ import { makeShipLost, makeShipStatus } from '@kybernetes/protocol';
 import {
   type AirAuthorityState,
   buildDeath,
+  creditShip,
   debitShip,
   type EngineTier,
   FIXED_DT,
   type HireOfferRecord,
+  HUB_PORTS,
   hireAboard,
+  isCarrying,
   isDead,
+  isTradeGood,
   legDurationSeconds,
+  removeCrate,
   resetVoyageTo,
   restartRun,
   roomContainingPoint,
   type ShipRecord,
+  settleLegFood,
+  spawnCrate,
   spawnPawn,
+  starvePawn,
+  sweepFuelToStores,
   syncShipStores,
   syncShipTiers,
   talkToCaptain,
   tickWorld,
+  tryBuy,
+  trySell,
   type World,
   type WorldInput,
   wipeOnLoss,
@@ -113,6 +124,7 @@ interface ShipEdgeMemory {
   readonly warned: boolean;
   readonly scrammed: boolean;
   readonly brownout: boolean;
+  readonly phase: string;
 }
 
 /** How long a held INPUT keeps driving its pawn without a refresh. */
@@ -120,6 +132,9 @@ export const INPUT_LATCH_MS = 1000;
 
 /** Flat tow fee for a DISTRESS rescue; floored at zero so rescue never kills. */
 const DISTRESS_FEE = 25;
+
+/** How close pawn and crate must be to a market stall to trade. */
+const MARKET_REACH_PX = 150;
 
 /** Intents forwarded to the kernel movement/interaction pipeline. */
 const KERNEL_INTENT_TYPES: ReadonlySet<string> = new Set([
@@ -413,6 +428,18 @@ export class SimHost {
       case 'HIRE':
         return this.handleHire(clientId, intent.offerId, intent.job);
       default:
+        return this.routeTradeIntent(clientId, intent);
+    }
+  }
+
+  /** Solo-trader market intents (M5 economy). Thin dispatch, no math. */
+  private routeTradeIntent(clientId: string, intent: ClientIntent): HostIntentResult | undefined {
+    switch (intent.type) {
+      case 'MARKET_BUY':
+        return this.handleMarketBuy(clientId, intent.hubId, intent.goodId, intent.qty);
+      case 'MARKET_SELL':
+        return this.handleMarketSell(clientId, intent.hubId, intent.crateIds);
+      default:
         return undefined;
     }
   }
@@ -443,6 +470,11 @@ export class SimHost {
   }
 
   vitalsFor(pawnId: string): { credits: number; clearance: number } {
+    for (const client of this.clients.values()) {
+      if (client.pawnId !== pawnId) continue;
+      const ship = getSoloShip(this.ships, client.userId);
+      if (ship !== undefined) return { credits: ship.credits, clearance: 1 };
+    }
     const record = this.world.crew[pawnId];
     return { credits: record?.credits ?? 0, clearance: record?.clearance ?? 1 };
   }
@@ -609,6 +641,7 @@ export class SimHost {
   drainShipNotices(): ShipNotice[] {
     const notices: ShipNotice[] = [];
     for (const systems of Object.values(this.world.ships)) {
+      this.settleArrival(systems.vesselId, systems.nav.phase);
       notices.push(...this.drainVesselNotices(systems.vesselId));
       this.mirrorHull(systems.vesselId, systems.condition, systems.fuelCells);
     }
@@ -622,11 +655,13 @@ export class SimHost {
       warned: false,
       scrammed: false,
       brownout: false,
+      phase: 'docked',
     };
     this.shipEdges.set(vesselId, {
       warned: systems.reactor.warned,
       scrammed: systems.reactor.scrammed,
       brownout: systems.engine.brownout,
+      phase: systems.nav.phase,
     });
     const crew = this.aboardUserIds(vesselId);
     const notices: ShipNotice[] = [];
@@ -670,6 +705,40 @@ export class SimHost {
       if (pawn !== undefined && pawn.frameId === vesselId) users.add(client.userId);
     }
     return [...users];
+  }
+
+  /** Arrival edge: a leg just ended, so settle one leg of food per aboard owner. */
+  private settleArrival(vesselId: string, phase: string): void {
+    const prev = this.shipEdges.get(vesselId);
+    if (prev === undefined || prev.phase === 'docked' || phase !== 'docked') return;
+    for (const userId of this.aboardUserIds(vesselId)) this.settleUserLeg(vesselId, userId);
+  }
+
+  private settleUserLeg(vesselId: string, userId: string): void {
+    const record = getSoloShip(this.ships, userId);
+    if (record === undefined) return;
+    const settled = settleLegFood(this.world.cargo.secured[vesselId] ?? {}, record.stores);
+    this.world = {
+      ...this.world,
+      cargo: {
+        ...this.world.cargo,
+        secured: { ...this.world.cargo.secured, [vesselId]: settled.secured },
+      },
+    };
+    if (settled.stores !== record.stores) {
+      saveSoloShip(this.ships, { ...record, stores: settled.stores });
+    }
+    if (settled.shortfall > 0) {
+      const pawnId = this.pawnIdForUser(userId);
+      if (pawnId !== undefined) this.world = starvePawn(this.world, pawnId, settled.shortfall);
+    }
+  }
+
+  private pawnIdForUser(userId: string): string | undefined {
+    for (const client of this.clients.values()) {
+      if (client.userId === userId) return client.pawnId;
+    }
+    return undefined;
   }
 
   private mirrorHull(vesselId: string, condition: number, fuelCells: number): void {
@@ -717,6 +786,126 @@ export class SimHost {
     return { notice: 'DISTRESS_ok' };
   }
 
+  /** Market buy: funds + stock checked server-side, crate spawns on the bay. */
+  private handleMarketBuy(
+    clientId: string,
+    hubId: string,
+    goodId: string,
+    qty: number
+  ): HostIntentResult {
+    const client = this.clients.get(clientId);
+    if (client === undefined) return { notice: 'not-joined' };
+    const station = this.marketStation(client.pawnId, hubId);
+    if (station === undefined) return { notice: 'MARKET_wrong-frame' };
+    const gate = this.marketGate(client.pawnId, station);
+    if (gate !== undefined) return gate;
+    if (!isTradeGood(goodId)) return { notice: 'MARKET_unknown-good' };
+    const record = getSoloShip(this.ships, client.userId);
+    if (record === undefined) return { notice: 'MARKET_no-ship' };
+    const bought = tryBuy(this.world.market, hubId, goodId, qty, record.credits, this.world.timeMs);
+    if (!bought.ok) return { notice: `MARKET_${bought.reason}` };
+    const paid = debitShip(record, bought.cost);
+    if (paid === undefined) return { notice: 'MARKET_insufficient-funds' };
+    const spawned = this.spawnBayCrate(station, goodId, qty);
+    if (spawned === undefined) return { notice: 'MARKET_denied' };
+    this.world = { ...this.world, market: bought.ledger, cargo: spawned };
+    saveSoloShip(this.ships, paid);
+    return { notice: 'MARKET_ok' };
+  }
+
+  /** Market sell: every valid bay crate near the stall pays out and despawns. */
+  private handleMarketSell(
+    clientId: string,
+    hubId: string,
+    crateIds: readonly string[]
+  ): HostIntentResult {
+    const client = this.clients.get(clientId);
+    if (client === undefined) return { notice: 'not-joined' };
+    const station = this.marketStation(client.pawnId, hubId);
+    if (station === undefined) return { notice: 'MARKET_wrong-frame' };
+    const gate = this.marketGate(client.pawnId, station);
+    if (gate !== undefined) return gate;
+    const record = getSoloShip(this.ships, client.userId);
+    if (record === undefined) return { notice: 'MARKET_no-ship' };
+    const sold = this.sellBayCrates(station, hubId, crateIds);
+    if (sold.count < 1) return { notice: 'MARKET_denied' };
+    saveSoloShip(this.ships, creditShip(record, sold.revenue));
+    return { notice: `MARKET_sold:${sold.count}` };
+  }
+
+  /** The pawn must stand on the traded hub's station frame. */
+  private marketStation(pawnId: string, hubId: string): string | undefined {
+    const port = HUB_PORTS[hubId];
+    const pawn = this.world.pawns[pawnId];
+    if (port === undefined || pawn === undefined) return undefined;
+    return pawn.frameId === port.stationFrame ? port.stationFrame : undefined;
+  }
+
+  /** Hands-free at the stall: carriers set the crate down first. */
+  private marketGate(pawnId: string, station: string): HostIntentResult | undefined {
+    if (isCarrying(this.world.cargo, pawnId)) return { notice: 'MARKET_hands-full' };
+    if (!this.stallNear(station, this.world.pawns[pawnId]?.pos))
+      return { notice: 'MARKET_too-far' };
+    return undefined;
+  }
+
+  private stallNear(station: string, pos: { x: number; y: number } | undefined): boolean {
+    if (pos === undefined) return false;
+    return Object.values(this.world.fixtures).some(
+      (fix) =>
+        fix.kind === 'market_stall' &&
+        fix.roomId.startsWith(`${station}.`) &&
+        Math.hypot(pos.x - fix.pos.x, pos.y - fix.pos.y) <= MARKET_REACH_PX
+    );
+  }
+
+  private marketStallAt(station: string): { x: number; y: number } | undefined {
+    const stall = Object.values(this.world.fixtures).find(
+      (fix) => fix.kind === 'market_stall' && fix.roomId.startsWith(`${station}.`)
+    );
+    return stall === undefined ? undefined : { ...stall.pos };
+  }
+
+  private spawnBayCrate(station: string, goodId: string, qty: number) {
+    const at = this.marketStallAt(station) ?? { x: 0, y: 0 };
+    const n = Object.keys(this.world.cargo.crates).length;
+    const spawned = spawnCrate(this.world.cargo, {
+      id: `mkt:${this.world.tick}:${n}`,
+      goodId,
+      qty,
+      where: 'bayFloor',
+      frameId: station,
+      x: at.x + 30 + (n % 5) * 20,
+      y: at.y + Math.floor(n / 5) * 20,
+    });
+    return spawned.ok ? spawned.hold : undefined;
+  }
+
+  private sellBayCrates(
+    station: string,
+    hubId: string,
+    crateIds: readonly string[]
+  ): { count: number; revenue: number } {
+    let ledger = this.world.market;
+    let hold = this.world.cargo;
+    let count = 0;
+    let revenue = 0;
+    for (const id of crateIds) {
+      const crate = hold.crates[id];
+      if (crate === undefined || crate.where !== 'bayFloor' || crate.frameId !== station) continue;
+      if (!this.stallNear(station, crate)) continue;
+      if (!isTradeGood(crate.goodId)) continue;
+      const deal = trySell(ledger, hubId, crate.goodId, crate.qty, this.world.timeMs);
+      if (!deal.ok) continue;
+      ledger = deal.ledger;
+      revenue += deal.revenue;
+      hold = removeCrate(hold, id);
+      count += 1;
+    }
+    if (count > 0) this.world = { ...this.world, market: ledger, cargo: hold };
+    return { count, revenue };
+  }
+
   private handleSpawnAboard(clientId: string, userId?: string): HostIntentResult {
     const prior = this.clients.get(clientId);
     const display = joinDisplay(prior, clientId);
@@ -756,7 +945,27 @@ export class SimHost {
     this.world = routed.world;
     this.pending = [...routed.movement];
     this.latchInput(client.pawnId, intent, routed.movement);
+    if (intent.type === 'CARGO_UNPACK' && routed.notice === 'CARGO_ok') {
+      this.sweepUnpackedFuel(client.userId, client.pawnId);
+    }
     return routed.notice === undefined ? {} : { notice: routed.notice };
+  }
+
+  /** Unpacked fuel cells feed ship stores immediately (flat-priced overhead). */
+  private sweepUnpackedFuel(userId: string, pawnId: string): void {
+    const pawn = this.world.pawns[pawnId];
+    if (pawn === undefined || this.world.vessels[pawn.frameId] === undefined) return;
+    const swept = sweepFuelToStores(this.world.cargo, pawn.frameId);
+    if (swept.fuel < 1) return;
+    this.world = { ...this.world, cargo: swept.hold };
+    const record = getSoloShip(this.ships, userId);
+    if (record === undefined) return;
+    const refueled = record.stores.fuelCells + swept.fuel;
+    saveSoloShip(this.ships, {
+      ...record,
+      stores: { ...record.stores, fuelCells: refueled },
+    });
+    this.world = syncShipStores(this.world, pawn.frameId, refueled);
   }
 
   private latchInput(pawnId: string, intent: ClientIntent, movement: readonly WorldInput[]): void {

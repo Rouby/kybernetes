@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CARRY_SPEED_MULT, emptyCargo, securedQty } from './cargo.js';
 import { engineSpecFor } from './engine.js';
-import { marginFor, STARTER_CATALOG } from './market.js';
+import { hubBuyPrice, hubSellPrice, TRADE_GOODS } from './market.js';
 import { DOCKED_NAV, isUnderway } from './navTransit.js';
 import { reactorSpecFor } from './reactor.js';
 
@@ -33,10 +33,14 @@ describe('ship seams (M2-M5 placeholders)', () => {
     expect(CARRY_SPEED_MULT).toBe(0.75);
   });
 
-  it('starter catalog holds six fixed goods', () => {
-    expect(STARTER_CATALOG).toHaveLength(6);
-    for (const listing of STARTER_CATALOG) {
-      expect(Number.isFinite(marginFor(listing))).toBe(true);
+  it('starter catalog holds six fixed goods with house cuts', () => {
+    expect(TRADE_GOODS).toHaveLength(6);
+    for (const hub of ['hub_a', 'hub_b']) {
+      for (const good of TRADE_GOODS) {
+        const buy = hubBuyPrice(hub, good) ?? 0;
+        const sell = hubSellPrice(hub, good) ?? 0;
+        expect(buy).toBeGreaterThan(sell);
+      }
     }
   });
 });

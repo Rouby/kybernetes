@@ -9,12 +9,14 @@ import type {
   CargoStateBroadcast,
   ClientIntent,
   DeathCause,
+  MarketStateBroadcast,
   NavStateBroadcast,
   ShipStatusBroadcast,
   ShipSystemsBroadcast,
   SnapshotBroadcast,
 } from '@kybernetes/protocol';
 import { cargoScreenFor } from '../harbor/cargoModel';
+import { hubIdForFrame, marketScreenFor } from '../harbor/marketModel';
 import type { ConsoleKind } from '../harbor/sessionActions';
 import type { GlSessionWiring } from '../harbor/viewportFrame';
 import type { GlAudioState } from '../webgl/ui/UiPass';
@@ -43,6 +45,8 @@ export interface GlOverlayBuildArgs {
   readonly audio: OverlayAudio;
   readonly consoles: OverlayConsoles;
   readonly navState: NavStateBroadcast | null;
+  readonly marketStates: Readonly<Record<string, MarketStateBroadcast>>;
+  readonly credits: number;
   readonly snapshot: SnapshotBroadcast | null;
   readonly pawnId: string | null;
   readonly cargoState: CargoStateBroadcast | null;
@@ -65,6 +69,13 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     console: consoleStateOf(args.consoles),
     navState: args.navState,
     cargo: cargoWiringOf(args.snapshot, args.pawnId, args.cargoState),
+    market: marketWiringOf(
+      args.marketStates,
+      args.snapshot,
+      args.pawnId,
+      args.cargoState,
+      args.credits
+    ),
     shipStatus: args.shipStatus,
     sendIntent: args.sendIntent,
     onCloseConsole: args.consoles.closeConsole,
@@ -82,6 +93,24 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
 
 function audioSnapshotOf(audio: OverlayAudio): GlAudioState {
   return { ready: audio.ready, muted: audio.muted, masterPct: audio.masterPct };
+}
+
+function marketWiringOf(
+  marketStates: Readonly<Record<string, MarketStateBroadcast>>,
+  snapshot: SnapshotBroadcast | null,
+  pawnId: string | null,
+  cargoState: CargoStateBroadcast | null,
+  credits: number
+): GlSessionWiring['market'] {
+  const frameId = snapshot?.pawns.find((pawn) => pawn.id === pawnId)?.frameId ?? null;
+  const hubId = hubIdForFrame(frameId);
+  if (hubId === null) return null;
+  const market = marketStates[hubId];
+  if (market === undefined) return null;
+  const screen = marketScreenFor(market, snapshot, cargoState, pawnId, credits);
+  const buys: Record<string, number> = {};
+  for (const row of screen.buys) buys[row.goodId] = row.qty;
+  return { hubId, screen, buys, sellIds: [...screen.sellIds] };
 }
 
 function cargoWiringOf(

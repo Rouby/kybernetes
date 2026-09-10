@@ -38,6 +38,9 @@ describe('consoleKindOf', () => {
     expect(consoleKindOf({ kind: 'fixture', contact: { ...contact, kind: 'nav_console' } })).toBe(
       'nav_console'
     );
+    expect(consoleKindOf({ kind: 'fixture', contact: { ...contact, kind: 'market_stall' } })).toBe(
+      'market'
+    );
     expect(consoleKindOf({ kind: 'door', id: 'd', open: false, dist: 5 })).toBeNull();
     expect(consoleKindOf(null)).toBeNull();
   });

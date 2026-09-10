@@ -12,6 +12,7 @@ import {
   noticesLine,
   offerLine,
   statusLine,
+  storesLine,
   vitalsLine,
 } from '../harbor/sessionHud';
 import type { PredictedPose } from './stores/MovementController';
@@ -24,6 +25,7 @@ type HudRow =
   | 'dock'
   | 'pos'
   | 'vitals'
+  | 'stores'
   | 'watch'
   | 'manifest'
   | 'offer'
@@ -36,6 +38,7 @@ const ROW_TESTIDS: Record<HudRow, string> = {
   dock: 'harbor-dock',
   pos: 'harbor-pos',
   vitals: 'harbor-vitals',
+  stores: 'harbor-stores',
   watch: 'harbor-watch',
   manifest: 'harbor-manifest',
   offer: 'harbor-offer',
@@ -51,6 +54,7 @@ export class DebugHud {
     dock: '',
     pos: '',
     vitals: '',
+    stores: '',
     watch: '',
     manifest: '',
     offer: '',
@@ -87,6 +91,7 @@ export class DebugHud {
       predicted === null ? 'x:? y:?' : `x:${Math.round(predicted.x)} y:${Math.round(predicted.y)}`
     );
     this.set('vitals', vitalsLine(store));
+    this.set('stores', storesLine(store.shipStatus));
     this.set('watch', watchLine(store.watch));
     this.set('manifest', manifestLine(store.manifest));
     this.set('offer', offerLine(store.offer));

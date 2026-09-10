@@ -240,6 +240,8 @@ export class GameSession {
         closeConsole: () => this.consoles.closeConsole(),
       },
       navState: state.navState,
+      marketStates: state.marketStates,
+      credits: state.shipStatus?.credits ?? 0,
       snapshot: state.snapshot,
       pawnId: state.pawnId,
       cargoState: state.cargoState,

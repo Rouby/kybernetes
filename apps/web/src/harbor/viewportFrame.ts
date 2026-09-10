@@ -30,6 +30,7 @@ import {
   cargoConsoleIntent,
   engineConsoleIntent,
   type GlAudioState,
+  marketConsoleIntent,
   navConsoleIntent,
   reactorConsoleIntent,
   type SessionOverlayId,
@@ -40,6 +41,7 @@ import {
   layoutCargoScreen,
   layoutDeathScreen,
   layoutEngineScreen,
+  layoutMarketScreen,
   layoutNavScreen,
   layoutPauseScreen,
   layoutReactorScreen,
@@ -55,6 +57,7 @@ import {
   sightBlockers,
   targetPromptWithCarry,
 } from './interactTarget';
+import type { MarketScreenModel } from './marketModel';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
 import type { FocusOrigin, FrameMotion, ImpactRenderModel } from './renderState';
@@ -121,6 +124,13 @@ export interface CargoWiring {
   readonly seal: Readonly<Record<string, number>>;
 }
 
+export interface MarketWiring {
+  readonly hubId: string;
+  readonly screen: MarketScreenModel;
+  readonly buys: Readonly<Record<string, number>>;
+  readonly sellIds: readonly string[];
+}
+
 export interface GlSessionWiring {
   readonly paused: boolean;
   readonly dead: boolean;
@@ -130,6 +140,7 @@ export interface GlSessionWiring {
   readonly console: GlConsoleState | null;
   readonly navState: NavStateBroadcast | null;
   readonly cargo: CargoWiring | null;
+  readonly market: MarketWiring | null;
   readonly shipStatus: ShipStatusBroadcast | null;
   readonly sendIntent: (intent: ClientIntent) => void;
   readonly onCloseConsole: () => void;
@@ -484,6 +495,11 @@ function consoleLayoutFor(
     if (cargo === null) return null;
     return layoutCargoScreen(width, height, cargo.screen);
   }
+  if (kind === 'market') {
+    const market = wiring.market;
+    if (market === null) return null;
+    return layoutMarketScreen(width, height, market.screen);
+  }
   const systems = wiring.console?.systems;
   if (systems === undefined) return null;
   if (kind === 'reactor_console') return layoutReactorScreen(width, height, systems);
@@ -522,6 +538,15 @@ function consoleIntentFor(
     const cargo = wiring.cargo;
     if (cargo === null) return null;
     return cargoConsoleIntent(id, { unpackIds: cargo.unpackIds, seal: cargo.seal });
+  }
+  if (kind === 'market') {
+    const market = wiring.market;
+    if (market === null) return null;
+    return marketConsoleIntent(id, {
+      hubId: market.hubId,
+      buys: market.buys,
+      sellIds: market.sellIds,
+    });
   }
   if (kind === 'reactor_console') return reactorConsoleIntent(id);
   const systems = wiring.console?.systems;
