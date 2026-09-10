@@ -63,7 +63,7 @@ interface DispatchContext {
   readonly onConsole: (kind: ConsoleKind) => void;
 }
 
-function dispatchAction(action: GameplayAction | null, ctx: DispatchContext): void {
+function _dispatchAction(action: GameplayAction | null, ctx: DispatchContext): void {
   if (action === 'use')
     pressUse(
       ctx.sendIntent,

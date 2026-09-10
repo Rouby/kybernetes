@@ -125,13 +125,13 @@ function introPanelFor(w: number, h: number): UiRect {
 function introTextsFor(panel: UiRect, shipId: string): readonly UiText[] {
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
-  const kick = uiEllipsize('SOLO COMMISSION // ' + shipId, KICKER_SIZE, innerW);
+  const kick = uiEllipsize(`SOLO COMMISSION // ${shipId}`, KICKER_SIZE, innerW);
   const ky = panel.y + PAD;
   const ty = ky + KICKER_SIZE + 8;
   const sy = ty + TITLE_SIZE + 12;
   const steps = SOLO_INTRO_STEPS.map((s, i) =>
     textAt(
-      uiEllipsize(s.title + ': ' + s.body, BODY_SIZE, innerW),
+      uiEllipsize(`${s.title}: ${s.body}`, BODY_SIZE, innerW),
       tx,
       sy + i * LINE_H,
       BODY_SIZE,
@@ -162,7 +162,7 @@ function gameOverPanelFor(w: number, h: number): UiRect {
 function gameOverTextsFor(panel: UiRect, shipId: string): readonly UiText[] {
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
-  const kick = uiEllipsize('HULL LOSS // ' + shipId, KICKER_SIZE, innerW);
+  const kick = uiEllipsize(`HULL LOSS // ${shipId}`, KICKER_SIZE, innerW);
   const ky = panel.y + PAD;
   const ty = ky + KICKER_SIZE + 8;
   const by = ty + TITLE_SIZE + 12;
@@ -257,7 +257,7 @@ function customizeFieldFor(panel: UiRect): UiRect {
 function customizeTextsFor(panel: UiRect, callsign: string): readonly UiText[] {
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
-  const call = uiEllipsize('CALLSIGN ' + callsign, KICKER_SIZE, innerW);
+  const call = uiEllipsize(`CALLSIGN ${callsign}`, KICKER_SIZE, innerW);
   const ky = panel.y + PAD;
   const ty = ky + KICKER_SIZE + 8;
   const ly = ty + TITLE_SIZE + 12;
@@ -355,7 +355,7 @@ function customizeSwatchesFor(panel: UiRect, selection: CustomizeSelection): UiS
 function tintSwatches(panel: UiRect, active: string): UiSwatch[] {
   const tx = panel.x + PAD;
   return TINT_PRESETS.map((color, i) => ({
-    id: 'tint:' + color,
+    id: `tint:${color}`,
     rect: { x: tx + i * 38, y: panel.y + 162, w: 30, h: 30 },
     color,
     selected: color === active,
@@ -371,7 +371,7 @@ function optionSwatches(
 ): UiSwatch[] {
   const tx = panel.x + PAD;
   return options.map((option, i) => ({
-    id: group + ':' + option,
+    id: `${group}:${option}`,
     rect: { x: tx + i * 112, y: panel.y + rowY, w: 104, h: 28 },
     color: '#0f141d',
     selected: option === active,
@@ -395,14 +395,10 @@ function reactorTextsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly
   const vm = reactorViewModel(systems);
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
-  const kick = uiEllipsize('REACTOR // ' + vm.status.toUpperCase(), KICKER_SIZE, innerW);
-  const temp = uiEllipsize('TEMP ' + vm.tempK + ' K', BODY_SIZE, innerW);
-  const band = uiEllipsize('BAND ' + vm.bandLo + '-' + vm.bandHi, BODY_SIZE, innerW);
-  const load = uiEllipsize(
-    'OUT ' + vm.outputMW + ' MW / LOAD ' + vm.demandMW + ' MW',
-    BODY_SIZE,
-    innerW
-  );
+  const kick = uiEllipsize(`REACTOR // ${vm.status.toUpperCase()}`, KICKER_SIZE, innerW);
+  const temp = uiEllipsize(`TEMP ${vm.tempK} K`, BODY_SIZE, innerW);
+  const band = uiEllipsize(`BAND ${vm.bandLo}-${vm.bandHi}`, BODY_SIZE, innerW);
+  const load = uiEllipsize(`OUT ${vm.outputMW} MW / LOAD ${vm.demandMW} MW`, BODY_SIZE, innerW);
   const y0 = panel.y + PAD;
   return [
     textAt(kick, tx, y0, KICKER_SIZE, 'dim'),
@@ -448,13 +444,13 @@ function engineTextsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly 
   const vm = engineViewModel(systems);
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
-  const kick = uiEllipsize('ENGINE // ' + vm.spoolLabel, KICKER_SIZE, innerW);
+  const kick = uiEllipsize(`ENGINE // ${vm.spoolLabel}`, KICKER_SIZE, innerW);
   const y0 = panel.y + PAD;
   const rows = [
     textAt(kick, tx, y0, KICKER_SIZE, 'dim'),
-    textAt('SPOOL ' + vm.spoolPct + '%', tx, y0 + KICKER_SIZE + 8, BODY_SIZE, 'primary'),
-    textAt('TUNE ' + vm.tunePct + '%', tx, y0 + KICKER_SIZE + 8 + LINE_H, BODY_SIZE, 'primary'),
-    textAt('WEAR ' + vm.wearPct + '%', tx, y0 + KICKER_SIZE + 8 + LINE_H * 2, BODY_SIZE, 'muted'),
+    textAt(`SPOOL ${vm.spoolPct}%`, tx, y0 + KICKER_SIZE + 8, BODY_SIZE, 'primary'),
+    textAt(`TUNE ${vm.tunePct}%`, tx, y0 + KICKER_SIZE + 8 + LINE_H, BODY_SIZE, 'primary'),
+    textAt(`WEAR ${vm.wearPct}%`, tx, y0 + KICKER_SIZE + 8 + LINE_H * 2, BODY_SIZE, 'muted'),
   ];
   if (vm.brownout)
     rows.push(textAt('BROWNOUT', tx, y0 + KICKER_SIZE + 8 + LINE_H * 3, BODY_SIZE, 'danger'));
@@ -495,16 +491,16 @@ function navTextsFor(
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
   const y0 = panel.y + PAD;
-  const port = uiEllipsize('PORT ' + vm.portLabel, BODY_SIZE, innerW);
-  const dest = uiEllipsize('DEST ' + vm.destLabel, BODY_SIZE, innerW);
+  const port = uiEllipsize(`PORT ${vm.portLabel}`, BODY_SIZE, innerW);
+  const dest = uiEllipsize(`DEST ${vm.destLabel}`, BODY_SIZE, innerW);
   const rows = [
-    textAt('NAV // ' + vm.phase.toUpperCase(), tx, y0, KICKER_SIZE, 'dim'),
+    textAt(`NAV // ${vm.phase.toUpperCase()}`, tx, y0, KICKER_SIZE, 'dim'),
     textAt(port, tx, y0 + KICKER_SIZE + 8, BODY_SIZE, 'primary'),
     textAt(dest, tx, y0 + KICKER_SIZE + 8 + LINE_H, BODY_SIZE, 'primary'),
-    textAt('ETA ' + vm.etaS + 'S', tx, y0 + KICKER_SIZE + 8 + LINE_H * 2, BODY_SIZE, 'muted'),
-    textAt('FUEL ' + vm.fuelCells, tx, y0 + KICKER_SIZE + 8 + LINE_H * 3, BODY_SIZE, 'muted'),
+    textAt(`ETA ${vm.etaS}S`, tx, y0 + KICKER_SIZE + 8 + LINE_H * 2, BODY_SIZE, 'muted'),
+    textAt(`FUEL ${vm.fuelCells}`, tx, y0 + KICKER_SIZE + 8 + LINE_H * 3, BODY_SIZE, 'muted'),
     textAt(
-      'COUNTDOWN ' + vm.countdownS + 'S',
+      `COUNTDOWN ${vm.countdownS}S`,
       tx,
       y0 + KICKER_SIZE + 8 + LINE_H * 4,
       BODY_SIZE,
@@ -558,7 +554,7 @@ function settingsTextsFor(panel: UiRect, masterPct: number): readonly UiText[] {
   return [
     textAt('HARBOR CONTROL // AUDIO', tx, ky, KICKER_SIZE, 'dim'),
     textAt('SHIP AUDIO', tx, ty, TITLE_SIZE, 'cyan'),
-    textAt('VOL ' + masterPct + '%', tx, vy, BODY_SIZE, 'primary'),
+    textAt(`VOL ${masterPct}%`, tx, vy, BODY_SIZE, 'primary'),
   ];
 }
 
@@ -578,7 +574,7 @@ function settingsButtonsFor(
       'enable'
     );
   }
-  const muteLabel = muted ? 'MUTED' : 'VOL ' + masterPct + '%';
+  const muteLabel = muted ? 'MUTED' : `VOL ${masterPct}%`;
   const top = panel.y + panel.h - PAD - (4 * BTN_H + 3 * GAP);
   const labels = { voldn: 'VOL -', volup: 'VOL +', mute: muteLabel, close: 'CLOSE' };
   return columnFor(panel, top, ['voldn', 'volup', 'mute', 'close'], labels, undefined);

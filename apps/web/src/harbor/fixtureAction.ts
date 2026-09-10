@@ -92,7 +92,7 @@ export function fixtureUseIntent(contact: FixtureContact): ClientIntent {
 
 /** Short HUD action name for the [E] prompt. */
 export function fixturePrompt(contact: FixtureContact): string {
-  if (isFixtureBroken(contact)) return 'Repair ' + fixtureNoun(contact.kind);
+  if (isFixtureBroken(contact)) return `Repair ${fixtureNoun(contact.kind)}`;
   if (
     (contact.kind === 'claim_bunk' || contact.kind === 'personal_locker') &&
     contact.claimedBy === undefined

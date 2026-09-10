@@ -157,7 +157,7 @@ export interface HarborViewportProps {
   onFireDown: () => void;
   onFireUp: () => void;
   targetRef: { current: InteractTarget | null };
-  /** Phase 3 (?ui=gl): pause/death actions rendered as a GL overlay instead of DOM. */
+  /** Pause/death/settings/console actions rendered as a GL overlay. */
   glOverlay?: GlSessionWiring | null;
 }
 

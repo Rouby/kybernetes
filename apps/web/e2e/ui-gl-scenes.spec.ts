@@ -38,7 +38,7 @@ async function waitUiGone(page: Page, id: string, timeout = 15000): Promise<void
 
 async function clickZone(page: Page, canvasTestId: string, zone: UiZone): Promise<void> {
   const box = await page.getByTestId(canvasTestId).boundingBox();
-  if (box === null) throw new Error('canvas missing: ' + canvasTestId);
+  if (box === null) throw new Error(`canvas missing: ${canvasTestId}`);
   await page.mouse.click(box.x + zone.x + zone.w / 2, box.y + zone.y + zone.h / 2);
 }
 

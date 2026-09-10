@@ -82,7 +82,7 @@ export function uiEllipsize(text: string, fontSize: number, maxWidth: number, pa
   const charW = uiCharWidth(fontSize);
   const keep = Math.max(0, Math.floor((budget - charW) / charW));
   if (keep <= 0) return '\u2026';
-  return text.slice(0, keep) + '\u2026';
+  return `${text.slice(0, keep)}\u2026`;
 }
 
 export function uiCenteredPanel(

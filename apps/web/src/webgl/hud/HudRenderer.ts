@@ -125,7 +125,7 @@ export interface HudDrawState {
   onToggleHelmet?: () => void;
   onRefillSuit?: () => void;
   currentRoomId?: string;
-  /** Modal GL screen painted last (Phase 3: ?ui=gl pause). Null/undefined skips it. */
+  /** Modal GL screen painted last. Null/undefined skips it. */
   uiOverlay?: {
     readonly layout: UiScreenLayout;
     readonly onAction?: (id: string) => void;
@@ -1189,14 +1189,14 @@ export class HudRenderer {
       color: '#e0e8f5',
     });
     this.hitTester.register({
-      id: 'field:' + field.id,
+      id: `field:${field.id}`,
       type: 'rect',
       x,
       y,
       width: w,
       height: h,
       cursor: 'pointer',
-      onClick: onAction === undefined ? () => undefined : () => onAction('field:' + field.id),
+      onClick: onAction === undefined ? () => undefined : () => onAction(`field:${field.id}`),
     });
   }
 

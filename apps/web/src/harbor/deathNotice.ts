@@ -32,7 +32,7 @@ function deathCauseLabel(cause: DeathCause | undefined): string {
 }
 
 export function deathTitle(cause: DeathCause | undefined): string {
-  return 'SIGNAL LOST // ' + deathCauseLabel(cause);
+  return `SIGNAL LOST // ${deathCauseLabel(cause)}`;
 }
 
 export function deathHint(cause: DeathCause | undefined): string {

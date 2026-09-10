@@ -78,7 +78,7 @@ export function getDisplayValue(state: TextFieldState, focused: boolean, nowMs: 
   if (Math.floor(nowMs / 530) % 2 !== 0) return state.value;
   const head = state.value.slice(0, state.caret);
   const tail = state.value.slice(state.caret);
-  return head + '\u2588' + tail;
+  return `${head}\u2588${tail}`;
 }
 
 export function sanitizeCallsignField(raw: string): string {

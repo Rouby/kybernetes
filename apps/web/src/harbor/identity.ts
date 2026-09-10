@@ -38,7 +38,7 @@ export function sanitizeColor(raw: unknown): string {
 }
 
 function randomUserId(): string {
-  return 'u-' + Math.random().toString(36).slice(2, 10);
+  return `u-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function loadIdentity(store: IdentityStore): HarborIdentityState {

@@ -79,11 +79,11 @@ describe('fixtureUseIntent', () => {
       ['mess_table', { type: 'INTERACT' }],
     ];
     for (const [kind, want] of cases) {
-      const found = scanFixtures([snap({ id: 'f.' + kind, kind: kind as never })], 'ship', {
+      const found = scanFixtures([snap({ id: `f.${kind}`, kind: kind as never })], 'ship', {
         x: 110,
         y: 170,
       });
-      if (found === null) throw new Error('missing ' + kind);
+      if (found === null) throw new Error(`missing ${kind}`);
       expect(fixtureUseIntent(found).type).toBe(want.type);
     }
   });
@@ -132,7 +132,7 @@ describe('fixtureUseIntent', () => {
       ['job_board', 'Browse contracts'],
     ];
     for (const [kind, want] of verbs) {
-      const found = scanFixtures([snap({ id: 'ship.' + kind, kind })], 'ship', at);
+      const found = scanFixtures([snap({ id: `ship.${kind}`, kind })], 'ship', at);
       if (found === null) throw new Error(`missing ${kind}`);
       expect(servicePrompt(found)).toBe(want);
       expect(fixturePrompt(found)).toBe(want);

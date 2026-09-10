@@ -260,7 +260,7 @@ export function debugTickLine(snapshot: SnapshotBroadcast | null): string {
 
 export function debugDockLine(dock: DockStatusBroadcast | null): string {
   if (dock === null) return 'dock:?';
-  return dockChipText(dock) + ' phase:' + dock.phase + ' seals:' + dock.secondsToSeal + 's';
+  return `${dockChipText(dock)} phase:${dock.phase} seals:${dock.secondsToSeal}s`;
 }
 
 export function debugAirLine(
@@ -271,7 +271,7 @@ export function debugAirLine(
 ): string {
   const vents = rooms.filter((room) => room.venting).length;
   const winds = portals.filter((portal) => Math.abs(portal.velocityMps) >= 0.5).length;
-  const follow = followId === null ? 'overview' : 'follow:' + followId;
+  const follow = followId === null ? 'overview' : `follow:${followId}`;
   return (
     'rooms:' +
     rooms.length +

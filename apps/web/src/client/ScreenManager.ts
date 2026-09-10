@@ -285,14 +285,14 @@ export class ScreenManager {
     const rect = layoutCustomizeField(this.size.w, this.size.h);
     const spanW = Math.max(320, this.size.w);
     const spanH = Math.max(320, this.size.h);
-    input.style.left = (rect.x / spanW) * 100 + '%';
-    input.style.top = (rect.y / spanH) * 100 + '%';
-    input.style.width = (rect.w / spanW) * 100 + '%';
-    input.style.height = (rect.h / spanH) * 100 + '%';
+    input.style.left = `${(rect.x / spanW) * 100}%`;
+    input.style.top = `${(rect.y / spanH) * 100}%`;
+    input.style.width = `${(rect.w / spanW) * 100}%`;
+    input.style.height = `${(rect.h / spanH) * 100}%`;
   }
 
   private showIntro(): void {
-    const shipId = 'ship:' + this.identity.userId;
+    const shipId = `ship:${this.identity.userId}`;
     const canvas = this.mountCanvas('gl-splash');
     this.mountSplash(
       canvas,
@@ -323,7 +323,7 @@ export class ScreenManager {
   }
 
   private showGameOver(): void {
-    const shipId = this.lostShipId ?? 'ship:' + this.identity.userId;
+    const shipId = this.lostShipId ?? `ship:${this.identity.userId}`;
     const canvas = this.mountCanvas('gl-splash');
     this.mountSplash(
       canvas,

@@ -84,9 +84,7 @@ export class DebugHud {
     this.set('dock', dockChipText(store.dock));
     this.set(
       'pos',
-      predicted === null
-        ? 'x:? y:?'
-        : 'x:' + Math.round(predicted.x) + ' y:' + Math.round(predicted.y)
+      predicted === null ? 'x:? y:?' : `x:${Math.round(predicted.x)} y:${Math.round(predicted.y)}`
     );
     this.set('vitals', vitalsLine(store));
     this.set('watch', watchLine(store.watch));
@@ -125,7 +123,7 @@ function manifestLine(manifest: ManifestBroadcast | null): string {
     'beacon:' +
     manifest.beacon +
     ' crew:' +
-    manifest.crew.map((entry) => entry.callsign + ':' + entry.role).join(',')
+    manifest.crew.map((entry) => `${entry.callsign}:${entry.role}`).join(',')
   );
 }
 
