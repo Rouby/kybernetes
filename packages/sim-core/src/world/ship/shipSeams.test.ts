@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSecured } from './cargo.js';
+import { CARRY_SPEED_MULT, emptyCargo, securedQty } from './cargo.js';
 import { engineSpecFor } from './engine.js';
 import { marginFor, STARTER_CATALOG } from './market.js';
 import { DOCKED_NAV, isUnderway } from './navTransit.js';
@@ -28,10 +28,9 @@ describe('ship seams (M2-M5 placeholders)', () => {
     ).toBe(true);
   });
 
-  it('only racked crates are secured', () => {
-    expect(isSecured({ id: 'c1', goodId: 'scrap', qty: 1, where: 'rack' })).toBe(true);
-    expect(isSecured({ id: 'c2', goodId: 'scrap', qty: 1, where: 'carried' })).toBe(false);
-    expect(isSecured({ id: 'c3', goodId: 'scrap', qty: 1, where: 'bayFloor' })).toBe(false);
+  it('physical crates are never secured wealth until unpacked', () => {
+    expect(securedQty(emptyCargo(), 'ship', 'scrap')).toBe(0);
+    expect(CARRY_SPEED_MULT).toBe(0.75);
   });
 
   it('starter catalog holds six fixed goods', () => {

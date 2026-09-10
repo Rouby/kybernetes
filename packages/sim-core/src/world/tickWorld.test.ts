@@ -75,6 +75,37 @@ describe('tickWorld scaffold', () => {
     expect(a.pawns.p1?.pos.x ?? 0).toBeGreaterThan(140);
   });
 
+  it('drags a carried crate along a walking pawn and drops it at the hands', async () => {
+    const cargo = await import('./ship/cargo.js');
+    let world = shipWorld();
+    const seeded = cargo.spawnCrate(cargo.emptyCargo(), {
+      id: 'c1',
+      goodId: 'scrap',
+      qty: 2,
+      where: 'shipFloor',
+      frameId: 'ship',
+      x: 150,
+      y: 200,
+    });
+    if (!seeded.ok) throw new Error('seed failed');
+    world = { ...world, cargo: seeded.hold };
+    const lifted = cargo.pickupCrate(world.cargo, 'c1', 'p1', 'ship', { x: 140, y: 200 });
+    if (!lifted.ok) throw new Error('pickup failed');
+    world = { ...world, cargo: lifted.hold };
+    const walked = drive(world, 40, { pawnId: 'p1', moveX: 1, moveY: 0, sprint: false });
+    const pawn = walked.pawns.p1;
+    const crate = walked.cargo.crates.c1;
+    if (pawn === undefined || crate === undefined) throw new Error('missing pawn/crate');
+    expect(pawn.pos.x).toBeGreaterThan(200);
+    const hands = cargo.handsPosFor(pawn.pos, pawn.facing);
+    expect(crate.x).toBeCloseTo(hands.x, 6);
+    expect(crate.y).toBeCloseTo(hands.y, 6);
+    const dropped = cargo.dropCrate(walked.cargo, 'p1', 'ship', crate.x, crate.y, 'shipFloor');
+    if (!dropped.ok) throw new Error('drop failed');
+    expect(dropped.hold.crates.c1?.x).toBeCloseTo(hands.x, 6);
+    expect(dropped.hold.crates.c1?.where).toBe('shipFloor');
+  });
+
   it('stops the pawn on the first tick without input', () => {
     const input: WorldInput = { pawnId: 'p1', moveX: 1, moveY: 0, sprint: false };
     const cruising = drive(shipWorld(), 20, input);

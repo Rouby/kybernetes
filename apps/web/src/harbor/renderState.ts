@@ -32,11 +32,13 @@ import {
   breachFlowAxis,
   HARBOR_DOCK,
   HESPERIA_ROOMS,
+  handsPosFor,
   isShipSideRoom,
   MAG_SIZE,
   mergeAtmos,
   mergeFrames,
   mergePortals,
+  normalizeCrateAngle,
   PUNCTURE_MAX_M2,
   SHIP_ORIGIN,
   type World,
@@ -59,6 +61,58 @@ export function frameOrigins(snapshot: SnapshotBroadcast): Map<string, { x: numb
     origins.set(frame.id, { x: frame.originX, y: frame.originY });
   }
   return origins;
+}
+
+/** Physical cargo crate in world coords (frame origin applied). */
+export interface CargoCrateView {
+  readonly id: string;
+  readonly goodId: string;
+  readonly qty: number;
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly carried: boolean;
+  readonly carrierId?: string;
+}
+
+/** Cargo crates in world coords for the floor pile + carried renders. */
+export function mapCargoCrates(
+  snapshot: SnapshotBroadcast,
+  origins: Map<string, { x: number; y: number }>
+): CargoCrateView[] {
+  return (snapshot.crates ?? []).map((crate) => {
+    const origin = origins.get(crate.frameId) ?? { x: 0, y: 0 };
+    const carried = crate.where === 'carriedBy';
+    return {
+      id: crate.id,
+      goodId: crate.goodId,
+      qty: crate.qty,
+      x: crate.x + origin.x,
+      y: crate.y + origin.y,
+      angle: crate.angle,
+      carried,
+      ...(crate.carrierId === undefined ? {} : { carrierId: crate.carrierId }),
+    };
+  });
+}
+
+/**
+ * Glue carried crates to their carrier's rendered pose. Snapshots tick at
+ * 10Hz while pawns predict every frame, so without this the hands lag a
+ * step behind the body. Server stay authoritative for drops.
+ */
+export function attachCarriedCrates(
+  views: readonly CargoCrateView[],
+  carrierId: string | null,
+  at: { x: number; y: number },
+  facing: number
+): CargoCrateView[] {
+  if (carrierId === null) return [...views];
+  return views.map((view) => {
+    if (!view.carried || view.carrierId !== carrierId) return view;
+    const hands = handsPosFor(at, facing);
+    return { ...view, x: hands.x, y: hands.y, angle: normalizeCrateAngle(facing) };
+  });
 }
 
 /** Living fixtures in world coords (ship offset applied for ship-side rooms). */
@@ -210,6 +264,7 @@ export function mergeSnapshotDelta(
     frames: delta.full ? [...delta.frames] : mergeFrames(base.frames, delta.frames),
     fixtures: carriedList(delta.fixtures, base.fixtures),
     decals: carriedList(delta.decals, base.decals),
+    crates: carriedList(delta.crates, base.crates),
     full: delta.full,
     portalRev: delta.portalRev,
     frameRev: delta.frameRev,

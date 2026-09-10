@@ -8,6 +8,7 @@ import type {
 import { describe, expect, it } from 'vitest';
 import {
   aimPoint,
+  attachCarriedCrates,
   bareId,
   breachCountsByRoom,
   breachFlowVectors,
@@ -19,6 +20,7 @@ import {
   interpolateFocusOrigin,
   mapAtmos,
   mapBreaches,
+  mapCargoCrates,
   mapDecalsView,
   mapFreshImpactsView,
   mapKineticAmmo,
@@ -724,6 +726,93 @@ describe('render-state mapping', () => {
     });
     expect(ticked.fixtures).toHaveLength(1);
     expect(mapLivingFixtures(ticked, frameOrigins(ticked))).toHaveLength(1);
+  });
+
+  it('maps cargo crates to world coords and retains them across deltas', () => {
+    const base = snapshot({
+      crates: [
+        {
+          id: 'c1',
+          goodId: 'scrap',
+          qty: 2,
+          where: 'bayFloor',
+          frameId: 'station',
+          x: 10,
+          y: 20,
+          angle: 0.5,
+        },
+        {
+          id: 'c2',
+          goodId: 'rations',
+          qty: 1,
+          where: 'carriedBy',
+          frameId: 'ship',
+          x: 30,
+          y: 40,
+          angle: 0,
+          carrierId: 'pawn:u1',
+        },
+      ],
+    });
+    const views = mapCargoCrates(base, frameOrigins(base));
+    expect(views).toHaveLength(2);
+    expect(views[1]?.carried).toBe(true);
+    expect(views[0]?.angle).toBe(0.5);
+    const ticked = mergeSnapshotDelta(base, {
+      type: 'SNAPSHOT_DELTA',
+      v: 2,
+      tick: 101,
+      serverTimeMs: 5050,
+      baseTick: 100,
+      full: false,
+      portalRev: 1,
+      frameRev: 1,
+      pawns: [],
+      impacts: [],
+      portals: [],
+      removedPortalIds: [],
+      projectiles: [],
+      frames: [],
+    });
+    expect(ticked.crates).toHaveLength(2);
+  });
+
+  it('glues carried crates to the rendered pawn pose', () => {
+    const base = snapshot({
+      crates: [
+        {
+          id: 'c1',
+          goodId: 'scrap',
+          qty: 2,
+          where: 'carriedBy',
+          frameId: 'ship',
+          x: 0,
+          y: 0,
+          angle: 0,
+          carrierId: 'pawn:u1',
+        },
+        {
+          id: 'c2',
+          goodId: 'scrap',
+          qty: 1,
+          where: 'bayFloor',
+          frameId: 'station',
+          x: 10,
+          y: 20,
+          angle: 1,
+        },
+      ],
+    });
+    const views = mapCargoCrates(base, frameOrigins(base));
+    const glued = attachCarriedCrates(views, 'pawn:u1', { x: 100, y: 100 }, 0);
+    expect(glued.find((view) => view.id === 'c1')).toMatchObject({ x: 122, y: 100, angle: 0 });
+    const aimed = attachCarriedCrates(views, 'pawn:u1', { x: 100, y: 100 }, Math.PI / 2);
+    expect(aimed.find((view) => view.id === 'c1')).toMatchObject({ x: 100, y: 122 });
+    expect(aimed.find((view) => view.id === 'c1')?.angle).toBeCloseTo(Math.PI / 2, 6);
+    expect(glued.find((view) => view.id === 'c2')).toMatchObject({ x: 10, y: 20 });
+    expect(attachCarriedCrates(views, null, { x: 100, y: 100 }, 0)[0]).toMatchObject({
+      x: views[0]?.x,
+    });
   });
 
   it('aggregates living rooms into a HUD summary', () => {

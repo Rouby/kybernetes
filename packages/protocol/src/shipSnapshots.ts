@@ -196,6 +196,39 @@ export function makeNavState(
   };
 }
 
+export interface CargoSecuredEntry {
+  readonly goodId: string;
+  readonly qty: number;
+}
+
+export interface CargoStateBroadcast {
+  readonly type: 'CARGO_STATE';
+  readonly v: typeof PROTOCOL_VERSION;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly vesselId: string;
+  readonly secured: readonly CargoSecuredEntry[];
+  readonly carriedByPawn: Readonly<Record<string, string>>;
+}
+
+export function makeCargoState(
+  vesselId: string,
+  secured: readonly CargoSecuredEntry[],
+  carriedByPawn: Readonly<Record<string, string>>,
+  tick: number,
+  serverTimeMs: number
+): CargoStateBroadcast {
+  return {
+    type: 'CARGO_STATE',
+    v: PROTOCOL_VERSION,
+    tick,
+    serverTimeMs,
+    vesselId,
+    secured,
+    carriedByPawn,
+  };
+}
+
 export function makeShipLost(
   shipId: string,
   reason: ShipLostReason,

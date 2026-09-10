@@ -297,6 +297,58 @@ export function validateDistress(raw: Record<string, unknown>): ValidateResult {
   return { ok: true, intent: { type: 'DISTRESS', seq: raw.seq as number } };
 }
 
+const MAX_CRATE_IDS = 8;
+const MAX_CARGO_QTY = 10;
+
+function isGoodId(value: unknown): value is string {
+  return isShortId(value);
+}
+
+function isCrateIdList(value: unknown): value is string[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length < 1 || value.length > MAX_CRATE_IDS) return false;
+  return value.every(isShortId);
+}
+
+export function validateCargoPickup(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isShortId(raw.crateId)) return fail('bad-field', 'crateId');
+  return {
+    ok: true,
+    intent: { type: 'CARGO_PICKUP', seq: raw.seq as number, crateId: raw.crateId as string },
+  };
+}
+
+export function validateCargoDrop(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return { ok: true, intent: { type: 'CARGO_DROP', seq: raw.seq as number } };
+}
+
+export function validateCargoUnpack(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isCrateIdList(raw.crateIds)) return fail('bad-field', 'crateIds');
+  return {
+    ok: true,
+    intent: {
+      type: 'CARGO_UNPACK',
+      seq: raw.seq as number,
+      crateIds: [...(raw.crateIds as string[])],
+    },
+  };
+}
+
+export function validateCargoRepack(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isGoodId(raw.goodId)) return fail('bad-field', 'goodId');
+  if (!isFiniteNumber(raw.qty)) return fail('bad-field', 'qty');
+  const qty = raw.qty as number;
+  if (!Number.isInteger(qty) || qty < 1 || qty > MAX_CARGO_QTY) return fail('bad-field', 'qty');
+  return {
+    ok: true,
+    intent: { type: 'CARGO_REPACK', seq: raw.seq as number, goodId: raw.goodId as string, qty },
+  };
+}
+
 export function validateEngineTune(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   if (raw.spoolCmd !== 0 && raw.spoolCmd !== 1) return fail('bad-field', 'spoolCmd');

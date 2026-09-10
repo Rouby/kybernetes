@@ -12,6 +12,7 @@ import {
   sightBlockers,
   targetIntent,
   targetPrompt,
+  targetPromptWithCarry,
   visibleFrom,
 } from './interactTarget';
 
@@ -306,6 +307,55 @@ describe('occlusion', () => {
     ).toBe(false);
     const glass = sightBlockers(world, 'station', []);
     expect(glass.some((seg) => seg.y1 === 0 && seg.y2 === 0 && seg.x1 === 100)).toBe(false);
+  });
+});
+
+describe('cargo crates (M4)', () => {
+  it('picks up a floor crate underfoot', () => {
+    const target = selectInteractTarget({
+      fixtures: [],
+      doors: [],
+      openById: openById([]),
+      frameId: 'station',
+      at: { x: 100, y: 100 },
+      facing: 0,
+      crates: [{ id: 'c1', x: 105, y: 100, frameId: 'station' }],
+    });
+    if (target?.kind !== 'crate') throw new Error('crate missed');
+    expect(target.id).toBe('c1');
+    expect(targetIntent(target)).toEqual({ type: 'CARGO_PICKUP', seq: 0, crateId: 'c1' });
+    expect(targetPrompt(target)).toBe('Pick up crate');
+    expect(targetPromptWithCarry(target, true)).toBe('Pick up crate');
+  });
+
+  it('ignores crates on other frames and past reach', () => {
+    const target = selectInteractTarget({
+      fixtures: [],
+      doors: [],
+      openById: openById([]),
+      frameId: 'ship',
+      at: { x: 0, y: 0 },
+      facing: 0,
+      crates: [
+        { id: 'far', x: 500, y: 0, frameId: 'ship' },
+        { id: 'away', x: 0, y: 0, frameId: 'station' },
+      ],
+    });
+    expect(target).toBeNull();
+  });
+
+  it('warns hands-full on fixtures while carrying', () => {
+    const target = selectInteractTarget({
+      fixtures: [{ ...STOVE, id: 'ship.stove', x: 10, y: 0 }],
+      doors: [],
+      openById: openById([]),
+      frameId: 'ship',
+      at: { x: 10, y: 0 },
+      facing: 0,
+    });
+    if (target?.kind !== 'fixture') throw new Error('fixture missed');
+    expect(targetPromptWithCarry(target, true)).toBe('Set down first (hands full)');
+    expect(targetPromptWithCarry(target, false)).toBe(targetPrompt(target));
   });
 });
 

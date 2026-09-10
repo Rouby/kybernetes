@@ -28,7 +28,15 @@ import type {
   VitalsBroadcast,
   WatchBroadcast,
 } from '@kybernetes/protocol';
-import { digestStrings, makeNavState, makeShipSystems, q0, q1, q2 } from '@kybernetes/protocol';
+import {
+  digestStrings,
+  makeCargoState,
+  makeNavState,
+  makeShipSystems,
+  q0,
+  q1,
+  q2,
+} from '@kybernetes/protocol';
 import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
 import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
 import { deathCauseFor } from './death.js';
@@ -56,6 +64,7 @@ export function buildSnapshot(world: World, nowMs: number): SnapshotBroadcast {
     frames,
     fixtures: snapshotFixturesOf(world),
     decals: snapshotDecalsOf(world),
+    crates: snapshotCratesOf(world),
     full: true,
     portalRev: portalRevOf(portals),
     frameRev: frameRevOf(frames),
@@ -148,6 +157,38 @@ export function snapshotFixturesOf(world: World) {
     online: (fix.integrity ?? 100) > 0 && (fix.online ?? true),
     ...fixtureExtras(fix),
   }));
+}
+
+export function snapshotCratesOf(world: World) {
+  return Object.values(world.cargo.crates).map((crate) => ({
+    id: crate.id,
+    goodId: crate.goodId,
+    qty: crate.qty,
+    where: crate.where,
+    frameId: crate.frameId,
+    x: q1(crate.x),
+    y: q1(crate.y),
+    angle: q2(crate.angle),
+    ...(crate.carrierId === undefined ? {} : { carrierId: crate.carrierId }),
+  }));
+}
+
+export function buildCargoState(
+  world: World,
+  vesselId: string,
+  nowMs: number
+): import('@kybernetes/protocol').CargoStateBroadcast {
+  const secured = Object.entries(world.cargo.secured[vesselId] ?? {}).map(([goodId, qty]) => ({
+    goodId,
+    qty,
+  }));
+  const carriedByPawn: Record<string, string> = {};
+  for (const crate of Object.values(world.cargo.crates)) {
+    if (crate.where === 'carriedBy' && crate.carrierId !== undefined) {
+      carriedByPawn[crate.carrierId] = crate.id;
+    }
+  }
+  return makeCargoState(vesselId, secured, carriedByPawn, world.tick, nowMs);
 }
 
 export function snapshotLivingOf(world: World) {
@@ -275,6 +316,7 @@ export function buildSnapshotDelta(
     projectiles: snapshotShotsOf(world),
     frames: diffFrames(prevFrames, frames),
     ...(decalsChanged ? { decals } : {}),
+    crates: snapshotCratesOf(world),
   };
 }
 

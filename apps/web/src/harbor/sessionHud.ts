@@ -25,7 +25,14 @@ function shortId(id: string): string {
 export function describeTarget(target: InteractTarget | null): string {
   if (target === null) return 'target:-';
   if (target.kind === 'door') return `target:door:${target.open ? 'open' : 'closed'}`;
+  if (target.kind === 'crate') return `target:crate:${target.id}`;
   return 'target:fixture';
+}
+
+export function cargoLine(carryingId: string | null, securedCount: number): string {
+  if (carryingId === null && securedCount === 0) return 'cargo:-';
+  if (carryingId === null) return `cargo:secured=${securedCount}`;
+  return `cargo:carrying=${carryingId} secured=${securedCount}`;
 }
 
 function ventCount(socket: { readonly telemetry: TelemetryBroadcast | null }): number {

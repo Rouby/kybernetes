@@ -9,6 +9,10 @@
 import type { ValidateErr, ValidateFailure, ValidateResult } from './intentValidators.js';
 import {
   isRecord,
+  validateCargoDrop,
+  validateCargoPickup,
+  validateCargoRepack,
+  validateCargoUnpack,
   validateClaim,
   validateConsume,
   validateCook,
@@ -72,6 +76,10 @@ const INTENT_VALIDATORS: Readonly<Record<string, IntentValidator>> = {
   NAV_PLOT: validateNavPlot,
   NAV_CANCEL: validateNavCancel,
   DISTRESS: validateDistress,
+  CARGO_PICKUP: validateCargoPickup,
+  CARGO_DROP: validateCargoDrop,
+  CARGO_UNPACK: validateCargoUnpack,
+  CARGO_REPACK: validateCargoRepack,
 };
 
 export function validateClientIntent(raw: unknown): ValidateResult {
@@ -111,4 +119,8 @@ export const INTENT_RATE_LIMIT_PER_SECOND: Readonly<Record<string, number>> = {
   NAV_PLOT: 2,
   NAV_CANCEL: 2,
   DISTRESS: 2,
+  CARGO_PICKUP: 8,
+  CARGO_DROP: 8,
+  CARGO_UNPACK: 8,
+  CARGO_REPACK: 8,
 };

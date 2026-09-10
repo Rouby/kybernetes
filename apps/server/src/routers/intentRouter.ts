@@ -7,15 +7,20 @@ import type { ClientIntent } from '@kybernetes/protocol';
 import {
   applyConsume,
   cancelVoyage,
+  carriedCrateOf,
   claimFixture,
   dockLinkForPortal,
+  dropCrate,
   engineDemandMw,
   ensureShipSystems,
   fireWeapon,
   fixtureOnline,
   harvestTray,
+  isCarrying,
+  pickupCrate,
   plotVoyage,
   reactorOutputMw,
+  repackCargo,
   repairFixture,
   restartShipReactor,
   runRecycle,
@@ -26,6 +31,7 @@ import {
   tryToggleDoor,
   tuneShipEngine,
   tuneShipReactor,
+  unpackCrates,
   type World,
   type WorldInput,
 } from '@kybernetes/sim-core';
@@ -113,8 +119,129 @@ function routeShipIntent(
     case 'NAV_CANCEL':
       return routeNavCancel(world, pawnId, pending);
     default:
+      return routeCargoIntent(world, pawnId, intent, pending);
+  }
+}
+
+/** Physical-crate intents (M4 floor model). Thin map, no math. */
+function routeCargoIntent(
+  world: World,
+  pawnId: string,
+  intent: ClientIntent,
+  pending: readonly WorldInput[]
+): RouteResult | undefined {
+  switch (intent.type) {
+    case 'CARGO_PICKUP':
+      return routeCargoPickup(world, pawnId, intent, pending);
+    case 'CARGO_DROP':
+      return routeCargoDrop(world, pawnId, pending);
+    case 'CARGO_UNPACK':
+      return routeCargoUnpack(world, pawnId, intent, pending);
+    case 'CARGO_REPACK':
+      return routeCargoRepack(world, pawnId, intent, pending);
+    default:
       return undefined;
   }
+}
+
+/** Hands-full: carriers must set the crate down before any fixture console. */
+function denyHandsFull(
+  world: World,
+  pawnId: string,
+  verb: string,
+  pending: readonly WorldInput[]
+): RouteResult | undefined {
+  if (!isCarrying(world.cargo, pawnId)) return undefined;
+  return { world, movement: pending, notice: `${verb}_hands-full` };
+}
+
+function dropWhereFor(world: World, frameId: string): 'bayFloor' | 'shipFloor' {
+  return world.vessels[frameId] === undefined ? 'bayFloor' : 'shipFloor';
+}
+
+function fixturePointsOn(world: World, frameId: string): readonly { x: number; y: number }[] {
+  return Object.values(world.fixtures)
+    .filter((fix) => fix.roomId.startsWith(`${frameId}.`))
+    .map((fix) => ({ x: fix.pos.x, y: fix.pos.y }));
+}
+
+function routeCargoPickup(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'CARGO_PICKUP' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return { world, movement: pending, notice: 'CARGO_no-pawn' };
+  const result = pickupCrate(
+    world.cargo,
+    intent.crateId,
+    pawnId,
+    pawn.frameId,
+    pawn.pos,
+    pawn.facing
+  );
+  if (!result.ok) return { world, movement: pending, notice: `CARGO_${result.reason}` };
+  return { world: { ...world, cargo: result.hold }, movement: pending, notice: 'CARGO_ok' };
+}
+
+function routeCargoDrop(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return { world, movement: pending, notice: 'CARGO_no-pawn' };
+  const carried = carriedCrateOf(world.cargo, pawnId);
+  if (carried === undefined) {
+    return { world, movement: pending, notice: 'CARGO_not-carrying' };
+  }
+  const result = dropCrate(
+    world.cargo,
+    pawnId,
+    pawn.frameId,
+    carried.x,
+    carried.y,
+    dropWhereFor(world, pawn.frameId),
+    fixturePointsOn(world, pawn.frameId),
+    pawn.facing
+  );
+  if (!result.ok) return { world, movement: pending, notice: `CARGO_${result.reason}` };
+  return { world: { ...world, cargo: result.hold }, movement: pending, notice: 'CARGO_ok' };
+}
+
+function routeCargoUnpack(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'CARGO_UNPACK' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return { world, movement: pending, notice: 'CARGO_no-pawn' };
+  if (world.vessels[pawn.frameId] === undefined) {
+    return { world, movement: pending, notice: 'CARGO_wrong-frame' };
+  }
+  const result = unpackCrates(world.cargo, pawn.frameId, pawn.frameId, intent.crateIds);
+  if (!result.ok) return { world, movement: pending, notice: `CARGO_${result.reason}` };
+  return { world: { ...world, cargo: result.hold }, movement: pending, notice: 'CARGO_ok' };
+}
+
+function routeCargoRepack(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'CARGO_REPACK' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return { world, movement: pending, notice: 'CARGO_no-pawn' };
+  if (world.vessels[pawn.frameId] === undefined) {
+    return { world, movement: pending, notice: 'CARGO_wrong-frame' };
+  }
+  const crateId = `crate:${pawn.frameId}:${world.tick}:${Object.keys(world.cargo.crates).length}`;
+  const result = repackCargo(world.cargo, pawn.frameId, pawn.frameId, intent.goodId, intent.qty, {
+    id: crateId,
+    frameId: pawn.frameId,
+    x: pawn.pos.x,
+    y: pawn.pos.y,
+  });
+  if (!result.ok) return { world, movement: pending, notice: `CARGO_${result.reason}` };
+  return { world: { ...world, cargo: result.hold }, movement: pending, notice: 'CARGO_ok' };
 }
 
 function routeInput(
@@ -186,6 +313,8 @@ function needReach(
 ): RouteResult | undefined {
   if (world.pawns[pawnId] === undefined)
     return { world, movement: pending, notice: `${verb}_no-pawn` };
+  const hands = denyHandsFull(world, pawnId, verb, pending);
+  if (hands !== undefined) return hands;
   if (world.fixtures[fixtureId] === undefined)
     return { world, movement: pending, notice: `${verb}_unknown` };
   if (!pawnNearFixture(world, pawnId, fixtureId))
@@ -207,6 +336,8 @@ function consoleGate(
 ): { vesselId: string } | RouteResult {
   const pawn = world.pawns[pawnId];
   if (pawn === undefined) return { world, movement: pending, notice: `${verb}_no-pawn` };
+  const hands = denyHandsFull(world, pawnId, verb, pending);
+  if (hands !== undefined) return hands;
   if (world.vessels[pawn.frameId] === undefined) {
     return { world, movement: pending, notice: `${verb}_too-far` };
   }
@@ -436,6 +567,8 @@ function routeInteract(
   intent: Extract<ClientIntent, { type: 'INTERACT' }>,
   pending: readonly WorldInput[]
 ): RouteResult {
+  const hands = denyHandsFull(world, pawnId, 'INTERACT', pending);
+  if (hands !== undefined) return hands;
   const fix = world.fixtures[intent.fixtureId];
   if (fix === undefined) return { world, movement: pending, notice: 'INTERACT_unknown' };
   if (!pawnNearFixture(world, pawnId, intent.fixtureId))

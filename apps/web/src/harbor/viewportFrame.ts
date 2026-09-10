@@ -27,6 +27,7 @@ import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { PredictedPose } from '../client/stores/MovementController';
 import type { LivingView } from '../webgl/LivingFixtures';
 import {
+  cargoConsoleIntent,
   engineConsoleIntent,
   type GlAudioState,
   navConsoleIntent,
@@ -35,6 +36,8 @@ import {
   selectSessionOverlayId,
 } from '../webgl/ui/UiPass';
 import {
+  type CargoScreenModel,
+  layoutCargoScreen,
   layoutDeathScreen,
   layoutEngineScreen,
   layoutNavScreen,
@@ -50,7 +53,7 @@ import {
   type InteractTarget,
   selectInteractTarget,
   sightBlockers,
-  targetPrompt,
+  targetPromptWithCarry,
 } from './interactTarget';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
@@ -58,6 +61,7 @@ import type { FocusOrigin, FrameMotion, ImpactRenderModel } from './renderState'
 import {
   aimPoint,
   applyDockGates,
+  attachCarriedCrates,
   bareId,
   breachCountsByRoom,
   callsignFor,
@@ -65,6 +69,7 @@ import {
   interpolateFocusOrigin,
   mapAtmos,
   mapBreaches,
+  mapCargoCrates,
   mapDecals,
   mapKineticAmmo,
   mapLivingFixtures,
@@ -110,6 +115,12 @@ export interface GlConsoleState {
   readonly systems: ShipSystemsBroadcast;
 }
 
+export interface CargoWiring {
+  readonly screen: CargoScreenModel;
+  readonly unpackIds: readonly string[];
+  readonly seal: Readonly<Record<string, number>>;
+}
+
 export interface GlSessionWiring {
   readonly paused: boolean;
   readonly dead: boolean;
@@ -118,6 +129,7 @@ export interface GlSessionWiring {
   readonly audio: GlAudioState;
   readonly console: GlConsoleState | null;
   readonly navState: NavStateBroadcast | null;
+  readonly cargo: CargoWiring | null;
   readonly shipStatus: ShipStatusBroadcast | null;
   readonly sendIntent: (intent: ClientIntent) => void;
   readonly onCloseConsole: () => void;
@@ -262,7 +274,7 @@ export function renderViewport(
   const at = pawnWorld(own, viewOrigins, view.predicted);
   stampSnapshotArrival(session, snapshot, now);
   const cursorWorld = cursorWorldOf(session, canvas, now);
-  const { livingViews, target } = targetFrameState(
+  const { livingViews, cargoViews, target } = targetFrameState(
     snapshot,
     view.statics,
     viewOrigins,
@@ -307,6 +319,7 @@ export function renderViewport(
       flows,
       mappedVitals,
       livingViews,
+      cargoViews,
       target,
       now,
       canvas,
@@ -345,13 +358,24 @@ function boardingRenderSection(args: {
   };
 }
 
-function targetRenderFields(target: InteractTarget | null): {
+function targetRenderFields(
+  target: InteractTarget | null,
+  snapshot: SnapshotBroadcast,
+  pawnId: string | null
+): {
   nearestLivingId: string | null;
+  nearestCargoId: string | null;
   promptActionName: string | undefined;
 } {
+  const carrying =
+    pawnId !== null &&
+    (snapshot.crates ?? []).some(
+      (crate) => crate.where === 'carriedBy' && crate.carrierId === pawnId
+    );
   return {
     nearestLivingId: target?.kind === 'fixture' ? target.contact.id : null,
-    promptActionName: target === null ? undefined : targetPrompt(target),
+    nearestCargoId: target?.kind === 'crate' ? target.id : null,
+    promptActionName: target === null ? undefined : targetPromptWithCarry(target, carrying),
   };
 }
 
@@ -455,6 +479,11 @@ function consoleLayoutFor(
   width: number,
   height: number
 ): UiScreenLayout | null {
+  if (kind === 'cargo') {
+    const cargo = wiring.cargo;
+    if (cargo === null) return null;
+    return layoutCargoScreen(width, height, cargo.screen);
+  }
   const systems = wiring.console?.systems;
   if (systems === undefined) return null;
   if (kind === 'reactor_console') return layoutReactorScreen(width, height, systems);
@@ -489,6 +518,11 @@ function consoleIntentFor(
   id: string,
   wiring: GlSessionWiring
 ): ClientIntent | null {
+  if (kind === 'cargo') {
+    const cargo = wiring.cargo;
+    if (cargo === null) return null;
+    return cargoConsoleIntent(id, { unpackIds: cargo.unpackIds, seal: cargo.seal });
+  }
   if (kind === 'reactor_console') return reactorConsoleIntent(id);
   const systems = wiring.console?.systems;
   if (systems === undefined) return null;
@@ -533,6 +567,7 @@ function viewportRenderState(args: {
   flows: TelemetryBroadcast['flows'];
   mappedVitals: PlayerVitals | undefined;
   livingViews: LivingView[];
+  cargoViews: import('./renderState').CargoCrateView[];
   target: InteractTarget | null;
   now: number;
   canvas: HTMLCanvasElement;
@@ -551,6 +586,7 @@ function viewportRenderState(args: {
     flows,
     mappedVitals,
     livingViews,
+    cargoViews,
     target,
     now,
   } = args;
@@ -561,8 +597,9 @@ function viewportRenderState(args: {
     telemetry: delta,
     boarding: boardingRenderSection({ session, view, snapshot, viewOrigins, roomAtmos, now }),
     livingFixtures: livingViews,
+    cargoCrates: attachCarriedCrates(cargoViews, view.pawnId, at, view.facingRef.current),
     livingSummary: mapLivingSummary(view.telemetry),
-    ...targetRenderFields(target),
+    ...targetRenderFields(target, snapshot, view.pawnId),
     ...manifestRenderFields(view),
     breaches,
     breachFlows: flows,
@@ -675,6 +712,7 @@ function targetFrameState(
     cursorWorld === null ? null : { x: cursorWorld.x - origin.x, y: cursorWorld.y - origin.y };
   return {
     livingViews: mapLivingFixtures(snapshot, origins),
+    cargoViews: mapCargoCrates(snapshot, origins),
     target: selectInteractTarget({
       fixtures: snapshot.fixtures,
       doors: doorSpotsOf(statics, own.frameId),
@@ -684,6 +722,9 @@ function targetFrameState(
       facing,
       cursor,
       blockers: sightBlockers(statics, own.frameId, snapshot.portals),
+      crates: (snapshot.crates ?? [])
+        .filter((crate) => crate.where !== 'carriedBy')
+        .map((crate) => ({ id: crate.id, x: crate.x, y: crate.y, frameId: crate.frameId })),
     }),
   };
 }

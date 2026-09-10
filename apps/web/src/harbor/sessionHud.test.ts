@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { type HarborSocket, noticesLine, offerLine, statusLine, vitalsLine } from './sessionHud';
+import {
+  cargoLine,
+  describeTarget,
+  type HarborSocket,
+  noticesLine,
+  offerLine,
+  statusLine,
+  vitalsLine,
+} from './sessionHud';
 
 function socket(over: Record<string, unknown> = {}): HarborSocket {
   return {
@@ -78,6 +86,21 @@ describe('offerLine', () => {
 
   it('joins offer jobs', () => {
     expect(offerLine({ jobs: ['engineer', 'deckhand'] } as never)).toBe('offer:engineer/deckhand');
+  });
+});
+
+describe('cargoLine', () => {
+  it('marks an empty hold', () => {
+    expect(cargoLine(null, 0)).toBe('cargo:-');
+  });
+
+  it('names the carried crate and secured wealth', () => {
+    expect(cargoLine('c1', 5)).toBe('cargo:carrying=c1 secured=5');
+    expect(cargoLine(null, 3)).toBe('cargo:secured=3');
+  });
+
+  it('names crate targets', () => {
+    expect(describeTarget({ kind: 'crate', id: 'c1', dist: 10 })).toBe('target:crate:c1');
   });
 });
 

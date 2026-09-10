@@ -96,4 +96,12 @@ describe('MovementController wiring', () => {
     expect(seen.length).toBeGreaterThan(0);
     release();
   });
+
+  it('takes mouse-aim steering and ignores garbage', () => {
+    const controller = new MovementController({ sendIntent: vi.fn() });
+    controller.setFacing(Math.PI / 2);
+    expect(controller.getFacing()).toBeCloseTo(Math.PI / 2);
+    controller.setFacing(Number.NaN);
+    expect(controller.getFacing()).toBeCloseTo(Math.PI / 2);
+  });
 });

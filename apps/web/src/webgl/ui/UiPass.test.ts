@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { describe, expect, it } from 'vitest';
 import {
+  cargoConsoleIntent,
   engineConsoleIntent,
   findUiButton,
   GL_UI_BLOCKER_ID,
@@ -142,6 +143,25 @@ describe('console intents', () => {
       tuneSet: 0,
     });
     expect(engineConsoleIntent('close', systems)).toBeNull();
+  });
+
+  it('drops, unpacks, and seals cargo from the hold panel', () => {
+    const stock = { unpackIds: ['c1', 'c2'], seal: { scrap: 5 } };
+    expect(cargoConsoleIntent('drop', stock)).toEqual({ type: 'CARGO_DROP', seq: 0 });
+    expect(cargoConsoleIntent('unpackAll', stock)).toEqual({
+      type: 'CARGO_UNPACK',
+      seq: 0,
+      crateIds: ['c1', 'c2'],
+    });
+    expect(cargoConsoleIntent('seal:scrap', stock)).toEqual({
+      type: 'CARGO_REPACK',
+      seq: 0,
+      goodId: 'scrap',
+      qty: 5,
+    });
+    expect(cargoConsoleIntent('unpackAll', { unpackIds: [], seal: {} })).toBeNull();
+    expect(cargoConsoleIntent('seal:meds', stock)).toBeNull();
+    expect(cargoConsoleIntent('close', stock)).toBeNull();
   });
 
   it('plots the far hub and passes cancel and distress', () => {

@@ -6,12 +6,15 @@
  */
 
 import type {
+  CargoStateBroadcast,
   ClientIntent,
   DeathCause,
   NavStateBroadcast,
   ShipStatusBroadcast,
   ShipSystemsBroadcast,
+  SnapshotBroadcast,
 } from '@kybernetes/protocol';
+import { cargoScreenFor } from '../harbor/cargoModel';
 import type { ConsoleKind } from '../harbor/sessionActions';
 import type { GlSessionWiring } from '../harbor/viewportFrame';
 import type { GlAudioState } from '../webgl/ui/UiPass';
@@ -40,6 +43,9 @@ export interface GlOverlayBuildArgs {
   readonly audio: OverlayAudio;
   readonly consoles: OverlayConsoles;
   readonly navState: NavStateBroadcast | null;
+  readonly snapshot: SnapshotBroadcast | null;
+  readonly pawnId: string | null;
+  readonly cargoState: CargoStateBroadcast | null;
   readonly shipStatus: ShipStatusBroadcast | null;
   readonly sendIntent: (intent: ClientIntent) => void;
   readonly togglePause: () => void;
@@ -58,6 +64,7 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     audio: audioSnapshotOf(args.audio),
     console: consoleStateOf(args.consoles),
     navState: args.navState,
+    cargo: cargoWiringOf(args.snapshot, args.pawnId, args.cargoState),
     shipStatus: args.shipStatus,
     sendIntent: args.sendIntent,
     onCloseConsole: args.consoles.closeConsole,
@@ -75,6 +82,14 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
 
 function audioSnapshotOf(audio: OverlayAudio): GlAudioState {
   return { ready: audio.ready, muted: audio.muted, masterPct: audio.masterPct };
+}
+
+function cargoWiringOf(
+  snapshot: SnapshotBroadcast | null,
+  pawnId: string | null,
+  cargoState: CargoStateBroadcast | null
+): GlSessionWiring['cargo'] {
+  return cargoScreenFor(snapshot, cargoState, pawnId);
 }
 
 function consoleStateOf(consoles: OverlayConsoles): GlSessionWiring['console'] {

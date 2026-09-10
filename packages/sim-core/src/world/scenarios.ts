@@ -11,6 +11,7 @@ import { HesperiaV2Spec } from './content/HesperiaV2.hull.js';
 import { StationHubSpec } from './content/StationHub.hull.js';
 import { ensureCaptain } from './crew.js';
 import { type DockLink, initialTransit, SHIP_ORIGIN } from './schedule.js';
+import { spawnCrate } from './ship/cargo.js';
 import type { World } from './types.js';
 
 export const HARBOR_STATION = 'station';
@@ -110,7 +111,32 @@ export function buildSoloShipWorld(): World {
     ...world,
     docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK, [HUB_B_DOCK.id]: HUB_B_DOCK },
   };
-  return ensureLivingFixtures(world);
+  world = ensureLivingFixtures(world);
+  return seedSoloBayCrates(world);
+}
+
+/** M4 drill stock: two demo crates on the home bay floor, no market needed. */
+function seedSoloBayCrates(world: World): World {
+  let hold = world.cargo;
+  const seeds = [
+    { id: 'bay:scrap-a', goodId: 'scrap', qty: 3, x: 430, y: 410 },
+    { id: 'bay:rations-a', goodId: 'rations', qty: 4, x: 455, y: 415 },
+  ] as const;
+  for (const seed of seeds) {
+    if (hold.crates[seed.id] !== undefined) continue;
+    const spawned = spawnCrate(hold, {
+      id: seed.id,
+      goodId: seed.goodId,
+      qty: seed.qty,
+      where: 'bayFloor',
+      frameId: HARBOR_STATION,
+      x: seed.x,
+      y: seed.y,
+    });
+    if (spawned.ok) hold = spawned.hold;
+  }
+  if (hold === world.cargo) return world;
+  return { ...world, cargo: hold };
 }
 
 /** Ambient harbor crowd: three wanderers that never crew, never fight. */

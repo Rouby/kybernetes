@@ -4,10 +4,33 @@
  * M1 surface without re-declaring types. Pure types only.
  */
 
-import type { SpawnAboardIntent } from './intents.js';
+import type {
+  CargoDropIntent,
+  CargoPickupIntent,
+  CargoRepackIntent,
+  CargoUnpackIntent,
+  SpawnAboardIntent,
+} from './intents.js';
 
-export type { SpawnAboardIntent };
+export type {
+  CargoDropIntent,
+  CargoPickupIntent,
+  CargoRepackIntent,
+  CargoUnpackIntent,
+  SpawnAboardIntent,
+};
 
-export type ShipIntent = SpawnAboardIntent;
+export type ShipIntent =
+  | SpawnAboardIntent
+  | CargoPickupIntent
+  | CargoDropIntent
+  | CargoUnpackIntent
+  | CargoRepackIntent;
 
-export const SHIP_INTENT_TYPES: readonly ShipIntent['type'][] = ['SPAWN_ABOARD'] as const;
+export const SHIP_INTENT_TYPES: readonly ShipIntent['type'][] = [
+  'SPAWN_ABOARD',
+  'CARGO_PICKUP',
+  'CARGO_DROP',
+  'CARGO_UNPACK',
+  'CARGO_REPACK',
+] as const;

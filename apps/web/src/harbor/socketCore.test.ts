@@ -190,6 +190,42 @@ describe('harbor socket merge guards', () => {
     expect(store.calls.status).toBe(1);
   });
 
+  it('accepts cargo state while dropping stale ticks', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const sockets = { ...wire(store), setCargoState: vi.fn() };
+    const cargo = {
+      type: 'CARGO_STATE',
+      v: 2,
+      tick: 60,
+      serverTimeMs: 6000,
+      vesselId: 'ship',
+      secured: [{ goodId: 'scrap', qty: 5 }],
+      carriedByPawn: { 'pawn:u1': 'c1' },
+    };
+    handleMessage(JSON.stringify(cargo), caches, sockets);
+    expect(sockets.setCargoState).toHaveBeenCalledTimes(1);
+    handleMessage(JSON.stringify({ ...cargo, tick: 59 }), caches, sockets);
+    expect(sockets.setCargoState).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries crates through full snapshots and deltas', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const sockets = wire(store);
+    handleMessage(
+      JSON.stringify({
+        ...fullSnapshot(10),
+        crates: [
+          { id: 'c1', goodId: 'scrap', qty: 2, where: 'bayFloor', frameId: 'station', x: 1, y: 2 },
+        ],
+      }),
+      caches,
+      sockets
+    );
+    expect(store.snapshot?.crates?.length).toBe(1);
+  });
+
   it('accepts nav state while dropping stale ticks', () => {
     const caches: HarborCaches = createHarborCaches();
     const store = setters();

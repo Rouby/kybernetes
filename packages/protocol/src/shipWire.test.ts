@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION } from './envelope.js';
-import { makeNavState, makeShipLost, makeShipStatus, makeShipSystems } from './shipSnapshots.js';
+import {
+  makeCargoState,
+  makeNavState,
+  makeShipLost,
+  makeShipStatus,
+  makeShipSystems,
+} from './shipSnapshots.js';
 import { INTENT_RATE_LIMIT_PER_SECOND, validateClientIntent } from './validate.js';
 
 describe('solo-ship wire (M1)', () => {
@@ -98,6 +104,37 @@ describe('solo-ship wire (M1)', () => {
     expect(INTENT_RATE_LIMIT_PER_SECOND.NAV_PLOT).toBe(2);
     expect(INTENT_RATE_LIMIT_PER_SECOND.NAV_CANCEL).toBe(2);
     expect(INTENT_RATE_LIMIT_PER_SECOND.DISTRESS).toBe(2);
+  });
+
+  it('validates cargo intents and rate-limits them at 8Hz', () => {
+    expect(validateClientIntent({ type: 'CARGO_PICKUP', seq: 1, crateId: 'c1' }).ok).toBe(true);
+    expect(validateClientIntent({ type: 'CARGO_PICKUP', seq: 2 }).ok).toBe(false);
+    expect(validateClientIntent({ type: 'CARGO_DROP', seq: 3 }).ok).toBe(true);
+    expect(validateClientIntent({ type: 'CARGO_UNPACK', seq: 4, crateIds: ['c1'] }).ok).toBe(true);
+    expect(validateClientIntent({ type: 'CARGO_UNPACK', seq: 5, crateIds: [] }).ok).toBe(false);
+    expect(validateClientIntent({ type: 'CARGO_REPACK', seq: 6, goodId: 'scrap', qty: 3 }).ok).toBe(
+      true
+    );
+    expect(
+      validateClientIntent({ type: 'CARGO_REPACK', seq: 7, goodId: 'scrap', qty: 99 }).ok
+    ).toBe(false);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_PICKUP).toBe(8);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_DROP).toBe(8);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_UNPACK).toBe(8);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_REPACK).toBe(8);
+  });
+
+  it('builds CARGO_STATE snapshots', () => {
+    const state = makeCargoState(
+      'ship',
+      [{ goodId: 'scrap', qty: 5 }],
+      { 'pawn:u1': 'c1' },
+      45,
+      1300
+    );
+    expect(state.type).toBe('CARGO_STATE');
+    expect(state.v).toBe(PROTOCOL_VERSION);
+    expect(state.secured).toEqual([{ goodId: 'scrap', qty: 5 }]);
   });
 
   it('builds NAV_STATE snapshots', () => {

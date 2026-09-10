@@ -24,9 +24,18 @@ type SendIntent = (intent: ClientIntent) => void;
 type Snapshot = SnapshotBroadcast | null;
 type Offer = HireOfferBroadcast | null;
 
-export type GameplayAction = 'use' | 'talk' | 'hire' | 'seal' | 'fire' | 'reload';
+export type GameplayAction =
+  | 'use'
+  | 'talk'
+  | 'hire'
+  | 'seal'
+  | 'fire'
+  | 'reload'
+  | 'cargo'
+  | 'drop'
+  | 'unpack';
 
-export type ConsoleKind = 'reactor_console' | 'engine_console' | 'nav_console';
+export type ConsoleKind = 'reactor_console' | 'engine_console' | 'nav_console' | 'cargo';
 
 /** Fixture kinds that open a console panel instead of firing a one-shot intent. */
 export function consoleKindOf(target: InteractTarget | null): ConsoleKind | null {
@@ -47,6 +56,9 @@ export function actionKeyFor(key: string, hasOffer: boolean): GameplayAction | n
   if (key === 't') return 'seal';
   if (key === 'f') return 'fire';
   if (key === 'r') return 'reload';
+  if (key === 'c') return 'cargo';
+  if (key === 'g') return 'drop';
+  if (key === 'u') return 'unpack';
   return null;
 }
 
@@ -135,6 +147,9 @@ function resolveUseTarget(
     at,
     facing,
     blockers: sightBlockers(statics, frameId, snapshot.portals),
+    crates: (snapshot.crates ?? [])
+      .filter((crate) => crate.where !== 'carriedBy')
+      .map((crate) => ({ id: crate.id, x: crate.x, y: crate.y, frameId: crate.frameId })),
   });
 }
 

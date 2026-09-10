@@ -108,6 +108,20 @@ export interface SnapshotFrame {
   readonly angle: number;
 }
 
+export type CrateWhere = 'bayFloor' | 'carriedBy' | 'shipFloor';
+
+export interface CrateSnapshot {
+  readonly id: string;
+  readonly goodId: string;
+  readonly qty: number;
+  readonly where: CrateWhere;
+  readonly frameId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+  readonly carrierId?: string;
+}
+
 export interface SnapshotBroadcast {
   readonly type: 'SNAPSHOT';
   readonly v: 2;
@@ -122,6 +136,8 @@ export interface SnapshotBroadcast {
   readonly fixtures?: readonly FixtureSnapshot[];
   /** Persistent scorch decals (server LRU, oldest first). Absent on pre-decal senders. */
   readonly decals?: readonly ScorchDecal[];
+  /** Physical cargo crates (complete table, 10Hz). Absent on pre-cargo senders. */
+  readonly crates?: readonly CrateSnapshot[];
   /** True when portals/frames are complete. Absent on pre-delta senders. */
   readonly full?: boolean;
   /** FNV-1a digest of portal id+state; clients memoize colliders on it. */
@@ -156,6 +172,8 @@ export interface SnapshotDeltaBroadcast {
   readonly fixtures?: readonly FixtureSnapshot[];
   /** Complete decal table when changed; clients replace on newer tick. */
   readonly decals?: readonly ScorchDecal[];
+  /** Complete crate table (every delta; small N). Absent on pre-cargo senders. */
+  readonly crates?: readonly CrateSnapshot[];
 }
 
 export interface AirFlow {

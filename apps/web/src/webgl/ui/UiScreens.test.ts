@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   customizeOptionCounts,
   defaultCustomizeSelection,
+  layoutCargoScreen,
   layoutCustomizeField,
   layoutCustomizeScreen,
   layoutDeathScreen,
@@ -282,6 +283,24 @@ describe('uiScreenButtonIds', () => {
     expect(layoutEngineScreen(W, H, sys).buttons.map((b) => b.id)).toEqual([
       ...uiScreenButtonIds('engine'),
     ]);
+  });
+
+  it('cargo respects topClearance and seals secured goods', () => {
+    const m = uiVisorMargins(W, H);
+    const layout = layoutCargoScreen(W, H, {
+      carryingLabel: 'Hands: empty',
+      floorLabel: 'Floor: scrap x3',
+      securedLabel: 'Hold: scrap x5',
+      hint: 'E picks up',
+      canUnpack: true,
+      handsFull: false,
+      seal: [{ goodId: 'scrap', qty: 5 }],
+    });
+    expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
+    expect(layout.buttons.map((b) => b.id)).toContain('close');
+    expect(layout.buttons.map((b) => b.id)).toContain('seal:scrap');
+    expectContained(layout.panel, layout.buttons);
+    expectNoOverlap(layout.buttons);
   });
 
   it('matches nav and settings ready layouts', () => {

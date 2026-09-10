@@ -27,6 +27,7 @@ import {
   type AirAuthorityState,
   type AtmosRoom,
   bindWorldAir,
+  buildCargoState,
   buildHireOffer,
   buildManifest,
   buildNavState,
@@ -576,6 +577,7 @@ export class HarborDaemon {
       if (systems !== undefined) this.sendAll(systems);
       const nav = buildNavState(world, vesselId, nowMs);
       if (nav !== undefined) this.sendAll(nav);
+      this.sendAll(buildCargoState(world, vesselId, nowMs));
     }
   }
 

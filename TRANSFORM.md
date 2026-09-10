@@ -123,15 +123,24 @@ Locked answers: 2 hubs, engine tiers buy speed/efficiency (not access) · 2–3 
 
 **Goal:** cargo is bodies in space, not just numbers.
 
-- **sim-core `ship/cargo.ts`:**
-  - `Crate { id, goodId, qty, where: bayFloor | carriedBy | rackId, pos }`. One carried crate per pawn (slows movement ~25%), N rack slots per hull (starter skiff: 4–6). `pickup/drop/deposit/withdraw` pure functions with room/fixture adjacency + LOS-agnostic range check.
-  - Movement integration: carrying modifies `speed` in `movement.ts`; drop on death/incap.
-  - Vitest: pickup→carry→rack→withdraw→bay round-trip, double-pickup reject, full-rack reject, carry speed penalty, drop-on-death.
-- **Protocol:** `CARGO_PICKUP {crateId}`, `CARGO_DROP {}`, `CARGO_RACK {rackId}` (+ `seq`). `CARGO_STATE` in `SNAPSHOT` (crate pos/rack occupancy) at `10Hz` so renderer interpolates.
-- **Server:** server-side adjacency + ownership check (can't grab another player's crate — trivially true in solo, but enforce it for future multi-ship).
-- **Web:** `[E] Pick up / Set down / Stow` prompts via existing `interactTarget.ts` + `fixtureAction.ts`; carried crate rendered from `Clutter.ts` crate bit promoted to real entity (visual reuse, logic new). Rack occupancy UI in cargo nook.
+Locked answers (grill 2026-09-10): no racks in slice one (floor-drop + unpack to secured counts) · checkout packing mini-game with free-place physics, bad pack = more crates · hands-full (carrying blocks ALL fixtures) · shipFloor + carried travel, bayFloor stays · no floor cap for slice one.
 
-**Done when:** every unit bought/sold (M5) must be physically carried at least once to count as secured/delivered.
+- **sim-core `ship/cargo.ts` (pure, zero-DOM):**
+  - `Crate { id, goodId, qty, where: bayFloor | carriedBy | shipFloor, pos }`. No `rackId` in slice one — crates just sit on ship room floors (`shipFloor + pos`). Racks return only if floor-drop proves unworkable.
+  - `pickup / drop / unpack / repack` pure functions with room/fixture adjacency + LOS-agnostic range check. `unpack(crateIds)` converts `shipFloor` crates → `ShipRecord.cargo[]` secured counts; `repack(goodId, qty)` converts secured counts → a new packed crate. Secured cargo rides transit as data; unsecured crates never count as wealth.
+  - Movement integration: one carried crate per pawn, `speed × 0.75` in `movement.ts`; the crate rides at the pawn's hands (`HAND_REACH_PX = 22` ahead along facing, synced every tick, `tickCargo` keeps the synced hold) and `G` drops it exactly where it visually is. Crates carry an `angle`: orthogonal-snapped on grab, tracks live facing while carried, stamped on drop, rendered rotated. Drop on death/incap, landing crate nudged to nearest free tile so it can never seal a console/door. Floor crates get small collision circles + push-aside so N crates can't wall off the reactor.
+  - Hands-full rule: while `carriedBy` is set, ALL fixture interactions reject (`hands-full`) — reactor, engine, nav, market, airlock. Must `CARGO_DROP` (instant, no mini-game) to free hands. Server enforces; client greys `[E]` prompts.
+  - No floor cap in slice one (explicit risk, see below). Stacking 50 crates is allowed; perf/UX pain is the signal to add a cap.
+  - Vitest: pickup→carry→shipFloor→unpack→repack→bay round-trip, double-pickup reject, hands-full console reject, carry speed penalty, drop-on-death + fixture-nudge, zero-dt/no-NaN.
+- **Packing mini-games (web-only, server trusts counts only):**
+  - Checkout pack screen: 2D side-view, free-place physics with AABB overlap reject — drag goods rects into crate rect(s). Bad packing wastes space and spawns extra crates to haul; skilled packing halves trips. One-click auto-pack fallback required (a11y + anti-softlock).
+  - Unpack / re-pack aboard: analogous side-view (hold-to-transfer v1 acceptable). Puzzle is cosmetic yield optimizer over `qty → crateCount` math; sim-core/server validate only `goodId/qty/crateCount`, never placement. Keeps core simulation 100% pure TS per `AGENTS.md §1`.
+- **Transit:** `shipFloor + carriedBy` travel with the vessel; `bayFloor` crates stay at the origin hub frame and persist there until the player returns. No teleport hauling.
+- **Protocol:** `CARGO_PICKUP {seq, crateId}`, `CARGO_DROP {seq}`, `CARGO_UNPACK {seq, crateIds}`, `CARGO_REPACK {seq, goodId, qty}` — rate-limit `8Hz`. `CARGO_STATE` in `SNAPSHOT` (crate pos/floor occupancy) at `10Hz` so renderer interpolates. No `CARGO_RACK` in slice one.
+- **Server:** server-side adjacency + ownership check (can't grab another player's crate — trivially true in solo, but enforce it for future multi-ship) + hands-full fixture gate + `qty/crateCount` re-validation (never trust client packing).
+- **Web:** `[E] Pick up / Set down` prompts via existing `interactTarget.ts` + `fixtureAction.ts`; carried crate rendered from `Clutter.ts` crate bit promoted to real entity (visual reuse, logic new). Crate-pile rendering in ship rooms; unpack/re-pack panels in cargo nook; `hold full` notice reserved for the future cap.
+
+**Done when:** every unit bought/sold (M5) must be physically carried at least once (buy-leg haul + sell-leg re-pack haul) to count as secured/delivered.
 
 ---
 
@@ -139,16 +148,20 @@ Locked answers: 2 hubs, engine tiers buy speed/efficiency (not access) · 2–3 
 
 **Goal:** buy low, haul, sell high, eat/drink/breathe.
 
-- **sim-core `ship/market.ts`:**
-  - Fixed catalog v1: e.g. `rations, water, o2_cells, fuel_cells, scrap, meds` with per-hub `buyPrice/sellPrice/stock`. No dynamic pricing in MVP (tune after loop is fun).
-  - Transaction model (two-layer): `BUY → crate spawns on hub bay floor + credits decrement + logical reserve`; `haul to rack → secured`; `haul back to bay + SELL → credits increment`. Unsecured crates don't count as wealth (prevents buy-sell teleport profit).
-  - `stores` consumption: `fuel_cells` per leg, `rations/water/o2` per transit-minute + vitals drain (`survival.ts` already ticks hunger/thirst/hypoxia — feed it from `stores`, don't fork it).
-  - Vitest: buy without funds reject, out-of-stock reject, sell requires physical bay presence, fuel-short blocks `plotCourse`, starvation path still kills via existing vitals.
-- **Protocol:** `MARKET_BUY {hubId, goodId, qty}`, `MARKET_SELL {hubId, crateId}`, `MARKET_STATE {listings[]}` at `2Hz` when docked. Reuse `VITALS` channel for `credits/stores`.
-- **Server:** per-hub stock ledger (in-memory; persist with ship record later). Validate funds/stock server-side.
-- **Web:** market panel at `market_stall` fixture (buy/sell buttons, prices, stock, credits), stores readout in visor vitals block. No charts in MVP.
+Locked answers (grill 2026-09-10): 6-good catalog · mirror-pair ~30% spread, fuel flat · 50 stock +1/min · strict fuel, gentle food.
 
-**Done when:** full loop pays: `buy → haul → transit → haul → sell` nets profit after fuel + food, twice, without debug intents.
+- **sim-core `ship/market.ts` (pure):**
+  - Fixed catalog v1 (locked): `rations, water, o2_cells, fuel_cells, scrap, meds` with per-hub `buyPrice/sellPrice/stock`. No dynamic pricing in MVP (tune after loop is fun).
+  - Starter price table (~30% cross-hub spread, mirror pair so both directions pay; fuel is overhead, not arbitrage): HUB_A cheap scrap (`buy 10 → sell 13 @B`), HUB_B cheap meds (`buy 10 → sell 13 @A`); `rations 5↔7, water 4↔6, o2 6↔8`; `fuel_cells 12` flat at both hubs. Full-hold nets ~20–30cr/leg after fuel + food → T1 upgrade in ~4–6 legs.
+  - Transaction model (two-layer + pack/unpack): `BUY → credits decrement + logical reserve → pack mini-game → crates spawn on hub bay floor`; `haul to ship → drop to shipFloor → UNPACK → secured `cargo[]``; aboard `REPACK → haul to dest bay floor + SELL → credits increment`. Unsecured crates don't count as wealth (prevents buy-sell teleport profit). Selling from secured counts directly is rejected — re-pack + physical haul is mandatory.
+  - `stores` consumption (strict fuel, gentle food): `fuel_cells` 1/leg base (2nd if `tune < 0.4`); 0 fuel hard-blocks `plotCourse`. `rations/water/o2` drain per transit-minute + vitals drain (`survival.ts` already ticks hunger/thirst/hypoxia — feed it from `stores`, don't fork it): one leg never starves you, two back-to-back legs without stocking might. Unpacking `rations/water/o2/fuel` may feed `stores` directly as a convenience; `scrap/meds` stay as `cargo[]` counts.
+  - Stock ledger: 50 units per good per hub, `+1/min` restock (clamped). Generous — stock-outs only after heavy farming.
+  - Vitest: buy without funds reject, out-of-stock reject, sell requires physical bay-floor crate presence (reject secured-counts sell), sell another player's crate reject, fuel-short blocks `plotCourse`, starvation path still kills via existing vitals, restock clamp math.
+- **Protocol:** `MARKET_BUY {seq, hubId, goodId, qty}`, `MARKET_SELL {seq, hubId, crateId}`, `MARKET_STATE {listings[]}` at `2Hz` when docked. Hands-full applies: must set crate down to use `market_stall`. Reuse `VITALS` channel for `credits/stores`.
+- **Server:** per-hub stock ledger (in-memory; persist with ship record later). Validate funds/stock/presence server-side; re-validate pack counts on buy.
+- **Web:** market panel at `market_stall` fixture (buy/sell buttons, prices, stock, credits, pack-screen entry), stores readout in visor vitals block. No charts in MVP.
+
+**Done when:** full loop pays: `buy → pack → haul → unpack → transit → repack → haul → sell` nets profit after fuel + food, twice, without debug intents.
 
 ---
 

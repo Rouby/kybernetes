@@ -45,10 +45,21 @@ export type UiScreenId =
   | 'reactor'
   | 'engine'
   | 'nav'
+  | 'cargo'
   | 'pause'
   | 'death'
   | 'gameover'
   | 'settings';
+
+export interface CargoScreenModel {
+  readonly carryingLabel: string;
+  readonly floorLabel: string;
+  readonly securedLabel: string;
+  readonly hint: string;
+  readonly canUnpack: boolean;
+  readonly handsFull: boolean;
+  readonly seal: readonly { readonly goodId: string; readonly qty: number }[];
+}
 
 export interface UiScreenLayout {
   readonly panel: UiRect;
@@ -542,6 +553,65 @@ export function layoutNavScreen(
   return { panel, texts, buttons: navButtonsFor(panel, nav, systems, status) };
 }
 
+function cargoPanelFor(w: number, h: number): UiRect {
+  return visorPanelFor(w, h, 440, 500);
+}
+
+function cargoTextsFor(panel: UiRect, model: CargoScreenModel): readonly UiText[] {
+  const tx = panel.x + PAD;
+  const innerW = panel.w - PAD * 2;
+  const y0 = panel.y + PAD;
+  return [
+    textAt('CARGO // HOLD', tx, y0, KICKER_SIZE, 'dim'),
+    textAt(
+      uiEllipsize(model.carryingLabel, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8,
+      BODY_SIZE,
+      'primary'
+    ),
+    textAt(
+      uiEllipsize(model.floorLabel, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H,
+      BODY_SIZE,
+      'primary'
+    ),
+    textAt(
+      uiEllipsize(model.securedLabel, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * 2,
+      BODY_SIZE,
+      'muted'
+    ),
+    textAt(
+      uiEllipsize(model.hint, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * 3,
+      BODY_SIZE,
+      'muted'
+    ),
+  ];
+}
+
+function cargoButtonsFor(panel: UiRect, model: CargoScreenModel): readonly UiButton[] {
+  const ids = ['unpackAll', 'drop', ...model.seal.map((line) => `seal:${line.goodId}`), 'close'];
+  const labels: Record<string, string> = {
+    unpackAll: 'UNPACK FLOOR',
+    drop: 'SET DOWN [G]',
+    close: 'CLOSE [C]',
+  };
+  for (const line of model.seal)
+    labels[`seal:${line.goodId}`] = `SEAL ${line.goodId.toUpperCase()} x${line.qty}`;
+  const top = panel.y + panel.h - PAD - (ids.length * BTN_H + (ids.length - 1) * GAP);
+  return columnFor(panel, top, ids, labels, model.canUnpack ? 'unpackAll' : undefined);
+}
+
+export function layoutCargoScreen(w: number, h: number, model: CargoScreenModel): UiScreenLayout {
+  const panel = cargoPanelFor(w, h);
+  return { panel, texts: cargoTextsFor(panel, model), buttons: cargoButtonsFor(panel, model) };
+}
+
 function settingsPanelFor(w: number, h: number): UiRect {
   return centerPanelFor(w, h, 400, 320);
 }
@@ -603,6 +673,7 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   reactor: ['rodsDown', 'rodsUp', 'coolantDown', 'coolantUp', 'restart', 'close'],
   engine: ['spool', 'tuneDown', 'tuneUp', 'close'],
   nav: ['plot', 'cancel', 'distress', 'close'],
+  cargo: ['unpackAll', 'drop', 'close'],
   pause: ['resume', 'restart', 'quit', 'audio'],
   death: ['restart', 'quit'],
   gameover: ['restart'],

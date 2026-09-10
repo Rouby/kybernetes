@@ -153,6 +153,65 @@ describe('nav console intents', () => {
   });
 });
 
+describe('cargo hauling intents (M4)', () => {
+  async function bayWorld() {
+    const core = await import('@kybernetes/sim-core');
+    let world = core.buildSoloShipWorld();
+    world = core.spawnPawn(world, {
+      id: 'pawn:haul',
+      owner: 'u1',
+      frameId: 'station',
+      roomId: 'station.frachthalle',
+      x: 430,
+      y: 410,
+      color: '#fff',
+    });
+    return world;
+  }
+
+  it('picks up a seeded bay crate and blocks consoles while carrying', async () => {
+    const world = await bayWorld();
+    const picked = routeIntent(
+      world,
+      'pawn:haul',
+      { type: 'CARGO_PICKUP', seq: 1, crateId: 'bay:scrap-a' },
+      []
+    );
+    expect(picked.notice).toBe('CARGO_ok');
+    const blocked = routeIntent(
+      picked.world,
+      'pawn:haul',
+      { type: 'ENGINE_TUNE', seq: 2, spoolCmd: 1 },
+      []
+    );
+    expect(blocked.notice).toBe('ENGINE_hands-full');
+    const dropped = routeIntent(picked.world, 'pawn:haul', { type: 'CARGO_DROP', seq: 3 }, []);
+    expect(dropped.notice).toBe('CARGO_ok');
+  });
+
+  it('rejects far pickup and empty drop', async () => {
+    const core = await import('@kybernetes/sim-core');
+    const world = core.spawnPawn(core.buildSoloShipWorld(), {
+      id: 'pawn:far',
+      owner: 'u1',
+      frameId: 'station',
+      roomId: 'station.habitat',
+      x: 160,
+      y: 100,
+      color: '#fff',
+    });
+    const far = routeIntent(
+      world,
+      'pawn:far',
+      { type: 'CARGO_PICKUP', seq: 1, crateId: 'bay:scrap-a' },
+      []
+    );
+    expect(far.notice).toBe('CARGO_too-far');
+    const empty = routeIntent(world, 'pawn:far', { type: 'CARGO_DROP', seq: 2 }, []);
+    expect(empty.notice).toBe('CARGO_not-carrying');
+  });
+});
+
 describe('living intents', () => {
   it('claims a bunk when standing next to it', async () => {
     const core = await import('@kybernetes/sim-core');

@@ -131,6 +131,12 @@ export class MovementController {
     return this.facing;
   }
 
+  /** Mouse-aim steer: the viewport owns the cursor ray, movement owns the sent facing. */
+  public setFacing(facing: number): void {
+    if (!Number.isFinite(facing)) return;
+    this.facing = facing;
+  }
+
   public toggleSeal(): void {
     this.sealed = !this.sealed;
     this.deps.sendIntent({ type: 'SUIT', seq: 0, sealed: this.sealed });

@@ -24,6 +24,7 @@ import {
   throatFlowToPx,
   updateExplorationGrid,
 } from '@kybernetes/sim-core';
+import { type CargoCrateView, renderCarriedCrates, renderFloorCrates } from './CargoMarkers';
 import { renderClutter } from './Clutter';
 import { clearFowGrid, createFowGrid, loadFowGrid, saveFowGrid } from './fowMemory';
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
@@ -120,6 +121,9 @@ export interface WebGLRenderState extends HudDrawState {
   /** Living fixtures in world coords (snapshot state, ship offset applied). */
   livingFixtures?: readonly LivingView[];
   nearestLivingId?: string | null;
+  /** Physical cargo crates in world coords (M4 floor piles + carried). */
+  cargoCrates?: readonly import('../harbor/renderState').CargoCrateView[];
+  nearestCargoId?: string | null;
 }
 
 function bareRoomId(roomA: string): string {
@@ -216,6 +220,8 @@ export interface SceneLayerData {
   readonly sentries: BoardingTacticsTelemetry['sentries'];
   readonly livingFixtures: NonNullable<WebGLRenderState['livingFixtures']>;
   readonly nearestLivingId: string | null;
+  readonly cargoCrates: NonNullable<WebGLRenderState['cargoCrates']>;
+  readonly nearestCargoId: string | null;
   readonly nearestStationId: string | undefined;
 }
 
@@ -234,6 +240,8 @@ export function resolveSceneLayers(state: WebGLRenderState): SceneLayerData {
     sentries: state.boarding?.sentries || [],
     livingFixtures: state.livingFixtures ?? [],
     nearestLivingId: state.nearestLivingId ?? null,
+    cargoCrates: state.cargoCrates ?? [],
+    nearestCargoId: state.nearestCargoId ?? null,
     nearestStationId: state.nearestStation?.id,
   };
 }
@@ -468,7 +476,9 @@ export class WebGL2Renderer {
     timeSec = 0,
     shipOffset: { x: number; y: number } = { x: 0, y: 0 },
     living: readonly LivingView[] = [],
-    nearestLivingId?: string | null
+    nearestLivingId?: string | null,
+    cargo: readonly CargoCrateView[] = [],
+    nearestCargoId?: string | null
   ): void {
     this.bindFlatProgram(matrix);
     const ctx = this.getRenderContext();
@@ -518,6 +528,18 @@ export class WebGL2Renderer {
       }
     }
     renderLivingFixtures(ctx, living, nearestLivingId, timeSec);
+    renderFloorCrates(ctx, cargo, nearestCargoId, timeSec);
+    this.gl.bindVertexArray(null);
+  }
+
+  private renderCarriedCrates(
+    matrix: Float32Array,
+    cargo: readonly CargoCrateView[],
+    timeSec = 0
+  ): void {
+    this.bindFlatProgram(matrix);
+    const ctx = this.getRenderContext();
+    renderCarriedCrates(ctx, cargo, timeSec);
     this.gl.bindVertexArray(null);
   }
 
@@ -1106,11 +1128,14 @@ export class WebGL2Renderer {
       timeSec,
       frameOffset,
       layers.livingFixtures,
-      layers.nearestLivingId
+      layers.nearestLivingId,
+      layers.cargoCrates,
+      layers.nearestCargoId
     );
 
     this.renderPawn(matrix, state.pawn, state.equippedWeapon, timeSec);
     this.renderVisibleRemotePawns(state, matrix, playerLoSPoly, timeSec);
+    this.renderCarriedCrates(matrix, layers.cargoCrates, timeSec);
     this.renderIntruders(matrix, layers.intruders, timeSec, playerLoSPoly);
     this.renderSentries(matrix, layers.sentries, timeSec, playerLoSPoly);
     this.particleSystem.renderDustMotes(

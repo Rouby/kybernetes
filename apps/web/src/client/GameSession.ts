@@ -161,7 +161,8 @@ export class GameSession {
     this.fire.reconcileNotices(state.notices);
     const movementSnap = this.movement.getSnapshot();
     const controlsSnap = this.controls.getSnapshot();
-    this.facing.current = this.movement.getFacing();
+    if (this.aimLocked.current) this.movement.setFacing(this.facing.current);
+    else this.facing.current = this.movement.getFacing();
     this.pausedFlag.current = controlsSnap.paused;
     this.shotsHolder.current = [...this.fire.getShots()];
     this.fireSignalHolder.current = this.fire.getFireSignal();
@@ -239,6 +240,9 @@ export class GameSession {
         closeConsole: () => this.consoles.closeConsole(),
       },
       navState: state.navState,
+      snapshot: state.snapshot,
+      pawnId: state.pawnId,
+      cargoState: state.cargoState,
       shipStatus: state.shipStatus,
       sendIntent: (intent: ClientIntent) => this.controls.sendPlayIntent(intent),
       togglePause: () => this.controls.togglePause(),

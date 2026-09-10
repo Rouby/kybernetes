@@ -107,6 +107,27 @@ function engineTuneIntent(id: string, systems: ShipSystemsBroadcast): ClientInte
   return { type: 'ENGINE_TUNE', seq: 0, spoolCmd: systems.spool > 0.5 ? 1 : 0, tuneSet };
 }
 
+export interface CargoConsoleStock {
+  readonly unpackIds: readonly string[];
+  readonly seal: Readonly<Record<string, number>>;
+}
+
+/** Mirror of the cargo hold panel. Null = unknown id or nothing to seal. */
+export function cargoConsoleIntent(id: string, stock: CargoConsoleStock): ClientIntent | null {
+  if (id === 'drop') return { type: 'CARGO_DROP', seq: 0 };
+  if (id === 'unpackAll') {
+    if (stock.unpackIds.length === 0) return null;
+    return { type: 'CARGO_UNPACK', seq: 0, crateIds: [...stock.unpackIds] };
+  }
+  if (id.startsWith('seal:')) {
+    const goodId = id.slice('seal:'.length);
+    const have = stock.seal[goodId] ?? 0;
+    if (goodId.length === 0 || !(have >= 1)) return null;
+    return { type: 'CARGO_REPACK', seq: 0, goodId, qty: Math.min(10, Math.floor(have)) };
+  }
+  return null;
+}
+
 /** Mirror of NavConsole plot/cancel/distress (ShipConsolePanel). Null = unknown id. */
 export function navConsoleIntent(
   id: string,

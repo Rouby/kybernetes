@@ -34,6 +34,7 @@ export * from './world/ship/cargo';
 export * from './world/ship/engine';
 export * from './world/ship/market';
 export * from './world/ship/navTransit';
+export * from './world/ship/packGame';
 export * from './world/ship/reactor';
 export * from './world/ship/shipRecord';
 export * from './world/ship/systems';

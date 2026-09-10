@@ -22,6 +22,7 @@ import {
   updateRoomHint,
 } from './movement.js';
 import { tickSchedule } from './schedule.js';
+import { speedMultiplierFor, tickCargo } from './ship/cargo.js';
 import { tickShipSystems } from './ship/systems.js';
 import { tickSurvival } from './survival.js';
 import { FIXED_DT, type PawnBody, type World } from './types.js';
@@ -45,12 +46,14 @@ export function tickWorld(
   if (dt === 0) return world;
   const botted = tickBots(world);
   const moved = stepMovement(botted.world, dt, [...inputs, ...botted.inputs]);
-  const shipped = tickShipSystems(moved, dt);
+  const carried = tickCargo(moved);
+  const shipped = tickShipSystems(carried, dt);
   const crossed = stepCrossFrame(shipped);
   const scheduled = tickSchedule(crossed, dt);
   const watched = tickWatches(scheduled, dt);
   const survived = tickSurvival(watched, dt);
-  const lived = tickLiving(survived, dt);
+  const dropped = tickCargo(survived);
+  const lived = tickLiving(dropped, dt);
   const shot = tickProjectiles(lived, dt);
   const cooled = tickSpread(tickImpacts(shot), dt);
   const framed = stepFrames(cooled, dt);
@@ -90,8 +93,9 @@ function stepPawn(
   input: WorldInput | undefined,
   dt: number
 ): PawnBody {
+  const mult = speedMultiplierFor(world.cargo, pawn.id);
   const accel = inputToAccel({
-    moveVec: { x: input?.moveX ?? 0, y: input?.moveY ?? 0 },
+    moveVec: { x: (input?.moveX ?? 0) * mult, y: (input?.moveY ?? 0) * mult },
     sprint: input?.sprint ?? false,
   });
   const vel = integratePawnVelocity(pawn, accel, dt);

@@ -45,9 +45,20 @@ export interface SightSeg {
   readonly y2: number;
 }
 
+export interface CrateSpot {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly frameId: string;
+}
+
 export type InteractTarget =
   | { readonly kind: 'fixture'; readonly contact: FixtureContact }
-  | { readonly kind: 'door'; readonly id: string; readonly open: boolean; readonly dist: number };
+  | { readonly kind: 'door'; readonly id: string; readonly open: boolean; readonly dist: number }
+  | { readonly kind: 'crate'; readonly id: string; readonly dist: number };
+
+/** Client reach for floor crates (server allows more; tight keeps corners honest). */
+const CRATE_USE_RADIUS_PX = 110;
 
 const DOCK_GATES = new Set<string>(dockGateIds());
 
@@ -115,6 +126,7 @@ export function selectInteractTarget(args: {
   facing: number;
   cursor?: { x: number; y: number } | null;
   blockers?: readonly SightSeg[];
+  crates?: readonly CrateSpot[];
 }): InteractTarget | null {
   const blockers = args.blockers ?? [];
   let best: InteractTarget | null = null;
@@ -139,6 +151,22 @@ export function selectInteractTarget(args: {
     if (contact.dist > FIXTURE_USE_RADIUS_PX) continue;
     consider(contact.dist, contact.x, contact.y, () => ({ kind: 'fixture', contact }));
   }
+  considerDoors(args, consider);
+  considerCrates(args, consider);
+  return best;
+}
+
+type Consider = (dist: number, x: number, y: number, make: () => InteractTarget) => void;
+
+interface ContestArgs {
+  readonly doors: readonly DoorSpot[];
+  readonly openById: ReadonlyMap<string, boolean>;
+  readonly frameId: string;
+  readonly at: { x: number; y: number };
+  readonly crates?: readonly CrateSpot[];
+}
+
+function considerDoors(args: ContestArgs, consider: Consider): void {
   for (const door of args.doors) {
     const dist = Math.hypot(door.x - args.at.x, door.y - args.at.y);
     if (dist > DOOR_USE_RADIUS_PX) continue;
@@ -149,7 +177,15 @@ export function selectInteractTarget(args: {
       dist,
     }));
   }
-  return best;
+}
+
+function considerCrates(args: ContestArgs, consider: Consider): void {
+  for (const crate of args.crates ?? []) {
+    if (crate.frameId !== args.frameId) continue;
+    const dist = Math.hypot(crate.x - args.at.x, crate.y - args.at.y);
+    if (dist > CRATE_USE_RADIUS_PX) continue;
+    consider(dist, crate.x, crate.y, () => ({ kind: 'crate', id: crate.id, dist }));
+  }
 }
 
 function scoreFor(
@@ -179,12 +215,20 @@ function normAngle(angle: number): number {
 
 /** Intent the [E] key sends for the selected target. */
 export function targetIntent(target: InteractTarget): ClientIntent {
+  if (target.kind === 'crate') return { type: 'CARGO_PICKUP', seq: 0, crateId: target.id };
   if (target.kind === 'fixture') return fixtureUseIntent(target.contact);
   return { type: 'DOOR', seq: 0, portalId: target.id, wantOpen: !target.open };
 }
 
+/** Hands-full aware prompt: carriers must set the crate down first. */
+export function targetPromptWithCarry(target: InteractTarget, carrying: boolean): string {
+  if (carrying && target.kind === 'fixture') return 'Set down first (hands full)';
+  return targetPrompt(target);
+}
+
 /** Short HUD action name for the [E] prompt. */
 export function targetPrompt(target: InteractTarget): string {
+  if (target.kind === 'crate') return 'Pick up crate';
   if (target.kind === 'fixture') return fixturePrompt(target.contact);
   return target.open ? 'Close door' : 'Open door';
 }

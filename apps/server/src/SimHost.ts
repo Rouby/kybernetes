@@ -142,6 +142,10 @@ const KERNEL_INTENT_TYPES: ReadonlySet<string> = new Set([
   'ENGINE_TUNE',
   'NAV_PLOT',
   'NAV_CANCEL',
+  'CARGO_PICKUP',
+  'CARGO_DROP',
+  'CARGO_UNPACK',
+  'CARGO_REPACK',
 ]);
 
 interface HostObserver {

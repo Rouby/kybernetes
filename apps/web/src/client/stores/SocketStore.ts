@@ -8,6 +8,7 @@
  */
 
 import type {
+  CargoStateBroadcast,
   ClientIntent,
   DeathBroadcast,
   DockStatusBroadcast,
@@ -64,6 +65,7 @@ export interface SocketStoreState {
   readonly shipStatus: ShipStatusBroadcast | null;
   readonly shipLost: ShipLostBroadcast | null;
   readonly navState: NavStateBroadcast | null;
+  readonly cargoState: CargoStateBroadcast | null;
 }
 
 export type SocketListener = (state: SocketStoreState) => void;
@@ -98,6 +100,7 @@ function initialState(): SocketStoreState {
     shipStatus: null,
     shipLost: null,
     navState: null,
+    cargoState: null,
   };
 }
 
@@ -183,6 +186,7 @@ export function createSocketStore(identity: HarborIdentity, factory?: SocketFact
         });
       },
       setNavState: (navState) => patch({ navState }),
+      setCargoState: (cargoState) => patch({ cargoState }),
     };
   }
 

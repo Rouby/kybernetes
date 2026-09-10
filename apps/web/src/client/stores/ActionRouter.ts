@@ -78,6 +78,9 @@ const ACTION_HANDLERS: Record<GameplayAction, ActionHandler> = {
   seal: (wiring) => wiring.toggleSeal(),
   fire: (wiring) => wiring.pressFireStart(),
   reload: pressReload,
+  cargo: (wiring) => wiring.onConsole('cargo'),
+  drop: pressDrop,
+  unpack: pressUnpack,
 };
 
 function dispatchAction(action: GameplayAction | null, wiring: ActionWiring): void {
@@ -161,6 +164,9 @@ function resolveUseTarget(
     at,
     facing: wiring.getFacing(),
     blockers: sightBlockers(wiring.statics, frameId, snapshot.portals),
+    crates: (snapshot.crates ?? [])
+      .filter((crate) => crate.where !== 'carriedBy')
+      .map((crate) => ({ id: crate.id, x: crate.x, y: crate.y, frameId: crate.frameId })),
   });
 }
 
@@ -169,6 +175,25 @@ function playUseSound(intentType: string, at: { x: number; y: number }): void {
   if (intentType === 'REPAIR') engine.playDoorToggle(at.x, at.y, true);
   else if (intentType === 'CLAIM') engine.playUiClick();
   else engine.playStationInteract();
+}
+
+function pressDrop(wiring: ActionWiring): void {
+  wiring.sendIntent({ type: 'CARGO_DROP', seq: 0 });
+  ShipAudioEngine.getInstance().playUiClick();
+}
+
+function pressUnpack(wiring: ActionWiring): void {
+  const snapshot = wiring.getSnapshot();
+  const pawnId = wiring.getPawnId();
+  if (snapshot === null || pawnId === null) return;
+  const pawn = snapshot.pawns.find((entry) => entry.id === pawnId);
+  if (pawn === undefined) return;
+  const crateIds = (snapshot.crates ?? [])
+    .filter((crate) => crate.where === 'shipFloor' && crate.frameId === pawn.frameId)
+    .map((crate) => crate.id);
+  if (crateIds.length === 0) return;
+  wiring.sendIntent({ type: 'CARGO_UNPACK', seq: 0, crateIds });
+  ShipAudioEngine.getInstance().playUiClick();
 }
 
 function pressTalk(wiring: ActionWiring): void {

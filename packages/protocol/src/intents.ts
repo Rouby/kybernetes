@@ -178,6 +178,30 @@ export interface DistressIntent {
   readonly seq: number;
 }
 
+export interface CargoPickupIntent {
+  readonly type: 'CARGO_PICKUP';
+  readonly seq: number;
+  readonly crateId: string;
+}
+
+export interface CargoDropIntent {
+  readonly type: 'CARGO_DROP';
+  readonly seq: number;
+}
+
+export interface CargoUnpackIntent {
+  readonly type: 'CARGO_UNPACK';
+  readonly seq: number;
+  readonly crateIds: readonly string[];
+}
+
+export interface CargoRepackIntent {
+  readonly type: 'CARGO_REPACK';
+  readonly seq: number;
+  readonly goodId: string;
+  readonly qty: number;
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
@@ -205,7 +229,11 @@ export type ClientIntent =
   | EngineTuneIntent
   | NavPlotIntent
   | NavCancelIntent
-  | DistressIntent;
+  | DistressIntent
+  | CargoPickupIntent
+  | CargoDropIntent
+  | CargoUnpackIntent
+  | CargoRepackIntent;
 
 export type ClientIntentType = ClientIntent['type'];
 
@@ -237,4 +265,8 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'NAV_PLOT',
   'NAV_CANCEL',
   'DISTRESS',
+  'CARGO_PICKUP',
+  'CARGO_DROP',
+  'CARGO_UNPACK',
+  'CARGO_REPACK',
 ] as const;

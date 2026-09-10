@@ -14,8 +14,13 @@ export interface LivingView {
   readonly levelPct?: number;
 }
 
-function setColor(ctx: RenderContext, r: number, g: number, b: number, a = 1.0): void {
+/** Shared flat-program tint (M4 cargo markers reuse it; keep color helpers here). */
+export function setFlatColor(ctx: RenderContext, r: number, g: number, b: number, a = 1.0): void {
   ctx.gl.uniform4f(ctx.gl.getUniformLocation(ctx.flatProg, 'u_color'), r, g, b, a);
+}
+
+function setColor(ctx: RenderContext, r: number, g: number, b: number, a = 1.0): void {
+  setFlatColor(ctx, r, g, b, a);
 }
 
 function drawProgressBar(ctx: RenderContext, x: number, y: number, w: number, pct: number): void {
