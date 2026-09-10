@@ -143,6 +143,41 @@ export interface SpawnAboardIntent {
   readonly userId?: string;
 }
 
+export interface ReactorTuneIntent {
+  readonly type: 'REACTOR_TUNE';
+  readonly seq: number;
+  readonly rodsDelta: number;
+  readonly coolantDelta: number;
+}
+
+export interface ReactorRestartIntent {
+  readonly type: 'REACTOR_RESTART';
+  readonly seq: number;
+}
+
+export interface EngineTuneIntent {
+  readonly type: 'ENGINE_TUNE';
+  readonly seq: number;
+  readonly spoolCmd: 0 | 1;
+  readonly tuneSet?: number;
+}
+
+export interface NavPlotIntent {
+  readonly type: 'NAV_PLOT';
+  readonly seq: number;
+  readonly destHubId: string;
+}
+
+export interface NavCancelIntent {
+  readonly type: 'NAV_CANCEL';
+  readonly seq: number;
+}
+
+export interface DistressIntent {
+  readonly type: 'DISTRESS';
+  readonly seq: number;
+}
+
 export type ClientIntent =
   | HelloIntent
   | JoinBeaconIntent
@@ -164,7 +199,13 @@ export type ClientIntent =
   | RecycleIntent
   | RepairIntent
   | RestartIntent
-  | SpawnAboardIntent;
+  | SpawnAboardIntent
+  | ReactorTuneIntent
+  | ReactorRestartIntent
+  | EngineTuneIntent
+  | NavPlotIntent
+  | NavCancelIntent
+  | DistressIntent;
 
 export type ClientIntentType = ClientIntent['type'];
 
@@ -190,4 +231,10 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'REPAIR',
   'RESTART',
   'SPAWN_ABOARD',
+  'REACTOR_TUNE',
+  'REACTOR_RESTART',
+  'ENGINE_TUNE',
+  'NAV_PLOT',
+  'NAV_CANCEL',
+  'DISTRESS',
 ] as const;

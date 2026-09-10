@@ -1,6 +1,6 @@
-import type { FixtureSnapshot } from '@kybernetes/protocol';
+import type { FixtureKind, FixtureSnapshot } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
-import { fixturePrompt, fixtureUseIntent, scanFixtures } from './fixtureAction';
+import { fixturePrompt, fixtureUseIntent, scanFixtures, servicePrompt } from './fixtureAction';
 
 function snap(over: Partial<FixtureSnapshot> & { id: string }): FixtureSnapshot {
   return {
@@ -86,6 +86,60 @@ describe('fixtureUseIntent', () => {
       if (found === null) throw new Error('missing ' + kind);
       expect(fixtureUseIntent(found).type).toBe(want.type);
     }
+  });
+
+  it('names console prompts for the HUD', () => {
+    const reactor = scanFixtures(
+      [snap({ id: 'ship.reactor_console', kind: 'reactor_console' })],
+      'ship',
+      {
+        x: 110,
+        y: 170,
+      }
+    );
+    if (reactor === null) throw new Error('reactor console missing');
+    expect(fixturePrompt(reactor)).toBe('Tune reactor');
+    const engine = scanFixtures(
+      [snap({ id: 'ship.engine_console', kind: 'engine_console' })],
+      'ship',
+      {
+        x: 110,
+        y: 170,
+      }
+    );
+    if (engine === null) throw new Error('engine console missing');
+    expect(fixturePrompt(engine)).toBe('Tune engine');
+    const nav = scanFixtures([snap({ id: 'ship.nav_console', kind: 'nav_console' })], 'ship', {
+      x: 110,
+      y: 170,
+    });
+    if (nav === null) throw new Error('nav console missing');
+    expect(fixturePrompt(nav)).toBe('Plot course');
+  });
+
+  it('names every service verb directly', () => {
+    const at = { x: 110, y: 170 };
+    const verbs: Array<[FixtureKind, string]> = [
+      ['stove', 'Cook meal'],
+      ['hydro_tray', 'Harvest greens'],
+      ['water_recycler', 'Recycle water'],
+      ['aid_cabinet', 'Bandage'],
+      ['sink', 'Drink water'],
+      ['mess_table', 'Eat meal'],
+      ['freezer', 'Check freezer'],
+      ['bar_counter', 'Order drink'],
+      ['market_stall', 'Trade'],
+      ['job_board', 'Browse contracts'],
+    ];
+    for (const [kind, want] of verbs) {
+      const found = scanFixtures([snap({ id: 'ship.' + kind, kind })], 'ship', at);
+      if (found === null) throw new Error(`missing ${kind}`);
+      expect(servicePrompt(found)).toBe(want);
+      expect(fixturePrompt(found)).toBe(want);
+    }
+    const vendor = scanFixtures([snap({ id: 'ship.vendor', kind: 'vending_wall' })], 'ship', at);
+    if (vendor === null) throw new Error('vendor missing');
+    expect(servicePrompt(vendor)).toBeUndefined();
   });
 
   it('names prompts for the HUD', () => {

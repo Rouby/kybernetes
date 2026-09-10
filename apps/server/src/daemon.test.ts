@@ -261,6 +261,14 @@ describe('HarborDaemon v2 transport', () => {
     }
     expect(pawns.map((pawn) => pawn.id).sort()).toEqual(['pawn:solo-1']);
     expect(pawns.find((pawn) => pawn.id === 'pawn:solo-1')?.frameId).toBe('ship');
+    const systems = await waitForType(ws, 'SHIP_SYSTEMS');
+    expect(systems.vesselId).toBe('ship');
+    expect(typeof systems.tempK).toBe('number');
+    const status = await waitForType(ws, 'SHIP_STATUS');
+    expect(status.shipId).toBe('ship:solo-1');
+    const nav = await waitForType(ws, 'NAV_STATE');
+    expect(nav.vesselId).toBe('ship');
+    expect(nav.phase).toBe('docked');
   });
 
   it('evicts the first socket when the same userId resumes elsewhere', async () => {

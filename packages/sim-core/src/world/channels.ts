@@ -16,8 +16,10 @@ import type {
   AirFlow,
   HireOfferBroadcast,
   ManifestBroadcast,
+  NavStateBroadcast,
   NoticeBroadcast,
   Role,
+  ShipSystemsBroadcast,
   SnapshotBroadcast,
   SnapshotDeltaBroadcast,
   SnapshotFrame,
@@ -26,11 +28,13 @@ import type {
   VitalsBroadcast,
   WatchBroadcast,
 } from '@kybernetes/protocol';
-import { digestStrings, q0, q1, q2 } from '@kybernetes/protocol';
+import { digestStrings, makeNavState, makeShipSystems, q0, q1, q2 } from '@kybernetes/protocol';
 import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
 import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
 import { deathCauseFor } from './death.js';
 import { snapshotDecalsOf } from './decals.js';
+import { engineDemandMw } from './ship/engine.js';
+import { reactorBandFor, reactorOutputMw } from './ship/reactor.js';
 import { type PawnVitals, spareRounds } from './survival.js';
 import type { PawnBody, World } from './types.js';
 import { projectGrade, type WatchState } from './watch.js';
@@ -472,6 +476,49 @@ export function buildDeath(
   const cause = deathCauseFor(world, pawnId);
   if (cause === undefined) return undefined;
   return { type: 'DEATH', v: 2, tick: world.tick, serverTimeMs: nowMs, pawnId, cause };
+}
+
+export function buildShipSystems(
+  world: World,
+  vesselId: string,
+  nowMs: number
+): ShipSystemsBroadcast | undefined {
+  const systems = world.ships[vesselId];
+  if (systems === undefined) return undefined;
+  const band = reactorBandFor(systems.reactorTier);
+  return makeShipSystems(
+    {
+      vesselId,
+      tempK: systems.reactor.tempK,
+      bandLo: band.lo,
+      bandHi: band.hi,
+      rods: systems.reactor.rods,
+      coolant: systems.reactor.coolant,
+      outputMW: systems.reactor.scrammed
+        ? 0
+        : reactorOutputMw(systems.reactor, systems.reactorTier),
+      demandMW: engineDemandMw(systems.engine.spool),
+      scrammed: systems.reactor.scrammed,
+      warned: systems.reactor.warned,
+      spool: systems.engine.spool,
+      tune: systems.engine.tune,
+      wear: systems.engine.wear,
+      brownout: systems.engine.brownout,
+      condition: systems.condition,
+    },
+    world.tick,
+    nowMs
+  );
+}
+
+export function buildNavState(
+  world: World,
+  vesselId: string,
+  nowMs: number
+): NavStateBroadcast | undefined {
+  const systems = world.ships[vesselId];
+  if (systems === undefined) return undefined;
+  return makeNavState(vesselId, systems.nav, world.tick, nowMs);
 }
 
 export function buildNotice(

@@ -76,6 +76,126 @@ export function makeShipStatus(
   };
 }
 
+export interface ShipSystemsSource {
+  readonly vesselId: string;
+  readonly tempK: number;
+  readonly bandLo: number;
+  readonly bandHi: number;
+  readonly rods: number;
+  readonly coolant: number;
+  readonly outputMW: number;
+  readonly demandMW: number;
+  readonly scrammed: boolean;
+  readonly warned: boolean;
+  readonly spool: number;
+  readonly tune: number;
+  readonly wear: number;
+  readonly brownout: boolean;
+  readonly condition: number;
+}
+
+export interface ShipSystemsBroadcast {
+  readonly type: 'SHIP_SYSTEMS';
+  readonly v: typeof PROTOCOL_VERSION;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly vesselId: string;
+  readonly tempK: number;
+  readonly bandLo: number;
+  readonly bandHi: number;
+  readonly rods: number;
+  readonly coolant: number;
+  readonly outputMW: number;
+  readonly demandMW: number;
+  readonly scrammed: boolean;
+  readonly warned: boolean;
+  readonly spool: number;
+  readonly tune: number;
+  readonly wear: number;
+  readonly brownout: boolean;
+  readonly condition: number;
+}
+
+export function makeShipSystems(
+  systems: ShipSystemsSource,
+  tick: number,
+  serverTimeMs: number
+): ShipSystemsBroadcast {
+  return {
+    type: 'SHIP_SYSTEMS',
+    v: PROTOCOL_VERSION,
+    tick,
+    serverTimeMs,
+    vesselId: systems.vesselId,
+    tempK: q1(systems.tempK),
+    bandLo: q1(systems.bandLo),
+    bandHi: q1(systems.bandHi),
+    rods: q2(systems.rods),
+    coolant: q2(systems.coolant),
+    outputMW: q1(systems.outputMW),
+    demandMW: q1(systems.demandMW),
+    scrammed: systems.scrammed,
+    warned: systems.warned,
+    spool: q2(systems.spool),
+    tune: q2(systems.tune),
+    wear: q2(systems.wear),
+    brownout: systems.brownout,
+    condition: q1(systems.condition),
+  };
+}
+
+function q1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function q2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+export interface NavStateSource {
+  readonly phase: string;
+  readonly destHubId: string | undefined;
+  readonly remainingS: number;
+  readonly legId: number;
+  readonly portHubId: string;
+  readonly flameout: boolean;
+}
+
+export interface NavStateBroadcast {
+  readonly type: 'NAV_STATE';
+  readonly v: typeof PROTOCOL_VERSION;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly vesselId: string;
+  readonly phase: string;
+  readonly destHubId: string | undefined;
+  readonly remainingS: number;
+  readonly legId: number;
+  readonly portHubId: string;
+  readonly flameout: boolean;
+}
+
+export function makeNavState(
+  vesselId: string,
+  nav: NavStateSource,
+  tick: number,
+  serverTimeMs: number
+): NavStateBroadcast {
+  return {
+    type: 'NAV_STATE',
+    v: PROTOCOL_VERSION,
+    tick,
+    serverTimeMs,
+    vesselId,
+    phase: nav.phase,
+    destHubId: nav.destHubId,
+    remainingS: q1(nav.remainingS),
+    legId: nav.legId,
+    portHubId: nav.portHubId,
+    flameout: nav.flameout,
+  };
+}
+
 export function makeShipLost(
   shipId: string,
   reason: ShipLostReason,

@@ -5,6 +5,7 @@ import {
   buildHireOffer,
   buildManifest,
   buildNotice,
+  buildShipSystems,
   buildSnapshot,
   buildSnapshotDelta,
   buildTelemetry,
@@ -29,6 +30,7 @@ import {
 } from './channels.js';
 import { hireAboard, talkToCaptain } from './crew.js';
 import { bindWorldAir, buildHarborWorld } from './scenarios.js';
+import { ensureShipSystems, restartShipReactor } from './ship/systems.js';
 import { defaultVitals } from './survival.js';
 import { tickWorld } from './tickWorld.js';
 import type { World } from './types.js';
@@ -228,6 +230,18 @@ describe('snapshot deltas and quantization', () => {
       { portalId: 'station.korridor_ost_andock', velocityMps: 0 },
     ]);
     expect(windy.flows).toEqual([{ portalId: 'station.habitat_korridor', velocityMps: 8.7 }]);
+  });
+
+  it('builds SHIP_SYSTEMS from kernel systems state', () => {
+    const { world } = liveWorld();
+    expect(buildShipSystems(world, 'ship', 1000)).toBeUndefined();
+    const ensured = restartShipReactor(ensureShipSystems(world, 'ship'), 'ship');
+    const systems = buildShipSystems(ensured, 'ship', 1000);
+    expect(systems?.type).toBe('SHIP_SYSTEMS');
+    expect(systems?.vesselId).toBe('ship');
+    expect(systems?.tick).toBe(world.tick);
+    expect(typeof systems?.tempK).toBe('number');
+    expect(systems?.bandLo).toBeLessThan(systems?.bandHi ?? 0);
   });
 
   it('resolves need vitals with nominal defaults', () => {

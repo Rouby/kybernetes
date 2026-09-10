@@ -66,9 +66,31 @@ export function buildHarborWorld(): World {
  * fixtures, but zero pawns, bots, crew, or hire offers. The player spawns
  * aboard their own ship via SPAWN_ABOARD; the hire loop never runs here.
  */
+export const HUB_B_STATION = 'hub_b';
+
+export const HUB_B_ORIGIN = { x: 0, y: 4000 };
+
+/** Second trade-hub dock: same tube geometry, carried 4000px south. */
+export const HUB_B_DOCK: DockLink = {
+  id: 'hub_b_harbor',
+  stationFrame: HUB_B_STATION,
+  stationPortal: 'hub_b.korridor_ost_andock',
+  tubePortal: 'hub_b.andock_tube_mund',
+  tubeRoom: 'hub_b.andock_tube',
+  vesselFrame: HARBOR_SHIP,
+  vesselPortal: 'ship.schiff_mund',
+  mouthWorld: {
+    x1: 1210 + HUB_B_ORIGIN.x,
+    y1: 240 + HUB_B_ORIGIN.y,
+    x2: 1210 + HUB_B_ORIGIN.x,
+    y2: 280 + HUB_B_ORIGIN.y,
+  },
+};
+
 export function buildSoloShipWorld(): World {
   let world = assembleWorld([
     { frameId: HARBOR_STATION, hull: StationHubSpec },
+    { frameId: HUB_B_STATION, hull: StationHubSpec, origin: { ...HUB_B_ORIGIN } },
     {
       frameId: HARBOR_SHIP,
       hull: HesperiaV2Spec,
@@ -84,7 +106,10 @@ export function buildSoloShipWorld(): World {
   }
   // No transit record: tickSchedule skips vessels without one, so the solo
   // ship never auto-departs. Transit returns in M3 as a player-plotted leg.
-  world = { ...world, docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK } };
+  world = {
+    ...world,
+    docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK, [HUB_B_DOCK.id]: HUB_B_DOCK },
+  };
   return ensureLivingFixtures(world);
 }
 
@@ -352,6 +377,30 @@ const LIVING_FIXTURES: ReadonlyArray<{
     x: 165,
     y: 412,
     prompt: '[E] Claim Bunk',
+  },
+  {
+    id: 'ship.reactor_console',
+    roomId: 'ship.reaktor_antrieb',
+    kind: 'reactor_console',
+    x: 110,
+    y: 480,
+    prompt: '[E] Tune Reactor',
+  },
+  {
+    id: 'ship.engine_console',
+    roomId: 'ship.reaktor_antrieb',
+    kind: 'engine_console',
+    x: 170,
+    y: 480,
+    prompt: '[E] Tune Engine',
+  },
+  {
+    id: 'ship.nav_console',
+    roomId: 'ship.bruecke',
+    kind: 'nav_console',
+    x: 100,
+    y: 65,
+    prompt: '[E] Plot Course',
   },
   {
     id: 'ship.breaker',

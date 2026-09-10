@@ -9,6 +9,7 @@ import type { AirRoomView } from './airAuthority.js';
 import type { BotSchedule } from './bots.js';
 import type { CrewRecord, HireOfferRecord } from './crew.js';
 import type { DockLink, TransitState } from './schedule.js';
+import type { ShipSystems } from './ship/systems.js';
 import type { PawnVitals } from './survival.js';
 import type { WatchState } from './watch.js';
 
@@ -212,6 +213,8 @@ export interface World {
   readonly watches: Readonly<Record<string, WatchState>>;
   /** Transit timers and legs per vessel id; phase mirrors VesselFrame.schedule. */
   readonly transit: Readonly<Record<string, TransitState>>;
+  /** Solo-ship systems (reactor/engine/nav/condition) by vessel id. */
+  readonly ships: Readonly<Record<string, ShipSystems>>;
   /** Open hire offers by offer id; consumed by HIRE. */
   readonly offers: Readonly<Record<string, HireOfferRecord>>;
   /** Named spawn points by namespaced id. */
@@ -251,6 +254,7 @@ export function createEmptyWorld(timeMs = 0): World {
     crew: {},
     watches: {},
     transit: {},
+    ships: {},
     offers: {},
     spawns: {},
     docks: {},

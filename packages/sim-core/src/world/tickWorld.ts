@@ -22,6 +22,7 @@ import {
   updateRoomHint,
 } from './movement.js';
 import { tickSchedule } from './schedule.js';
+import { tickShipSystems } from './ship/systems.js';
 import { tickSurvival } from './survival.js';
 import { FIXED_DT, type PawnBody, type World } from './types.js';
 import { tickWatches } from './watch.js';
@@ -44,7 +45,8 @@ export function tickWorld(
   if (dt === 0) return world;
   const botted = tickBots(world);
   const moved = stepMovement(botted.world, dt, [...inputs, ...botted.inputs]);
-  const crossed = stepCrossFrame(moved);
+  const shipped = tickShipSystems(moved, dt);
+  const crossed = stepCrossFrame(shipped);
   const scheduled = tickSchedule(crossed, dt);
   const watched = tickWatches(scheduled, dt);
   const survived = tickSurvival(watched, dt);

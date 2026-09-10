@@ -3,7 +3,7 @@
  * map is pure and pinned by Vitest; the effect only wires listeners.
  */
 
-import type { Role } from '@kybernetes/protocol';
+import type { FixtureKind, Role } from '@kybernetes/protocol';
 import type { World } from '@kybernetes/sim-core';
 import type { RefObject } from 'react';
 import { useEffect } from 'react';
@@ -22,6 +22,20 @@ type Snapshot = ReturnType<typeof useHarborSocket>['snapshot'];
 type Offer = ReturnType<typeof useHarborSocket>['offer'];
 
 export type GameplayAction = 'use' | 'talk' | 'hire' | 'seal' | 'fire' | 'reload';
+
+export type ConsoleKind = 'reactor_console' | 'engine_console' | 'nav_console';
+
+/** Fixture kinds that open a console panel instead of firing a one-shot intent. */
+export function consoleKindOf(target: InteractTarget | null): ConsoleKind | null {
+  if (target === null || target.kind !== 'fixture') return null;
+  return consoleKindOfFixture(target.contact.kind);
+}
+
+function consoleKindOfFixture(kind: FixtureKind): ConsoleKind | null {
+  if (kind === 'reactor_console' || kind === 'engine_console' || kind === 'nav_console')
+    return kind;
+  return null;
+}
 
 export function actionKeyFor(key: string, hasOffer: boolean): GameplayAction | null {
   if (key === 'e') return 'use';
@@ -47,6 +61,7 @@ export interface SessionActionWiring {
   readonly pausedRef: RefObject<boolean>;
   readonly dead: boolean;
   readonly onTogglePause: () => void;
+  readonly onConsole: (kind: ConsoleKind) => void;
 }
 
 export function useSessionActions(wiring: SessionActionWiring): void {
@@ -64,6 +79,7 @@ export function useSessionActions(wiring: SessionActionWiring): void {
     pausedRef,
     dead,
     onTogglePause,
+    onConsole,
   } = wiring;
   useEffect(() => {
     const onDown = (event: KeyboardEvent): void => {
@@ -84,6 +100,7 @@ export function useSessionActions(wiring: SessionActionWiring): void {
         targetRef,
         facing: facingRef.current,
         pressFireStart,
+        onConsole,
       });
     };
     const onUp = (event: KeyboardEvent): void => {
@@ -109,6 +126,7 @@ export function useSessionActions(wiring: SessionActionWiring): void {
     pausedRef,
     dead,
     onTogglePause,
+    onConsole,
   ]);
 }
 
@@ -122,11 +140,20 @@ interface DispatchContext {
   readonly targetRef: { current: InteractTarget | null };
   readonly facing: number;
   readonly pressFireStart: () => void;
+  readonly onConsole: (kind: ConsoleKind) => void;
 }
 
 function dispatchAction(action: GameplayAction | null, ctx: DispatchContext): void {
   if (action === 'use')
-    pressUse(ctx.sendIntent, ctx.statics, ctx.snapshot, ctx.pawnId, ctx.targetRef, ctx.facing);
+    pressUse(
+      ctx.sendIntent,
+      ctx.statics,
+      ctx.snapshot,
+      ctx.pawnId,
+      ctx.targetRef,
+      ctx.facing,
+      ctx.onConsole
+    );
   else if (action === 'talk') pressTalk(ctx.sendIntent, ctx.snapshot);
   else if (action === 'hire') pressHireFromOffer(ctx.sendIntent, ctx.offer);
   else if (action === 'seal') ctx.toggleSeal();
@@ -155,7 +182,8 @@ function pressUse(
   snapshot: Snapshot,
   pawnId: string | null,
   targetRef: { current: InteractTarget | null },
-  facing: number
+  facing: number,
+  onConsole: (kind: ConsoleKind) => void
 ): void {
   if (snapshot === null || pawnId === null) return;
   const pawn = snapshot.pawns.find((entry) => entry.id === pawnId);
@@ -163,6 +191,12 @@ function pressUse(
   const at = { x: pawn.x, y: pawn.y };
   const target = targetRef.current ?? resolveUseTarget(statics, snapshot, pawn.frameId, at, facing);
   if (target === null) return;
+  const console = consoleKindOf(target);
+  if (console !== null) {
+    onConsole(console);
+    ShipAudioEngine.getInstance().playUiClick();
+    return;
+  }
   sendUseIntent(sendIntent, target, at);
 }
 

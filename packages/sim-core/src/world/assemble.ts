@@ -11,6 +11,8 @@ export interface FrameSpec {
   readonly frameId: string;
   readonly hull: HullSpec;
   readonly vessel?: { readonly name: string; readonly beacon: string };
+  /** Static station placement; defaults to world origin. */
+  readonly origin?: { readonly x: number; readonly y: number };
 }
 
 export function assembleWorld(frames: readonly FrameSpec[], timeMs = 0): World {
@@ -29,7 +31,13 @@ function addFrame(world: World, frame: FrameSpec): World {
     vessels: frame.vessel === undefined ? world.vessels : addVessel(world, frame),
     stations:
       frame.vessel === undefined
-        ? { ...world.stations, [frame.frameId]: { id: frame.frameId, origin: { x: 0, y: 0 } } }
+        ? {
+            ...world.stations,
+            [frame.frameId]: {
+              id: frame.frameId,
+              origin: { x: frame.origin?.x ?? 0, y: frame.origin?.y ?? 0 },
+            },
+          }
         : world.stations,
     rooms: addRooms(world, compiled.rooms, frame.frameId, prefix),
     portals: addPortals(world, compiled.portals, prefix),

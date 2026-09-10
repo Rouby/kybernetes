@@ -5,7 +5,8 @@
  */
 
 import type { DockPhase, DockStatusBroadcast } from '@kybernetes/protocol';
-import { phaseDuration } from './schedule.js';
+import { currentPortOf, phaseDuration } from './schedule.js';
+import { hubPortForStation } from './ship/ports.js';
 import type { World } from './types.js';
 
 export const BOARDING_CLOSING_S = 5;
@@ -22,6 +23,8 @@ export function dockWalkable(world: World, dockId: string): boolean {
   const dock = world.docks[dockId];
   if (dock === undefined) return false;
   if (dockPhaseOf(world, dock.vesselFrame) !== 'docked') return false;
+  const hub = hubPortForStation(dock.stationFrame);
+  if (hub !== undefined && currentPortOf(world, dock.vesselFrame) !== hub.hubId) return false;
   const stationGate = world.portals[dock.stationPortal];
   const tubeGate = world.portals[dock.tubePortal];
   const vesselGate = world.portals[dock.vesselPortal];

@@ -14,9 +14,13 @@ import type {
   DockStatusBroadcast,
   HireOfferBroadcast,
   ManifestBroadcast,
+  NavStateBroadcast,
   NoticeBroadcast,
   PawnTrim,
   ServerStatsBroadcast,
+  ShipLostBroadcast,
+  ShipStatusBroadcast,
+  ShipSystemsBroadcast,
   SnapshotBroadcast,
   SnapshotDeltaBroadcast,
   TelemetryBroadcast,
@@ -120,6 +124,9 @@ export interface HarborCaches {
   readonly snapshot: { current: SnapshotBroadcast | null };
   readonly telemetry: { current: TelemetryBroadcast | null };
   readonly vitalsTick: { current: number };
+  readonly systemsTick: { current: number };
+  readonly statusTick: { current: number };
+  readonly navTick: { current: number };
   readonly manifestRev: { current: number | undefined };
   readonly manifestSeen: { current: boolean };
   readonly watchRev: { current: number | undefined };
@@ -131,10 +138,31 @@ export function createHarborCaches(): HarborCaches {
     snapshot: { current: null },
     telemetry: { current: null },
     vitalsTick: { current: -1 },
+    systemsTick: { current: -1 },
+    statusTick: { current: -1 },
+    navTick: { current: -1 },
     manifestRev: { current: undefined },
     manifestSeen: { current: false },
     watchRev: { current: undefined },
     watchRemaining: { current: undefined },
+  };
+}
+
+/** Solo-ship channels: systems/status/loss ride beside the ticked trio. */
+function useShipChannels() {
+  const [shipSystems, setShipSystems] = useState<ShipSystemsBroadcast | null>(null);
+  const [shipStatus, setShipStatus] = useState<ShipStatusBroadcast | null>(null);
+  const [shipLost, setShipLost] = useState<ShipLostBroadcast | null>(null);
+  const [navState, setNavState] = useState<NavStateBroadcast | null>(null);
+  return {
+    shipSystems,
+    shipStatus,
+    shipLost,
+    navState,
+    setShipSystems,
+    setShipStatus,
+    setShipLost,
+    setNavState,
   };
 }
 
@@ -152,6 +180,7 @@ function useHarborChannelState() {
   const [offer, setOffer] = useState<HireOfferBroadcast | null>(null);
   const [notices, setNotices] = useState<HarborNotice[]>([]);
   const [death, setDeath] = useState<DeathBroadcast | null>(null);
+  const ship = useShipChannels();
   const [takenOver, setTakenOver] = useState(false);
   return {
     connected,
@@ -167,6 +196,7 @@ function useHarborChannelState() {
     offer,
     notices,
     death,
+    ...ship,
     setConnected,
     setTakenOver,
     setPawnId,
@@ -180,6 +210,7 @@ function useHarborChannelState() {
     setOffer,
     setNotices,
     setDeath,
+    ...ship,
   };
 }
 
@@ -199,6 +230,10 @@ export function useHarborSocket(identity: HarborIdentity) {
     setOffer,
     setNotices,
     setDeath,
+    setShipSystems,
+    setShipStatus,
+    setShipLost,
+    setNavState,
   } = channels;
   const wsRef = useRef<WebSocket | null>(null);
   const seqRef = useRef(0);
@@ -257,6 +292,10 @@ export function useHarborSocket(identity: HarborIdentity) {
           setStats,
           setDock,
           setDeath,
+          setShipSystems,
+          setShipStatus,
+          setShipLost,
+          setNavState,
         });
       };
       socket.onclose = (event) => {
@@ -296,6 +335,10 @@ export function useHarborSocket(identity: HarborIdentity) {
     setOffer,
     setNotices,
     setDeath,
+    setShipSystems,
+    setShipStatus,
+    setShipLost,
+    setNavState,
   ]);
 
   return {
@@ -312,6 +355,10 @@ export function useHarborSocket(identity: HarborIdentity) {
     offer: channels.offer,
     notices: channels.notices,
     death: channels.death,
+    shipSystems: channels.shipSystems,
+    shipStatus: channels.shipStatus,
+    shipLost: channels.shipLost,
+    navState: channels.navState,
     clearDeath,
     sendIntent,
   };
@@ -329,6 +376,10 @@ export interface SnapshotSetters {
   setStats?: (s: ServerStatsBroadcast) => void;
   setDock?: (d: DockStatusBroadcast) => void;
   setDeath?: (d: DeathBroadcast | null) => void;
+  setShipSystems?: (s: ShipSystemsBroadcast) => void;
+  setShipStatus?: (s: ShipStatusBroadcast) => void;
+  setShipLost?: (d: ShipLostBroadcast | null) => void;
+  setNavState?: (n: NavStateBroadcast) => void;
 }
 
 type ChannelHandler = (
@@ -406,6 +457,32 @@ const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
     setters.setPawnId((msg as { pawnId?: string }).pawnId ?? '');
     setters.setOffer(null);
     setters.setDeath?.(null);
+    setters.setShipLost?.(null);
+  },
+  SHIP_SYSTEMS: (msg, caches, setters) => {
+    const next = msg as unknown as ShipSystemsBroadcast;
+    if (caches.systemsTick.current >= 0 && !isNewerTick(caches.systemsTick.current, next.tick))
+      return;
+    caches.systemsTick.current = next.tick;
+    setters.setShipSystems?.(next);
+  },
+  SHIP_STATUS: (msg, caches, setters) => {
+    const next = msg as unknown as ShipStatusBroadcast;
+    if (caches.statusTick.current >= 0 && !isNewerTick(caches.statusTick.current, next.tick))
+      return;
+    caches.statusTick.current = next.tick;
+    setters.setShipStatus?.(next);
+  },
+  SHIP_LOST: (msg, _caches, setters) => {
+    const lost = msg as unknown as ShipLostBroadcast;
+    setters.setShipLost?.(lost);
+    pushNotice(setters.setNotices, 'critical', 'Ship lost', 'Your ship is gone. Restart or quit.');
+  },
+  NAV_STATE: (msg, caches, setters) => {
+    const next = msg as unknown as NavStateBroadcast;
+    if (caches.navTick.current >= 0 && !isNewerTick(caches.navTick.current, next.tick)) return;
+    caches.navTick.current = next.tick;
+    setters.setNavState?.(next);
   },
   DEATH: (msg, _caches, setters) => {
     const death = msg as unknown as DeathBroadcast;

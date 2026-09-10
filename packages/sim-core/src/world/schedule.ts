@@ -5,6 +5,7 @@
  */
 
 import { sealPortal, unsealPortal } from './doors.js';
+import { HUB_A, hubPortForStation } from './ship/ports.js';
 import type { World } from './types.js';
 
 export const DOCKED_S = 30;
@@ -89,7 +90,20 @@ export function isDockGateWalkable(world: World, portalId: string): boolean {
   if (dock === undefined) return false;
   const vessel = world.vessels[dock.vesselFrame];
   if (vessel === undefined || vessel.schedule !== 'docked') return false;
+  if (!isDockAtVesselPort(world, dock)) return false;
   return !gatesSealed(world, dock);
+}
+
+/** Only the dock at the vessel's current hub is walkable; the far dock seals by distance. */
+function isDockAtVesselPort(world: World, dock: DockLink): boolean {
+  const hub = hubPortForStation(dock.stationFrame);
+  if (hub === undefined) return true;
+  return currentPortOf(world, dock.vesselFrame) === hub.hubId;
+}
+
+/** Hub whose mouth the vessel sits at; hub_a until systems say otherwise. */
+export function currentPortOf(world: World, vesselId: string): string {
+  return world.ships[vesselId]?.nav.portHubId ?? HUB_A;
 }
 
 export function initialTransit(vesselId: string): TransitState {

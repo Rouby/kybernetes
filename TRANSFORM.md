@@ -70,38 +70,52 @@ This plan follows `AGENTS.md §2` per milestone: protocol → simulation package
 
 ## M2 — Ship chores: reactor + engine tuning (3–4d)
 
+**Status: ✅ DONE** (kernel two-dial sim + engine budget sim ticked in tickWorld; tune intents, SHIP_SYSTEMS, console-gated router, hull/fuel mirroring, edge notices; reactor/engine console fixtures + [E] panels; pawns stop with no coast).
+
 **Goal:** the ship needs you. Neglect has visible, then fatal, consequences.
 
-- **sim-core `ship/reactor.ts` (pure):**
-  - State: `outputMW, tempK, stability 0–1, rodPos, coolantFlow, tier`.
-  - Tick: heat ∝ output, cooling ∝ flow × tier efficiency, drift + noise (seeded). Out-of-band temp → `OVERHEAT_WARNING → scram/blackout → hull damage` (feeds M6 loss).
-  - Action: `tuneReactor(rods±, coolant±)` at reactor fixture. Higher tiers: more headroom, slower drift.
-  - Vitest: cold start, nominal band hold, full-rods overheat timing, scram recovery, zero-dt/no-NaN.
-- **sim-core `ship/engine.ts`:**
-  - State: `spool 0–1, tune 0–1, wear, tier`. Requires reactor power. `preflightSpool()` + `tuneEngine()` at engine fixture. Detuned/worn engine: slower transit (M3), higher fuel burn, misjump risk.
-  - Vitest: no-power no-spool, tuned vs detuned transit-time modifier, wear accumulation.
-- **Protocol:** `INTERACT(fixtureId)` extended with `REACTOR_TUNE {rodsDelta, coolantDelta}` and `ENGINE_TUNE {spoolCmd, tuneAdj}`. Rate-limit `8Hz` in `validatePipe.ts` (existing pattern).
-- **Server `intentRouter.ts`:** thin map to kernel `tuneReactor/tuneEngine`. No math in router.
-- **Web:** reactor + engine fixtures get `[E]` prompt + small panel (temp bar, output, spool). Keep StyleX static-create discipline; dynamic widths via inline `style`. Reuse visor gauge slots freed by watch deletion. Audio: reuse `ReactorDroneSynth` pitch tied to new telemetry (adapter only).
+Locked answers: two-dial reactor balance · transit-only pressure (stable docked, 1–2 interventions per leg) · failure ladder with recovery · shared reactor↔engine power budget.
 
-**Done when:** you can cold-start, stabilize, and *feel* drift — leave it alone for a full transit leg and it punishes you.
+- **sim-core `ship/reactor.ts` (pure):**
+  - State: `outputMW, tempK, rods 0–1 (insertion), coolant 0–1 (flow), tier`, plus hidden `flux` drift term (seeded RNG).
+  - Tick (only when hot, i.e. after spool-up; docked reactor sits cold and drift-free): `heat += output(rods, tier) − cooling(coolant × tierEff)`, plus `flux` random-walk pushing `tempK` out of band over ~60–90s. Nominal band per tier (T0 narrow, T1/T2 progressively wider; drift slower at higher tiers).
+  - Actions at the reactor fixture: `REACTOR_TUNE {rodsDelta, coolantDelta}` in ±0.1 steps (clamped), `REACTOR_RESTART` after a scram.
+  - Failure ladder: out-of-band → `OVERHEAT_WARNING` (notice + visor + audio) → sustained 15s or above critical line → `SCRAM`: output 0, ship-wide blackout (engine spool decays, fixtures offline), manual restart at the console. Scrammed in transit: leg timer freezes and, after a 30s grace, hull takes 2 damage/s until restart or `condition` 0 (`SHIP_LOST`). Every rung is recoverable until 0.
+  - Vitest: cold start + band hold; drift forces an intervention within ~90 sim-seconds; full-rods overheat timing; scram → restart recovery; docked-cold stability (no drift, no warnings); zero-dt/no-NaN; tune clamping.
+- **sim-core `ship/engine.ts` (pure):**
+  - State: `spool 0–1, tune 0–1, wear 0–1, tier`. Spool-up at the engine fixture draws MW from the reactor against the shared budget (`spoolDemand + fixtureLoad ≤ outputMW`); overdraw → brownout (spool stalls, notice, fixtures flicker). No reactor power → no spool.
+  - `ENGINE_TUNE {spoolCmd 0/1, tuneAdj}`. `tune` decays across a leg (1.0 → ~0.4 untouched); `wear` grows per leg and caps effective tune until dockside service resets it on docking.
+  - Budget anchors (reuse the M0 tier tables): T0 40MW vs 20MW spool + 8MW hotel load — full spool holds 3MW headroom on default trims, deep rods or a cold/scrammed reactor brownout; T1 70MW comfortable; T2 110MW headroom. Tune feeds M3 speed/fuel math.
+  - Vitest: no-power no-spool; brownout on overdraw; tuned-vs-detuned speed/fuel modifiers; wear cap + dockside reset; zero-dt/no-NaN.
+- **Protocol (standalone intents, validated like the rest):** `REACTOR_TUNE {seq, rodsDelta, coolantDelta}`, `REACTOR_RESTART {seq}`, `ENGINE_TUNE {seq, spoolCmd, tuneAdj}` — rate-limit `8Hz`. New `SHIP_SYSTEMS` snapshot at `2Hz` (on the telemetry channel): `{tempK, bandLo, bandHi, rods, coolant, outputMW, demandMW, scrammed, spool, tune, wear}`.
+- **Server `intentRouter.ts`:** thin map to kernel `tuneReactor/restartReactor/tuneEngine` + fixture-adjacency check (must stand at the console). No math in router. `snapshotter.ts` exposes `SHIP_SYSTEMS` per player.
+- **Web:** reactor + engine fixtures get `[E]` prompts opening small console panels: temp bar with band coloring + rods/coolant steppers, spool gauge + tune stepper, brownout/blackout visor states. StyleX static-create discipline; dynamic widths via inline `style`. Audio: `ReactorDroneSynth` pitch/roughness tied to temp + scram stinger (adapter only, no synth rewrite).
+
+**Done when:** cold-start and stabilize; leave it alone for a full leg and it scram-punishes you; run a scram→restart drill and a brownout demo (spool with fixtures maxed on T0).
 
 ---
 
 ## M3 — Nav course + abstract hub-to-hub transit (2–3d)
 
+**Status: ✅ DONE** (hub port table + hub_b dock; full leg machine with named plot rejects, spooling, tune-scaled transit, extra burn, flameout freeze, docking arrival, cancel, distress reset; voyage seals/departure/arrival in the world tick; NAV/DISTRESS wire, nearest-hub floored-fee tow; nav console panel with ETA/countdown/flameout. Skiff-hull swap deferred to content polish — Hesperia flies the legs.)
+
 **Goal:** `plot course → spool → depart → do chores → arrive → dock`.
 
-- **Content:** 2 hub frames minimum (e.g. `HUB_A/B`) compiled from `StationHub.hull.ts` variants + one **Skiff hull** (`bridge/nav + reactor + engine nook + 4–6 cargo racks + bunk + airlock`). No hand walls — `compileHull` + airtightness/connectivity tests.
-- **sim-core `ship/navTransit.ts`:**
-  - `plotCourse(destHubId)`: range check vs `engineTier`, power check vs `reactorTier`, fuel check. Returns `NAV_STATE {phase: docked|spooling|in_transit|docking, destHubId, remainingS, legId}`.
-  - Transit tick at fixed `dt`: `remainingS -= dt × engineSpeed(tier,tune)`. Interior sim (movement/doors/air/vitals/reactor/engine) keeps ticking — this is the chore window. Gauntlet/dock contract: `sealedUnlessDocked`; on arrival auto-dock + unseal bay mouth.
-  - Vitest: plot rejects (out-of-range, underpowered, no fuel), tuned vs detuned ETA, reactor scram mid-transit extends/risks leg (no teleport), double-plot idempotency, re-dock opens bay.
-- **Protocol:** `NAV_PLOT {destHubId}`, `NAV_STATE` snapshot at `2Hz` (on `TELEMETRY` channel). `SNAPSHOT.portals` already carries dock seal state.
-- **Server:** schedule legs per vessel, not one global Kestrel script. `snapshotter.ts` exposes `NAV_STATE` per player.
-- **Web:** nav console panel: destination list with range/fuel/ETA, `Plot → Spool → Depart` buttons, in-transit countdown + `arrival` notice. Keep player inside — no flyable ship in MVP.
+Locked answers: 2 hubs, engine tiers buy speed/efficiency (not access) · 2–3 min legs · fuel stranding is recoverable · sustained total neglect is fatal (through the M2 ladder, not around it).
 
-**Done when:** docked → plot → depart → survive the leg doing chores → dock at the other hub, twice in a row.
+- **Content:** `HUB_A` (existing station frame) + `HUB_B` (second `StationHub.hull.ts` variant, mirrored layout, own market/prices in M5) + one **Skiff hull** (`bridge/nav + reactor + engine nook + 4–6 cargo racks + bunk + airlock`). No hand walls — `compileHull` + airtightness/connectivity tests. The legacy auto-schedule (`tickSchedule` transit records) stays out of the solo world; legs are player-driven only.
+- **sim-core `ship/navTransit.ts` (pure leg state machine):**
+  - Phases: `docked → spooling (~10s: spool ≥ 0.8 + reactor hot, player still walks) → in_transit (gauntlet sealed) → docking (~10s) → docked` at destination (auto-dock, unseal bay mouth, wear += leg, dockside service resets wear).
+  - `plotCourse(destHubId, ship)`: both hubs in T0 range (no range gate in MVP); requires reactor hot + spool power within budget + ≥1 fuel cell aboard, else a named reject (`no-fuel`, `no-power`, `already-underway`). Returns `NAV_STATE {phase, destHubId, remainingS, legId}`.
+  - Tick at fixed `dt`: `remainingS -= dt × speed(tier, tune)` with T0 ≈ 150s, T1 ≈ 110s, T2 ≈ 80s at full tune; low tune stretches ETA and raises burn. Interior sim keeps ticking — the leg *is* the M2 chore window (1–2 reactor interventions per leg by construction).
+  - Fuel: 1 cell/leg base; tune < 0.4 burns a 2nd cell mid-leg. Hitting 0 fuel mid-leg → flameout: timer freezes, `FLAMEOUT` notice, `DISTRESS {}` tows to the nearest hub for a flat 25cr fee (floored at 0 — broke, not dead), cargo intact, wear +. Stranding is a tax, never a death sentence.
+  - Fatal neglect (reconciled with the ladder): a scrammed reactor left through its 30s grace ticks hull 2/s; tune pinned at 0 doubles the damage rate. Ignoring *everything* for ~2 min ends the run — loudly, and reversibly until `condition` 0.
+  - Vitest: plot rejects with reasons; ETA math per tier/tune; scram freezes timer then damages post-grace; flameout → distress tow (fee + floor); double-plot idempotent; cancel allowed only while `spooling`; docking unseals the bay; zero-dt/no-NaN.
+- **Protocol:** `NAV_PLOT {seq, destHubId}`, `NAV_CANCEL {seq}`, `DISTRESS {seq}` (2Hz limits); `NAV_STATE` snapshot at `2Hz` (telemetry channel). `SNAPSHOT.portals` already carries dock seal state.
+- **Server:** per-vessel leg state in `SimHost` (seal/unseal dock portals via existing `sealPortal` helpers on phase edges); `snapshotter.ts` exposes `NAV_STATE` per player. No global schedule.
+- **Web:** nav console panel: destination row (other hub) with ETA-by-tier/tune, fuel state, `Plot → Spool → Depart` flow, in-transit countdown + `arrival` notice, flameout + distress UI. Keep player inside — no flyable ship in MVP.
+
+**Done when:** two consecutive full legs with chore interventions; one flameout → distress-tow recovery drill; one scram-mid-leg recovery without dying (and one deliberate all-neglect run that *does* kill the ship, proving the fatal path).
 
 ---
 

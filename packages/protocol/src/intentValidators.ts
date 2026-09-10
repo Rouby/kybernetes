@@ -249,3 +249,68 @@ export function validateSpawnAboard(raw: Record<string, unknown>): ValidateResul
         : { type: 'SPAWN_ABOARD', seq: raw.seq as number, userId },
   };
 }
+
+function isTrimDelta(value: unknown): value is number {
+  return isFiniteNumber(value) && Math.abs(value) <= 1;
+}
+
+export function validateReactorTune(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isTrimDelta(raw.rodsDelta)) return fail('bad-field', 'rodsDelta');
+  if (!isTrimDelta(raw.coolantDelta)) return fail('bad-field', 'coolantDelta');
+  return {
+    ok: true,
+    intent: {
+      type: 'REACTOR_TUNE',
+      seq: raw.seq as number,
+      rodsDelta: raw.rodsDelta as number,
+      coolantDelta: raw.coolantDelta as number,
+    },
+  };
+}
+
+export function validateReactorRestart(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return { ok: true, intent: { type: 'REACTOR_RESTART', seq: raw.seq as number } };
+}
+
+function isHubRef(value: unknown): value is string {
+  return isShortId(value);
+}
+
+export function validateNavPlot(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (!isHubRef(raw.destHubId)) return fail('bad-field', 'destHubId');
+  return {
+    ok: true,
+    intent: { type: 'NAV_PLOT', seq: raw.seq as number, destHubId: raw.destHubId },
+  };
+}
+
+export function validateNavCancel(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return { ok: true, intent: { type: 'NAV_CANCEL', seq: raw.seq as number } };
+}
+
+export function validateDistress(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return { ok: true, intent: { type: 'DISTRESS', seq: raw.seq as number } };
+}
+
+export function validateEngineTune(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (raw.spoolCmd !== 0 && raw.spoolCmd !== 1) return fail('bad-field', 'spoolCmd');
+  if (raw.tuneSet !== undefined) {
+    if (!isFiniteNumber(raw.tuneSet) || raw.tuneSet < 0 || raw.tuneSet > 1) {
+      return fail('bad-field', 'tuneSet');
+    }
+  }
+  const tuneSet = typeof raw.tuneSet === 'number' ? (raw.tuneSet as number) : undefined;
+  return {
+    ok: true,
+    intent:
+      tuneSet === undefined
+        ? { type: 'ENGINE_TUNE', seq: raw.seq as number, spoolCmd: raw.spoolCmd as 0 | 1 }
+        : { type: 'ENGINE_TUNE', seq: raw.seq as number, spoolCmd: raw.spoolCmd as 0 | 1, tuneSet },
+  };
+}

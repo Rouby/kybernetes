@@ -13,6 +13,7 @@ import type {
   ClientIntent,
   DeathBroadcast,
   ManifestBroadcast,
+  NoticeBroadcast,
   PawnLinkQuality,
   PawnTrim,
   Role,
@@ -23,13 +24,20 @@ import { makeShipLost, makeShipStatus } from '@kybernetes/protocol';
 import {
   type AirAuthorityState,
   buildDeath,
+  debitShip,
+  type EngineTier,
   FIXED_DT,
   type HireOfferRecord,
   hireAboard,
   isDead,
+  legDurationSeconds,
+  resetVoyageTo,
   restartRun,
   roomContainingPoint,
+  type ShipRecord,
   spawnPawn,
+  syncShipStores,
+  syncShipTiers,
   talkToCaptain,
   tickWorld,
   type World,
@@ -94,8 +102,24 @@ export interface HostIntentResult {
   offer?: HireOfferRecord;
 }
 
+export interface ShipNotice {
+  readonly userId: string;
+  readonly severity: NoticeBroadcast['severity'];
+  readonly title: string;
+  readonly message: string;
+}
+
+interface ShipEdgeMemory {
+  readonly warned: boolean;
+  readonly scrammed: boolean;
+  readonly brownout: boolean;
+}
+
 /** How long a held INPUT keeps driving its pawn without a refresh. */
 export const INPUT_LATCH_MS = 1000;
+
+/** Flat tow fee for a DISTRESS rescue; floored at zero so rescue never kills. */
+const DISTRESS_FEE = 25;
 
 /** Intents forwarded to the kernel movement/interaction pipeline. */
 const KERNEL_INTENT_TYPES: ReadonlySet<string> = new Set([
@@ -113,6 +137,11 @@ const KERNEL_INTENT_TYPES: ReadonlySet<string> = new Set([
   'HARVEST',
   'RECYCLE',
   'REPAIR',
+  'REACTOR_TUNE',
+  'REACTOR_RESTART',
+  'ENGINE_TUNE',
+  'NAV_PLOT',
+  'NAV_CANCEL',
 ]);
 
 interface HostObserver {
@@ -134,6 +163,7 @@ export class SimHost {
   private readonly observers = new Map<string, HostObserver>();
   private readonly beacons = new Map<string, BeaconEntry>();
   private readonly ships: ShipRegistry = createShipRegistry();
+  private readonly shipEdges = new Map<string, ShipEdgeMemory>();
   private readonly latched = new Map<string, { input: WorldInput; atMs: number }>();
   private readonly lastInputAt = new Map<string, number>();
   private readonly msgCounts = new Map<string, { count: number; windowStartMs: number }>();
@@ -370,6 +400,8 @@ export class SimHost {
         return this.handleJoin(clientId, intent.beacon, intent.userId);
       case 'SPAWN_ABOARD':
         return this.handleSpawnAboard(clientId, intent.userId);
+      case 'DISTRESS':
+        return this.handleDistress(clientId);
       case 'OBSERVE':
         return this.handleObserve(clientId, intent.beacon);
       case 'TALK':
@@ -544,7 +576,14 @@ export class SimHost {
     const point = soloSpawnPoint(this.world, this.stationFrame());
     if (point === undefined) return { denied: 'no-spawn' };
     this.world = spawnPawn(this.world, soloSpawnRequest(pawnId, id, point, color, appearance));
+    this.world = syncShipTiers(this.world, point.frameId, ship.reactorTier, ship.engineTier);
+    this.world = syncShipStores(this.world, point.frameId, ship.stores.fuelCells);
     return { pawnId, resumed: false };
+  }
+
+  /** Owned-ship record for status snapshots; undefined until first spawn. */
+  shipRecordFor(userId: string): ShipRecord | undefined {
+    return getSoloShip(this.ships, userId);
   }
 
   /** Versioned SHIP_STATUS payload for one owner's ship, if known. */
@@ -558,6 +597,89 @@ export class SimHost {
     return makeShipStatus(ship, tick, nowMs);
   }
 
+  /**
+   * Tick-edge ship notices (overheat warning, scram, brownout) plus hull
+   * mirroring: kernel condition flows into the aboard owners' records so
+   * SHIP_STATUS stays live. Daemon drains this after each slice.
+   */
+  drainShipNotices(): ShipNotice[] {
+    const notices: ShipNotice[] = [];
+    for (const systems of Object.values(this.world.ships)) {
+      notices.push(...this.drainVesselNotices(systems.vesselId));
+      this.mirrorHull(systems.vesselId, systems.condition, systems.fuelCells);
+    }
+    return notices;
+  }
+
+  private drainVesselNotices(vesselId: string): ShipNotice[] {
+    const systems = this.world.ships[vesselId];
+    if (systems === undefined) return [];
+    const prev = this.shipEdges.get(vesselId) ?? {
+      warned: false,
+      scrammed: false,
+      brownout: false,
+    };
+    this.shipEdges.set(vesselId, {
+      warned: systems.reactor.warned,
+      scrammed: systems.reactor.scrammed,
+      brownout: systems.engine.brownout,
+    });
+    const crew = this.aboardUserIds(vesselId);
+    const notices: ShipNotice[] = [];
+    if (systems.reactor.warned && !prev.warned) {
+      notices.push(
+        ...crew.map((userId) =>
+          warnNotice(
+            userId,
+            'Reactor hot',
+            'Temperature above the nominal band. Trim rods and coolant.'
+          )
+        )
+      );
+    }
+    if (systems.reactor.scrammed && !prev.scrammed) {
+      notices.push(
+        ...crew.map((userId) =>
+          warnNotice(
+            userId,
+            'REACTOR SCRAM',
+            'Blackout. Restart at the reactor console.',
+            'critical'
+          )
+        )
+      );
+    }
+    if (systems.engine.brownout && !prev.brownout) {
+      notices.push(
+        ...crew.map((userId) =>
+          warnNotice(userId, 'Brownout', 'Load outgrows reactor output. Spool stalled.')
+        )
+      );
+    }
+    return notices;
+  }
+
+  private aboardUserIds(vesselId: string): string[] {
+    const users = new Set<string>();
+    for (const client of this.clients.values()) {
+      const pawn = this.world.pawns[client.pawnId];
+      if (pawn !== undefined && pawn.frameId === vesselId) users.add(client.userId);
+    }
+    return [...users];
+  }
+
+  private mirrorHull(vesselId: string, condition: number, fuelCells: number): void {
+    for (const userId of this.aboardUserIds(vesselId)) {
+      const record = getSoloShip(this.ships, userId);
+      if (record === undefined) continue;
+      const stores =
+        record.stores.fuelCells === fuelCells ? record.stores : { ...record.stores, fuelCells };
+      if (record.condition !== condition || stores !== record.stores) {
+        saveSoloShip(this.ships, { ...record, condition, stores });
+      }
+    }
+  }
+
   /** Hard-fail wipe: mark the owned ship lost and emit SHIP_LOST. */
   loseShipFor(
     userId: string,
@@ -569,6 +691,26 @@ export class SimHost {
     if (ship === undefined) return undefined;
     saveSoloShip(this.ships, wipeOnLoss(ship));
     return makeShipLost(ship.shipId, reason, tick, nowMs);
+  }
+
+  /** Flat tow fee for a DISTRESS rescue; floored at zero so rescue never kills. */
+  private handleDistress(clientId: string): HostIntentResult {
+    const client = this.clients.get(clientId);
+    if (client === undefined) return { notice: 'not-joined' };
+    const pawn = this.world.pawns[client.pawnId];
+    const systems = pawn === undefined ? undefined : this.world.ships[pawn.frameId];
+    if (pawn === undefined || systems === undefined) return { notice: 'DISTRESS_denied' };
+    if (systems.nav.phase !== 'in_transit') return { notice: 'DISTRESS_denied' };
+    const record = getSoloShip(this.ships, client.userId);
+    if (record === undefined) return { notice: 'DISTRESS_denied' };
+    const paid = debitShip(record, Math.min(record.credits, DISTRESS_FEE)) ?? record;
+    this.world = resetVoyageTo(
+      this.world,
+      pawn.frameId,
+      nearestHub(systems.nav, systems.engineTier)
+    );
+    saveSoloShip(this.ships, paid);
+    return { notice: 'DISTRESS_ok' };
   }
 
   private handleSpawnAboard(clientId: string, userId?: string): HostIntentResult {
@@ -714,6 +856,23 @@ function resumeSession(
     pawnId: prior?.pawnId ?? `pawn:${userId}`,
     beacon: prior?.beacon ?? '',
   };
+}
+
+function nearestHub(
+  nav: { remainingS: number; portHubId: string; destHubId: string | undefined },
+  engineTier: EngineTier
+): string {
+  if (nav.remainingS > legDurationSeconds(engineTier) / 2) return nav.portHubId;
+  return nav.destHubId ?? nav.portHubId;
+}
+
+function warnNotice(
+  userId: string,
+  title: string,
+  message: string,
+  severity: ShipNotice['severity'] = 'warning'
+): ShipNotice {
+  return { userId, severity, title, message };
 }
 
 function joinDisplay(

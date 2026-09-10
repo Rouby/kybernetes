@@ -11,14 +11,18 @@ import type { PawnBody, Vec2, World } from './types.js';
 
 export function pawnWorldPos(world: World, pawn: PawnBody): Vec2 {
   const vessel = world.vessels[pawn.frameId];
-  if (vessel === undefined) return { ...pawn.pos };
-  return frameToWorld(vessel, pawn.pos);
+  if (vessel !== undefined) return frameToWorld(vessel, pawn.pos);
+  const station = world.stations[pawn.frameId];
+  if (station === undefined) return { ...pawn.pos };
+  return { x: pawn.pos.x + station.origin.x, y: pawn.pos.y + station.origin.y };
 }
 
 export function localForFrame(world: World, frameId: string, worldPos: Vec2): Vec2 {
   const vessel = world.vessels[frameId];
-  if (vessel === undefined) return { ...worldPos };
-  return worldToFrame(vessel, worldPos);
+  if (vessel !== undefined) return worldToFrame(vessel, worldPos);
+  const station = world.stations[frameId];
+  if (station === undefined) return { ...worldPos };
+  return { x: worldPos.x - station.origin.x, y: worldPos.y - station.origin.y };
 }
 
 function mouthCrossesStationToVessel(

@@ -15,7 +15,17 @@ describe('ship seams (M2-M5 placeholders)', () => {
 
   it('docked nav is not underway', () => {
     expect(isUnderway(DOCKED_NAV)).toBe(false);
-    expect(isUnderway({ phase: 'in_transit', destHubId: 'hub_b', remainingS: 30 })).toBe(true);
+    expect(
+      isUnderway({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        remainingS: 30,
+        legId: 1,
+        portHubId: 'hub_a',
+        flameout: false,
+        extraBurned: false,
+      })
+    ).toBe(true);
   });
 
   it('only racked crates are secured', () => {

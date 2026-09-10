@@ -6,18 +6,26 @@
 import type { ClientIntent } from '@kybernetes/protocol';
 import {
   applyConsume,
+  cancelVoyage,
   claimFixture,
   dockLinkForPortal,
+  engineDemandMw,
+  ensureShipSystems,
   fireWeapon,
   fixtureOnline,
   harvestTray,
+  plotVoyage,
+  reactorOutputMw,
   repairFixture,
+  restartShipReactor,
   runRecycle,
   setSleeping,
   setSuitSealed,
   startCook,
   startReload,
   tryToggleDoor,
+  tuneShipEngine,
+  tuneShipReactor,
   type World,
   type WorldInput,
 } from '@kybernetes/sim-core';
@@ -78,8 +86,34 @@ export function routeIntent(
     case 'HELLO':
     case 'JOIN_BEACON':
       return { world, movement: pending, notice: intent.type };
-    default:
+    default: {
+      const shipped = routeShipIntent(world, pawnId, intent, pending);
+      if (shipped !== undefined) return shipped;
       return routeAction(world, intent, pending);
+    }
+  }
+}
+
+/** Solo-ship console intents (M2 reactor/engine, M3 nav). Thin map, no math. */
+function routeShipIntent(
+  world: World,
+  pawnId: string,
+  intent: ClientIntent,
+  pending: readonly WorldInput[]
+): RouteResult | undefined {
+  switch (intent.type) {
+    case 'REACTOR_TUNE':
+      return routeReactorTune(world, pawnId, intent, pending);
+    case 'REACTOR_RESTART':
+      return routeReactorRestart(world, pawnId, pending);
+    case 'ENGINE_TUNE':
+      return routeEngineTune(world, pawnId, intent, pending);
+    case 'NAV_PLOT':
+      return routeNavPlot(world, pawnId, intent, pending);
+    case 'NAV_CANCEL':
+      return routeNavCancel(world, pawnId, pending);
+    default:
+      return undefined;
   }
 }
 
@@ -157,6 +191,109 @@ function needReach(
   if (!pawnNearFixture(world, pawnId, fixtureId))
     return { world, movement: pending, notice: `${verb}_too-far` };
   return undefined;
+}
+
+/**
+ * Console gate for the M2 tune intents: the pawn must stand at a
+ * same-frame console of the right kind. Consoles stay usable through
+ * blackouts on purpose — the restart drill is the recovery path.
+ */
+function consoleGate(
+  world: World,
+  pawnId: string,
+  kind: 'reactor_console' | 'engine_console' | 'nav_console',
+  verb: string,
+  pending: readonly WorldInput[]
+): { vesselId: string } | RouteResult {
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) return { world, movement: pending, notice: `${verb}_no-pawn` };
+  if (world.vessels[pawn.frameId] === undefined) {
+    return { world, movement: pending, notice: `${verb}_too-far` };
+  }
+  const reached = Object.values(world.fixtures).some(
+    (fix) => fix.kind === kind && pawnNearFixture(world, pawnId, fix.id)
+  );
+  if (!reached) return { world, movement: pending, notice: `${verb}_too-far` };
+  return { vesselId: pawn.frameId };
+}
+
+function routeReactorTune(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'REACTOR_TUNE' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gate = consoleGate(world, pawnId, 'reactor_console', 'REACTOR', pending);
+  if (!('vesselId' in gate)) return gate;
+  const ensured = ensureShipSystems(world, gate.vesselId);
+  const next = tuneShipReactor(ensured, gate.vesselId, intent.rodsDelta, intent.coolantDelta);
+  return { world: next, movement: pending, notice: 'REACTOR_ok' };
+}
+
+function routeReactorRestart(
+  world: World,
+  pawnId: string,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gate = consoleGate(world, pawnId, 'reactor_console', 'REACTOR', pending);
+  if (!('vesselId' in gate)) return gate;
+  const ensured = ensureShipSystems(world, gate.vesselId);
+  return {
+    world: restartShipReactor(ensured, gate.vesselId),
+    movement: pending,
+    notice: 'REACTOR_ok',
+  };
+}
+
+function routeEngineTune(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'ENGINE_TUNE' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gate = consoleGate(world, pawnId, 'engine_console', 'ENGINE', pending);
+  if (!('vesselId' in gate)) return gate;
+  const ensured = ensureShipSystems(world, gate.vesselId);
+  const next = tuneShipEngine(ensured, gate.vesselId, intent.spoolCmd, intent.tuneSet);
+  return { world: next, movement: pending, notice: 'ENGINE_ok' };
+}
+
+function routeNavPlot(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'NAV_PLOT' }>,
+  pending: readonly WorldInput[]
+): RouteResult {
+  const gate = consoleGate(world, pawnId, 'nav_console', 'NAV', pending);
+  if (!('vesselId' in gate)) return gate;
+  const ensured = ensureShipSystems(world, gate.vesselId);
+  const systems = ensured.ships[gate.vesselId];
+  if (systems === undefined) return { world: ensured, movement: pending, notice: 'NAV_denied' };
+  const output = systems.reactor.scrammed
+    ? 0
+    : reactorOutputMw(systems.reactor, systems.reactorTier);
+  const plotted = plotVoyage(ensured, gate.vesselId, intent.destHubId, {
+    hot: systems.reactor.hot && !systems.reactor.scrammed,
+    powered: output >= engineDemandMw(systems.engine.spool),
+    fuelCells: systems.fuelCells,
+  });
+  if (plotted.reject !== undefined) {
+    return { world: plotted.world, movement: pending, notice: `NAV_${plotted.reject}` };
+  }
+  return { world: plotted.world, movement: pending, notice: 'NAV_ok' };
+}
+
+function routeNavCancel(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
+  const gate = consoleGate(world, pawnId, 'nav_console', 'NAV', pending);
+  if (!('vesselId' in gate)) return gate;
+  const ensured = ensureShipSystems(world, gate.vesselId);
+  const before = ensured.ships[gate.vesselId]?.nav.phase;
+  const next = cancelVoyage(ensured, gate.vesselId);
+  const after = next.ships[gate.vesselId]?.nav.phase;
+  if (before !== 'spooling' || after !== 'docked') {
+    return { world: next, movement: pending, notice: 'NAV_denied' };
+  }
+  return { world: next, movement: pending, notice: 'NAV_ok' };
 }
 
 function routeClaim(

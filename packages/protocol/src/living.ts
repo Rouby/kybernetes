@@ -19,7 +19,10 @@ export type FixtureKind =
   | 'water_recycler'
   | 'breaker_box'
   | 'aid_cabinet'
-  | 'claim_bunk';
+  | 'claim_bunk'
+  | 'reactor_console'
+  | 'engine_console'
+  | 'nav_console';
 
 export const FIXTURE_KINDS: readonly FixtureKind[] = [
   'bar_counter',
@@ -37,6 +40,9 @@ export const FIXTURE_KINDS: readonly FixtureKind[] = [
   'breaker_box',
   'aid_cabinet',
   'claim_bunk',
+  'reactor_console',
+  'engine_console',
+  'nav_console',
 ] as const;
 
 export function isFixtureKind(value: unknown): value is FixtureKind {
@@ -55,7 +61,10 @@ export function isFixtureKind(value: unknown): value is FixtureKind {
     value === 'water_recycler' ||
     value === 'breaker_box' ||
     value === 'aid_cabinet' ||
-    value === 'claim_bunk'
+    value === 'claim_bunk' ||
+    value === 'reactor_console' ||
+    value === 'engine_console' ||
+    value === 'nav_console'
   );
 }
 

@@ -1,5 +1,9 @@
 import type {
   ManifestBroadcast,
+  NavStateBroadcast,
+  ShipLostBroadcast,
+  ShipStatusBroadcast,
+  ShipSystemsBroadcast,
   SnapshotBroadcast,
   TelemetryBroadcast,
   VitalsBroadcast,
@@ -15,7 +19,27 @@ function setters() {
     vitals: null as VitalsBroadcast | null,
     watch: null as WatchBroadcast | null,
     manifest: null as ManifestBroadcast | null,
-    calls: { snapshot: 0, telemetry: 0, manifest: 0, watch: 0 },
+    shipSystems: null as ShipSystemsBroadcast | null,
+    shipStatus: null as ShipStatusBroadcast | null,
+    shipLost: null as ShipLostBroadcast | null,
+    navState: null as NavStateBroadcast | null,
+    calls: { snapshot: 0, telemetry: 0, manifest: 0, watch: 0, systems: 0, status: 0, nav: 0 },
+  };
+}
+
+function navMessage(tick: number) {
+  return {
+    type: 'NAV_STATE',
+    v: 2,
+    tick,
+    serverTimeMs: tick * 100,
+    vesselId: 'ship',
+    phase: 'in_transit',
+    destHubId: 'hub_b',
+    remainingS: 87.1,
+    legId: 3,
+    portHubId: 'hub_a',
+    flameout: false,
   };
 }
 
@@ -43,6 +67,21 @@ function wire(store: ReturnType<typeof setters>) {
     setOffer: vi.fn(),
     setPawnId: vi.fn(),
     setNotices: vi.fn(),
+    setShipSystems: vi.fn((s: ShipSystemsBroadcast) => {
+      store.shipSystems = s;
+      store.calls.systems += 1;
+    }),
+    setShipStatus: vi.fn((s: ShipStatusBroadcast) => {
+      store.shipStatus = s;
+      store.calls.status += 1;
+    }),
+    setShipLost: vi.fn((d: ShipLostBroadcast | null) => {
+      store.shipLost = d;
+    }),
+    setNavState: vi.fn((n: NavStateBroadcast) => {
+      store.navState = n;
+      store.calls.nav += 1;
+    }),
   };
 }
 
@@ -100,6 +139,98 @@ describe('harbor socket merge guards', () => {
     expect(store.snapshot?.tick).toBe(11);
     expect(store.snapshot?.portals[0]?.open).toBe(true);
     expect(store.snapshot?.portalRev).toBe(8);
+  });
+
+  it('accepts ship systems and status while dropping stale ticks', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const systems = {
+      type: 'SHIP_SYSTEMS',
+      v: 2,
+      tick: 30,
+      serverTimeMs: 3000,
+      vesselId: 'ship',
+      tempK: 660,
+      bandLo: 620,
+      bandHi: 700,
+      rods: 0.3,
+      coolant: 0.5,
+      outputMW: 31,
+      demandMW: 28,
+      scrammed: false,
+      warned: false,
+      spool: 1,
+      tune: 0.8,
+      wear: 0,
+      brownout: false,
+      condition: 100,
+    };
+    handleMessage(JSON.stringify(systems), caches, wire(store));
+    expect(store.shipSystems?.tick).toBe(30);
+    handleMessage(JSON.stringify({ ...systems, tick: 29 }), caches, wire(store));
+    expect(store.shipSystems?.tick).toBe(30);
+    expect(store.calls.systems).toBe(1);
+    const status = {
+      type: 'SHIP_STATUS',
+      v: 2,
+      tick: 31,
+      serverTimeMs: 3100,
+      shipId: 'ship:u1',
+      hullId: 'skiff_alpha',
+      reactorTier: 0,
+      engineTier: 0,
+      credits: 20,
+      condition: 100,
+      locationHubId: 'hub_a',
+      alive: true,
+      stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 },
+    };
+    handleMessage(JSON.stringify(status), caches, wire(store));
+    expect(store.shipStatus?.shipId).toBe('ship:u1');
+    expect(store.calls.status).toBe(1);
+  });
+
+  it('accepts nav state while dropping stale ticks', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    handleMessage(JSON.stringify(navMessage(50)), caches, wire(store));
+    expect(store.navState?.phase).toBe('in_transit');
+    expect(store.navState?.legId).toBe(3);
+    handleMessage(JSON.stringify(navMessage(49)), caches, wire(store));
+    expect(store.navState?.tick).toBe(50);
+    expect(store.calls.nav).toBe(1);
+  });
+
+  it('records ship loss and clears it on the next join', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const sockets = wire(store);
+    handleMessage(
+      JSON.stringify({
+        type: 'SHIP_LOST',
+        v: 2,
+        tick: 40,
+        serverTimeMs: 4000,
+        shipId: 'ship:u1',
+        reason: 'reactor',
+      }),
+      caches,
+      sockets
+    );
+    expect(store.shipLost?.shipId).toBe('ship:u1');
+    handleMessage(
+      JSON.stringify({
+        type: 'JOINED',
+        v: 2,
+        tick: 41,
+        serverTimeMs: 4100,
+        pawnId: 'pawn:u1',
+        beacon: 'ship:u1',
+      }),
+      caches,
+      sockets
+    );
+    expect(store.shipLost).toBeNull();
   });
 
   it('merges delta telemetry onto cached rooms', () => {

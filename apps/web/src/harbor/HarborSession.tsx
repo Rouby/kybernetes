@@ -12,12 +12,13 @@ import {
   type World,
   withSnapshotStates,
 } from '@kybernetes/sim-core';
-import { useMemo, useRef } from 'react';
+import { type RefObject, useMemo, useRef } from 'react';
 import { DeathOverlay } from './DeathOverlay';
 import { HarborViewport } from './HarborViewport';
 import type { InteractTarget } from './interactTarget';
 import { PauseOverlay } from './PauseOverlay';
 import { dockChipText, withDockWalkable } from './renderState';
+import { ShipConsolePanel } from './ShipConsolePanel';
 import { useSessionActions } from './sessionActions';
 import { useSessionControls } from './sessionControls';
 import { useSessionFire } from './sessionFire';
@@ -31,6 +32,7 @@ import {
 } from './sessionHud';
 import { type PredictedPawn, useHarborMovement } from './useHarborMovement';
 import { type HarborIdentity, useHarborSocket } from './useHarborSocket';
+import { type ShipConsoleState, useShipConsole } from './useShipConsole';
 
 const EMPTY_PORTALS: readonly SnapshotPortal[] = [];
 
@@ -60,7 +62,7 @@ function useSessionDerived(socket: HarborSocket, staticWorld: World) {
   return { ownPawn, colliders };
 }
 
-export function HarborSession({ identity: base, onQuit }: HarborSessionProps) {
+export function HarborSession({ identity: base, onQuit, onShipLost }: HarborSessionProps) {
   const identity = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const callsign = params.get('callsign') ?? base.callsign;
@@ -79,6 +81,7 @@ export function HarborSession({ identity: base, onQuit }: HarborSessionProps) {
   const movement = useHarborMovement(ownPawn, sendPlayIntent, colliders, aimLockedRef);
   const targetRef = useRef<InteractTarget | null>(null);
   const fire = useSessionFire(socket, movement.predicted, movement.facingRef, sendPlayIntent);
+  const consoles = useShipConsole(socket, onShipLost);
   useSessionActions({
     sendIntent: sendPlayIntent,
     statics: staticWorld,
@@ -93,6 +96,7 @@ export function HarborSession({ identity: base, onQuit }: HarborSessionProps) {
     pausedRef,
     dead,
     onTogglePause: togglePause,
+    onConsole: consoles.toggleConsole,
   });
 
   return (
@@ -103,26 +107,15 @@ export function HarborSession({ identity: base, onQuit }: HarborSessionProps) {
         predicted={movement.predicted}
         target={targetRef.current}
       />
-      <HarborViewport
+      <SessionViewport
         statics={staticWorld}
-        targetRef={targetRef}
-        snapshot={socket.snapshot}
-        pawnId={socket.pawnId}
+        socket={socket}
         beacon={identity.beacon}
         userId={identity.userId}
-        predicted={movement.predicted}
-        telemetry={socket.telemetry}
-        vitals={socket.vitals}
-        manifest={socket.manifest}
-        dock={socket.dock}
-        notices={socket.notices}
-        facingRef={movement.facingRef}
+        movement={movement}
+        fire={fire}
+        targetRef={targetRef}
         aimLockedRef={aimLockedRef}
-        fireSignalRef={fire.fireSignalRef}
-        shotsRef={fire.shotsRef}
-        shipUnderway={socket.watch?.phase === 'active_watch'}
-        onFireDown={fire.pressFireStart}
-        onFireUp={fire.pressFireEnd}
       />
       <SessionOverlays
         paused={paused}
@@ -132,7 +125,81 @@ export function HarborSession({ identity: base, onQuit }: HarborSessionProps) {
         onRestart={restart}
         onQuit={onQuit}
       />
+      <ConsoleHost
+        consoles={consoles}
+        sendIntent={sendPlayIntent}
+        navState={socket.navState}
+        shipStatus={socket.shipStatus}
+      />
     </div>
+  );
+}
+
+function ConsoleHost({
+  consoles,
+  sendIntent,
+  navState,
+  shipStatus,
+}: {
+  readonly consoles: ShipConsoleState;
+  readonly sendIntent: ReturnType<typeof useHarborSocket>['sendIntent'];
+  readonly navState: HarborSocket['navState'];
+  readonly shipStatus: HarborSocket['shipStatus'];
+}) {
+  if (consoles.consoleOpen === null || consoles.shipSystems === null) return null;
+  return (
+    <ShipConsolePanel
+      kind={consoles.consoleOpen}
+      systems={consoles.shipSystems}
+      sendIntent={sendIntent}
+      onClose={consoles.closeConsole}
+      navState={navState}
+      shipStatus={shipStatus}
+    />
+  );
+}
+
+function SessionViewport({
+  statics,
+  socket,
+  beacon,
+  userId,
+  movement,
+  fire,
+  targetRef,
+  aimLockedRef,
+}: {
+  readonly statics: World;
+  readonly socket: HarborSocket;
+  readonly beacon: string;
+  readonly userId: string;
+  readonly movement: ReturnType<typeof useHarborMovement>;
+  readonly fire: ReturnType<typeof useSessionFire>;
+  readonly targetRef: RefObject<InteractTarget | null>;
+  readonly aimLockedRef: RefObject<boolean>;
+}) {
+  return (
+    <HarborViewport
+      statics={statics}
+      targetRef={targetRef}
+      snapshot={socket.snapshot}
+      pawnId={socket.pawnId}
+      beacon={beacon}
+      userId={userId}
+      predicted={movement.predicted}
+      telemetry={socket.telemetry}
+      vitals={socket.vitals}
+      manifest={socket.manifest}
+      dock={socket.dock}
+      notices={socket.notices}
+      facingRef={movement.facingRef}
+      aimLockedRef={aimLockedRef}
+      fireSignalRef={fire.fireSignalRef}
+      shotsRef={fire.shotsRef}
+      shipUnderway={socket.watch?.phase === 'active_watch'}
+      onFireDown={fire.pressFireStart}
+      onFireUp={fire.pressFireEnd}
+    />
   );
 }
 

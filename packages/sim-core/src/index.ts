@@ -36,6 +36,7 @@ export * from './world/ship/market';
 export * from './world/ship/navTransit';
 export * from './world/ship/reactor';
 export * from './world/ship/shipRecord';
+export * from './world/ship/systems';
 export * from './world/survival';
 export * from './world/tickWorld';
 export * from './world/types';

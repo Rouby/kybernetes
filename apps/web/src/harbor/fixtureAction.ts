@@ -99,17 +99,33 @@ export function fixturePrompt(contact: FixtureContact): string {
   ) {
     return contact.kind === 'claim_bunk' ? 'Claim bunk' : 'Claim locker';
   }
+  const service = servicePrompt(contact);
+  if (service !== undefined) return service;
   switch (contact.kind) {
     case 'vending_wall':
       return 'Vend ration';
+    case 'breaker_box':
+      return 'Reset breaker';
+    case 'reactor_console':
+      return 'Tune reactor';
+    case 'engine_console':
+      return 'Tune engine';
+    case 'nav_console':
+      return 'Plot course';
+    default:
+      return 'Use';
+  }
+}
+
+/** Work-and-living verbs; undefined falls through to the fixture switch. */
+export function servicePrompt(contact: FixtureContact): string | undefined {
+  switch (contact.kind) {
     case 'stove':
       return contact.progressPct !== undefined && contact.progressPct > 0 ? 'Cooking' : 'Cook meal';
     case 'hydro_tray':
       return 'Harvest greens';
     case 'water_recycler':
       return 'Recycle water';
-    case 'breaker_box':
-      return 'Reset breaker';
     case 'aid_cabinet':
       return 'Bandage';
     case 'sink':
@@ -125,7 +141,7 @@ export function fixturePrompt(contact: FixtureContact): string {
     case 'job_board':
       return 'Browse contracts';
     default:
-      return 'Use';
+      return undefined;
   }
 }
 

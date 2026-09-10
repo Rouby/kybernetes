@@ -17,6 +17,7 @@ import {
   type ClientIntent,
   type DockStatusBroadcast,
   makeHelloMismatch,
+  makeShipStatus,
   SESSION_RESUMED_ELSEWHERE_CODE,
   type ServerStatsBroadcast,
   type SnapshotFrame,
@@ -28,7 +29,9 @@ import {
   bindWorldAir,
   buildHireOffer,
   buildManifest,
+  buildNavState,
   buildNotice,
+  buildShipSystems,
   buildSnapshot,
   buildSnapshotDelta,
   buildSoloShipWorld,
@@ -45,7 +48,7 @@ import {
   type World,
 } from '@kybernetes/sim-core';
 import { WebSocket, WebSocketServer } from 'ws';
-import { SimHost } from './SimHost.js';
+import { type HostClient, type ShipNotice, SimHost } from './SimHost.js';
 import {
   createRateState,
   createSeqCursor,
@@ -556,6 +559,7 @@ export class HarborDaemon {
       this.lastAtmos = [...full.atmos];
       this.telemetrySinceFull = 0;
       this.bump('telemetryFull', 'telemetryBytes', bytes);
+      this.sendShipSystems(world, nowMs);
       return;
     }
     const changed = diffAtmos(this.lastAtmos, rooms);
@@ -563,6 +567,16 @@ export class HarborDaemon {
     const bytes = this.sendAll(delta);
     this.lastAtmos = mergeAtmos(this.lastAtmos, delta.atmos);
     this.bump('telemetryDelta', 'telemetryBytes', bytes);
+    this.sendShipSystems(world, nowMs);
+  }
+
+  private sendShipSystems(world: World, nowMs: number): void {
+    for (const vesselId of Object.keys(world.vessels)) {
+      const systems = buildShipSystems(world, vesselId, nowMs);
+      if (systems !== undefined) this.sendAll(systems);
+      const nav = buildNavState(world, vesselId, nowMs);
+      if (nav !== undefined) this.sendAll(nav);
+    }
   }
 
   private sendFullTelemetryTo(ws: WebSocket, world: World, nowMs: number): void {
@@ -626,12 +640,31 @@ export class HarborDaemon {
   private sendVitals(world: World): void {
     const nowMs = Date.now();
     for (const death of this.host.drainDeaths(nowMs)) this.sendAll(death);
+    const shipNotices = this.host.drainShipNotices();
     for (const [ws, meta] of this.meta) {
       const client = this.host.clientOf(meta.clientId);
       if (client === undefined) continue;
       const vitals = this.host.vitalsFor(client.pawnId);
       const payload = buildVitals(world, nowMs, client.pawnId, vitals.credits, vitals.clearance);
       this.sendVitalsTo(ws, meta.clientId, payload, nowMs);
+      this.sendSoloStatus(world, ws, client, nowMs);
+    }
+    for (const notice of shipNotices) this.sendNoticeToUser(notice);
+  }
+
+  private sendSoloStatus(world: World, ws: WebSocket, client: HostClient, nowMs: number): void {
+    const record = this.host.shipRecordFor(client.userId);
+    if (record === undefined) return;
+    this.send(ws, makeShipStatus(record, world.tick, nowMs));
+  }
+
+  private sendNoticeToUser(notice: ShipNotice): void {
+    const nowMs = Date.now();
+    const tick = this.host.currentWorld.tick;
+    for (const [ws, meta] of this.meta) {
+      const client = this.host.clientOf(meta.clientId);
+      if (client === undefined || client.userId !== notice.userId) continue;
+      this.send(ws, buildNotice(tick, nowMs, notice.severity, notice.title, notice.message));
     }
   }
 
