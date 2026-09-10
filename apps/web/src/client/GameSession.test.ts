@@ -137,21 +137,24 @@ describe('GameSession pack sounds', () => {
     spy.mockRestore();
   });
 
-  it('stamps confirms, rings sales, squelches rejects', () => {
+  it('rings payments, stamps repacks, squelches rejects', () => {
     const { s, fake, audio, spy } = soundRig();
     notice(fake, 'MARKET_ok');
     s.sync();
-    expect(audio.playSealStamp).toHaveBeenCalledTimes(1);
+    expect(audio.playCashRegister).toHaveBeenCalledTimes(1);
     notice(fake, 'MARKET_sold:+18cr');
     s.sync();
-    expect(audio.playCashRegister).toHaveBeenCalledTimes(1);
+    expect(audio.playCashRegister).toHaveBeenCalledTimes(2);
+    notice(fake, 'CARGO_ok');
+    s.sync();
+    expect(audio.playSealStamp).toHaveBeenCalledTimes(1);
     notice(fake, 'MARKET_insufficient-funds');
     s.sync();
     expect(audio.playPackReject).toHaveBeenCalledTimes(1);
     notice(fake, 'DOCKED');
     s.sync();
     expect(audio.playSealStamp).toHaveBeenCalledTimes(1);
-    expect(audio.playCashRegister).toHaveBeenCalledTimes(1);
+    expect(audio.playCashRegister).toHaveBeenCalledTimes(2);
     expect(audio.playPackReject).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });

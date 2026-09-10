@@ -215,8 +215,8 @@ export class GameSession {
     if (latest === undefined || latest.id === this.prevNoticeId) return;
     this.prevNoticeId = latest.id;
     const audio = ShipAudioEngine.getInstance();
-    if (/^(MARKET_ok|CARGO_ok)/.test(latest.message)) audio.playSealStamp();
-    else if (/^MARKET_sold:/.test(latest.message)) audio.playCashRegister();
+    if (/^CARGO_ok/.test(latest.message)) audio.playSealStamp();
+    else if (/^(MARKET_ok|MARKET_sold:)/.test(latest.message)) audio.playCashRegister();
     else if (/^(MARKET_|CARGO_)/.test(latest.message)) audio.playPackReject();
   }
 
