@@ -16,6 +16,7 @@ import type { PackSnapshot } from './PackStore';
 export interface PackPaletteEntry {
   readonly buttonId: string;
   readonly label: string;
+  readonly unitPrice: number;
 }
 
 export interface PackScreenModel {
@@ -24,6 +25,7 @@ export interface PackScreenModel {
   readonly palette: readonly PackPaletteEntry[];
   readonly sealLabel: string;
   readonly sealReady: boolean;
+  readonly sealDetail: string;
   readonly hint: string;
 }
 
@@ -44,8 +46,28 @@ export function packScreenFor(
   snap: PackSnapshot
 ): PackScreenModel {
   const staged = stagedCountsOf(snap);
-  if (mode === 'buy') return buyModel(hubId, market, snapshot, pawnId, credits, staged, snap);
-  return repackModel(snapshot, pawnId, cargo, staged, snap);
+  const screen =
+    mode === 'buy'
+      ? buyModel(hubId, market, snapshot, pawnId, credits, staged, snap)
+      : repackModel(snapshot, pawnId, cargo, staged, snap);
+  return { ...screen, sealDetail: sealDetailFor(mode, market, snap) };
+}
+
+/** Total cost of the sealable (inside) load in buy mode; empty otherwise. */
+function sealDetailFor(
+  mode: 'buy' | 'repack',
+  market: MarketStateBroadcast | null,
+  snap: PackSnapshot
+): string {
+  if (mode !== 'buy' || market === null) return '';
+  const prices = new Map(
+    market.listings.map((listing) => [listing.goodId, listing.buyPrice] as const)
+  );
+  let total = 0;
+  for (const body of snap.bodies) {
+    if (body.inside) total += prices.get(body.goodId) ?? 0;
+  }
+  return total > 0 ? `-${total}cr` : '';
 }
 
 function buyModel(
@@ -64,6 +86,7 @@ function buyModel(
       palette: [],
       sealLabel: 'SEAL',
       sealReady: false,
+      sealDetail: '',
       hint: snap.hint,
     };
   }
@@ -76,6 +99,7 @@ function buyModel(
     palette.push({
       buttonId: `add:${listing.goodId}`,
       label: `+ ${listing.goodId.toUpperCase()} (${left})`,
+      unitPrice: listing.buyPrice,
     });
   }
   return {
@@ -84,6 +108,7 @@ function buyModel(
     palette,
     sealLabel: snap.sealLabel,
     sealReady: snap.sealReady,
+    sealDetail: '',
     hint: buyHint(palette.length, snap, snapshot, pawnId),
   };
 }
@@ -117,6 +142,7 @@ function repackModel(
     palette: paletteOf(held, staged),
     sealLabel: snap.sealLabel,
     sealReady: snap.sealReady,
+    sealDetail: '',
     hint: snap.hint === '' ? 'Stage secured goods, drag them into the crate, seal' : snap.hint,
   };
 }
@@ -143,7 +169,11 @@ function paletteOf(
   for (const [goodId, qty] of Object.entries(held)) {
     const left = qty - (staged[goodId] ?? 0);
     if (left < 1) continue;
-    palette.push({ buttonId: `add:${goodId}`, label: `+ ${goodId.toUpperCase()} (${left})` });
+    palette.push({
+      buttonId: `add:${goodId}`,
+      label: `+ ${goodId.toUpperCase()} (${left})`,
+      unitPrice: 0,
+    });
   }
   return palette;
 }

@@ -7,6 +7,7 @@
 import { buildHarborWorld } from '@kybernetes/sim-core';
 import { DebugView } from '../harbor/DebugView';
 import { ScreenManager } from './ScreenManager';
+import { mountSoundboard } from './Soundboard';
 import { createObserverStore } from './stores/ObserverStore';
 
 export function startBoot(): () => void {
@@ -16,6 +17,7 @@ export function startBoot(): () => void {
   if (params.get('debug-world') === '1' || params.get('view') === 'debug') {
     return startDebugView(root, params.get('beacon') ?? 'HESP01');
   }
+  if (params.get('soundboard') === '1') return mountSoundboard(root);
   const manager = new ScreenManager({
     root,
     storage: window.localStorage,

@@ -318,6 +318,54 @@ export class ShipAudioEngine {
     this.uiSynth.playClick(this.busManager.uiGain);
   }
 
+  /** Packing bench: grabbed a staged unit. */
+  public playPackGrab(): void {
+    if (!this.busManager || !this.uiSynth) return;
+    this.uiSynth.playPromptChirp(this.busManager.uiGain, 0.35);
+  }
+
+  /** Packing bench: released a dragged unit. */
+  public playPackDrop(): void {
+    if (!this.busManager || !this.metalSynth) return;
+    this.metalSynth.playCrateThunk(this.busManager.foleyGain, 0.5);
+  }
+
+  /** Packing bench: a staged unit came to rest. */
+  public playPackLand(): void {
+    if (!this.busManager || !this.metalSynth) return;
+    this.metalSynth.playCrateThunk(this.busManager.foleyGain, 0.3);
+  }
+
+  /** Packing bench: ratcheted the held unit. */
+  public playPackRotate(): void {
+    if (!this.busManager || !this.alarmSynth) return;
+    this.alarmSynth.playGeigerClick(this.busManager.uiGain, 0.35);
+  }
+
+  /** Packing bench: the lid seated across the mouth. */
+  public playLidSeat(): void {
+    if (!this.busManager || !this.metalSynth) return;
+    this.metalSynth.playCrateThunk(this.busManager.foleyGain, 0.85);
+  }
+
+  /** Trade: the server accepted a sealed crate. */
+  public playSealStamp(): void {
+    if (!this.busManager || !this.uiSynth) return;
+    this.uiSynth.playDebriefStamp(this.busManager.uiGain, 0.9);
+  }
+
+  /** Trade: the server paid out a bay sale. */
+  public playCashRegister(): void {
+    if (!this.busManager || !this.uiSynth) return;
+    this.uiSynth.playCashRegister(this.busManager.uiGain, 0.6);
+  }
+
+  /** Trade: the server rejected a seal. */
+  public playPackReject(): void {
+    if (!this.busManager || !this.uiSynth) return;
+    this.uiSynth.playTelemetrySquelch(this.busManager.uiGain, 0.5);
+  }
+
   // fallow-ignore-next-line unused-class-member -- no blast events on the v2 client yet
   public playExplosionShockwave(): void {
     if (!this.busManager || !this.vitalsSynth) return;

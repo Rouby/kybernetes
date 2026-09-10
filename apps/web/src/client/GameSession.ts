@@ -14,11 +14,12 @@ import {
   type World,
   withSnapshotStates,
 } from '@kybernetes/sim-core';
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { InteractTarget } from '../harbor/interactTarget';
 import type { PredictedShot } from '../harbor/predictedShots';
 import { withDockWalkable } from '../harbor/renderState';
 import type { HarborViewportProps } from '../harbor/viewportFrame';
-import { PackStore } from '../pack/PackStore';
+import { type PackSnapshot, PackStore } from '../pack/PackStore';
 import { packLayoutFor } from '../webgl/ui/UiToolkit';
 import { DebugHud } from './DebugHud';
 import { buildGlOverlayWiring } from './sessionOverlay';
@@ -53,6 +54,10 @@ export class GameSession {
   public readonly consoles: ConsoleStore;
   public readonly audio: AudioPrefs;
   private readonly pack: PackStore;
+  private readonly settledBodyIds = new Set<number>();
+  private prevLidSeated = false;
+  private prevPackOpen = false;
+  private prevNoticeId = 0;
   private readonly statics: World = buildHarborWorld();
   private readonly targetRef: { current: InteractTarget | null } = { current: null };
   private readonly aimLocked = { current: false };
@@ -119,7 +124,9 @@ export class GameSession {
       isPaused: () => this.controls.getSnapshot().paused,
       isDead: () => this.controls.getSnapshot().dead,
       isPackOpen: () => this.pack.isOpen(),
-      onPackRotate: () => this.pack.rotateHeld(),
+      onPackRotate: () => {
+        if (this.pack.rotateHeld()) ShipAudioEngine.getInstance().playPackRotate();
+      },
       onTogglePause: () => {
         if (this.settingsOpen) this.settingsOpen = false;
         else this.controls.togglePause();
@@ -165,6 +172,54 @@ export class GameSession {
     this.hud = null;
   }
 
+  /** Bench foley from physics transitions and server trade notices. */
+  private watchPackSounds(notices: readonly { id: number; message: string }[]): void {
+    const snap = this.pack.getSnapshot();
+    this.seedPackOpen(snap);
+    if (!snap.open) {
+      this.settledBodyIds.clear();
+      this.prevLidSeated = false;
+      return;
+    }
+    this.soundLandings(snap.bodies);
+    this.soundLidSeat(snap.lidSeated);
+    this.soundTradeNotices(notices);
+  }
+
+  private seedPackOpen(snap: PackSnapshot): void {
+    if (snap.open && !this.prevPackOpen) {
+      for (const body of snap.bodies) {
+        if (body.settled) this.settledBodyIds.add(body.id);
+      }
+    }
+    this.prevPackOpen = snap.open;
+  }
+
+  private soundLandings(bodies: PackSnapshot['bodies']): void {
+    const audio = ShipAudioEngine.getInstance();
+    for (const body of bodies) {
+      if (body.settled && !this.settledBodyIds.has(body.id)) {
+        this.settledBodyIds.add(body.id);
+        audio.playPackLand();
+      }
+    }
+  }
+
+  private soundLidSeat(seated: boolean): void {
+    if (seated && !this.prevLidSeated) ShipAudioEngine.getInstance().playLidSeat();
+    this.prevLidSeated = seated;
+  }
+
+  private soundTradeNotices(notices: readonly { id: number; message: string }[]): void {
+    const latest = notices[notices.length - 1];
+    if (latest === undefined || latest.id === this.prevNoticeId) return;
+    this.prevNoticeId = latest.id;
+    const audio = ShipAudioEngine.getInstance();
+    if (/^(MARKET_ok|CARGO_ok)/.test(latest.message)) audio.playSealStamp();
+    else if (/^MARKET_sold:/.test(latest.message)) audio.playCashRegister();
+    else if (/^(MARKET_|CARGO_)/.test(latest.message)) audio.playPackReject();
+  }
+
   public getProps(): HarborViewportProps | null {
     return this.lastProps;
   }
@@ -182,6 +237,7 @@ export class GameSession {
     this.fire.reconcileNotices(state.notices);
     this.pack.reconcileNotices(state.notices);
     this.pack.update(performance.now());
+    this.watchPackSounds(state.notices);
     const canvasSize = this.driver?.canvasSize() ?? null;
     if (canvasSize !== null) {
       const rect = packLayoutFor(canvasSize.w, canvasSize.h).canvas;

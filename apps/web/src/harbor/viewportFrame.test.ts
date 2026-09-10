@@ -1,6 +1,6 @@
 import type { SnapshotBroadcast } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
-import { type HarborViewportProps, telemetryKey } from './viewportFrame';
+import { type HarborViewportProps, mouseScreenOf, telemetryKey } from './viewportFrame';
 
 function view(over: Record<string, unknown> = {}): HarborViewportProps {
   return over as unknown as HarborViewportProps;
@@ -9,6 +9,13 @@ function view(over: Record<string, unknown> = {}): HarborViewportProps {
 function snapshot(over: Record<string, unknown> = {}): SnapshotBroadcast {
   return { tick: 100, ...over } as unknown as SnapshotBroadcast;
 }
+
+describe('mouseScreenOf', () => {
+  it('feeds hover only after the first mousemove', () => {
+    expect(mouseScreenOf({ mouse: { x: 0, y: 0, moved: false } })).toBeUndefined();
+    expect(mouseScreenOf({ mouse: { x: 12, y: 34, moved: true } })).toEqual({ x: 12, y: 34 });
+  });
+});
 
 describe('telemetryKey', () => {
   it('keys channel ticks and revisions', () => {

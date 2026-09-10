@@ -12,7 +12,7 @@ import type {
 } from '@kybernetes/protocol';
 import { PAWN_TRIMS, THRUSTER_TINTS } from '@kybernetes/protocol';
 import { deathHint, deathTitle } from '../../harbor/deathNotice';
-import type { MarketScreenModel } from '../../harbor/marketModel';
+import type { MarketScreenModel, MarketTableCell, SellScreenModel } from '../../harbor/marketModel';
 import { navViewModel } from '../../harbor/navConsoleModel';
 import { engineViewModel, reactorViewModel } from '../../harbor/shipConsoleModel';
 import {
@@ -36,6 +36,7 @@ import {
   type UiText,
   uiButtonColumn,
   uiCenteredPanel,
+  uiCharWidth,
   uiEllipsize,
   uiSplitRow,
   uiVisorMargins,
@@ -50,6 +51,7 @@ export type UiScreenId =
   | 'nav'
   | 'cargo'
   | 'market'
+  | 'sell'
   | 'pack'
   | 'pause'
   | 'death'
@@ -632,7 +634,9 @@ function marketTextsFor(panel: UiRect, model: MarketScreenModel): readonly UiTex
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
   const y0 = panel.y + PAD;
-  const rows = [
+  const colW = innerW / 2;
+  const tableTop = y0 + KICKER_SIZE + 8 + LINE_H + 4;
+  const rows: UiText[] = [
     textAt(`MARKET // ${model.hubLabel}`, tx, y0, KICKER_SIZE, 'dim'),
     textAt(
       uiEllipsize(model.creditsLabel, BODY_SIZE, innerW),
@@ -641,53 +645,126 @@ function marketTextsFor(panel: UiRect, model: MarketScreenModel): readonly UiTex
       BODY_SIZE,
       'primary'
     ),
-    ...pairListingLines(model.listingLines).map((line, index) =>
-      textAt(
-        uiEllipsize(line, BODY_SIZE, innerW),
-        tx,
-        y0 + KICKER_SIZE + 8 + LINE_H * (index + 1),
-        BODY_SIZE,
-        'muted'
-      )
-    ),
   ];
-  const hintY = y0 + KICKER_SIZE + 8 + LINE_H * (pairListingLines(model.listingLines).length + 1);
-  rows.push(textAt(uiEllipsize(model.hint, BODY_SIZE, innerW), tx, hintY, BODY_SIZE, 'muted'));
+  const columns = [model.left, model.right];
+  for (let col = 0; col < columns.length; col += 1) {
+    const cells = columns[col] ?? [];
+    const cx = tx + col * colW;
+    rows.push(...marketTableHeader(cx, colW, tableTop));
+    for (let row = 0; row < cells.length; row += 1) {
+      const cell = cells[row];
+      if (cell === undefined) continue;
+      rows.push(...marketTableRow(cx, colW, tableTop + LINE_H * (row + 1), cell));
+    }
+  }
   return rows;
 }
 
-function pairListingLines(lines: readonly string[]): string[] {
-  const paired: string[] = [];
-  for (let i = 0; i < lines.length; i += 2) {
-    const second = lines[i + 1];
-    paired.push(second === undefined ? (lines[i] ?? '') : `${lines[i]}   ${second}`);
-  }
-  return paired;
+const TABLE_SIZE = 12;
+
+function marketTableHeader(x: number, colW: number, y: number): readonly UiText[] {
+  const slots = marketTableSlots(x, colW);
+  return [
+    textAt('GOOD', slots.name, y, TABLE_SIZE, 'dim'),
+    textAt('BUY', slots.buy, y, TABLE_SIZE, 'dim'),
+    textAt('SELL', slots.sell, y, TABLE_SIZE, 'dim'),
+  ];
 }
 
-function marketButtonsFor(panel: UiRect, model: MarketScreenModel): readonly UiButton[] {
-  const ids = ['packBuy', ...model.buys.map((row) => row.buttonId)];
-  const labels: Record<string, string> = { packBuy: 'PACK CRATES' };
-  for (const row of model.buys) labels[row.buttonId] = row.label;
-  if (model.hasSell) {
-    ids.push('sellAll');
-    labels['sellAll'] = model.sellLabel;
-  }
-  ids.push('close');
-  labels['close'] = 'CLOSE [E]';
+function marketTableRow(
+  x: number,
+  colW: number,
+  y: number,
+  cell: MarketTableCell
+): readonly UiText[] {
+  const slots = marketTableSlots(x, colW);
+  return [
+    textAt(
+      uiEllipsize(`${cell.stock}x ${cell.name}`, TABLE_SIZE, slots.nameW),
+      slots.name,
+      y,
+      TABLE_SIZE,
+      'primary'
+    ),
+    textAt(`-${cell.buy}cr`, slots.buy, y, TABLE_SIZE, 'danger'),
+    textAt(`+${cell.sell}cr`, slots.sell, y, TABLE_SIZE, 'good'),
+  ];
+}
+
+function marketTableSlots(
+  x: number,
+  colW: number
+): { name: number; buy: number; sell: number; nameW: number } {
+  const charW = uiCharWidth(TABLE_SIZE);
+  const buyX = x + colW - 11 * charW;
+  const sellX = x + colW - 5 * charW;
+  return { name: x, buy: buyX, sell: sellX, nameW: buyX - x };
+}
+
+function marketButtonsFor(panel: UiRect): readonly UiButton[] {
+  const ids = ['buy', 'sell', 'close'];
+  const labels = { buy: 'BUY', sell: 'SELL', close: 'CLOSE [E]' };
   const top = panel.y + panel.h - PAD - (ids.length * BTN_H + (ids.length - 1) * GAP);
-  return columnFor(panel, top, ids, labels, model.buys[0]?.buttonId);
+  return columnFor(panel, top, ids, labels, 'buy');
+}
+
+function sellButtonsFor(panel: UiRect, model: SellScreenModel): readonly UiButton[] {
+  const ids = [...model.rows.map((row) => row.buttonId), 'sellAll', 'close'];
+  const labels: Record<string, string> = { sellAll: model.totalLabel, close: 'CLOSE [E]' };
+  const details: Record<string, { text: string; color: 'good' }> = {};
+  for (const row of model.rows) {
+    labels[row.buttonId] = row.label;
+    details[row.buttonId] = { text: `+${row.value}cr`, color: 'good' };
+  }
+  const top = panel.y + panel.h - PAD - (ids.length * BTN_H + (ids.length - 1) * GAP);
+  return columnFor(panel, top, ids, labels, model.rows[0]?.buttonId).map((button) => {
+    const detail = details[button.id];
+    return detail === undefined ? button : { ...button, detail };
+  });
 }
 
 export function layoutMarketScreen(w: number, h: number, model: MarketScreenModel): UiScreenLayout {
   const panel = marketPanelFor(w, h);
-  return { panel, texts: marketTextsFor(panel, model), buttons: marketButtonsFor(panel, model) };
+  return { panel, texts: marketTextsFor(panel, model), buttons: marketButtonsFor(panel) };
+}
+
+function sellPanelFor(w: number, h: number): UiRect {
+  return visorPanelFor(w, h, 440, 620);
+}
+
+function sellTextsFor(panel: UiRect, model: SellScreenModel): readonly UiText[] {
+  const tx = panel.x + PAD;
+  const innerW = panel.w - PAD * 2;
+  const y0 = panel.y + PAD;
+  return [
+    textAt(`SELL // ${model.hubLabel}`, tx, y0, KICKER_SIZE, 'dim'),
+    textAt(
+      uiEllipsize(model.totalLabel, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8,
+      BODY_SIZE,
+      'good'
+    ),
+    textAt(
+      uiEllipsize(model.hint, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H,
+      BODY_SIZE,
+      'muted'
+    ),
+  ];
+}
+
+export function layoutSellScreen(w: number, h: number, model: SellScreenModel): UiScreenLayout {
+  const panel = sellPanelFor(w, h);
+  return { panel, texts: sellTextsFor(panel, model), buttons: sellButtonsFor(panel, model) };
 }
 
 function packStripButtons(
   strip: UiRect,
   sealLabel: string,
-  sealReady: boolean
+  sealReady: boolean,
+  sealDetail: string
 ): readonly UiButton[] {
   const ids = ['seal', 'auto', 'clear', 'close'];
   const rects = uiSplitRow(strip, ids.length, GAP);
@@ -702,6 +779,9 @@ function packStripButtons(
     label: labels[id] ?? id,
     rect: rects[index] ?? { ...strip },
     primary: sealReady && id === 'seal',
+    ...(id === 'seal' && sealDetail !== ''
+      ? { detail: { text: sealDetail, color: 'danger' as const } }
+      : {}),
   }));
 }
 
@@ -740,7 +820,12 @@ export function layoutPackScreen(
   ];
   const paletteIds = model.palette.map((entry) => entry.buttonId);
   const paletteLabels: Record<string, string> = {};
-  for (const entry of model.palette) paletteLabels[entry.buttonId] = entry.label;
+  const paletteDetails: Record<string, { text: string; color: 'danger' }> = {};
+  for (const entry of model.palette) {
+    paletteLabels[entry.buttonId] = entry.label;
+    if (entry.unitPrice > 0)
+      paletteDetails[entry.buttonId] = { text: `-${entry.unitPrice}cr`, color: 'danger' };
+  }
   const paletteTop =
     geo.panel.y +
     geo.panel.h -
@@ -750,8 +835,11 @@ export function layoutPackScreen(
     panel: geo.panel,
     texts,
     buttons: [
-      ...columnFor(geo.panel, paletteTop, paletteIds, paletteLabels, undefined),
-      ...packStripButtons(geo.strip, model.sealLabel, model.sealReady),
+      ...columnFor(geo.panel, paletteTop, paletteIds, paletteLabels, undefined).map((button) => {
+        const detail = paletteDetails[button.id];
+        return detail === undefined ? button : { ...button, detail };
+      }),
+      ...packStripButtons(geo.strip, model.sealLabel, model.sealReady, model.sealDetail),
     ],
   };
 }
@@ -818,7 +906,8 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   engine: ['spool', 'tuneDown', 'tuneUp', 'close'],
   nav: ['plot', 'cancel', 'distress', 'close'],
   cargo: ['unpackAll', 'drop', 'packHold', 'close'],
-  market: ['packBuy', 'sellAll', 'close'],
+  market: ['buy', 'sell', 'close'],
+  sell: ['sellAll', 'close'],
   pack: ['seal', 'auto', 'clear', 'close'],
   pause: ['resume', 'restart', 'quit', 'audio'],
   death: ['restart', 'quit'],

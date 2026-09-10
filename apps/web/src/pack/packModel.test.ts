@@ -26,6 +26,7 @@ function snap(): PackSnapshot {
     ],
     walls: [],
     crate: { x: 0, y: 0, w: 120, h: 80 },
+    lidSeated: false,
     stagedTotal: 1,
     insideTotal: 1,
     sealReady: false,
@@ -114,8 +115,9 @@ describe('packScreenFor (M8)', () => {
       snap()
     );
     expect(model.title).toContain('BUY');
-    expect(model.palette).toEqual([{ buttonId: 'add:scrap', label: '+ SCRAP (1)' }]);
+    expect(model.palette).toEqual([{ buttonId: 'add:scrap', label: '+ SCRAP (1)', unitPrice: 10 }]);
     expect(model.budgetLabel).toBe('Credits: 25cr');
+    expect(model.sealDetail).toBe('-10cr');
   });
 
   it('offers secured goods aboard the ship', () => {
@@ -136,7 +138,8 @@ describe('packScreenFor (M8)', () => {
       ],
     };
     const model = packScreenFor('repack', null, null, aboard, 'pawn:u1', cargo(), 0, snap());
-    expect(model.palette).toEqual([{ buttonId: 'add:scrap', label: '+ SCRAP (4)' }]);
+    expect(model.palette).toEqual([{ buttonId: 'add:scrap', label: '+ SCRAP (4)', unitPrice: 0 }]);
+    expect(model.sealDetail).toBe('');
   });
 
   it('points broke players at the bay first', () => {

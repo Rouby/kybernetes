@@ -55,22 +55,25 @@ describe('PackStore staging', () => {
     expect(after?.y ?? 0).toBeGreaterThan(before?.y ?? 0);
   });
 
-  it('settles a centered drop into a sealable load', () => {
+  it('stages left of the crate and tidies into a sealable load', () => {
     const store = opened();
     store.stageUnit('rations', 30, 20);
+    step(store, 120);
+    const staged = store.getSnapshot().bodies.find((view) => view.goodId === 'rations');
+    expect((staged?.x ?? 200) + (staged?.w ?? 0) / 2).toBeLessThan(180);
+    expect(staged?.inside).toBe(false);
+    store.tidyUp();
     step(store, 600);
     const snap = store.getSnapshot();
     expect(snap.insideTotal).toBe(1);
     expect(snap.bodies.find((view) => view.goodId === 'rations')?.settled).toBe(true);
-    expect(snap.sealReady).toBe(false);
-    expect(snap.hint).toContain('lid');
-    expect(store.takeSealed('buy')).toBeNull();
+    expect(snap.sealReady).toBe(true);
   });
 
-  it('seats the lid before sealing and ships a fresh one', () => {
+  it('drags the lid by hand then seals and ships a fresh one', () => {
     const store = opened();
     store.stageUnit('rations', 30, 20);
-    step(store, 600);
+    step(store, 60);
     const lid = () => store.getSnapshot().bodies.find((view) => view.goodId === 'lid');
     const at = lid();
     if (at === undefined) throw new Error('missing lid');
@@ -82,6 +85,11 @@ describe('PackStore staging', () => {
     store.moveTo(240, 191);
     step(store, 20);
     store.release();
+    step(store, 60);
+    const placed = lid();
+    expect(Math.abs((placed?.x ?? 0) - 240)).toBeLessThan(40);
+    expect(Math.abs((placed?.y ?? 0) - 191)).toBeLessThan(40);
+    store.tidyUp();
     step(store, 600);
     expect(store.sealReady()).toBe(true);
     expect(store.takeSealed('buy')).toEqual([{ goodId: 'rations', qty: 1 }]);

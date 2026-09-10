@@ -5,6 +5,7 @@
  * thin mount over it until React removal. No React of its own.
  */
 
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import {
   createViewportSession,
   fitCanvasToParent,
@@ -129,7 +130,9 @@ export class ViewportDriver {
     if (canvas === null || view === null) return;
     const packAt = this.packLocal();
     if (packAt !== null) {
-      this.packCtl?.press(packAt.x, packAt.y);
+      if (this.packCtl?.press(packAt.x, packAt.y) === true) {
+        ShipAudioEngine.getInstance().playPackGrab();
+      }
       return;
     }
     if (this.fireZoneClicked(canvas)) return;
@@ -144,6 +147,9 @@ export class ViewportDriver {
   }
 
   private readonly onUp = (): void => {
+    if (this.packCtl?.isDown() === true) {
+      ShipAudioEngine.getInstance().playPackDrop();
+    }
     this.packCtl?.release();
     this.view?.onFireUp();
   };

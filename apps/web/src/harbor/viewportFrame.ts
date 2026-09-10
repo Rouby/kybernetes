@@ -47,6 +47,7 @@ import {
   layoutPackScreen,
   layoutPauseScreen,
   layoutReactorScreen,
+  layoutSellScreen,
   layoutSettingsScreen,
   type UiScreenLayout,
 } from '../webgl/ui/UiScreens';
@@ -59,7 +60,7 @@ import {
   sightBlockers,
   targetPromptWithCarry,
 } from './interactTarget';
-import type { MarketScreenModel } from './marketModel';
+import type { MarketScreenModel, SellScreenModel } from './marketModel';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
 import type { FocusOrigin, FrameMotion, ImpactRenderModel } from './renderState';
@@ -129,7 +130,11 @@ export interface CargoWiring {
 export interface MarketWiring {
   readonly hubId: string;
   readonly screen: MarketScreenModel;
-  readonly buys: Readonly<Record<string, number>>;
+}
+
+export interface SellWiring {
+  readonly hubId: string;
+  readonly screen: SellScreenModel;
   readonly sellIds: readonly string[];
 }
 
@@ -170,10 +175,12 @@ export interface GlSessionWiring {
   readonly navState: NavStateBroadcast | null;
   readonly cargo: CargoWiring | null;
   readonly market: MarketWiring | null;
+  readonly sell: SellWiring | null;
   readonly pack: PackWiring | null;
   readonly shipStatus: ShipStatusBroadcast | null;
   readonly sendIntent: (intent: ClientIntent) => void;
   readonly onPackOpen: (ctx: import('../pack/PackStore').PackContext) => void;
+  readonly onConsole: (kind: ConsoleKind) => void;
   readonly onCloseConsole: () => void;
   readonly onResume: () => void;
   readonly onRestart: () => void;
@@ -426,6 +433,14 @@ function packSceneOf(
   };
 }
 
+/** Screen-space cursor for HUD hover; absent until the first mousemove. */
+export function mouseScreenOf(session: {
+  mouse: { x: number; y: number; moved: boolean };
+}): { x: number; y: number } | undefined {
+  if (!session.mouse.moved) return undefined;
+  return { x: session.mouse.x, y: session.mouse.y };
+}
+
 function targetRenderFields(
   target: InteractTarget | null,
   snapshot: SnapshotBroadcast,
@@ -557,6 +572,11 @@ function consoleLayoutFor(
     if (market === null) return null;
     return layoutMarketScreen(width, height, market.screen);
   }
+  if (kind === 'sell') {
+    const sell = wiring.sell;
+    if (sell === null) return null;
+    return layoutSellScreen(width, height, sell.screen);
+  }
   if (kind === 'pack') {
     const pack = wiring.pack;
     if (pack === null) return null;
@@ -611,14 +631,10 @@ function consoleIntentFor(
     if (cargo === null) return null;
     return cargoConsoleIntent(id, { unpackIds: cargo.unpackIds, seal: cargo.seal });
   }
-  if (kind === 'market') {
-    const market = wiring.market;
-    if (market === null) return null;
-    return marketConsoleIntent(id, {
-      hubId: market.hubId,
-      buys: market.buys,
-      sellIds: market.sellIds,
-    });
+  if (kind === 'sell') {
+    const sell = wiring.sell;
+    if (sell === null) return null;
+    return marketConsoleIntent(id, { hubId: sell.hubId, sellIds: sell.sellIds });
   }
   if (kind === 'reactor_console') return reactorConsoleIntent(id);
   const systems = wiring.console?.systems;
@@ -633,18 +649,29 @@ function dispatchLocalConsoleAction(
   wiring: GlSessionWiring,
   id: string
 ): boolean {
-  if (kind === 'market' && id === 'packBuy' && wiring.market !== null) {
+  if (dispatchConsoleOpener(kind, wiring, id)) return true;
+  if (kind === 'pack' && wiring.pack !== null) {
+    dispatchPackAction(wiring.pack, id);
+    return true;
+  }
+  return false;
+}
+
+/** Console buttons that open another console instead of sending intents. */
+function dispatchConsoleOpener(kind: ConsoleKind, wiring: GlSessionWiring, id: string): boolean {
+  if (kind === 'market' && id === 'buy' && wiring.market !== null) {
     wiring.onPackOpen({ mode: 'buy', hubId: wiring.market.hubId });
+    ShipAudioEngine.getInstance().playUiClick();
+    return true;
+  }
+  if (kind === 'market' && id === 'sell') {
+    wiring.onConsole('sell');
     ShipAudioEngine.getInstance().playUiClick();
     return true;
   }
   if (kind === 'cargo' && id === 'packHold') {
     wiring.onPackOpen({ mode: 'repack' });
     ShipAudioEngine.getInstance().playUiClick();
-    return true;
-  }
-  if (kind === 'pack' && wiring.pack !== null) {
-    dispatchPackAction(wiring.pack, id);
     return true;
   }
   return false;
@@ -741,6 +768,7 @@ function viewportRenderState(args: {
     camera: shakenCamera(session, now),
     zoom: VIEW_ZOOM,
     mouseWorld: aimPoint(aim, at),
+    mouseScreen: mouseScreenOf(session),
     muzzleFlashes: session.flashes.map((flash) => ({
       x: flash.x,
       y: flash.y,

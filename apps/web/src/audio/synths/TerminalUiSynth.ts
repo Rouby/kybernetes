@@ -33,7 +33,6 @@ export class TerminalUiSynth {
     triggerDecayingOsc(this.ctx, osc, destination, t, dur, 0.2 * volume);
   }
 
-  // fallow-ignore-next-line unused-class-member
   public playTelemetrySquelch(destination: AudioNode, volume = 0.4): void {
     const t = this.ctx.currentTime;
     const dur = 0.04;
@@ -56,6 +55,20 @@ export class TerminalUiSynth {
 
     noise.start(t);
     noise.stop(t + dur);
+  }
+
+  /** Trade register: two ascending blips for an incoming sale. */
+  public playCashRegister(destination: AudioNode, volume = 0.6): void {
+    const t = this.ctx.currentTime;
+    for (const [offset, freq] of [
+      [0, 880],
+      [0.09, 1318.5],
+    ] as const) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, t + offset);
+      triggerDecayingOsc(this.ctx, osc, destination, t + offset, 0.07, 0.12 * volume);
+    }
   }
 
   public playDebriefStamp(destination: AudioNode, volume = 0.9): void {

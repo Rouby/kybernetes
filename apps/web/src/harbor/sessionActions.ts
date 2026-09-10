@@ -41,6 +41,7 @@ export type ConsoleKind =
   | 'nav_console'
   | 'cargo'
   | 'market'
+  | 'sell'
   | 'pack';
 
 /** Fixture kinds that open a console panel instead of firing a one-shot intent. */

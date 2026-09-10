@@ -62,6 +62,44 @@ export class MetallicPlateSynth {
     osc.stop(t + dur * 1.5);
   }
 
+  /** Packing bench: wooden crate thunk, weight scales the body. */
+  public playCrateThunk(destination: AudioNode, volume = 0.6): void {
+    const t = this.ctx.currentTime;
+    const dur = 0.14;
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(110, t);
+    osc.frequency.exponentialRampToValueAtTime(45, t + dur);
+
+    const oscGain = this.ctx.createGain();
+    oscGain.gain.setValueAtTime(0.6 * volume, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+    osc.connect(oscGain);
+    oscGain.connect(destination);
+
+    const noiseSource = this.ctx.createBufferSource();
+    noiseSource.buffer = this.noiseBuffer;
+
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.setValueAtTime(900, t);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.3 * volume, t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(destination);
+
+    osc.start(t);
+    osc.stop(t + dur);
+    noiseSource.start(t);
+    noiseSource.stop(t + 0.05);
+  }
+
   public playHullGroan(destination: AudioNode, intensity = 0.5): void {
     const t = this.ctx.currentTime;
     const dur = 1.8 + Math.random() * 1.2;

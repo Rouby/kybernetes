@@ -30,7 +30,7 @@ import {
   uiTextHex,
 } from '../ui/UiPass';
 import type { UiScreenLayout } from '../ui/UiScreens';
-import type { UiField, UiSwatch } from '../ui/UiToolkit';
+import type { UiButtonDetail, UiField, UiSwatch } from '../ui/UiToolkit';
 import {
   cartridgeLoadedStates,
   cartridgeSlotCell,
@@ -1334,7 +1334,30 @@ export class HudRenderer {
         { fontSize: 14, color: target.primary ? '#00e5ff' : '#e0e8f5' },
         onAction === undefined ? undefined : () => onAction(target.id)
       );
+      this.addButtonDetail(target);
     }
+  }
+
+  /** Right-aligned sublabel (prices, payouts) in its own color. */
+  private addButtonDetail(button: {
+    readonly rect: { x: number; y: number; w: number; h: number };
+    readonly detail?: UiButtonDetail;
+  }): void {
+    const detail = button.detail;
+    if (detail === undefined) return;
+    const fontSize = 12;
+    const entry = this.atlas.getOrDrawText(detail.text, { fontSize });
+    const padX = 10;
+    const padY = Math.max(1, Math.floor((button.rect.h - fontSize) / 2) - 1);
+    this.addText(
+      detail.text,
+      button.rect.x + button.rect.w - padX - entry.width,
+      button.rect.y + padY,
+      {
+        fontSize,
+        color: uiTextHex(detail.color),
+      }
+    );
   }
 
   // fallow-ignore-next-line complexity

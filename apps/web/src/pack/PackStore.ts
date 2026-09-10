@@ -40,6 +40,7 @@ export interface PackSnapshot {
   readonly bodies: readonly PackBodyView[];
   readonly walls: readonly PackWallView[];
   readonly crate: PackWallView;
+  readonly lidSeated: boolean;
   readonly stagedTotal: number;
   readonly insideTotal: number;
   readonly sealReady: boolean;
@@ -219,13 +220,16 @@ export class PackStore {
     if (this.ctx === null || this.meta.size >= MAX_BODIES) return false;
     if (!(w > 0) || !(h > 0)) return false;
     const crate = packCrateRect(this.rectW, this.rectH);
-    const body = Matter.Bodies.rectangle(
-      crate.x + crate.w / 2 + (Math.random() - 0.5) * 40,
-      crate.y - 24,
-      w,
-      h,
-      { friction: 0.6, frictionStatic: 1, restitution: 0.05, density: 0.001 }
+    const dropX = Math.max(
+      20,
+      Math.min(crate.x - 55 + (Math.random() - 0.5) * 20, this.rectW - 20)
     );
+    const body = Matter.Bodies.rectangle(dropX, crate.y + 30, w, h, {
+      friction: 0.6,
+      frictionStatic: 1,
+      restitution: 0.05,
+      density: 0.001,
+    });
     Matter.Body.setAngle(body, (Math.random() - 0.5) * 0.4);
     this.meta.set(body.id, { goodId, w, h });
     Matter.Composite.add(this.engine.world, body);
@@ -394,6 +398,7 @@ export class PackStore {
       bodies,
       walls: [...this.wallRects],
       crate: { ...packCrateRect(this.rectW, this.rectH) },
+      lidSeated: this.lidSeated(),
       stagedTotal: goods.length,
       insideTotal: inside,
       sealReady: ready,

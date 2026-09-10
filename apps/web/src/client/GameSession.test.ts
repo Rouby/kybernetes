@@ -1,5 +1,7 @@
 /** @vitest-environment node */
 import { describe, expect, it, vi } from 'vitest';
+import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import type { PackStore } from '../pack/PackStore';
 import { selectSessionOverlayId } from '../webgl/ui/UiPass';
 import { GameSession } from './GameSession';
 
@@ -66,6 +68,94 @@ function liveSession(fake: FakeSocket): GameSession {
   fake.onopen?.({});
   return s;
 }
+
+function pumpPack(pack: PackStore, frames: number): void {
+  let now = 2000;
+  for (let i = 0; i < frames; i += 1) {
+    now += 1000 / 60;
+    pack.update(now);
+  }
+}
+
+describe('GameSession pack sounds', () => {
+  function soundRig() {
+    const fake = makeFake();
+    const s = liveSession(fake);
+    const audio = {
+      playPackLand: vi.fn(),
+      playLidSeat: vi.fn(),
+      playSealStamp: vi.fn(),
+      playCashRegister: vi.fn(),
+      playPackReject: vi.fn(),
+    };
+    const spy = vi
+      .spyOn(ShipAudioEngine, 'getInstance')
+      .mockReturnValue(audio as unknown as ShipAudioEngine);
+    const pack = (s as unknown as { pack: PackStore }).pack;
+    pack.open({ mode: 'buy', hubId: 'hub_a' });
+    pack.setViewport(480, 360);
+    return { s, fake, audio, pack, spy };
+  }
+
+  function notice(fake: FakeSocket, message: string): void {
+    fake.onmessage?.({
+      data: JSON.stringify({
+        type: 'NOTICE',
+        v: 2,
+        tick: 1,
+        serverTimeMs: 1,
+        severity: 'info',
+        title: 'trade',
+        message,
+      }),
+    });
+  }
+
+  it('thunks each landing once', () => {
+    const { s, audio, pack, spy } = soundRig();
+    s.sync();
+    pack.stageUnit('rations', 30, 20);
+    pumpPack(pack, 600);
+    s.sync();
+    expect(audio.playPackLand).toHaveBeenCalledTimes(1);
+    s.sync();
+    expect(audio.playPackLand).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('thunks the lid seat once', () => {
+    const { s, audio, pack, spy } = soundRig();
+    s.sync();
+    pack.stageUnit('rations', 30, 20);
+    pumpPack(pack, 60);
+    pack.tidyUp();
+    pumpPack(pack, 600);
+    s.sync();
+    expect(audio.playLidSeat).toHaveBeenCalledTimes(1);
+    s.sync();
+    expect(audio.playLidSeat).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('stamps confirms, rings sales, squelches rejects', () => {
+    const { s, fake, audio, spy } = soundRig();
+    notice(fake, 'MARKET_ok');
+    s.sync();
+    expect(audio.playSealStamp).toHaveBeenCalledTimes(1);
+    notice(fake, 'MARKET_sold:+18cr');
+    s.sync();
+    expect(audio.playCashRegister).toHaveBeenCalledTimes(1);
+    notice(fake, 'MARKET_insufficient-funds');
+    s.sync();
+    expect(audio.playPackReject).toHaveBeenCalledTimes(1);
+    notice(fake, 'DOCKED');
+    s.sync();
+    expect(audio.playSealStamp).toHaveBeenCalledTimes(1);
+    expect(audio.playCashRegister).toHaveBeenCalledTimes(1);
+    expect(audio.playPackReject).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+});
 
 function selected(session: GameSession): string | null {
   const wiring = session.getProps()?.glOverlay;

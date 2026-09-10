@@ -12,11 +12,17 @@ export interface UiRect {
   readonly h: number;
 }
 
+export interface UiButtonDetail {
+  readonly text: string;
+  readonly color: 'danger' | 'warning' | 'good' | 'muted';
+}
+
 export interface UiButton {
   readonly id: string;
   readonly label: string;
   readonly rect: UiRect;
   readonly primary: boolean;
+  readonly detail?: UiButtonDetail;
 }
 
 export interface UiText {

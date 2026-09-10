@@ -5,35 +5,42 @@
  * panel stays thin and Vitest pins the wording.
  */
 
-import type {
-  CargoStateBroadcast,
-  MarketStateBroadcast,
-  SnapshotBroadcast,
-} from '@kybernetes/protocol';
+import type { MarketStateBroadcast, SnapshotBroadcast } from '@kybernetes/protocol';
 import { HUB_PORTS } from '@kybernetes/sim-core';
 
-export interface MarketBuyRow {
-  readonly goodId: string;
-  readonly qty: number;
-  readonly cost: number;
-  readonly label: string;
-  readonly buttonId: string;
+export interface MarketTableCell {
+  readonly name: string;
+  readonly stock: number;
+  readonly buy: number;
+  readonly sell: number;
 }
 
 export interface MarketScreenModel {
   readonly hubId: string;
   readonly hubLabel: string;
   readonly creditsLabel: string;
-  readonly listingLines: readonly string[];
-  readonly buys: readonly MarketBuyRow[];
-  readonly sellLabel: string;
+  readonly left: readonly MarketTableCell[];
+  readonly right: readonly MarketTableCell[];
+}
+
+export interface SellCrateRow {
+  readonly crateId: string;
+  readonly label: string;
+  readonly value: number;
+  readonly buttonId: string;
+}
+
+export interface SellScreenModel {
+  readonly hubId: string;
+  readonly hubLabel: string;
+  readonly rows: readonly SellCrateRow[];
+  readonly totalLabel: string;
   readonly sellIds: readonly string[];
-  readonly hasSell: boolean;
   readonly hint: string;
 }
 
-const MAX_BUY_QTY = 5;
 const MAX_SELL_IDS = 8;
+const MAX_SELL_ROWS = 5;
 
 const HUB_LABELS: Readonly<Record<string, string>> = {
   hub_a: 'NEW ANCHORAGE',
@@ -51,29 +58,57 @@ export function hubIdForFrame(frameId: string | null): string | null {
 export function marketScreenFor(
   market: MarketStateBroadcast | null,
   snapshot: SnapshotBroadcast | null,
-  cargo: CargoStateBroadcast | null,
   pawnId: string | null,
   credits: number
 ): MarketScreenModel {
   const frameId = pawnFrameOf(snapshot, pawnId);
   const hubId = hubIdForFrame(frameId);
   if (market === null || hubId === null || market.hubId !== hubId) return emptyMarket(hubId);
-  const buys = buyRowsFor(market, credits);
-  const sellIds = sellIdsFor(snapshot, frameId, market);
-  const sellValue = sellValueFor(snapshot, sellIds, market);
+  const cells = market.listings.map((listing) => ({
+    name: listing.goodId,
+    stock: listing.stock,
+    buy: listing.buyPrice,
+    sell: listing.sellPrice,
+  }));
+  const half = Math.ceil(cells.length / 2);
   return {
     hubId,
     hubLabel: HUB_LABELS[hubId] ?? hubId.toUpperCase(),
     creditsLabel: `Credits: ${credits}cr`,
-    listingLines: market.listings.map(
-      (listing) => `${listing.goodId} ${listing.buyPrice}/${listing.sellPrice} (${listing.stock})`
-    ),
-    buys,
-    sellLabel:
-      sellIds.length === 0 ? 'Bay: empty' : `SELL ALL BAY (${sellIds.length}) +${sellValue}cr`,
+    left: cells.slice(0, half),
+    right: cells.slice(half),
+  };
+}
+
+export function sellScreenFor(
+  market: MarketStateBroadcast | null,
+  snapshot: SnapshotBroadcast | null,
+  pawnId: string | null
+): SellScreenModel {
+  const frameId = pawnFrameOf(snapshot, pawnId);
+  const hubId = hubIdForFrame(frameId);
+  if (market === null || hubId === null || market.hubId !== hubId) return emptySell(hubId);
+  const sellIds = sellIdsFor(snapshot, frameId, market);
+  const rows = sellRowsFor(snapshot, sellIds, market);
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  return {
+    hubId,
+    hubLabel: HUB_LABELS[hubId] ?? hubId.toUpperCase(),
+    rows,
+    totalLabel: rows.length === 0 ? 'Bay: empty' : `Bay total +${total}cr`,
     sellIds,
-    hasSell: sellIds.length > 0,
-    hint: hintFor(buys.length, sellIds.length, cargo),
+    hint: sellHint(rows.length, sellIds.length),
+  };
+}
+
+function emptySell(hubId: string | null): SellScreenModel {
+  return {
+    hubId: hubId ?? '—',
+    hubLabel: 'NO MARKET',
+    rows: [],
+    totalLabel: 'Bay: —',
+    sellIds: [],
+    hint: 'Stand at a market stall while docked',
   };
 }
 
@@ -82,28 +117,31 @@ function emptyMarket(hubId: string | null): MarketScreenModel {
     hubId: hubId ?? '—',
     hubLabel: 'NO MARKET',
     creditsLabel: 'Credits: —',
-    listingLines: [],
-    buys: [],
-    sellLabel: 'Bay: —',
-    sellIds: [],
-    hasSell: false,
-    hint: 'Stand at a market stall while docked',
+    left: [],
+    right: [],
   };
 }
 
-function buyRowsFor(market: MarketStateBroadcast, credits: number): MarketBuyRow[] {
-  const rows: MarketBuyRow[] = [];
-  for (const listing of market.listings) {
-    const affordable = Math.floor(credits / listing.buyPrice);
-    const qty = Math.max(0, Math.min(MAX_BUY_QTY, listing.stock, affordable));
-    if (qty < 1) continue;
-    rows.push({
-      goodId: listing.goodId,
-      qty,
-      cost: qty * listing.buyPrice,
-      label: `BUY ${listing.goodId.toUpperCase()} x${qty} ${qty * listing.buyPrice}cr`,
-      buttonId: `buy:${listing.goodId}`,
-    });
+function sellRowsFor(
+  snapshot: SnapshotBroadcast | null,
+  sellIds: readonly string[],
+  market: MarketStateBroadcast
+): SellCrateRow[] {
+  if (snapshot === null) return [];
+  const prices = new Map(
+    market.listings.map((listing) => [listing.goodId, listing.sellPrice] as const)
+  );
+  const rows: SellCrateRow[] = [];
+  for (const id of sellIds.slice(0, MAX_SELL_ROWS)) {
+    const crate = (snapshot.crates ?? []).find((entry) => entry.id === id);
+    if (crate === undefined) continue;
+    let value = 0;
+    const parts: string[] = [];
+    for (const item of crate.items) {
+      value += (prices.get(item.goodId) ?? 0) * item.qty;
+      parts.push(`${item.goodId} x${item.qty}`);
+    }
+    rows.push({ crateId: id, label: parts.join(' + '), value, buttonId: `sell:${id}` });
   }
   return rows;
 }
@@ -122,29 +160,10 @@ function sellIdsFor(
     .map((crate) => crate.id);
 }
 
-function sellValueFor(
-  snapshot: SnapshotBroadcast | null,
-  sellIds: readonly string[],
-  market: MarketStateBroadcast
-): number {
-  if (snapshot === null) return 0;
-  const prices = new Map(
-    market.listings.map((listing) => [listing.goodId, listing.sellPrice] as const)
-  );
-  let value = 0;
-  for (const id of sellIds) {
-    const crate = (snapshot.crates ?? []).find((entry) => entry.id === id);
-    for (const item of crate?.items ?? []) value += (prices.get(item.goodId) ?? 0) * item.qty;
-  }
-  return value;
-}
-
-function hintFor(buys: number, sells: number, cargo: CargoStateBroadcast | null): string {
-  if (buys === 0 && sells === 0) return 'No credits and an empty bay';
-  const carrying = cargo !== null && Object.keys(cargo.carriedByPawn).length > 0;
-  if (carrying) return 'Hands full: set the crate down first';
-  if (sells > 0) return 'Haul aboard, unpack, transit, re-pack, haul back, sell';
-  return 'Buy low, haul to the ship, unpack into the hold';
+function sellHint(rows: number, sellIds: number): string {
+  if (rows === 0) return 'Haul crates back to this bay to sell';
+  if (sellIds > rows) return `Showing ${rows} - SELL ALL takes the rest too`;
+  return 'One crate per seal - or take it all';
 }
 
 function pawnFrameOf(snapshot: SnapshotBroadcast | null, pawnId: string | null): string | null {

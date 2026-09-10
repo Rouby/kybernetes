@@ -79,3 +79,62 @@ describe('ShipAudioEngine spatial foley', () => {
     expect(playFootstep).toHaveBeenCalledWith(channelInput, 'steel', 0.6);
   });
 });
+
+describe('ShipAudioEngine pack and trade sounds', () => {
+  function rig() {
+    const engine = new ShipAudioEngine();
+    const uiGain = {} as AudioNode;
+    const foleyGain = {} as AudioNode;
+    engine.busManager = { uiGain, foleyGain } as unknown as ShipAudioEngine['busManager'];
+    const ui = {
+      playPromptChirp: vi.fn(),
+      playDebriefStamp: vi.fn(),
+      playCashRegister: vi.fn(),
+      playTelemetrySquelch: vi.fn(),
+    };
+    const metal = { playCrateThunk: vi.fn() };
+    const alarm = { playGeigerClick: vi.fn() };
+    engine.uiSynth = ui as unknown as ShipAudioEngine['uiSynth'];
+    engine.metalSynth = metal as unknown as ShipAudioEngine['metalSynth'];
+    engine.alarmSynth = alarm as unknown as ShipAudioEngine['alarmSynth'];
+    return { engine, ui, metal, alarm, uiGain, foleyGain };
+  }
+
+  it('chirps grabs, thunks drops and landings, ratchets rotates', () => {
+    const { engine, ui, metal, alarm, uiGain, foleyGain } = rig();
+    engine.playPackGrab();
+    expect(ui.playPromptChirp).toHaveBeenCalledWith(uiGain, 0.35);
+    engine.playPackDrop();
+    expect(metal.playCrateThunk).toHaveBeenCalledWith(foleyGain, 0.5);
+    engine.playPackLand();
+    expect(metal.playCrateThunk).toHaveBeenCalledWith(foleyGain, 0.3);
+    engine.playPackRotate();
+    expect(alarm.playGeigerClick).toHaveBeenCalledWith(uiGain, 0.35);
+    engine.playLidSeat();
+    expect(metal.playCrateThunk).toHaveBeenCalledWith(foleyGain, 0.85);
+  });
+
+  it('stamps seals, rings registers, squelches rejects', () => {
+    const { engine, ui, uiGain } = rig();
+    engine.playSealStamp();
+    expect(ui.playDebriefStamp).toHaveBeenCalledWith(uiGain, 0.9);
+    engine.playCashRegister();
+    expect(ui.playCashRegister).toHaveBeenCalledWith(uiGain, 0.6);
+    engine.playPackReject();
+    expect(ui.playTelemetrySquelch).toHaveBeenCalledWith(uiGain, 0.5);
+  });
+
+  it('stays silent without an audio bus', () => {
+    const engine = new ShipAudioEngine();
+    expect(() => {
+      engine.playPackGrab();
+      engine.playPackDrop();
+      engine.playPackLand();
+      engine.playPackRotate();
+      engine.playLidSeat();
+      engine.playSealStamp();
+      engine.playCashRegister();
+      engine.playPackReject();
+    }).not.toThrow();
+  });
+});

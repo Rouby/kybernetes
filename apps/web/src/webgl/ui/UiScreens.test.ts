@@ -20,6 +20,7 @@ import {
   layoutPackScreen,
   layoutPauseScreen,
   layoutReactorScreen,
+  layoutSellScreen,
   layoutSettingsScreen,
   navigateUi,
   uiScreenButtonIds,
@@ -305,25 +306,41 @@ describe('uiScreenButtonIds', () => {
     expectNoOverlap(layout.buttons);
   });
 
-  it('market respects topClearance with buy and sell-all rows', () => {
+  it('market respects topClearance with buy and sell entries', () => {
     const m = uiVisorMargins(W, H);
     const layout = layoutMarketScreen(W, H, {
       hubId: 'hub_a',
       hubLabel: 'NEW ANCHORAGE',
       creditsLabel: 'Credits: 25cr',
-      listingLines: ['scrap 10/9 (50)', 'meds 15/13 (0)'],
-      buys: [
-        { goodId: 'scrap', qty: 2, cost: 20, label: 'BUY SCRAP x2 20cr', buttonId: 'buy:scrap' },
-      ],
-      sellLabel: 'SELL ALL BAY (1) +18cr',
-      sellIds: ['c1'],
-      hasSell: true,
-      hint: 'Buy low',
+      left: [{ name: 'scrap', stock: 50, buy: 10, sell: 9 }],
+      right: [{ name: 'meds', stock: 0, buy: 15, sell: 13 }],
     });
     expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
-    expect(layout.buttons.map((b) => b.id)).toContain('close');
-    expect(layout.buttons.map((b) => b.id)).toContain('buy:scrap');
-    expect(layout.buttons.map((b) => b.id)).toContain('sellAll');
+    expect(layout.buttons.map((b) => b.id)).toEqual(['buy', 'sell', 'close']);
+    const words = layout.texts.map((t) => t.text);
+    expect(words).toContain('50x scrap');
+    expect(words).toContain('-10cr');
+    expect(words).toContain('+13cr');
+    expect(words.some((t) => t.includes('packs') || t.includes('lists'))).toBe(false);
+    expectContained(layout.panel, layout.buttons);
+    expectNoOverlap(layout.buttons);
+  });
+
+  it('sell lists each bay crate with green values', () => {
+    const m = uiVisorMargins(W, H);
+    const layout = layoutSellScreen(W, H, {
+      hubId: 'hub_a',
+      hubLabel: 'NEW ANCHORAGE',
+      rows: [{ crateId: 'c1', label: 'scrap x2', value: 18, buttonId: 'sell:c1' }],
+      totalLabel: 'Bay total +18cr',
+      sellIds: ['c1'],
+      hint: 'Take it all',
+    });
+    expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
+    const byId = new Map(layout.buttons.map((b) => [b.id, b]));
+    expect(byId.get('sell:c1')?.detail).toEqual({ text: '+18cr', color: 'good' });
+    expect(byId.has('sellAll')).toBe(true);
+    expect(byId.has('close')).toBe(true);
     expectContained(layout.panel, layout.buttons);
     expectNoOverlap(layout.buttons);
   });
@@ -332,14 +349,23 @@ describe('uiScreenButtonIds', () => {
     const layout = layoutPackScreen(W, H, {
       title: 'PACK // BUY — HUB_A',
       budgetLabel: 'Credits: 25cr',
-      palette: [{ buttonId: 'add:scrap', label: '+ SCRAP (1)' }],
+      palette: [{ buttonId: 'add:scrap', label: '+ SCRAP (1)', unitPrice: 10 }],
       sealLabel: 'SEAL',
       sealReady: false,
+      sealDetail: '-10cr',
       hint: 'Drag them in',
     });
     const ids = layout.buttons.map((b) => b.id);
     expect(ids).toContain('add:scrap');
+    expect(layout.buttons.find((b) => b.id === 'add:scrap')?.detail).toEqual({
+      text: '-10cr',
+      color: 'danger',
+    });
     expect(ids).toContain('seal');
+    expect(layout.buttons.find((b) => b.id === 'seal')?.detail).toEqual({
+      text: '-10cr',
+      color: 'danger',
+    });
     expect(ids).toContain('auto');
     expect(ids).toContain('clear');
     expect(ids).toContain('close');

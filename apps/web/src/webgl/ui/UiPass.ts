@@ -135,21 +135,19 @@ export function cargoConsoleIntent(id: string, stock: CargoConsoleStock): Client
 
 export interface MarketConsoleStock {
   readonly hubId: string;
-  readonly buys: Readonly<Record<string, number>>;
   readonly sellIds: readonly string[];
 }
 
-/** Mirror of the market hold panel. Null = unknown id or nothing to trade. */
+/** Mirror of the sell panel. Null = unknown id or an empty bay. */
 export function marketConsoleIntent(id: string, stock: MarketConsoleStock): ClientIntent | null {
   if (id === 'sellAll') {
     if (stock.sellIds.length === 0) return null;
     return { type: 'MARKET_SELL', seq: 0, hubId: stock.hubId, crateIds: [...stock.sellIds] };
   }
-  if (id.startsWith('buy:')) {
-    const goodId = id.slice('buy:'.length);
-    const qty = stock.buys[goodId] ?? 0;
-    if (goodId.length === 0 || !(qty >= 1)) return null;
-    return { type: 'MARKET_BUY', seq: 0, hubId: stock.hubId, items: [{ goodId, qty }] };
+  if (id.startsWith('sell:')) {
+    const crateId = id.slice('sell:'.length);
+    if (crateId.length === 0 || !stock.sellIds.includes(crateId)) return null;
+    return { type: 'MARKET_SELL', seq: 0, hubId: stock.hubId, crateIds: [crateId] };
   }
   return null;
 }

@@ -170,22 +170,22 @@ describe('console intents', () => {
     expect(cargoConsoleIntent('close', stock)).toBeNull();
   });
 
-  it('buys and sell-alls from the market panel', () => {
-    const stock = { hubId: 'hub_a', buys: { scrap: 2 }, sellIds: ['c1'] };
-    expect(marketConsoleIntent('buy:scrap', stock)).toEqual({
-      type: 'MARKET_BUY',
-      seq: 0,
-      hubId: 'hub_a',
-      items: [{ goodId: 'scrap', qty: 2 }],
-    });
-    expect(marketConsoleIntent('sellAll', stock)).toEqual({
+  it('sells single crates and all from the sell panel', () => {
+    const stock = { hubId: 'hub_a', sellIds: ['c1', 'c2'] };
+    expect(marketConsoleIntent('sell:c1', stock)).toEqual({
       type: 'MARKET_SELL',
       seq: 0,
       hubId: 'hub_a',
       crateIds: ['c1'],
     });
-    expect(marketConsoleIntent('buy:meds', stock)).toBeNull();
-    expect(marketConsoleIntent('sellAll', { hubId: 'hub_a', buys: {}, sellIds: [] })).toBeNull();
+    expect(marketConsoleIntent('sellAll', stock)).toEqual({
+      type: 'MARKET_SELL',
+      seq: 0,
+      hubId: 'hub_a',
+      crateIds: ['c1', 'c2'],
+    });
+    expect(marketConsoleIntent('sell:c9', stock)).toBeNull();
+    expect(marketConsoleIntent('sellAll', { hubId: 'hub_a', sellIds: [] })).toBeNull();
     expect(marketConsoleIntent('close', stock)).toBeNull();
   });
 

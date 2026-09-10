@@ -46,7 +46,6 @@ export class AlarmSynth {
     }
   }
 
-  // fallow-ignore-next-line unused-class-member
   public playGeigerClick(destination: AudioNode, volume = 0.4): void {
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();

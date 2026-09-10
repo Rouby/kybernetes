@@ -17,7 +17,7 @@ import type {
 } from '@kybernetes/protocol';
 import { footprintFor } from '@kybernetes/sim-core';
 import { cargoScreenFor } from '../harbor/cargoModel';
-import { hubIdForFrame, marketScreenFor } from '../harbor/marketModel';
+import { hubIdForFrame, marketScreenFor, sellScreenFor } from '../harbor/marketModel';
 import type { ConsoleKind } from '../harbor/sessionActions';
 import type { GlSessionWiring } from '../harbor/viewportFrame';
 import type { PackStore } from '../pack/PackStore';
@@ -74,13 +74,8 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     console: consoleStateOf(args.consoles),
     navState: args.navState,
     cargo: cargoWiringOf(args.snapshot, args.pawnId, args.cargoState),
-    market: marketWiringOf(
-      args.marketStates,
-      args.snapshot,
-      args.pawnId,
-      args.cargoState,
-      args.credits
-    ),
+    market: marketWiringOf(args.marketStates, args.snapshot, args.pawnId, args.credits),
+    sell: sellWiringOf(args.marketStates, args.snapshot, args.pawnId),
     pack: packWiringOf(
       args.packStore,
       args.marketStates,
@@ -92,6 +87,7 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     ),
     shipStatus: args.shipStatus,
     sendIntent: args.sendIntent,
+    onConsole: (kind) => args.consoles.openConsole(kind),
     onPackOpen: (ctx) => {
       args.packStore.open(ctx);
       args.consoles.openConsole('pack');
@@ -120,7 +116,6 @@ function marketWiringOf(
   marketStates: Readonly<Record<string, MarketStateBroadcast>>,
   snapshot: SnapshotBroadcast | null,
   pawnId: string | null,
-  cargoState: CargoStateBroadcast | null,
   credits: number
 ): GlSessionWiring['market'] {
   const frameId = snapshot?.pawns.find((pawn) => pawn.id === pawnId)?.frameId ?? null;
@@ -128,10 +123,21 @@ function marketWiringOf(
   if (hubId === null) return null;
   const market = marketStates[hubId];
   if (market === undefined) return null;
-  const screen = marketScreenFor(market, snapshot, cargoState, pawnId, credits);
-  const buys: Record<string, number> = {};
-  for (const row of screen.buys) buys[row.goodId] = row.qty;
-  return { hubId, screen, buys, sellIds: [...screen.sellIds] };
+  return { hubId, screen: marketScreenFor(market, snapshot, pawnId, credits) };
+}
+
+function sellWiringOf(
+  marketStates: Readonly<Record<string, MarketStateBroadcast>>,
+  snapshot: SnapshotBroadcast | null,
+  pawnId: string | null
+): GlSessionWiring['sell'] {
+  const frameId = snapshot?.pawns.find((pawn) => pawn.id === pawnId)?.frameId ?? null;
+  const hubId = hubIdForFrame(frameId);
+  if (hubId === null) return null;
+  const market = marketStates[hubId];
+  if (market === undefined) return null;
+  const screen = sellScreenFor(market, snapshot, pawnId);
+  return { hubId, screen, sellIds: [...screen.sellIds] };
 }
 
 function packWiringOf(
