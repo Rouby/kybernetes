@@ -315,7 +315,18 @@ export function chartMapView(
   );
   const port = positions.get(portHubId) ?? { x: 0, y: 0 };
   const ship = shipFromSnapshot(navEff, hop, port, snap, driftFraction(navEff), center, halfMin);
-  const display = solveDisplay(navEff, stops, portHubId, status, ship, center, halfMin, tSec, star);
+  const display = solveDisplay(
+    navEff,
+    stops,
+    portHubId,
+    status,
+    ship,
+    center,
+    halfMin,
+    tSec,
+    star,
+    snap
+  );
   const preview = previewStops ?? [];
   const ghost = solvePreview(
     preview,
@@ -362,11 +373,13 @@ function solveDisplay(
   center: ChartMapPoint,
   halfMin: number,
   timeSec: number,
-  star: { x: number; y: number; r: number } | null
+  star: { x: number; y: number; r: number } | null,
+  snap: FlightSnapshot | null
 ): SolvedFlightLeg[] {
   if (stops.length === 0 || nav?.phase === 'docking') return [];
   const start = displayStart(nav, portHubId, ship, center, halfMin, timeSec);
   const live = liveLegWindow(nav) ?? { idx: -1, remainingS: null };
+  const raw = nav?.phase === 'in_transit' ? Math.max(0, nav.remainingS) : null;
   return displaySolved({
     stops,
     portHubId,
@@ -375,6 +388,8 @@ function solveDisplay(
     startV: start.v,
     liveIdx: live.idx,
     liveRemainingS: live.remainingS,
+    liveRemainingRaw: raw,
+    snap,
     star,
     center,
     halfMin,
@@ -422,6 +437,8 @@ function solvePreview(
     startV: bodyVelAt(port, timeSec),
     liveIdx: -1,
     liveRemainingS: null,
+    liveRemainingRaw: null,
+    snap: null,
     star,
     center,
     halfMin,
@@ -558,6 +575,8 @@ interface SolvedFlightLeg {
   readonly samples: readonly ChartMapPoint[];
   readonly u0: ChartMapPoint;
   readonly uT: ChartMapPoint;
+  /** Flip position as a fraction of samples; null keeps the midpoint. */
+  readonly flipAt: number | null;
 }
 
 /** Star-centered fractions (viewport-independent solver space). */
@@ -769,6 +788,8 @@ interface SolveChainOpts {
   readonly startV: ChartMapPoint;
   readonly liveIdx: number;
   readonly liveRemainingS: number | null;
+  readonly liveRemainingRaw: number | null;
+  readonly snap: FlightSnapshot | null;
   readonly star: { x: number; y: number; r: number } | null;
   readonly center: ChartMapPoint;
   readonly halfMin: number;
@@ -791,12 +812,13 @@ function displaySolved(opts: SolveChainOpts): SolvedFlightLeg[] {
     if (fromId === '' || toId === '') continue;
     const isLive = opts.liveRemainingS !== null && k === opts.liveIdx;
     const next = isLive
-      ? appendChainLeg(
+      ? appendLiveLeg(
           legs,
           { r, v, tAbs },
           { fromId, toId },
           chainLegWindow(opts, tier, k, fromId, toId, tAbs),
-          opts
+          opts,
+          k
         )
       : appendPlannedLeg(
           legs,
@@ -848,6 +870,8 @@ function appendChainLeg(
   for (let i = 0; i < 16; i += 1) {
     samples.push(legPointAt(solved.leg, state.r, state.v, (i / 15) * totalS));
   }
+  const flipT = solved.flipFrac * totalS;
+  const flipPoint = legPointAt(solved.leg, state.r, state.v, flipT);
   legs.push({
     fromId: ids.fromId,
     toId: ids.toId,
@@ -855,12 +879,95 @@ function appendChainLeg(
     samples,
     u0: { x: solved.leg.u1.x, y: solved.leg.u1.y },
     uT: { x: solved.leg.u2.x, y: solved.leg.u2.y },
+    flipAt: pinFlipPoint(samples, flipPoint, solved.flipFrac),
   });
   return {
     r: legPointAt(solved.leg, state.r, state.v, totalS),
     v: legVelAt(solved.leg, state.v, totalS),
     tAbs: state.tAbs + totalS,
   };
+}
+
+/** Live leg: render the frozen departure snapshot, never a fresh replan. */
+function appendLiveLeg(
+  legs: SolvedFlightLeg[],
+  state: { r: ChartMapPoint; v: ChartMapPoint; tAbs: number },
+  ids: { fromId: string; toId: string },
+  totalS: number,
+  opts: SolveChainOpts,
+  legIndex: number
+): { r: ChartMapPoint; v: ChartMapPoint; tAbs: number } {
+  const frozen = frozenLiveLeg(legs, ids, opts, legIndex);
+  if (frozen !== null) return frozen;
+  return appendChainLeg(legs, state, ids, totalS, opts);
+}
+
+/** Remaining slice of the frozen snap trajectory; endpoints never wander. */
+function frozenLiveLeg(
+  legs: SolvedFlightLeg[],
+  ids: { fromId: string; toId: string },
+  opts: SolveChainOpts,
+  legIndex: number
+): { r: ChartMapPoint; v: ChartMapPoint; tAbs: number } | null {
+  const snap = opts.snap;
+  const raw = opts.liveRemainingRaw;
+  if (snap === null || raw === null || snap.legIndex !== legIndex) return null;
+  const traj = trajectoryFor(snap, ids.toId, opts.center, opts.halfMin);
+  if (traj === null) return null;
+  const elapsed = Math.min(Math.max(0, snap.totalS - raw), snap.totalS);
+  const remaining = Math.max(0, snap.totalS - elapsed);
+  const samples = sampleFrozenLeg(traj, snap, elapsed, remaining);
+  legs.push({
+    fromId: ids.fromId,
+    toId: ids.toId,
+    totalS: snap.totalS,
+    samples,
+    u0: { x: traj.u1.x, y: traj.u1.y },
+    uT: { x: traj.u2.x, y: traj.u2.y },
+    flipAt: frozenFlipAt(traj, snap, samples, elapsed, remaining),
+  });
+  return {
+    r: legPointAt(traj, snap.r0, snap.v0, snap.totalS),
+    v: legVelAt(traj, snap.v0, snap.totalS),
+    tAbs: snap.tSnap + snap.totalS,
+  };
+}
+
+function sampleFrozenLeg(
+  traj: SolvedLeg,
+  snap: FlightSnapshot,
+  elapsed: number,
+  remaining: number
+): ChartMapPoint[] {
+  const samples: ChartMapPoint[] = [];
+  for (let i = 0; i < LIVE_SAMPLES; i += 1) {
+    const at = remaining <= 0 ? snap.totalS : elapsed + (i / (LIVE_SAMPLES - 1)) * remaining;
+    samples.push(legPointAt(traj, snap.r0, snap.v0, at));
+  }
+  return samples;
+}
+
+function frozenFlipAt(
+  traj: SolvedLeg,
+  snap: FlightSnapshot,
+  samples: ChartMapPoint[],
+  elapsed: number,
+  remaining: number
+): number | null {
+  if (remaining <= 0) return null;
+  const flipT = snap.flipFrac * snap.totalS;
+  if (flipT <= elapsed) return 1 / (LIVE_SAMPLES - 1);
+  const flipPoint = legPointAt(traj, snap.r0, snap.v0, flipT);
+  return pinFlipPoint(samples, flipPoint, (flipT - elapsed) / remaining);
+}
+
+/** Seat the flip diamond on the exact flip point, not the nearest sample. */
+function pinFlipPoint(samples: ChartMapPoint[], flipPoint: ChartMapPoint, frac: number): number {
+  const last = samples.length - 1;
+  if (last <= 2) return frac;
+  const star = Math.min(Math.max(Math.round(frac * last), 1), last - 1);
+  samples[star] = { x: flipPoint.x, y: flipPoint.y };
+  return star / last;
 }
 
 /** Planned future leg: guidance integration with slingshot gates, resampled. */
@@ -911,6 +1018,7 @@ function buildPlannedLeg(
     samples: resamplePath(pts),
     u0: { x: first.x, y: first.y },
     uT: { x: lastB.x, y: lastB.y },
+    flipAt: null,
   };
 }
 
@@ -945,7 +1053,7 @@ function sampleTrajectories(display: readonly SolvedFlightLeg[]): {
     if (route.length > 0) legPoints.shift();
     const base = route.length;
     route.push(...legPoints);
-    const mid = base + Math.floor(legPoints.length / 2);
+    const mid = flipSampleIndex(leg.flipAt, leg.samples.length, legPoints.length, base);
     const flip = route[mid];
     if (flip !== undefined) {
       flips.push(flip);
@@ -955,8 +1063,24 @@ function sampleTrajectories(display: readonly SolvedFlightLeg[]): {
   return { route, flips, flipIndices };
 }
 
+function flipSampleIndex(
+  flipAt: number | null,
+  sampleCount: number,
+  pushedCount: number,
+  base: number
+): number {
+  if (flipAt === null) return base + Math.floor(pushedCount / 2);
+  const raw = Math.round(flipAt * (sampleCount - 1));
+  const shifted = sampleCount - pushedCount;
+  const idx = base + raw - shifted;
+  return Math.min(Math.max(idx, base), base + pushedCount - 1);
+}
+
 /** Flip candidates: mid-leg first, then asymmetric steers around the star. */
 const FLIP_CANDIDATES = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8, 0.12, 0.88];
+
+/** Display samples per leg; frozen live legs resample the same count. */
+const LIVE_SAMPLES = 16;
 
 interface FlipScore {
   readonly leg: SolvedLeg;

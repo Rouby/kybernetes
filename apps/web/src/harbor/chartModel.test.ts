@@ -270,6 +270,7 @@ describe('chartMapView', () => {
         phase: 'in_transit',
         destHubId: 'hub_b',
         remainingS: 120,
+        legTotalS: 120,
         stops: ['poi_kestrel', 'hub_b'],
         legIndex: 0,
       }),
@@ -301,6 +302,7 @@ describe('chartMapView', () => {
         phase: 'in_transit',
         destHubId: 'hub_b',
         remainingS: 120,
+        legTotalS: 120,
         stops: ['poi_kestrel', 'hub_b'],
         legIndex: 0,
       }),
@@ -326,6 +328,7 @@ describe('chartMapView', () => {
         phase: 'in_transit',
         destHubId: 'poi_kestrel',
         remainingS: 60,
+        legTotalS: 60,
         stops: ['poi_kestrel'],
         legIndex: 0,
       }),
@@ -388,6 +391,7 @@ describe('chartMapView', () => {
         remainingS: 120,
         stops: ['poi_kestrel', 'hub_b'],
         legIndex: 1,
+        legTotalS: 120,
       }),
       chart(),
       status(),
@@ -456,6 +460,7 @@ describe('chartMapView', () => {
             phase: 'in_transit',
             destHubId: stops[stops.length - 1],
             remainingS: 100,
+            legTotalS: 100,
             stops,
             legIndex: 0,
           }),
@@ -482,6 +487,7 @@ describe('chartMapView', () => {
         phase: 'in_transit',
         destHubId: 'hub_b',
         remainingS: 100,
+        legTotalS: 100,
         flameout: true,
         hailS: 40,
         stops: ['hub_b'],
@@ -514,6 +520,7 @@ describe('chartMapView', () => {
         phase: 'in_transit',
         destHubId: 'poi_kestrel',
         remainingS: 60,
+        legTotalS: 60,
         stops: ['poi_kestrel'],
         legIndex: 0,
       }),
@@ -555,6 +562,7 @@ describe('chartMapView', () => {
         phase: 'in_transit',
         destHubId: 'hub_b',
         remainingS: 150,
+        legTotalS: 150,
         stops: ['hub_b'],
         legIndex: 0,
       }),
@@ -664,6 +672,7 @@ describe('chartMapView', () => {
         remainingS: 60,
         stops: ['poi_kestrel', 'hub_b'],
         legIndex: 1,
+        legTotalS: 120,
       }),
       chart(),
       status(),
@@ -790,6 +799,58 @@ describe('chartMapView', () => {
       prevX = hub.x;
     }
     expect(worst).toBeLessThan(2);
+  });
+
+  it('pins the live route endpoint and flip while flying', () => {
+    const totalS = 33;
+    const tick0 = 2000;
+    let clock: import('./chartModel').SmoothClock | null = null;
+    let snap: import('./chartModel').FlightSnapshot | null = null;
+    let firstEnd: { x: number; y: number } | null = null;
+    let firstFlip: { x: number; y: number } | null = null;
+    let firstAngle: number | null = null;
+    for (let frame = 0; frame < 60; frame += 1) {
+      const wallSec = 1000 + frame / 60;
+      const bcast = Math.floor(frame / 6);
+      const tick = tick0 + bcast * 2;
+      const remainingS = totalS - bcast * 0.1;
+      const view = chartMapView(
+        nav({
+          phase: 'in_transit',
+          destHubId: 'hub_b',
+          remainingS,
+          legTotalS: totalS,
+          stops: ['hub_b'],
+          legIndex: 0,
+          tick,
+        }),
+        chart(),
+        status(),
+        W,
+        H,
+        tick * 0.05,
+        null,
+        1,
+        snap,
+        { prev: clock, wallSec, paused: false }
+      );
+      clock = view.clock;
+      snap = view.liveLeg;
+      const end = view.route[view.route.length - 1];
+      const flip = view.flips[0];
+      const angle = view.burns[0]?.angle;
+      if (end === undefined || flip === undefined || angle === undefined) {
+        throw new Error(`route geometry missing on frame ${frame}`);
+      }
+      if (firstEnd === null || firstFlip === null || firstAngle === null) {
+        firstEnd = { ...end };
+        firstFlip = { ...flip };
+        firstAngle = angle;
+      }
+      expect(Math.hypot(end.x - firstEnd.x, end.y - firstEnd.y)).toBeLessThan(0.5);
+      expect(Math.hypot(flip.x - firstFlip.x, flip.y - firstFlip.y)).toBeLessThan(0.5);
+      expect(Math.abs(angle - firstAngle)).toBeLessThan(1e-9);
+    }
   });
 
   it('keeps chips on screen', () => {
