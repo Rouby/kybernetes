@@ -577,6 +577,8 @@ interface SolvedFlightLeg {
   readonly uT: ChartMapPoint;
   /** Flip position as a fraction of samples; null keeps the midpoint. */
   readonly flipAt: number | null;
+  /** True once the flip is behind the displayed window: the ship is braking. */
+  readonly flipPassed: boolean;
 }
 
 /** Star-centered fractions (viewport-independent solver space). */
@@ -880,6 +882,7 @@ function appendChainLeg(
     u0: { x: solved.leg.u1.x, y: solved.leg.u1.y },
     uT: { x: solved.leg.u2.x, y: solved.leg.u2.y },
     flipAt: pinFlipPoint(samples, flipPoint, solved.flipFrac),
+    flipPassed: false,
   });
   return {
     r: legPointAt(solved.leg, state.r, state.v, totalS),
@@ -917,6 +920,7 @@ function frozenLiveLeg(
   const elapsed = Math.min(Math.max(0, snap.totalS - raw), snap.totalS);
   const remaining = Math.max(0, snap.totalS - elapsed);
   const samples = sampleFrozenLeg(traj, snap, elapsed, remaining);
+  const flipT = snap.flipFrac * snap.totalS;
   legs.push({
     fromId: ids.fromId,
     toId: ids.toId,
@@ -925,6 +929,7 @@ function frozenLiveLeg(
     u0: { x: traj.u1.x, y: traj.u1.y },
     uT: { x: traj.u2.x, y: traj.u2.y },
     flipAt: frozenFlipAt(traj, snap, samples, elapsed, remaining),
+    flipPassed: remaining > 0 && flipT <= elapsed,
   });
   return {
     r: legPointAt(traj, snap.r0, snap.v0, snap.totalS),
@@ -1019,6 +1024,7 @@ function buildPlannedLeg(
     u0: { x: first.x, y: first.y },
     uT: { x: lastB.x, y: lastB.y },
     flipAt: null,
+    flipPassed: false,
   };
 }
 
@@ -1161,16 +1167,24 @@ function routeTicks(display: readonly SolvedFlightLeg[]): ChartMapPoint[] {
 }
 
 /** Live thrust vectors: boost burn at the chain start, brake burn at its end. */
+/** Lead chevron tracks the live burn phase: boost before the flip, brake after. */
 function routeBurns(display: readonly SolvedFlightLeg[]): ChartBurn[] {
   const first = display[0];
   const last = display[display.length - 1];
   if (first === undefined || last === undefined) return [];
-  const boost = unitOf(first.u0);
+  const lead = first.flipPassed ? first.uT : first.u0;
+  const burn = unitOf(lead);
   const brake = unitOf(last.uT);
   const start = first.samples[0] ?? { x: 0, y: 0 };
   const end = last.samples[last.samples.length - 1] ?? start;
   return [
-    { x: start.x, y: start.y, angle: Math.atan2(boost.y, boost.x), kind: 'pro', size: 9 },
+    {
+      x: start.x,
+      y: start.y,
+      angle: Math.atan2(burn.y, burn.x),
+      kind: first.flipPassed ? 'retro' : 'pro',
+      size: 9,
+    },
     { x: end.x, y: end.y, angle: Math.atan2(brake.y, brake.x), kind: 'retro', size: 9 },
   ];
 }

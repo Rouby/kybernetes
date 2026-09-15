@@ -853,6 +853,48 @@ describe('chartMapView', () => {
     }
   });
 
+  it('switches the lead burn chevron to braking after the flip', () => {
+    const totalS = 120;
+    const tick0 = 2000;
+    const fly = (
+      remainingS: number,
+      tick: number,
+      snapPrev: import('./chartModel').FlightSnapshot | null
+    ) =>
+      chartMapView(
+        nav({
+          phase: 'in_transit',
+          destHubId: 'hub_b',
+          remainingS,
+          legTotalS: totalS,
+          stops: ['hub_b'],
+          legIndex: 0,
+          tick,
+        }),
+        chart(),
+        status(),
+        W,
+        H,
+        tick * 0.05,
+        null,
+        1,
+        snapPrev,
+        null
+      );
+    const depart = fly(totalS, tick0, null);
+    const snap = depart.liveLeg;
+    if (snap === null) throw new Error('live leg missing');
+    expect(depart.burns[0]).toMatchObject({ kind: 'pro' });
+    const braking = fly(10, tick0 + 2200, snap);
+    expect(braking.liveLeg).toBe(snap);
+    expect(braking.burns[0]).toMatchObject({ kind: 'retro' });
+    const lead = braking.burns[0];
+    const arrival = braking.burns[1];
+    if (lead === undefined || arrival === undefined) throw new Error('burns missing');
+    expect(lead.angle).toBeCloseTo(arrival.angle, 10);
+    expect(Math.abs(lead.angle - (depart.burns[0]?.angle ?? 0))).toBeGreaterThan(0.2);
+  });
+
   it('keeps chips on screen', () => {
     const view = chartMapView(nav(), chart(), status(), W, H, 33);
     for (const node of view.nodes) {
