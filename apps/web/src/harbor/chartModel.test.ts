@@ -736,6 +736,32 @@ describe('chartMapView', () => {
     expect(smoothSimClock(null, undefined, 50, 1000, false, false).simSeconds).toBe(1000);
   });
 
+  it('accumulates wall time across consecutive frames on the same tick', () => {
+    const first = smoothSimClock(null, 100, 50, 1000, false, false);
+    if (first.clock === null) throw new Error('clock missing');
+    const second = smoothSimClock(first.clock, 100, 50, 1000.016, false, false);
+    if (second.clock === null) throw new Error('second clock missing');
+    expect(second.simSeconds).toBeCloseTo(5.016, 8);
+    const third = smoothSimClock(second.clock, 100, 50, 1000.033, false, false);
+    // Must keep accumulating (5.033), not stall at tick + last frame delta (5.017).
+    expect(third.simSeconds).toBeCloseTo(5.033, 8);
+    expect(third.remainingSmooth).toBeCloseTo(49.967, 8);
+  });
+
+  it('freezes and resumes without losing the accumulated offset', () => {
+    const first = smoothSimClock(null, 100, 50, 1000, false, false);
+    if (first.clock === null) throw new Error('clock missing');
+    const advanced = smoothSimClock(first.clock, 100, 50, 1000.05, false, false);
+    if (advanced.clock === null) throw new Error('advanced clock missing');
+    expect(advanced.simSeconds).toBeCloseTo(5.05, 8);
+    const frozen = smoothSimClock(advanced.clock, 100, 50, 1000.1, true, false);
+    expect(frozen.simSeconds).toBeCloseTo(5.05, 8);
+    expect(frozen.remainingSmooth).toBeCloseTo(49.95, 8);
+    if (frozen.clock === null) throw new Error('frozen clock missing');
+    const resumed = smoothSimClock(frozen.clock, 100, 50, 1000.116, false, false);
+    expect(resumed.simSeconds).toBeCloseTo(5.066, 8);
+  });
+
   it('moves planets smoothly across broadcast gaps', () => {
     const base = nav();
     let clock: import('./chartModel').SmoothClock | null = null;

@@ -1158,7 +1158,11 @@ function dockingPoint(
 /** Session-owned smoothing state for broadcast-derived clocks. */
 export interface SmoothClock {
   readonly tick: number;
+  /** Last wallSec integrated (frame-delta anchor). */
   readonly atSec: number;
+  /** Last smoothed simSeconds (accumulates wall deltas while unpaused). */
+  readonly simSec: number;
+  /** Last smoothed remainingS (accumulates wall deltas while thrusting). */
   readonly remainingS: number;
 }
 
@@ -1177,17 +1181,56 @@ export function smoothSimClock(
   flameout: boolean
 ): { clock: SmoothClock | null; simSeconds: number; remainingSmooth: number } {
   if (tick === undefined) return { clock: null, simSeconds: wallSec, remainingSmooth: remainingS };
-  if (prev === null || prev.tick !== tick) {
-    const clock: SmoothClock = { tick, atSec: wallSec, remainingS };
-    return { clock, simSeconds: tick * FIXED_DT, remainingSmooth: remainingS };
+  if (prev === null) {
+    const simSeconds = tick * FIXED_DT;
+    const clock: SmoothClock = { tick, atSec: wallSec, simSec: simSeconds, remainingS };
+    return { clock, simSeconds, remainingSmooth: remainingS };
   }
-  const dt = paused ? 0 : Math.max(0, wallSec - prev.atSec);
-  const clock: SmoothClock = { tick, atSec: wallSec, remainingS };
-  return {
-    clock,
-    simSeconds: tick * FIXED_DT + dt,
-    remainingSmooth: paused || flameout ? prev.remainingS : Math.max(0, prev.remainingS - dt),
+  if (paused) {
+    const clock: SmoothClock = {
+      tick,
+      atSec: wallSec,
+      simSec: prev.simSec,
+      remainingS: prev.remainingS,
+    };
+    return { clock, simSeconds: prev.simSec, remainingSmooth: prev.remainingS };
+  }
+  if (prev.tick !== tick) {
+    if (flameout) {
+      const simSeconds = tick * FIXED_DT;
+      const clock: SmoothClock = {
+        tick,
+        atSec: wallSec,
+        simSec: simSeconds,
+        remainingS: prev.remainingS,
+      };
+      return { clock, simSeconds, remainingSmooth: prev.remainingS };
+    }
+    const simSeconds = tick * FIXED_DT;
+    const clock: SmoothClock = { tick, atSec: wallSec, simSec: simSeconds, remainingS };
+    return { clock, simSeconds, remainingSmooth: remainingS };
+  }
+  const dt = clampFrameDt(wallSec - prev.atSec);
+  const simSeconds = clampSimDrift(prev.simSec + dt, tick);
+  const remainingSmooth = flameout ? prev.remainingS : Math.max(0, prev.remainingS - dt);
+  const clock: SmoothClock = {
+    tick,
+    atSec: wallSec,
+    simSec: simSeconds,
+    remainingS: remainingSmooth,
   };
+  return { clock, simSeconds, remainingSmooth };
+}
+
+function clampFrameDt(rawDt: number): number {
+  if (!Number.isFinite(rawDt) || rawDt <= 0) return 0;
+  return Math.min(rawDt, 0.5);
+}
+
+function clampSimDrift(simSeconds: number, tick: number): number {
+  const authoritative = tick * FIXED_DT;
+  if (simSeconds < authoritative) return authoritative;
+  return Math.min(simSeconds, authoritative + 1);
 }
 
 /** Residual creep while awaiting rescue, as a fraction of the live hop. */
