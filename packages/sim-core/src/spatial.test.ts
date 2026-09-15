@@ -1,4 +1,4 @@
-import type { StartingRole } from '@kybernetes/protocol';
+import type { LegacyStartingRole } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   closestPointOnSegment,
@@ -35,7 +35,7 @@ describe('Deck Layout & Geometry', () => {
   });
 
   it('defines valid spawn points for all 5 starting roles', () => {
-    const roles: StartingRole[] = [
+    const roles: LegacyStartingRole[] = [
       'wiper',
       'galley_hand',
       'security_private',

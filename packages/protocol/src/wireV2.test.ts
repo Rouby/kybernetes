@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { StartingRole } from './actions.js';
+import type { LegacyStartingRole } from './content.js';
 import { isRole, LEGACY_ROLE_MAP, normalizeRole, ROLES } from './content.js';
 import type { ServerStatsBroadcast } from './debug.js';
 import type { DockStatusBroadcast } from './docking.js';
@@ -92,7 +92,7 @@ describe('protocol v2 rate-limit vectors', () => {
 
 describe('protocol v2 role-enum unification', () => {
   it('maps every legacy StartingRole onto the single Role enum', () => {
-    const legacyRoles: StartingRole[] = [
+    const legacyRoles: LegacyStartingRole[] = [
       'wiper',
       'galley_hand',
       'security_private',

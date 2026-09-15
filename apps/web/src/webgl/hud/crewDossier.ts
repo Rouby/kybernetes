@@ -1,4 +1,4 @@
-import type { PawnState, StartingRole } from '@kybernetes/protocol';
+import type { LegacyStartingRole, PawnState } from '@kybernetes/protocol';
 
 export interface CrewDossierInfo {
   callsign: string;
@@ -17,7 +17,7 @@ interface RoleDossierTemplate {
   bioLine2: string;
 }
 
-const ROLE_TEMPLATES: Record<StartingRole, RoleDossierTemplate> = {
+const ROLE_TEMPLATES: Record<LegacyStartingRole, RoleDossierTemplate> = {
   wiper: {
     rank: '3rd Class Reactor Wiper',
     department: 'ENGINEERING [ENG-3]',

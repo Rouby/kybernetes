@@ -14,7 +14,7 @@
 
 import type {
   DeckDefinition,
-  StartingRole,
+  LegacyStartingRole,
   StationFixture,
   WallSegment,
 } from '@kybernetes/protocol';
@@ -287,7 +287,7 @@ export const HESPERIA_STATIONS: StationFixture[] = [
   },
 ];
 
-export const HESPERIA_SPAWNS: Record<StartingRole, { x: number; y: number }> = {
+export const HESPERIA_SPAWNS: Record<LegacyStartingRole, { x: number; y: number }> = {
   wiper: { x: 1035, y: 260 },
   galley_hand: { x: 100, y: 240 },
   security_private: { x: 140, y: 65 },

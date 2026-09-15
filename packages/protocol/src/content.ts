@@ -1,6 +1,7 @@
 /**
- * Protocol v2 content: the ONE role enum.
- * Replaces StartingRole vs HireableJob split. Old values map once at join.
+ * Protocol v2 content: role and weapon enums.
+ * Roles replace the StartingRole vs HireableJob split (old values map once at join);
+ * WeaponType was moved verbatim from deprecated `boarding.ts` for the frozen HUD/renderer/audio stack.
  */
 
 export type Role = 'engineer' | 'deckhand' | 'cook' | 'security';
@@ -8,6 +9,9 @@ export type Role = 'engineer' | 'deckhand' | 'cook' | 'security';
 export type NpcRole = Role | 'captain';
 
 export const ROLES: readonly Role[] = ['engineer', 'deckhand', 'cook', 'security'] as const;
+
+/** Render/audio weapon id. v2 intents carry `weapon: string` (see `FIRE`); narrow at the edges. */
+export type WeaponType = 'kinetic_carbine' | 'pulse_laser' | 'arc_welder' | 'railgun_pistol';
 
 export type LegacyStartingRole =
   | 'wiper'
