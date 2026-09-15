@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createAirAuthority } from './airAuthority.js';
 import { spawnPawn } from './assemble.js';
 import {
+  buildChartState,
   buildHireOffer,
   buildManifest,
   buildNotice,
@@ -100,6 +101,20 @@ describe('channel coverage', () => {
     expect(vitals.clearance).toBe(2);
     const missing = buildVitals(world, 1000, 'ghost', 0, 1);
     expect(missing.vitals.hunger).toBe(100);
+  });
+
+  it('maps chart nodes with survey flags per vessel', () => {
+    const { world } = liveWorld();
+    const ensured = ensureShipSystems(world, 'ship');
+    const chart = buildChartState(ensured, 'ship', 1000);
+    expect(chart?.type).toBe('CHART_STATE');
+    expect(chart?.nodes).toHaveLength(4);
+    expect(chart?.nodes.filter((node) => node.known).map((node) => node.id)).toEqual([
+      'hub_a',
+      'hub_b',
+    ]);
+    expect(chart?.nodes.find((node) => node.id === 'poi_kestrel')?.short).toBe('KESTREL');
+    expect(buildChartState(ensured, 'void', 1000)).toBeUndefined();
   });
 
   it('maps notices, manifests, offers, and watches', () => {

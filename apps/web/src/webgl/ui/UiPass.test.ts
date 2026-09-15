@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cargoConsoleIntent,
+  confirmPlotIntent,
   engineConsoleIntent,
   findUiButton,
   GL_UI_BLOCKER_ID,
@@ -86,10 +87,6 @@ describe('selectSessionOverlayId', () => {
 describe('console intents', () => {
   const systems = { spool: 0.2, tune: 0.5 } as import('@kybernetes/protocol').ShipSystemsBroadcast;
   const nav = { portHubId: 'hub_a' } as import('@kybernetes/protocol').NavStateBroadcast;
-  const status = {
-    engineTier: 0,
-    stores: { fuelCells: 3 },
-  } as unknown as import('@kybernetes/protocol').ShipStatusBroadcast;
 
   it('builds reactor tune steps and restart', () => {
     expect(reactorConsoleIntent('rodsDown')).toEqual({
@@ -190,20 +187,53 @@ describe('console intents', () => {
   });
 
   it('plots the far hub and passes cancel and distress', () => {
-    expect(navConsoleIntent('plot', nav, systems, status)).toEqual({
+    expect(navConsoleIntent('plot:hub_b', nav)).toEqual({
       type: 'NAV_PLOT',
       seq: 0,
       destHubId: 'hub_b',
+      waypointIds: [],
     });
-    expect(navConsoleIntent('cancel', nav, systems, status)).toEqual({
+    expect(navConsoleIntent('plot:', nav)).toBeNull();
+    expect(navConsoleIntent('via:poi_kestrel', nav)).toEqual({
+      type: 'NAV_PLOT',
+      seq: 0,
+      destHubId: 'poi_kestrel',
+      waypointIds: [],
+    });
+    expect(navConsoleIntent('via:nowhere', nav)).toBeNull();
+    expect(navConsoleIntent('via:', nav)).toBeNull();
+    expect(navConsoleIntent('cancel', nav)).toEqual({
       type: 'NAV_CANCEL',
       seq: 0,
     });
-    expect(navConsoleIntent('distress', nav, systems, status)).toEqual({
+    expect(navConsoleIntent('distress', nav)).toEqual({
       type: 'DISTRESS',
       seq: 0,
     });
-    expect(navConsoleIntent('close', nav, systems, status)).toBeNull();
+    expect(navConsoleIntent('hail', nav)).toEqual({ type: 'HAIL', seq: 0 });
+    expect(navConsoleIntent('close', nav)).toBeNull();
+    expect(confirmPlotIntent(['poi_kestrel', 'hub_b'])).toEqual({
+      type: 'NAV_PLOT',
+      seq: 0,
+      destHubId: 'hub_b',
+      waypointIds: ['poi_kestrel'],
+    });
+    expect(confirmPlotIntent(['hub_b'])).toEqual({
+      type: 'NAV_PLOT',
+      seq: 0,
+      destHubId: 'hub_b',
+      waypointIds: [],
+    });
+    expect(confirmPlotIntent(['hub_b'], 50)).toEqual({
+      type: 'NAV_PLOT',
+      seq: 0,
+      destHubId: 'hub_b',
+      waypointIds: [],
+      thrust01: 0.5,
+    });
+    expect(confirmPlotIntent(['hub_b'], 100)).not.toHaveProperty('thrust01');
+    expect(confirmPlotIntent(null)).toBeNull();
+    expect(confirmPlotIntent([])).toBeNull();
   });
 });
 

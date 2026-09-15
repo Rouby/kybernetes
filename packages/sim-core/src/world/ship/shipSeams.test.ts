@@ -23,7 +23,10 @@ describe('ship seams (M2-M5 placeholders)', () => {
         legId: 1,
         portHubId: 'hub_a',
         flameout: false,
+        hailS: 0,
         extraBurned: false,
+        stops: ['hub_b'],
+        legIndex: 0,
       })
     ).toBe(true);
   });

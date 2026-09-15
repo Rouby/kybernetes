@@ -113,7 +113,7 @@ describe('nav console intents', () => {
     const plotted = routeIntent(
       world,
       'pawn:nav',
-      { type: 'NAV_PLOT', seq: 1, destHubId: 'hub_b' },
+      { type: 'NAV_PLOT', seq: 1, destHubId: 'hub_b', waypointIds: [] },
       []
     );
     expect(plotted.notice).toBe('NAV_ok');
@@ -121,8 +121,48 @@ describe('nav console intents', () => {
     const cancelled = routeIntent(plotted.world, 'pawn:nav', { type: 'NAV_CANCEL', seq: 2 }, []);
     expect(cancelled.notice).toBe('NAV_ok');
     expect(cancelled.world.ships.ship?.nav.phase).toBe('docked');
+    const throttled = routeIntent(
+      cancelled.world,
+      'pawn:nav',
+      { type: 'NAV_PLOT', seq: 4, destHubId: 'hub_b', waypointIds: [], thrust01: 0.5 },
+      []
+    );
+    expect(throttled.notice).toBe('NAV_ok');
+    expect(throttled.world.ships.ship?.nav.thrust01).toBe(0.5);
     const idle = routeIntent(cancelled.world, 'pawn:nav', { type: 'NAV_CANCEL', seq: 3 }, []);
     expect(idle.notice).toBe('NAV_denied');
+  });
+
+  it('hails rescue drones only while flamed-out adrift', async () => {
+    const core = await import('@kybernetes/sim-core');
+    const world = await bridgeWorld();
+    const systems = world.ships.ship;
+    if (systems === undefined) throw new Error('missing ship systems');
+    const flamed = {
+      ...world,
+      ships: {
+        ...world.ships,
+        ship: {
+          ...systems,
+          nav: {
+            ...systems.nav,
+            phase: 'in_transit' as const,
+            destHubId: 'hub_b',
+            remainingS: 60,
+            flameout: true,
+            hailS: 0,
+            stops: ['hub_b'],
+            legIndex: 0,
+          },
+        },
+      },
+    };
+    const hailed = routeIntent(flamed, 'pawn:nav', { type: 'HAIL', seq: 1 }, []);
+    expect(hailed.notice).toBe('HAIL_ok');
+    expect(hailed.world.ships.ship?.nav.hailS).toBe(core.HAIL_WAIT_S);
+    const again = routeIntent(hailed.world, 'pawn:nav', { type: 'HAIL', seq: 2 }, []);
+    expect(again.notice).toBe('HAIL_denied');
+    expect(routeIntent(world, 'pawn:nav', { type: 'HAIL', seq: 3 }, []).notice).toBe('HAIL_denied');
   });
 
   it('refuses plots without power, fuel, or proximity', async () => {
@@ -130,14 +170,45 @@ describe('nav console intents', () => {
     const world = await bridgeWorld();
     const dry = core.syncShipStores(world, 'ship', 0);
     expect(
-      routeIntent(dry, 'pawn:nav', { type: 'NAV_PLOT', seq: 1, destHubId: 'hub_b' }, []).notice
+      routeIntent(
+        dry,
+        'pawn:nav',
+        { type: 'NAV_PLOT', seq: 1, destHubId: 'hub_b', waypointIds: [] },
+        []
+      ).notice
     ).toBe('NAV_no-fuel');
     expect(
-      routeIntent(world, 'pawn:nav', { type: 'NAV_PLOT', seq: 2, destHubId: 'hub_a' }, []).notice
+      routeIntent(
+        world,
+        'pawn:nav',
+        { type: 'NAV_PLOT', seq: 2, destHubId: 'hub_a', waypointIds: [] },
+        []
+      ).notice
     ).toBe('NAV_same-hub');
     expect(
-      routeIntent(world, 'pawn:nav', { type: 'NAV_PLOT', seq: 3, destHubId: 'nowhere' }, []).notice
+      routeIntent(
+        world,
+        'pawn:nav',
+        { type: 'NAV_PLOT', seq: 3, destHubId: 'nowhere', waypointIds: [] },
+        []
+      ).notice
     ).toBe('NAV_unknown-hub');
+    const via = routeIntent(
+      world,
+      'pawn:nav',
+      { type: 'NAV_PLOT', seq: 5, destHubId: 'hub_b', waypointIds: ['poi_kestrel'] },
+      []
+    );
+    expect(via.notice).toBe('NAV_ok');
+    expect(via.world.ships.ship?.nav.stops).toEqual(['poi_kestrel', 'hub_b']);
+    expect(
+      routeIntent(
+        world,
+        'pawn:nav',
+        { type: 'NAV_PLOT', seq: 6, destHubId: 'hub_b', waypointIds: ['nowhere'] },
+        []
+      ).notice
+    ).toBe('NAV_unknown-node');
     const far = core.spawnPawn(world, {
       id: 'pawn:away',
       owner: 'u1',
@@ -148,7 +219,12 @@ describe('nav console intents', () => {
       color: '#fff',
     });
     expect(
-      routeIntent(far, 'pawn:away', { type: 'NAV_PLOT', seq: 4, destHubId: 'hub_b' }, []).notice
+      routeIntent(
+        far,
+        'pawn:away',
+        { type: 'NAV_PLOT', seq: 4, destHubId: 'hub_b', waypointIds: [] },
+        []
+      ).notice
     ).toBe('NAV_too-far');
   });
 });

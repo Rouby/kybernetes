@@ -166,6 +166,10 @@ export interface NavPlotIntent {
   readonly type: 'NAV_PLOT';
   readonly seq: number;
   readonly destHubId: string;
+  /** POI flybys before the final hub; empty flies direct. */
+  readonly waypointIds: readonly string[];
+  /** Throttle 0-1 of the 1g torch band; omit for full thrust. */
+  readonly thrust01?: number;
 }
 
 export interface NavCancelIntent {
@@ -175,6 +179,11 @@ export interface NavCancelIntent {
 
 export interface DistressIntent {
   readonly type: 'DISTRESS';
+  readonly seq: number;
+}
+
+export interface HailIntent {
+  readonly type: 'HAIL';
   readonly seq: number;
 }
 
@@ -248,6 +257,7 @@ export type ClientIntent =
   | NavPlotIntent
   | NavCancelIntent
   | DistressIntent
+  | HailIntent
   | CargoPickupIntent
   | CargoDropIntent
   | CargoUnpackIntent
@@ -285,6 +295,7 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'NAV_PLOT',
   'NAV_CANCEL',
   'DISTRESS',
+  'HAIL',
   'CARGO_PICKUP',
   'CARGO_DROP',
   'CARGO_UNPACK',

@@ -29,12 +29,17 @@ import {
   type EngineTier,
   FIXED_DT,
   type HireOfferRecord,
+  type HopCursor,
+  HUB_A,
   HUB_PORTS,
   hireAboard,
+  hopBaseS,
+  hopFrom,
+  hopTo,
   isCarrying,
   isDead,
+  isHubId,
   isTradeGood,
-  legDurationSeconds,
   removeCrate,
   resetVoyageTo,
   restartRun,
@@ -157,6 +162,7 @@ const KERNEL_INTENT_TYPES: ReadonlySet<string> = new Set([
   'ENGINE_TUNE',
   'NAV_PLOT',
   'NAV_CANCEL',
+  'HAIL',
   'CARGO_PICKUP',
   'CARGO_DROP',
   'CARGO_UNPACK',
@@ -1071,12 +1077,16 @@ function resumeSession(
   };
 }
 
-function nearestHub(
-  nav: { remainingS: number; portHubId: string; destHubId: string | undefined },
-  engineTier: EngineTier
-): string {
-  if (nav.remainingS > legDurationSeconds(engineTier) / 2) return nav.portHubId;
-  return nav.destHubId ?? nav.portHubId;
+/** Tow target must be a hub dock mouth: prefer the nearer chain end, else any hub aboard, else home. */
+function nearestHub(nav: HopCursor & { remainingS: number }, engineTier: EngineTier): string {
+  const pastHalf = nav.remainingS > hopBaseS(hopFrom(nav), hopTo(nav), engineTier) / 2;
+  const ordered = pastHalf
+    ? [nav.portHubId, ...nav.stops, nav.destHubId]
+    : [nav.destHubId, ...[...nav.stops].reverse(), nav.portHubId];
+  for (const id of ordered) {
+    if (id !== undefined && isHubId(id)) return id;
+  }
+  return HUB_A;
 }
 
 function warnNotice(

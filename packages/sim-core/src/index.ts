@@ -1,3 +1,5 @@
+export * from './astro/guidance';
+export * from './astro/system';
 export * from './intro';
 export * from './spatial/acoustics';
 export * from './spatial/collision';
@@ -31,6 +33,7 @@ export * from './world/movement';
 export * from './world/scenarios';
 export * from './world/schedule';
 export * from './world/ship/cargo';
+export * from './world/ship/chart';
 export * from './world/ship/engine';
 export * from './world/ship/market';
 export * from './world/ship/navTransit';

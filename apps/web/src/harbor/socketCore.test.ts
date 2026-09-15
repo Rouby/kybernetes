@@ -1,4 +1,5 @@
 import type {
+  ChartStateBroadcast,
   ManifestBroadcast,
   NavStateBroadcast,
   ShipLostBroadcast,
@@ -23,6 +24,7 @@ function setters() {
     shipStatus: null as ShipStatusBroadcast | null,
     shipLost: null as ShipLostBroadcast | null,
     navState: null as NavStateBroadcast | null,
+    chartState: null as ChartStateBroadcast | null,
     calls: { snapshot: 0, telemetry: 0, manifest: 0, watch: 0, systems: 0, status: 0, nav: 0 },
   };
 }
@@ -81,6 +83,9 @@ function wire(store: ReturnType<typeof setters>) {
     setNavState: vi.fn((n: NavStateBroadcast) => {
       store.navState = n;
       store.calls.nav += 1;
+    }),
+    setChartState: vi.fn((c: ChartStateBroadcast) => {
+      store.chartState = c;
     }),
   };
 }
@@ -255,6 +260,25 @@ describe('harbor socket merge guards', () => {
     handleMessage(JSON.stringify(navMessage(49)), caches, wire(store));
     expect(store.navState?.tick).toBe(50);
     expect(store.calls.nav).toBe(1);
+  });
+
+  it('accepts chart state while dropping stale ticks', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const chart = (tick: number) => ({
+      type: 'CHART_STATE',
+      v: 2,
+      tick,
+      serverTimeMs: tick * 100,
+      vesselId: 'ship',
+      nodes: [
+        { id: 'hub_a', kind: 'hub', label: 'NEW ANCHORAGE', short: 'ANCHORAGE', known: true },
+      ],
+    });
+    handleMessage(JSON.stringify(chart(50)), caches, wire(store));
+    expect(store.chartState?.nodes).toHaveLength(1);
+    handleMessage(JSON.stringify(chart(49)), caches, wire(store));
+    expect(store.chartState?.tick).toBe(50);
   });
 
   it('records ship loss and clears it on the next join', () => {

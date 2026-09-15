@@ -7,6 +7,7 @@
 
 import type {
   CargoStateBroadcast,
+  ChartStateBroadcast,
   ClientIntent,
   DeathCause,
   MarketStateBroadcast,
@@ -36,8 +37,13 @@ export interface OverlayAudio {
 export interface OverlayConsoles {
   readonly consoleOpen: ConsoleKind | null;
   readonly shipSystems: ShipSystemsBroadcast | null;
+  readonly coursePreview: readonly string[] | null;
+  readonly thrustPct: number;
   readonly openConsole: (kind: ConsoleKind) => void;
   readonly closeConsole: () => void;
+  readonly previewCourse: (stops: readonly string[]) => void;
+  readonly clearPreview: () => void;
+  readonly setThrustPct: (pct: number) => void;
 }
 
 export interface GlOverlayBuildArgs {
@@ -49,6 +55,7 @@ export interface GlOverlayBuildArgs {
   readonly audio: OverlayAudio;
   readonly consoles: OverlayConsoles;
   readonly navState: NavStateBroadcast | null;
+  readonly chartState: ChartStateBroadcast | null;
   readonly packStore: PackStore;
   readonly marketStates: Readonly<Record<string, MarketStateBroadcast>>;
   readonly credits: number;
@@ -73,6 +80,12 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     audio: audioSnapshotOf(args.audio),
     console: consoleStateOf(args.consoles),
     navState: args.navState,
+    chartState: args.chartState,
+    coursePreview: args.consoles.coursePreview,
+    onPreviewCourse: (stops) => args.consoles.previewCourse(stops),
+    onClearPreview: () => args.consoles.clearPreview(),
+    courseThrust: args.consoles.thrustPct,
+    onThrustPct: (pct) => args.consoles.setThrustPct(pct),
     cargo: cargoWiringOf(args.snapshot, args.pawnId, args.cargoState),
     market: marketWiringOf(args.marketStates, args.snapshot, args.pawnId, args.credits),
     sell: sellWiringOf(args.marketStates, args.snapshot, args.pawnId),

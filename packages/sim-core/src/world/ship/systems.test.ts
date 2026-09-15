@@ -6,6 +6,7 @@ import { createEmptyWorld, type VesselFrame, type World } from '../types.js';
 import {
   defaultShipSystems,
   ensureShipSystems,
+  plotChartVoyage,
   plotVoyage,
   restartShipReactor,
   syncShipStores,
@@ -102,7 +103,10 @@ describe('ship systems (M2 container tick)', () => {
         legId: 1,
         portHubId: 'hub_a',
         flameout: false,
+        hailS: 0,
         extraBurned: true,
+        stops: ['hub_b'],
+        legIndex: 0,
       },
     };
     const underway = { ...world, ships: { ...world.ships, ship: scrammed } };
@@ -170,6 +174,54 @@ describe('voyage side effects (M3 abstract transit)', () => {
     const ghost = plotVoyage(world, 'ghost', 'hub_b', { hot: true, powered: true, fuelCells: 1 });
     expect(ghost.world).toBe(world);
     expect(ghost.reject).toBeUndefined();
+  });
+
+  it('commits multi-stop chains and remaps legacy hub rejects', () => {
+    const world = hotBoat();
+    const checks = { hot: true, powered: true, fuelCells: 2 };
+    const chain = plotChartVoyage(world, 'ship', ['poi_kestrel', 'hub_b'], checks);
+    expect(chain.reject).toBeUndefined();
+    expect(chain.world.ships.ship?.nav.stops).toEqual(['poi_kestrel', 'hub_b']);
+    expect(chain.world.ships.ship?.nav.destHubId).toBe('hub_b');
+    expect(plotChartVoyage(world, 'ship', [], checks).reject).toBe('empty-voyage');
+    const visit = plotChartVoyage(world, 'ship', ['poi_kestrel'], checks);
+    expect(visit.reject).toBeUndefined();
+    expect(visit.world.ships.ship?.nav.destHubId).toBe('poi_kestrel');
+    expect(visit.world.ships.ship?.nav.portHubId).toBe('hub_a');
+  });
+
+  it('flies a POI detour chain to hub_b on two cells', () => {
+    const fueled = syncShipStores(hotBoat(), 'ship', 2);
+    const chain = plotChartVoyage(fueled, 'ship', ['poi_kestrel', 'hub_b'], {
+      hot: true,
+      powered: true,
+      fuelCells: 2,
+    });
+    if (chain.reject !== undefined) throw new Error(`chain rejected: ${chain.reject}`);
+    let world = driveAttentive(chain.world, 12);
+    expect(world.ships.ship?.nav.phase).toBe('in_transit');
+    expect(world.ships.ship?.nav.legIndex).toBe(0);
+    world = driveAttentive(world, 260);
+    expect(world.ships.ship?.nav.phase).toBe('docked');
+    expect(world.ships.ship?.nav.portHubId).toBe('hub_b');
+    expect(world.ships.ship?.nav.stops).toEqual([]);
+  });
+
+  it('surveys POI flybys and keeps them across the voyage', () => {
+    const fueled = syncShipStores(hotBoat(), 'ship', 2);
+    const chain = plotChartVoyage(fueled, 'ship', ['poi_kestrel', 'hub_b'], {
+      hot: true,
+      powered: true,
+      fuelCells: 2,
+    });
+    if (chain.reject !== undefined) throw new Error(`chain rejected: ${chain.reject}`);
+    expect(chain.world.ships.ship?.surveyed).toEqual([]);
+    const surveyed = driveAttentive(chain.world, 55);
+    expect(surveyed.ships.ship?.nav.legIndex).toBe(1);
+    expect(surveyed.ships.ship?.surveyed).toEqual(['poi_kestrel']);
+    const arrived = driveAttentive(chain.world, 280);
+    expect(arrived.ships.ship?.nav.phase).toBe('docked');
+    expect(arrived.ships.ship?.surveyed).toEqual(['poi_kestrel']);
   });
 
   it('flies a full leg: seal, depart far, dock at hub_b', () => {

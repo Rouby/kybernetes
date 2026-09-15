@@ -9,6 +9,7 @@
 
 import type {
   CargoStateBroadcast,
+  ChartStateBroadcast,
   ClientIntent,
   DeathBroadcast,
   DockStatusBroadcast,
@@ -26,6 +27,7 @@ import type {
   WatchBroadcast,
 } from '@kybernetes/protocol';
 import { PROTOCOL_VERSION, shouldResumeAfterClose } from '@kybernetes/protocol';
+import { harborWsUrl } from '../../harbor/harborEndpoint';
 import {
   createHarborCaches,
   type HarborCaches,
@@ -66,6 +68,7 @@ export interface SocketStoreState {
   readonly shipStatus: ShipStatusBroadcast | null;
   readonly shipLost: ShipLostBroadcast | null;
   readonly navState: NavStateBroadcast | null;
+  readonly chartState: ChartStateBroadcast | null;
   readonly cargoState: CargoStateBroadcast | null;
   readonly marketStates: Readonly<Record<string, MarketStateBroadcast>>;
 }
@@ -102,6 +105,7 @@ function initialState(): SocketStoreState {
     shipStatus: null,
     shipLost: null,
     navState: null,
+    chartState: null,
     cargoState: null,
     marketStates: {},
   };
@@ -189,6 +193,7 @@ export function createSocketStore(identity: HarborIdentity, factory?: SocketFact
         });
       },
       setNavState: (navState) => patch({ navState }),
+      setChartState: (chartState) => patch({ chartState }),
       setCargoState: (cargoState) => patch({ cargoState }),
       setMarketState: (market) =>
         patch({ marketStates: { ...state.marketStates, [market.hubId]: market } }),
@@ -211,7 +216,7 @@ export function createSocketStore(identity: HarborIdentity, factory?: SocketFact
 
   function connect(): void {
     if (disposed) return;
-    const socket = createSocket('ws://localhost:3001');
+    const socket = createSocket(harborWsUrl());
     ws = socket;
     seq = 0;
     caches.snapshot.current = null;

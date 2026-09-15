@@ -1,7 +1,6 @@
-import type { ChildProcess } from 'node:child_process';
 import { expect, type Page, test } from '@playwright/test';
 import { waitForHarbor } from './boarding';
-import { startDaemon, stopDaemon } from './daemon';
+import { harborUrl, type StartedDaemon, startDaemon, stopDaemon } from './daemon';
 
 /**
  * WebGL2 UI scene captures: menu, customize, intro, live HUD, pause, and
@@ -51,7 +50,7 @@ async function callsignValue(page: Page): Promise<string> {
 
 test.describe('GL UI scenes', () => {
   test.setTimeout(180000);
-  let daemon: ChildProcess | null = null;
+  let daemon: StartedDaemon | null = null;
   test.beforeAll(async () => {
     daemon = await startDaemon();
   });
@@ -61,7 +60,7 @@ test.describe('GL UI scenes', () => {
   });
 
   test('menu boots to the GL splash without a socket', async ({ page }) => {
-    await page.goto('/?harbor=1');
+    await page.goto(harborUrl(daemon));
     await expect(page.getByTestId('gl-splash')).toBeVisible();
     await expect(page.getByTestId('terminal-canvas')).toHaveCount(0);
     const embark = await waitUiZone(page, 'embark');
@@ -71,14 +70,14 @@ test.describe('GL UI scenes', () => {
   });
 
   test('GL UI is the default with no flag', async ({ page }) => {
-    await page.goto('/?harbor=1');
+    await page.goto(harborUrl(daemon));
     await expect(page.getByTestId('gl-splash')).toBeVisible();
     await expect(page.getByTestId('terminal-canvas')).toHaveCount(0);
     await waitUiZone(page, 'embark');
   });
 
   test('menu Enter reaches the GL intro card', async ({ page }) => {
-    await page.goto('/?harbor=1');
+    await page.goto(harborUrl(daemon));
     await waitUiZone(page, 'embark');
     await page.keyboard.press('Enter');
     await waitUiGone(page, 'customize');
@@ -87,7 +86,7 @@ test.describe('GL UI scenes', () => {
   });
 
   test('customize tints, types, and embarks to the live world', async ({ page }) => {
-    await page.goto('/?harbor=1&debug=1');
+    await page.goto(harborUrl(daemon, 'debug=1'));
     await waitUiZone(page, 'embark');
     await page.keyboard.press('c');
     const tint = await waitUiZone(page, 'tint:#00e5ff');
@@ -113,7 +112,7 @@ test.describe('GL UI scenes', () => {
   });
 
   test('pause and settings ride the in-canvas overlay', async ({ page }) => {
-    await page.goto('/?harbor=1&debug=1');
+    await page.goto(harborUrl(daemon, 'debug=1'));
     await waitUiZone(page, 'embark');
     await page.keyboard.press('Enter');
     await waitUiGone(page, 'customize');

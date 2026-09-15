@@ -56,7 +56,7 @@ yarn --cwd apps/web playwright test harbor-scenes.spec.ts # screenshots
 Screenshots land in `apps/web/test-results/` (gitignored); failure videos are retained automatically (see `playwright.config.ts`).
 
 ### Step 7: Changeset
-If you touched any packages (`@kybernetes/*`), generate a changeset entry containing meaningful and human readable details about the introduced changes.
+If you touched any packages / apps (`@kybernetes/*`), generate a changeset entry containing meaningful and human readable details about the introduced changes.
 
 If a related changeset already exists to the work you are doing, prefer updating the changeset instead of adding another one fixing a bug.
 

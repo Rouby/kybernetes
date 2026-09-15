@@ -142,7 +142,7 @@ export class SplashMount {
     publishUiZones(window, [
       ...layout.buttons,
       ...(layout.swatches ?? []),
-      ...(layout.fields ?? []).map((field) => ({ id: 'field:' + field.id, rect: field.rect })),
+      ...(layout.fields ?? []).map((field) => ({ id: `field:${field.id}`, rect: field.rect })),
     ]);
     const focused = layout.buttons[Math.min(this.focusHolder.current, layout.buttons.length - 1)];
     renderer.renderSplash(

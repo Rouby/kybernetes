@@ -3,7 +3,9 @@ import type {
   ShipStatusBroadcast,
   ShipSystemsBroadcast,
 } from '@kybernetes/protocol';
+import { FIXED_DT, planVoyage } from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
+import { chartMapView } from '../../harbor/chartModel';
 import {
   customizeOptionCounts,
   defaultCustomizeSelection,
@@ -68,6 +70,9 @@ function makeNav(over: Partial<NavStateBroadcast> = {}): NavStateBroadcast {
     legId: 1,
     portHubId: 'hub_a',
     flameout: false,
+    hailS: 0,
+    stops: [],
+    legIndex: 0,
     ...over,
   };
 }
@@ -221,15 +226,301 @@ describe('console screens', () => {
     expect(layout.texts.map((t) => t.text)).toContain('BROWNOUT');
   });
 
-  it('nav respects topClearance and keeps plot always present', () => {
+  function nodeButtons(layout: { buttons: readonly { id: string }[] }): string[] {
+    return layout.buttons.map((b) => b.id).filter((id) => id.includes(':'));
+  }
+
+  function expectInsideCanvas(rect: { x: number; y: number; w: number; h: number }): void {
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.y).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.w).toBeLessThanOrEqual(W);
+    expect(rect.y + rect.h).toBeLessThanOrEqual(H);
+  }
+
+  it('nav respects topClearance with a legend card and map nodes', () => {
     const m = uiVisorMargins(W, H);
     const sys = makeSystems();
     const docked = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, makeStatus());
     expect(docked.panel.y).toBeGreaterThanOrEqual(m.topClearance);
+    expect(docked.panel.x).toBeGreaterThan(W / 2);
     expect(docked.buttons.map((b) => b.id)).toContain('close');
-    expectContained(docked.panel, docked.buttons);
+    expectInsideCanvas(docked.panel);
+    for (const button of docked.buttons) expectInsideCanvas(button.rect);
     const cruise = layoutNavScreen(W, H, makeNav({ phase: 'in_transit' }), sys, makeStatus());
-    expect(cruise.buttons.map((b) => b.id)).toContain('plot');
+    expect(cruise.buttons.map((b) => b.id)).toContain('distress');
+  });
+
+  it('nav surfaces a heat soft warning without hiding plot', () => {
+    const cold = makeSystems({ tune: 0.2, wear: 0 });
+    const layout = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), cold, makeStatus());
+    expect(layout.texts.map((t) => t.text)).toContain('HEAT RISK: TUNE LOW');
+    expect(layout.buttons.map((b) => b.id)).toContain('plot:hub_b');
+    expect(nodeButtons(layout)).toContain('via:poi_kestrel');
+  });
+
+  it('nav shows the live hop on multi-stop chains only', () => {
+    const sys = makeSystems();
+    const chain = makeNav({
+      phase: 'in_transit',
+      destHubId: 'hub_b',
+      stops: ['poi_kestrel', 'hub_b'],
+      legIndex: 0,
+    });
+    const layout = layoutNavScreen(W, H, chain, sys, makeStatus());
+    expect(layout.texts.map((t) => t.text)).toContain('HOP DERELICT "KESTREL" 1/2');
+    expectContained(layout.panel, layout.buttons);
+    const single = layoutNavScreen(W, H, makeNav({ phase: 'in_transit' }), sys, makeStatus());
+    expect(single.texts.map((t) => t.text).some((text) => text.startsWith('HOP '))).toBe(false);
+  });
+
+  it('nav plots hubs and detours from map nodes while docked', () => {
+    const sys = makeSystems();
+    const docked = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, makeStatus());
+    expect(docked.buttons.map((b) => b.id)).toEqual([
+      'plot:hub_b',
+      'via:poi_kestrel',
+      'via:poi_vigil',
+      'close',
+    ]);
+    expect(docked.buttons.map((b) => b.label)).toEqual(['KEPLER', '??', '??', 'CLOSE [E]']);
+    const known = mockChart();
+    const surveyedChart = {
+      ...known,
+      nodes: known.nodes.map((node) => ({ ...node, known: true })),
+    };
+    const surveyed = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      surveyedChart
+    );
+    expect(surveyed.buttons.map((b) => b.label)).toContain('KESTREL');
+    const map = chartMapView(makeNav({ phase: 'docked' }), null, makeStatus(), W, H, 0);
+    for (const button of docked.buttons) {
+      const node = map.nodes.find((entry) => entry.buttonId === button.id);
+      if (node === undefined) {
+        expectContained(docked.panel, [button]);
+      } else {
+        expect(button.rect).toEqual(node.chip);
+        expect(button.label).toBe(node.label);
+      }
+    }
+    const cruise = layoutNavScreen(W, H, makeNav({ phase: 'in_transit' }), sys, makeStatus());
+    expect(cruise.buttons.map((b) => b.id)).toEqual(['distress', 'close']);
+    expect(nodeButtons(cruise)).toEqual([]);
+  });
+
+  function mockChart(): import('@kybernetes/protocol').ChartStateBroadcast {
+    return {
+      type: 'CHART_STATE',
+      v: 2 as const,
+      tick: 1,
+      serverTimeMs: 1000,
+      vesselId: 'skiff-1',
+      nodes: [
+        { id: 'hub_a', kind: 'hub', label: 'NEW ANCHORAGE', short: 'ANCHORAGE', known: true },
+        { id: 'hub_b', kind: 'hub', label: 'KEPLER YARD', short: 'KEPLER', known: true },
+        {
+          id: 'poi_kestrel',
+          kind: 'poi',
+          label: 'DERELICT "KESTREL"',
+          short: 'KESTREL',
+          rumor: 'Distress echo.',
+          known: false,
+        },
+        {
+          id: 'poi_vigil',
+          kind: 'poi',
+          label: 'BEACON "VIGIL"',
+          short: 'VIGIL',
+          rumor: 'Cache pings.',
+          known: false,
+        },
+      ],
+    };
+  }
+
+  it('nav renders the docked manifest and the chain lane', () => {
+    const sys = makeSystems();
+    const docked = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      mockChart()
+    );
+    const texts = docked.texts.map((t) => t.text);
+    expect(texts).toContain('?? Distress echo.');
+    expect(texts).toContain('HAUL SCRAP 9>13');
+    for (const button of docked.buttons) {
+      if (nodeButtons({ buttons: docked.buttons }).includes(button.id))
+        expectInsideCanvas(button.rect);
+      else expectContained(docked.panel, [button]);
+    }
+    const chain = layoutNavScreen(
+      W,
+      H,
+      makeNav({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        stops: ['poi_kestrel', 'hub_b'],
+        legIndex: 0,
+      }),
+      sys,
+      makeStatus(),
+      mockChart()
+    );
+    expect(chain.texts.map((t) => t.text)).toContain('LANE ANCHORAGE>??>KEPLER');
+    expect(chain.texts.map((t) => t.text).some((text) => /^BURN \d+S RETRO \d+S$/.test(text))).toBe(
+      true
+    );
+    const plain = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, makeStatus());
+    const plainTexts = plain.texts.map((t) => t.text);
+    expect(plainTexts.some((text) => text.startsWith('LANE '))).toBe(false);
+    expect(plainTexts.some((text) => text.startsWith('??'))).toBe(false);
+  });
+
+  it('nav swaps to hail controls with a drone countdown while stranded', () => {
+    const sys = makeSystems();
+    const stranded = layoutNavScreen(
+      W,
+      H,
+      makeNav({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        remainingS: 60,
+        flameout: true,
+        hailS: 0,
+      }),
+      sys,
+      makeStatus()
+    );
+    expect(stranded.buttons.map((b) => b.id)).toEqual(['hail', 'distress', 'close']);
+    expectContained(stranded.panel, stranded.buttons);
+    expectNoOverlap(stranded.buttons);
+    const waiting = layoutNavScreen(
+      W,
+      H,
+      makeNav({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        remainingS: 60,
+        flameout: true,
+        hailS: 44.2,
+      }),
+      sys,
+      makeStatus()
+    );
+    expect(waiting.texts.map((t) => t.text)).toContain('DRONE IN 45S');
+    const cruise = layoutNavScreen(W, H, makeNav({ phase: 'in_transit' }), sys, makeStatus());
+    expect(cruise.buttons.map((b) => b.id)).toEqual(['distress', 'close']);
+  });
+
+  it('nav charts bare without a fullscreen dim', () => {
+    const layout = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), makeSystems(), makeStatus());
+    expect(layout.bare).toBe(true);
+  });
+
+  it('nav previews the drafted course before commit', () => {
+    const sys = makeSystems();
+    const draft = ['poi_kestrel', 'hub_b'];
+    const layout = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      mockChart(),
+      0,
+      draft
+    );
+    const texts = layout.texts.map((t) => t.text);
+    expect(texts).toContain('PLAN ??>KEPLER');
+    const quoted = planVoyage({
+      fromId: 'hub_a',
+      stops: [...draft],
+      tier: 0,
+      tune: 1,
+      wear: 0,
+      thrust01: 1,
+      atSeconds: 1 * FIXED_DT,
+    });
+    if (!('plan' in quoted)) throw new Error('quote should succeed');
+    expect(texts).toContain(`TIME ${quoted.plan.totalS}S FUEL NEED 2 HAVE 3`);
+    expect(texts).toContain('THRUST 100%');
+    expect(layout.buttons.map((b) => b.id)).toEqual([
+      'plot:hub_b',
+      'via:poi_kestrel',
+      'via:poi_vigil',
+      'confirm',
+      'thrustDown',
+      'thrustUp',
+      'clear',
+      'close',
+    ]);
+    const throttled = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      mockChart(),
+      0,
+      draft,
+      50
+    );
+    const throttledTexts = throttled.texts.map((t) => t.text);
+    expect(throttledTexts).toContain('THRUST 50%');
+    const half = planVoyage({
+      fromId: 'hub_a',
+      stops: [...draft],
+      tier: 0,
+      tune: 1,
+      wear: 0,
+      thrust01: 0.5,
+      atSeconds: 1 * FIXED_DT,
+    });
+    if (!('plan' in half)) throw new Error('half quote should succeed');
+    expect(throttledTexts).toContain(`TIME ${half.plan.totalS}S FUEL NEED 1 HAVE 3`);
+    const plain = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      mockChart()
+    );
+    expect(plain.buttons.map((b) => b.id)).not.toContain('confirm');
+    expect(plain.texts.map((t) => t.text).some((text) => text.startsWith('PLAN '))).toBe(false);
+    const visit = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      mockChart(),
+      0,
+      ['poi_kestrel']
+    );
+    expect(visit.texts.map((t) => t.text)).toContain('PLAN ??');
+    expect(visit.buttons.map((b) => b.id)).toContain('confirm');
+    expect(visit.texts.map((t) => t.text)).toContain('COURSE //');
+  });
+
+  it('nav surfaces a low-fuel soft warning without hiding plot', () => {
+    const sys = makeSystems();
+    const empty = { rations: 1, waterL: 1, o2Cells: 1, fuelCells: 0 };
+    const status = { ...makeStatus(), stores: empty };
+    const layout = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, status);
+    expect(layout.texts.map((t) => t.text)).toContain('LOW FUEL: NEED 1 HOLD 0');
+    expect(layout.buttons.map((b) => b.id)).toContain('plot:hub_b');
+    expectContained(
+      layout.panel,
+      layout.buttons.filter((b) => !b.id.includes(':'))
+    );
   });
 });
 

@@ -159,6 +159,11 @@ export interface NavStateSource {
   readonly legId: number;
   readonly portHubId: string;
   readonly flameout: boolean;
+  readonly hailS: number;
+  readonly stops: readonly string[];
+  readonly legIndex: number;
+  readonly thrust01?: number;
+  readonly legTotalS?: number;
 }
 
 export interface NavStateBroadcast {
@@ -173,6 +178,11 @@ export interface NavStateBroadcast {
   readonly legId: number;
   readonly portHubId: string;
   readonly flameout: boolean;
+  readonly hailS: number;
+  readonly stops: readonly string[];
+  readonly legIndex: number;
+  readonly thrust01?: number;
+  readonly legTotalS?: number;
 }
 
 export function makeNavState(
@@ -193,6 +203,49 @@ export function makeNavState(
     legId: nav.legId,
     portHubId: nav.portHubId,
     flameout: nav.flameout,
+    hailS: q1(nav.hailS),
+    stops: [...nav.stops],
+    legIndex: nav.legIndex,
+    ...(nav.thrust01 === undefined ? {} : { thrust01: q2(nav.thrust01) }),
+    ...(nav.legTotalS === undefined ? {} : { legTotalS: q1(nav.legTotalS) }),
+  };
+}
+
+export interface ChartNodeState {
+  readonly id: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly short: string;
+  readonly rumor?: string;
+  readonly known: boolean;
+}
+
+export interface ChartStateSource {
+  readonly nodes: readonly ChartNodeState[];
+}
+
+export interface ChartStateBroadcast {
+  readonly type: 'CHART_STATE';
+  readonly v: typeof PROTOCOL_VERSION;
+  readonly tick: number;
+  readonly serverTimeMs: number;
+  readonly vesselId: string;
+  readonly nodes: readonly ChartNodeState[];
+}
+
+export function makeChartState(
+  vesselId: string,
+  nodes: readonly ChartNodeState[],
+  tick: number,
+  serverTimeMs: number
+): ChartStateBroadcast {
+  return {
+    type: 'CHART_STATE',
+    v: PROTOCOL_VERSION,
+    tick,
+    serverTimeMs,
+    vesselId,
+    nodes: nodes.map((node) => ({ ...node })),
   };
 }
 

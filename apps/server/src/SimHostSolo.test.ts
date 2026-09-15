@@ -93,6 +93,8 @@ describe('SimHost solo spawn (M1)', () => {
             portHubId: 'hub_a',
             flameout: true,
             extraBurned: true,
+            stops: ['hub_b'],
+            legIndex: 0,
           },
         },
       },
@@ -104,6 +106,84 @@ describe('SimHost solo spawn (M1)', () => {
     expect(host.currentWorld.vessels.ship?.origin).toEqual({ x: 1210, y: 3920 });
     expect(host.shipRecordFor('u1')?.credits).toBe(0);
     host.stop();
+  });
+
+  it('tows a mid-chain flameout to the nearer hub end', () => {
+    function flamedAt(remainingS: number): string | undefined {
+      const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
+      host.spawnAboardOwnShip('c1', 'Rook', '#fff', 'u1');
+      const systems = host.currentWorld.ships.ship;
+      if (systems === undefined) throw new Error('missing ship systems');
+      host.debugSetWorld({
+        ...host.currentWorld,
+        ships: {
+          ...host.currentWorld.ships,
+          ship: {
+            ...systems,
+            fuelCells: 0,
+            nav: {
+              phase: 'in_transit',
+              destHubId: 'hub_b',
+              remainingS,
+              legId: 1,
+              portHubId: 'hub_a',
+              flameout: true,
+              extraBurned: true,
+              stops: ['poi_kestrel', 'hub_b'],
+              legIndex: 1,
+            },
+          },
+        },
+      });
+      const result = host.handleIntent('c1', { type: 'DISTRESS', seq: 1 });
+      if (result.notice !== 'DISTRESS_ok') throw new Error(`tow failed: ${result.notice}`);
+      const port = host.currentWorld.ships.ship?.nav.portHubId;
+      host.stop();
+      return port;
+    }
+    expect(flamedAt(10)).toBe('hub_b');
+    expect(flamedAt(100)).toBe('hub_a');
+  });
+
+  it('tows POI strandings to a hub dock, never adrift', () => {
+    function flamedAtPoi(
+      portHubId: string,
+      destHubId: string,
+      stops: string[]
+    ): string | undefined {
+      const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
+      host.spawnAboardOwnShip('c1', 'Rook', '#fff', 'u1');
+      const systems = host.currentWorld.ships.ship;
+      if (systems === undefined) throw new Error('missing ship systems');
+      host.debugSetWorld({
+        ...host.currentWorld,
+        ships: {
+          ...host.currentWorld.ships,
+          ship: {
+            ...systems,
+            fuelCells: 0,
+            nav: {
+              phase: 'in_transit',
+              destHubId,
+              remainingS: 10,
+              legId: 1,
+              portHubId,
+              flameout: true,
+              extraBurned: true,
+              stops,
+              legIndex: 0,
+            },
+          },
+        },
+      });
+      const result = host.handleIntent('c1', { type: 'DISTRESS', seq: 1 });
+      if (result.notice !== 'DISTRESS_ok') throw new Error(`tow failed: ${result.notice}`);
+      const port = host.currentWorld.ships.ship?.nav.portHubId;
+      host.stop();
+      return port;
+    }
+    expect(flamedAtPoi('hub_a', 'poi_kestrel', ['poi_kestrel'])).toBe('hub_a');
+    expect(flamedAtPoi('poi_kestrel', 'poi_vigil', ['poi_vigil'])).toBe('hub_a');
   });
 
   it('refuses distress while safely docked', () => {
@@ -134,6 +214,8 @@ describe('SimHost solo spawn (M1)', () => {
             portHubId: 'hub_a',
             flameout: false,
             extraBurned: false,
+            stops: ['hub_b'],
+            legIndex: 0,
           },
         },
       },

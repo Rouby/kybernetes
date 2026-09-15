@@ -9,6 +9,7 @@
 
 import type {
   CargoStateBroadcast,
+  ChartStateBroadcast,
   DeathBroadcast,
   DockStatusBroadcast,
   HireOfferBroadcast,
@@ -69,6 +70,7 @@ export interface HarborCaches {
   readonly systemsTick: { current: number };
   readonly statusTick: { current: number };
   readonly navTick: { current: number };
+  readonly chartTick: { current: number };
   readonly manifestRev: { current: number | undefined };
   readonly cargoTick: { current: number };
   readonly marketTick: { current: Record<string, number> };
@@ -85,6 +87,7 @@ export function createHarborCaches(): HarborCaches {
     systemsTick: { current: -1 },
     statusTick: { current: -1 },
     navTick: { current: -1 },
+    chartTick: { current: -1 },
     cargoTick: { current: -1 },
     marketTick: { current: {} },
     manifestRev: { current: undefined },
@@ -110,6 +113,7 @@ export interface SnapshotSetters {
   setShipStatus?: (s: ShipStatusBroadcast) => void;
   setShipLost?: (d: ShipLostBroadcast | null) => void;
   setNavState?: (n: NavStateBroadcast) => void;
+  setChartState?: (c: ChartStateBroadcast) => void;
   setCargoState?: (c: CargoStateBroadcast) => void;
   setMarketState?: (m: MarketStateBroadcast) => void;
 }
@@ -215,6 +219,12 @@ const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
     if (caches.navTick.current >= 0 && !isNewerTick(caches.navTick.current, next.tick)) return;
     caches.navTick.current = next.tick;
     setters.setNavState?.(next);
+  },
+  CHART_STATE: (msg, caches, setters) => {
+    const next = msg as unknown as ChartStateBroadcast;
+    if (caches.chartTick.current >= 0 && !isNewerTick(caches.chartTick.current, next.tick)) return;
+    caches.chartTick.current = next.tick;
+    setters.setChartState?.(next);
   },
   CARGO_STATE: (msg, caches, setters) => {
     const next = msg as unknown as CargoStateBroadcast;

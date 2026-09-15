@@ -278,12 +278,34 @@ function isHubRef(value: unknown): value is string {
   return isShortId(value);
 }
 
+const MAX_WAYPOINTS = 4;
+
+function isWaypointList(value: unknown): value is string[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length > MAX_WAYPOINTS) return false;
+  return value.every(isShortId);
+}
+
 export function validateNavPlot(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   if (!isHubRef(raw.destHubId)) return fail('bad-field', 'destHubId');
+  const waypointIds = raw.waypointIds === undefined ? [] : raw.waypointIds;
+  if (!isWaypointList(waypointIds)) return fail('bad-field', 'waypointIds');
+  if (
+    raw.thrust01 !== undefined &&
+    (!isFiniteNumber(raw.thrust01) || raw.thrust01 < 0 || raw.thrust01 > 1)
+  ) {
+    return fail('bad-field', 'thrust01');
+  }
   return {
     ok: true,
-    intent: { type: 'NAV_PLOT', seq: raw.seq as number, destHubId: raw.destHubId },
+    intent: {
+      type: 'NAV_PLOT',
+      seq: raw.seq as number,
+      destHubId: raw.destHubId,
+      waypointIds: [...waypointIds],
+      ...(raw.thrust01 === undefined ? {} : { thrust01: raw.thrust01 as number }),
+    },
   };
 }
 
@@ -295,6 +317,11 @@ export function validateNavCancel(raw: Record<string, unknown>): ValidateResult 
 export function validateDistress(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   return { ok: true, intent: { type: 'DISTRESS', seq: raw.seq as number } };
+}
+
+export function validateHail(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  return { ok: true, intent: { type: 'HAIL', seq: raw.seq as number } };
 }
 
 const MAX_CRATE_IDS = 8;

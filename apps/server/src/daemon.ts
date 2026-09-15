@@ -28,6 +28,7 @@ import {
   type AtmosRoom,
   bindWorldAir,
   buildCargoState,
+  buildChartState,
   buildHireOffer,
   buildManifest,
   buildMarketState,
@@ -579,6 +580,8 @@ export class HarborDaemon {
       if (systems !== undefined) this.sendAll(systems);
       const nav = buildNavState(world, vesselId, nowMs);
       if (nav !== undefined) this.sendAll(nav);
+      const chart = buildChartState(world, vesselId, nowMs);
+      if (chart !== undefined) this.sendAll(chart);
       this.sendAll(buildCargoState(world, vesselId, nowMs));
     }
     for (const hubId of MARKET_HUBS) this.sendAll(buildMarketState(world, hubId, nowMs));

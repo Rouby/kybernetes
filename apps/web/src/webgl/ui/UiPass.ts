@@ -5,13 +5,12 @@
  * them without a canvas; the GL calls stay in HudRenderer.
  */
 
-import type {
-  ClientIntent,
-  NavStateBroadcast,
-  ShipStatusBroadcast,
-  ShipSystemsBroadcast,
-} from '@kybernetes/protocol';
-import { navViewModel } from '../../harbor/navConsoleModel';
+import type { ClientIntent, NavStateBroadcast, ShipSystemsBroadcast } from '@kybernetes/protocol';
+import {
+  DETOUR_BUTTON_PREFIX,
+  navDetourOptions,
+  PLOT_BUTTON_PREFIX,
+} from '../../harbor/navConsoleModel';
 import type { ConsoleKind } from '../../harbor/sessionActions';
 import type { UiScreenLayout } from './UiScreens';
 import { type UiButton, type UiText, uiContains } from './UiToolkit';
@@ -153,18 +152,42 @@ export function marketConsoleIntent(id: string, stock: MarketConsoleStock): Clie
 }
 
 /** Mirror of NavConsole plot/cancel/distress (ShipConsolePanel). Null = unknown id. */
-export function navConsoleIntent(
-  id: string,
-  nav: NavStateBroadcast | null,
-  systems: ShipSystemsBroadcast | null,
-  status: ShipStatusBroadcast | null
-): ClientIntent | null {
-  if (id === 'plot') {
-    return { type: 'NAV_PLOT', seq: 0, destHubId: navViewModel(nav, systems, status).otherHubId };
+export function navConsoleIntent(id: string, _nav: NavStateBroadcast | null): ClientIntent | null {
+  if (id.startsWith(PLOT_BUTTON_PREFIX) || id.startsWith(DETOUR_BUTTON_PREFIX)) {
+    return plotIntent(id);
   }
   if (id === 'cancel') return { type: 'NAV_CANCEL', seq: 0 };
   if (id === 'distress') return { type: 'DISTRESS', seq: 0 };
+  if (id === 'hail') return { type: 'HAIL', seq: 0 };
   return null;
+}
+
+/** Commit a drafted course: last stop is the destination, the rest are waypoints. */
+export function confirmPlotIntent(
+  selection: readonly string[] | null,
+  thrustPct: number | null = null
+): ClientIntent | null {
+  if (selection === null || selection.length === 0) return null;
+  const destHubId = selection[selection.length - 1];
+  if (destHubId === undefined) return null;
+  return {
+    type: 'NAV_PLOT',
+    seq: 0,
+    destHubId,
+    waypointIds: [...selection.slice(0, -1)],
+    ...(thrustPct === null || thrustPct >= 100 ? {} : { thrust01: thrustPct / 100 }),
+  };
+}
+
+function plotIntent(id: string): ClientIntent | null {
+  if (id.startsWith(PLOT_BUTTON_PREFIX)) {
+    const hubId = id.slice(PLOT_BUTTON_PREFIX.length);
+    if (hubId.length === 0) return null;
+    return { type: 'NAV_PLOT', seq: 0, destHubId: hubId, waypointIds: [] };
+  }
+  const poiId = id.slice(DETOUR_BUTTON_PREFIX.length);
+  if (!navDetourOptions().includes(poiId)) return null;
+  return { type: 'NAV_PLOT', seq: 0, destHubId: poiId, waypointIds: [] };
 }
 export interface SplashStar {
   readonly x: number;

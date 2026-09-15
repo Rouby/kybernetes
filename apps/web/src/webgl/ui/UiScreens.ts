@@ -5,15 +5,26 @@
  * Panels derive from uiVisorMargins/uiCenteredPanel, never fixed y.
  */
 import type {
+  ChartStateBroadcast,
   DeathCause,
   NavStateBroadcast,
   ShipStatusBroadcast,
   ShipSystemsBroadcast,
 } from '@kybernetes/protocol';
 import { PAWN_TRIMS, THRUSTER_TINTS } from '@kybernetes/protocol';
+import { FIXED_DT } from '@kybernetes/sim-core';
+import {
+  type ChartMapView,
+  type ChartPreview,
+  type ClockInput,
+  chartMapView,
+  type FlightSnapshot,
+  previewCourse,
+  type SmoothClock,
+} from '../../harbor/chartModel';
 import { deathHint, deathTitle } from '../../harbor/deathNotice';
 import type { MarketScreenModel, MarketTableCell, SellScreenModel } from '../../harbor/marketModel';
-import { navViewModel } from '../../harbor/navConsoleModel';
+import { formatFuelCells, type NavViewModel, navViewModel } from '../../harbor/navConsoleModel';
 import { engineViewModel, reactorViewModel } from '../../harbor/shipConsoleModel';
 import {
   GAME_OVER_BODY,
@@ -74,6 +85,12 @@ export interface UiScreenLayout {
   readonly buttons: readonly UiButton[];
   readonly swatches?: readonly UiSwatch[];
   readonly fields?: readonly UiField[];
+  /** Skip the fullscreen dim: the screen paints its own backdrop (star chart). */
+  readonly bare?: boolean;
+  /** Departure snapshot for the live leg; nav screen only. */
+  readonly liveLeg?: FlightSnapshot | null;
+  /** Smoothing state for broadcast clocks; nav screen only. */
+  readonly clock?: SmoothClock | null;
 }
 
 const PAD = 24;
@@ -495,17 +512,16 @@ export function layoutEngineScreen(
   };
 }
 
-function navPanelFor(w: number, h: number): UiRect {
-  return visorPanelFor(w, h, 440, 460);
-}
-
 function navTextsFor(
   panel: UiRect,
   nav: NavStateBroadcast | null,
   systems: ShipSystemsBroadcast | null,
-  status: ShipStatusBroadcast | null
+  status: ShipStatusBroadcast | null,
+  chart?: ChartStateBroadcast | null,
+  transfer?: { label: string } | null,
+  course?: ChartPreview | null
 ): readonly UiText[] {
-  const vm = navViewModel(nav, systems, status);
+  const vm = navViewModel(nav, systems, status, chart);
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
   const y0 = panel.y + PAD;
@@ -515,37 +531,261 @@ function navTextsFor(
     textAt(`NAV // ${vm.phase.toUpperCase()}`, tx, y0, KICKER_SIZE, 'dim'),
     textAt(port, tx, y0 + KICKER_SIZE + 8, BODY_SIZE, 'primary'),
     textAt(dest, tx, y0 + KICKER_SIZE + 8 + LINE_H, BODY_SIZE, 'primary'),
-    textAt(`ETA ${vm.etaS}S`, tx, y0 + KICKER_SIZE + 8 + LINE_H * 2, BODY_SIZE, 'muted'),
-    textAt(`FUEL ${vm.fuelCells}`, tx, y0 + KICKER_SIZE + 8 + LINE_H * 3, BODY_SIZE, 'muted'),
+  ];
+  let line = 2;
+  if (vm.hopProgress !== null) {
+    rows.push(
+      textAt(
+        uiEllipsize(`HOP ${vm.hopLabel} ${vm.hopProgress}`, BODY_SIZE, innerW),
+        tx,
+        y0 + KICKER_SIZE + 8 + LINE_H * line,
+        BODY_SIZE,
+        'cyan'
+      )
+    );
+    line += 1;
+  }
+  rows.push(
+    textAt(`ETA ${vm.etaS}S`, tx, y0 + KICKER_SIZE + 8 + LINE_H * line, BODY_SIZE, 'muted')
+  );
+  line += 1;
+  rows.push(
+    textAt(
+      `FUEL ${formatFuelCells(vm.fuelCells)}`,
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * line,
+      BODY_SIZE,
+      'muted'
+    )
+  );
+  line += 1;
+  rows.push(
     textAt(
       `COUNTDOWN ${vm.countdownS}S`,
       tx,
-      y0 + KICKER_SIZE + 8 + LINE_H * 4,
+      y0 + KICKER_SIZE + 8 + LINE_H * line,
       BODY_SIZE,
       'muted'
-    ),
-  ];
+    )
+  );
+  line += 1;
+  line = pushManifestRows(rows, vm, tx, y0, innerW, line);
+  line = pushTransferRow(rows, transfer ?? null, tx, y0, innerW, line);
+  line = pushPreviewRows(rows, course ?? null, tx, y0, innerW, line);
+  const alerts: string[] = [];
+  if (vm.fuelWarning !== null) alerts.push(uiEllipsize(vm.fuelWarning, BODY_SIZE, innerW));
+  if (vm.heatWarning !== null) alerts.push(uiEllipsize(vm.heatWarning, BODY_SIZE, innerW));
+  alerts.forEach((alert, index) => {
+    rows.push(
+      textAt(alert, tx, y0 + KICKER_SIZE + 8 + LINE_H * (line + index), BODY_SIZE, 'warning')
+    );
+  });
   if (vm.flameout)
-    rows.push(textAt('FLAMEOUT', tx, y0 + KICKER_SIZE + 8 + LINE_H * 5, BODY_SIZE, 'danger'));
+    rows.push(
+      textAt(
+        'FLAMEOUT',
+        tx,
+        y0 + KICKER_SIZE + 8 + LINE_H * (line + alerts.length),
+        BODY_SIZE,
+        'danger'
+      )
+    );
+  if (vm.rescueS > 0)
+    rows.push(
+      textAt(
+        `DRONE IN ${vm.rescueS}S`,
+        tx,
+        y0 + KICKER_SIZE + 8 + LINE_H * (line + alerts.length + (vm.flameout ? 1 : 0)),
+        BODY_SIZE,
+        'cyan'
+      )
+    );
   return rows;
 }
 
+/** Torch-drive plan readout for the live leg (AGENTS.md text budget). */
+function pushTransferRow(
+  rows: UiText[],
+  transfer: { label: string } | null,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): number {
+  if (transfer === null) return line;
+  rows.push(
+    textAt(
+      uiEllipsize(transfer.label, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * line,
+      BODY_SIZE,
+      'cyan'
+    )
+  );
+  return line + 1;
+}
+
+/** Drafted-course preview block: route, time, and fuel before commit. */
+const PREVIEW_FONT = 14;
+
+/** Drafted-course decision block: kicker plus enlarged route and cost rows. */
+function pushPreviewRows(
+  rows: UiText[],
+  course: ChartPreview | null,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): number {
+  if (course === null) return line;
+  rows.push(textAt('COURSE //', tx, y0 + KICKER_SIZE + 8 + LINE_H * line, KICKER_SIZE, 'dim'));
+  const route = `PLAN ${course.routeLabel}`;
+  rows.push(
+    textAt(
+      uiEllipsize(route, PREVIEW_FONT, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * (line + 1),
+      PREVIEW_FONT,
+      'cyan'
+    )
+  );
+  const thrust = `THRUST ${course.thrustPct}%`;
+  rows.push(
+    textAt(
+      uiEllipsize(thrust, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * (line + 2),
+      BODY_SIZE,
+      'muted'
+    )
+  );
+  const fuel = `TIME ${course.totalS}S FUEL NEED ${formatFuelCells(course.fuelNeeded)} HAVE ${formatFuelCells(course.fuelCells)}`;
+  rows.push(
+    textAt(
+      uiEllipsize(fuel, PREVIEW_FONT, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * (line + 3),
+      PREVIEW_FONT,
+      course.fuelCells < course.fuelNeeded ? 'warning' : 'primary'
+    )
+  );
+  return line + 4;
+}
+
+/** Clickable map-node chips plus the legend action column. */
 function navButtonsFor(
-  panel: UiRect,
-  nav: NavStateBroadcast | null,
-  systems: ShipSystemsBroadcast | null,
-  status: ShipStatusBroadcast | null
+  map: ChartMapView,
+  legend: UiRect,
+  vm: NavViewModel,
+  course: ChartPreview | null
 ): readonly UiButton[] {
-  const vm = navViewModel(nav, systems, status);
-  const top = panel.y + panel.h - PAD - (4 * BTN_H + 3 * GAP);
-  const labels = {
-    plot: 'PLOT COURSE',
-    cancel: 'CANCEL',
-    distress: 'DISTRESS',
-    close: 'CLOSE [E]',
-  };
-  const ids = ['plot', 'cancel', 'distress', 'close'];
-  return columnFor(panel, top, ids, labels, vm.canPlot ? 'plot' : undefined);
+  return [...nodeButtons(map), ...legendActionButtons(legend, vm, course)];
+}
+
+function nodeButtons(map: ChartMapView): UiButton[] {
+  const buttons: UiButton[] = [];
+  for (const node of map.nodes) {
+    if (node.buttonId === null) continue;
+    buttons.push({ id: node.buttonId, label: node.label, rect: node.chip, primary: node.primary });
+  }
+  return buttons;
+}
+
+function legendActionButtons(
+  legend: UiRect,
+  vm: NavViewModel,
+  course: ChartPreview | null
+): readonly UiButton[] {
+  if (vm.phase === 'docked' && course !== null) {
+    return draftActionButtons(legend);
+  }
+  if (vm.canHail) {
+    const labels = { hail: 'HAIL RESCUE', distress: 'DISTRESS', close: 'CLOSE [E]' };
+    return legendColumn(legend, ['hail', 'distress', 'close'], labels, 'hail');
+  }
+  if (vm.phase === 'spooling') {
+    return legendColumn(
+      legend,
+      ['cancel', 'close'],
+      { cancel: 'CANCEL', close: 'CLOSE [E]' },
+      undefined
+    );
+  }
+  if (vm.phase === 'in_transit' || vm.phase === 'docking') {
+    return legendColumn(
+      legend,
+      ['distress', 'close'],
+      { distress: 'DISTRESS', close: 'CLOSE [E]' },
+      undefined
+    );
+  }
+  return legendColumn(legend, ['close'], { close: 'CLOSE [E]' }, undefined);
+}
+
+const STEP_H = 34;
+const DRAFT_LABELS = { confirm: 'CONFIRM', clear: 'CLEAR', close: 'CLOSE [E]' };
+
+/** Draft controls: confirm, thrust stepper, clear, close stacked from the bottom. */
+function draftActionButtons(legend: UiRect): readonly UiButton[] {
+  const bottom = legend.y + legend.h - PAD;
+  const closeTop = bottom - BTN_H;
+  const clearTop = closeTop - GAP - BTN_H;
+  const stepTop = clearTop - GAP - STEP_H;
+  const confirmTop = stepTop - GAP - BTN_H;
+  return [
+    ...columnFor(legend, confirmTop, ['confirm'], DRAFT_LABELS, 'confirm'),
+    ...stepperRow(legend, stepTop),
+    ...columnFor(legend, clearTop, ['clear', 'close'], DRAFT_LABELS, undefined),
+  ];
+}
+
+function stepperRow(legend: UiRect, top: number): readonly UiButton[] {
+  const innerX = legend.x + PAD;
+  const innerW = legend.w - PAD * 2;
+  const halfW = Math.floor((innerW - GAP) / 2);
+  const button = (id: string, label: string, x: number): UiButton => ({
+    id,
+    label,
+    rect: { x, y: Math.round(top), w: halfW, h: STEP_H },
+    primary: false,
+  });
+  return [
+    button('thrustDown', 'THRUST -', innerX),
+    button('thrustUp', 'THRUST +', innerX + halfW + GAP),
+  ];
+}
+
+function legendColumn(
+  legend: UiRect,
+  ids: readonly string[],
+  labels: Readonly<Record<string, string>>,
+  primaryId: string | undefined
+): readonly UiButton[] {
+  const top = legend.y + legend.h - PAD - (ids.length * BTN_H + (ids.length - 1) * GAP);
+  return columnFor(legend, top, ids, labels, primaryId);
+}
+
+const NODE_LABEL_FONT = 14;
+
+/** Centered labels for nodes without actions (port hub, underway markers). */
+function nodeLabelTexts(map: ChartMapView): UiText[] {
+  const texts: UiText[] = [];
+  for (const node of map.nodes) {
+    if (node.buttonId !== null) continue;
+    const charW = uiCharWidth(NODE_LABEL_FONT);
+    const padX = Math.max(4, Math.floor((node.chip.w - node.label.length * charW) / 2));
+    const padY = Math.max(1, Math.floor((node.chip.h - NODE_LABEL_FONT) / 2) - 1);
+    texts.push(
+      textAt(
+        node.label,
+        node.chip.x + padX,
+        node.chip.y + padY,
+        NODE_LABEL_FONT,
+        node.status === 'port' ? 'primary' : 'muted'
+      )
+    );
+  }
+  return texts;
 }
 
 export function layoutNavScreen(
@@ -553,11 +793,100 @@ export function layoutNavScreen(
   h: number,
   nav: NavStateBroadcast | null,
   systems: ShipSystemsBroadcast | null,
-  status: ShipStatusBroadcast | null
+  status: ShipStatusBroadcast | null,
+  chart?: ChartStateBroadcast | null,
+  timeSec = 0,
+  preview?: readonly string[] | null,
+  thrustPct = 100,
+  snapPrev?: FlightSnapshot | null,
+  clockIn?: ClockInput | null
 ): UiScreenLayout {
-  const panel = navPanelFor(w, h);
-  const texts = navTextsFor(panel, nav, systems, status);
-  return { panel, texts, buttons: navButtonsFor(panel, nav, systems, status) };
+  const draft = preview ?? null;
+  const simSeconds = nav?.tick === undefined ? timeSec : nav.tick * FIXED_DT;
+  const map = chartMapView(
+    nav,
+    chart ?? null,
+    status,
+    w,
+    h,
+    simSeconds,
+    draft,
+    thrustPct / 100,
+    snapPrev ?? null,
+    clockIn ?? null
+  );
+  const legend = map.legend;
+  const vm = navViewModel(nav, systems, status, chart ?? null);
+  const course = previewCourse(
+    draft,
+    nav,
+    status,
+    systems,
+    chart ?? null,
+    thrustPct / 100,
+    simSeconds
+  );
+  const texts = [
+    ...navTextsFor(legend, nav, systems, status, chart, map.transfer, course),
+    ...nodeLabelTexts(map),
+  ];
+  return {
+    panel: legend,
+    texts,
+    buttons: navButtonsFor(map, legend, vm, course),
+    bare: true,
+    liveLeg: map.liveLeg,
+    clock: map.clock,
+  };
+}
+
+/** Docked manifest + chain lane rows (AGENTS.md text budget). Returns the next line. */
+function pushManifestRows(
+  rows: UiText[],
+  vm: NavViewModel,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): number {
+  let next = line;
+  if (vm.chartRow !== null) {
+    rows.push(
+      textAt(
+        uiEllipsize(vm.chartRow, BODY_SIZE, innerW),
+        tx,
+        y0 + KICKER_SIZE + 8 + LINE_H * next,
+        BODY_SIZE,
+        'muted'
+      )
+    );
+    next += 1;
+  }
+  if (vm.haulRow !== null) {
+    rows.push(
+      textAt(
+        uiEllipsize(vm.haulRow, BODY_SIZE, innerW),
+        tx,
+        y0 + KICKER_SIZE + 8 + LINE_H * next,
+        BODY_SIZE,
+        'good'
+      )
+    );
+    next += 1;
+  }
+  if (vm.laneRow !== null) {
+    rows.push(
+      textAt(
+        uiEllipsize(vm.laneRow, BODY_SIZE, innerW),
+        tx,
+        y0 + KICKER_SIZE + 8 + LINE_H * next,
+        BODY_SIZE,
+        'cyan'
+      )
+    );
+    next += 1;
+  }
+  return next;
 }
 
 function cargoPanelFor(w: number, h: number): UiRect {
@@ -904,7 +1233,7 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   intro: ['embark'],
   reactor: ['rodsDown', 'rodsUp', 'coolantDown', 'coolantUp', 'restart', 'close'],
   engine: ['spool', 'tuneDown', 'tuneUp', 'close'],
-  nav: ['plot', 'cancel', 'distress', 'close'],
+  nav: ['plot:hub_b', 'via:poi_kestrel', 'via:poi_vigil', 'close'],
   cargo: ['unpackAll', 'drop', 'packHold', 'close'],
   market: ['buy', 'sell', 'close'],
   sell: ['sellAll', 'close'],

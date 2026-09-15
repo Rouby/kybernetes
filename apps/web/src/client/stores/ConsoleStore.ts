@@ -10,6 +10,10 @@ import type { ConsoleKind } from '../../harbor/sessionActions';
 export interface ConsoleSnapshot {
   readonly consoleOpen: ConsoleKind | null;
   readonly shipSystems: ShipSystemsBroadcast | null;
+  /** Drafted course stops (last = destination); null when nothing previewed. */
+  readonly coursePreview: readonly string[] | null;
+  /** Draft throttle 10-100% of the 1g band; resets with the draft. */
+  readonly thrustPct: number;
 }
 
 type ConsoleListener = (snapshot: ConsoleSnapshot) => void;
@@ -17,6 +21,8 @@ type ConsoleListener = (snapshot: ConsoleSnapshot) => void;
 export class ConsoleStore {
   private consoleOpen: ConsoleKind | null = null;
   private shipSystems: ShipSystemsBroadcast | null = null;
+  private coursePreview: readonly string[] | null = null;
+  private thrustPct = 100;
   private shipLost: ShipLostBroadcast | null = null;
   private readonly listeners = new Set<ConsoleListener>();
   private readonly onShipLost?: (shipId: string) => void;
@@ -26,7 +32,12 @@ export class ConsoleStore {
   }
 
   public getSnapshot(): ConsoleSnapshot {
-    return { consoleOpen: this.consoleOpen, shipSystems: this.shipSystems };
+    return {
+      consoleOpen: this.consoleOpen,
+      shipSystems: this.shipSystems,
+      coursePreview: this.coursePreview,
+      thrustPct: this.thrustPct,
+    };
   }
 
   public subscribe(listener: ConsoleListener): () => void {
@@ -49,6 +60,26 @@ export class ConsoleStore {
 
   public closeConsole(): void {
     this.consoleOpen = null;
+    this.coursePreview = null;
+    this.thrustPct = 100;
+    this.emit();
+  }
+
+  public setThrustPct(pct: number): void {
+    const stepped = Math.min(100, Math.max(10, Math.round(pct / 10) * 10));
+    if (stepped === this.thrustPct) return;
+    this.thrustPct = stepped;
+    this.emit();
+  }
+
+  public previewCourse(stops: readonly string[]): void {
+    this.coursePreview = [...stops];
+    this.emit();
+  }
+
+  public clearPreview(): void {
+    if (this.coursePreview === null) return;
+    this.coursePreview = null;
     this.emit();
   }
 

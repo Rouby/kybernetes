@@ -1,10 +1,18 @@
 import type {
+  ChartStateBroadcast,
   NavStateBroadcast,
   ShipStatusBroadcast,
   ShipSystemsBroadcast,
 } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
-import { hubLabel, navViewModel, otherHub } from './navConsoleModel';
+import {
+  detourButtonId,
+  detourLabel,
+  hubLabel,
+  navDetourOptions,
+  navViewModel,
+  otherHub,
+} from './navConsoleModel';
 
 function nav(over: Partial<NavStateBroadcast> = {}): NavStateBroadcast {
   return {
@@ -19,6 +27,9 @@ function nav(over: Partial<NavStateBroadcast> = {}): NavStateBroadcast {
     legId: 0,
     portHubId: 'hub_a',
     flameout: false,
+    hailS: 0,
+    stops: [],
+    legIndex: 0,
     ...over,
   };
 }
@@ -86,6 +97,192 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(vm.destLabel).toBe('—');
     expect(vm.etaS).toBe(150);
     expect(vm.fuelCells).toBe(1);
+    expect(vm.fuelNeeded).toBe(1);
+    expect(vm.fuelWarning).toBeNull();
+    expect(vm.heatWarning).toBeNull();
+  });
+
+  it('warns softly on low fuel but keeps plot enabled', () => {
+    const empty = navViewModel(
+      nav(),
+      systems(),
+      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 0 } })
+    );
+    expect(empty.fuelNeeded).toBe(1);
+    expect(empty.fuelWarning).toBe('LOW FUEL: NEED 1 HOLD 0');
+    expect(empty.canPlot).toBe(true);
+  });
+
+  it('projects extra burn when tune is cold', () => {
+    const cold = navViewModel(nav(), systems({ tune: 0.2, wear: 0 }), status());
+    expect(cold.fuelNeeded).toBe(2);
+    expect(cold.fuelWarning).toBe('LOW FUEL: NEED 2 HOLD 1');
+    expect(cold.heatWarning).toBe('HEAT RISK: TUNE LOW');
+    expect(cold.canPlot).toBe(true);
+  });
+
+  it('flags heat risk on a fueled cold leg', () => {
+    const cold = navViewModel(
+      nav(),
+      systems({ tune: 0.2, wear: 0 }),
+      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 2 } })
+    );
+    expect(cold.fuelWarning).toBeNull();
+    expect(cold.heatWarning).toBe('HEAT RISK: TUNE LOW');
+  });
+
+  it('tracks the live hop on multi-stop chains', () => {
+    const first = navViewModel(
+      nav({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        remainingS: 100,
+        stops: ['poi_kestrel', 'hub_b'],
+        legIndex: 0,
+      }),
+      systems(),
+      status()
+    );
+    expect(first.hopToId).toBe('poi_kestrel');
+    expect(first.hopLabel).toBe('DERELICT "KESTREL"');
+    expect(first.hopProgress).toBe('1/2');
+    const second = navViewModel(
+      nav({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        remainingS: 50,
+        stops: ['poi_kestrel', 'hub_b'],
+        legIndex: 1,
+      }),
+      systems(),
+      status()
+    );
+    expect(second.hopToId).toBe('hub_b');
+    expect(second.hopLabel).toBe('KEPLER YARD');
+    expect(second.hopProgress).toBe('2/2');
+  });
+
+  it('offers POI detours with stable button ids', () => {
+    expect(navDetourOptions()).toEqual(['poi_kestrel', 'poi_vigil']);
+    expect(detourButtonId('poi_kestrel')).toBe('via:poi_kestrel');
+    expect(detourLabel('poi_kestrel')).toBe('VIA KESTREL');
+    expect(detourLabel('poi_vigil')).toBe('VIA VIGIL');
+  });
+
+  function chart(over: Partial<ChartStateBroadcast> = {}): ChartStateBroadcast {
+    return {
+      type: 'CHART_STATE',
+      v: 2,
+      tick: 1,
+      serverTimeMs: 1000,
+      vesselId: 'ship',
+      nodes: [
+        { id: 'hub_a', kind: 'hub', label: 'NEW ANCHORAGE', short: 'ANCHORAGE', known: true },
+        { id: 'hub_b', kind: 'hub', label: 'KEPLER YARD', short: 'KEPLER', known: true },
+        {
+          id: 'poi_kestrel',
+          kind: 'poi',
+          label: 'DERELICT "KESTREL"',
+          short: 'KESTREL',
+          rumor: 'Distress echo.',
+          known: false,
+        },
+        {
+          id: 'poi_vigil',
+          kind: 'poi',
+          label: 'BEACON "VIGIL"',
+          short: 'VIGIL',
+          rumor: 'Cache pings.',
+          known: false,
+        },
+      ],
+      ...over,
+    };
+  }
+
+  it('shows the docked manifest with rumor and best haul', () => {
+    const vm = navViewModel(nav(), systems(), status(), chart());
+    expect(vm.chartRow).toBe('?? Distress echo.');
+    expect(vm.haulRow).toBe('HAUL SCRAP 9>13');
+    expect(vm.laneRow).toBeNull();
+  });
+
+  it('counts a fully surveyed chart and draws the chain lane', () => {
+    const surveyed = chart({
+      nodes: chart().nodes.map((node) => ({ ...node, known: true })),
+    });
+    const docked = navViewModel(nav(), systems(), status(), surveyed);
+    expect(docked.chartRow).toBe('CHART 4/4 KNOWN');
+    const chain = navViewModel(
+      nav({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        stops: ['poi_kestrel', 'hub_b'],
+        legIndex: 0,
+      }),
+      systems(),
+      status(),
+      chart()
+    );
+    expect(chain.laneRow).toBe('LANE ANCHORAGE>??>KEPLER');
+    expect(chain.chartRow).toBeNull();
+    expect(chain.haulRow).toBeNull();
+    const leg2 = navViewModel(
+      nav({
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        stops: ['poi_kestrel', 'hub_b'],
+        legIndex: 1,
+      }),
+      systems(),
+      status(),
+      surveyed
+    );
+    expect(leg2.laneRow).toBe('LANE ANCHORAGE>KESTREL>KEPLER');
+  });
+
+  it('hides the manifest without a chart broadcast', () => {
+    const vm = navViewModel(nav(), systems(), status());
+    expect(vm.chartRow).toBeNull();
+    expect(vm.laneRow).toBeNull();
+    expect(vm.haulRow).toBe('HAUL SCRAP 9>13');
+  });
+
+  it('arms hail and counts the drone while stranded', () => {
+    const stranded = navViewModel(
+      nav({ phase: 'in_transit', destHubId: 'hub_b', remainingS: 60, flameout: true, hailS: 0 }),
+      systems(),
+      status()
+    );
+    expect(stranded.canHail).toBe(true);
+    expect(stranded.rescueS).toBe(0);
+    const waiting = navViewModel(
+      nav({ phase: 'in_transit', destHubId: 'hub_b', remainingS: 60, flameout: true, hailS: 44.2 }),
+      systems(),
+      status()
+    );
+    expect(waiting.canHail).toBe(true);
+    expect(waiting.rescueS).toBe(45);
+    const docked = navViewModel(nav(), systems(), status());
+    expect(docked.canHail).toBe(false);
+    expect(docked.rescueS).toBe(0);
+  });
+
+  it('hides hop progress on single-hop legs', () => {
+    const vm = navViewModel(nav(), systems(), status());
+    expect(vm.hopToId).toBeUndefined();
+    expect(vm.hopLabel).toBe('—');
+    expect(vm.hopProgress).toBeNull();
+  });
+
+  it('hides the warning once underway', () => {
+    const cruise = navViewModel(
+      nav({ phase: 'in_transit', destHubId: 'hub_b', remainingS: 60 }),
+      systems(),
+      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 0 } })
+    );
+    expect(cruise.fuelWarning).toBeNull();
+    expect(cruise.heatWarning).toBeNull();
   });
 
   it('counts down in transit and arms cancel and distress per phase', () => {
@@ -119,5 +316,7 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(vm.phase).toBe('unknown');
     expect(vm.etaS).toBe(0);
     expect(vm.canPlot).toBe(false);
+    expect(vm.fuelWarning).toBeNull();
+    expect(vm.heatWarning).toBeNull();
   });
 });

@@ -15,9 +15,11 @@ import {
   ensureShipSystems,
   fireWeapon,
   fixtureOnline,
+  hailRescueVoyage,
   harvestTray,
   isCarrying,
   pickupCrate,
+  plotChartVoyage,
   plotVoyage,
   reactorOutputMw,
   repackCargo,
@@ -118,6 +120,8 @@ function routeShipIntent(
       return routeNavPlot(world, pawnId, intent, pending);
     case 'NAV_CANCEL':
       return routeNavCancel(world, pawnId, pending);
+    case 'HAIL':
+      return routeHail(world, pawnId, pending);
     default:
       return routeCargoIntent(world, pawnId, intent, pending);
   }
@@ -404,15 +408,40 @@ function routeNavPlot(
   const output = systems.reactor.scrammed
     ? 0
     : reactorOutputMw(systems.reactor, systems.reactorTier);
-  const plotted = plotVoyage(ensured, gate.vesselId, intent.destHubId, {
+  const checks = {
     hot: systems.reactor.hot && !systems.reactor.scrammed,
     powered: output >= engineDemandMw(systems.engine.spool),
     fuelCells: systems.fuelCells,
-  });
+  };
+  const thrust = intent.thrust01 ?? 1;
+  // Empty waypoints take the legacy path so stale clients see identical notices.
+  const plotted =
+    intent.waypointIds.length === 0
+      ? plotVoyage(ensured, gate.vesselId, intent.destHubId, checks, thrust)
+      : plotChartVoyage(
+          ensured,
+          gate.vesselId,
+          [...intent.waypointIds, intent.destHubId],
+          checks,
+          thrust
+        );
   if (plotted.reject !== undefined) {
     return { world: plotted.world, movement: pending, notice: `NAV_${plotted.reject}` };
   }
   return { world: plotted.world, movement: pending, notice: 'NAV_ok' };
+}
+
+function routeHail(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
+  const gate = consoleGate(world, pawnId, 'nav_console', 'HAIL', pending);
+  if (!('vesselId' in gate)) return gate;
+  const ensured = ensureShipSystems(world, gate.vesselId);
+  const before = ensured.ships[gate.vesselId]?.nav.hailS ?? 0;
+  const next = hailRescueVoyage(ensured, gate.vesselId);
+  const after = next.ships[gate.vesselId]?.nav.hailS ?? 0;
+  if (after <= before) {
+    return { world: next, movement: pending, notice: 'HAIL_denied' };
+  }
+  return { world: next, movement: pending, notice: 'HAIL_ok' };
 }
 
 function routeNavCancel(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {

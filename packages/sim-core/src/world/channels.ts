@@ -14,6 +14,7 @@
 
 import type {
   AirFlow,
+  ChartStateBroadcast,
   HireOfferBroadcast,
   ManifestBroadcast,
   NavStateBroadcast,
@@ -31,6 +32,7 @@ import type {
 import {
   digestStrings,
   makeCargoState,
+  makeChartState,
   makeMarketState,
   makeNavState,
   makeShipSystems,
@@ -42,6 +44,7 @@ import { NOMINAL_PRESSURE_KPA } from './airAuthority.js';
 import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
 import { deathCauseFor } from './death.js';
 import { snapshotDecalsOf } from './decals.js';
+import { chartSnapshotNodes } from './ship/chart.js';
 import { engineDemandMw } from './ship/engine.js';
 import { listingsFor } from './ship/market.js';
 import { reactorBandFor, reactorOutputMw } from './ship/reactor.js';
@@ -570,6 +573,16 @@ export function buildNavState(
   const systems = world.ships[vesselId];
   if (systems === undefined) return undefined;
   return makeNavState(vesselId, systems.nav, world.tick, nowMs);
+}
+
+export function buildChartState(
+  world: World,
+  vesselId: string,
+  nowMs: number
+): ChartStateBroadcast | undefined {
+  const systems = world.ships[vesselId];
+  if (systems === undefined) return undefined;
+  return makeChartState(vesselId, chartSnapshotNodes(systems.surveyed), world.tick, nowMs);
 }
 
 export function buildNotice(

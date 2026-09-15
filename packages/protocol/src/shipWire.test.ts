@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION } from './envelope.js';
 import {
   makeCargoState,
+  makeChartState,
   makeMarketState,
   makeNavState,
   makeShipLost,
@@ -99,6 +100,42 @@ describe('solo-ship wire (M1)', () => {
     expect(validateClientIntent({ type: 'NAV_PLOT', seq: 1, destHubId: 'hub_b' }).ok).toBe(true);
     expect(validateClientIntent({ type: 'NAV_PLOT', seq: 2 }).ok).toBe(false);
     expect(validateClientIntent({ type: 'NAV_PLOT', seq: 3, destHubId: '' }).ok).toBe(false);
+    const via = validateClientIntent({
+      type: 'NAV_PLOT',
+      seq: 6,
+      destHubId: 'hub_b',
+      waypointIds: ['poi_kestrel'],
+    });
+    expect(via.ok).toBe(true);
+    if (via.ok) expect(via.intent).toMatchObject({ waypointIds: ['poi_kestrel'] });
+    const throttled = validateClientIntent({
+      type: 'NAV_PLOT',
+      seq: 8,
+      destHubId: 'hub_b',
+      thrust01: 0.5,
+    });
+    expect(throttled.ok).toBe(true);
+    if (throttled.ok) expect(throttled.intent).toMatchObject({ thrust01: 0.5 });
+    expect(
+      validateClientIntent({ type: 'NAV_PLOT', seq: 9, destHubId: 'hub_b', thrust01: 2 }).ok
+    ).toBe(false);
+    expect(
+      validateClientIntent({ type: 'NAV_PLOT', seq: 10, destHubId: 'hub_b', thrust01: 'fast' }).ok
+    ).toBe(false);
+    expect(
+      validateClientIntent({ type: 'NAV_PLOT', seq: 7, destHubId: 'hub_b', waypointIds: 'x' }).ok
+    ).toBe(false);
+    expect(
+      validateClientIntent({ type: 'NAV_PLOT', seq: 8, destHubId: 'hub_b', waypointIds: [''] }).ok
+    ).toBe(false);
+    expect(
+      validateClientIntent({
+        type: 'NAV_PLOT',
+        seq: 9,
+        destHubId: 'hub_b',
+        waypointIds: ['a', 'b', 'c', 'd', 'e'],
+      }).ok
+    ).toBe(false);
     expect(validateClientIntent({ type: 'NAV_CANCEL', seq: 4 }).ok).toBe(true);
     expect(validateClientIntent({ type: 'DISTRESS', seq: 5 }).ok).toBe(true);
     expect(validateClientIntent({ type: 'DISTRESS' }).ok).toBe(false);
@@ -197,13 +234,70 @@ describe('solo-ship wire (M1)', () => {
         legId: 3,
         portHubId: 'hub_a',
         flameout: false,
+        hailS: 0,
+        stops: ['hub_b'],
+        legIndex: 0,
       },
       44,
       1200
     );
     expect(nav.type).toBe('NAV_STATE');
     expect(nav.v).toBe(PROTOCOL_VERSION);
+    expect(nav.thrust01).toBeUndefined();
+    const throttled = makeNavState(
+      'ship',
+      {
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        remainingS: 87.05,
+        legId: 3,
+        portHubId: 'hub_a',
+        flameout: false,
+        hailS: 0,
+        stops: ['hub_b'],
+        legIndex: 0,
+        thrust01: 0.5,
+      },
+      44,
+      1200
+    );
+    expect(throttled.thrust01).toBe(0.5);
+    expect(nav.legTotalS).toBeUndefined();
+    const totaled = makeNavState(
+      'ship',
+      {
+        phase: 'in_transit',
+        destHubId: 'hub_b',
+        remainingS: 87.05,
+        legId: 3,
+        portHubId: 'hub_a',
+        flameout: false,
+        hailS: 0,
+        stops: ['hub_b'],
+        legIndex: 0,
+        legTotalS: 33.3,
+      },
+      44,
+      1200
+    );
+    expect(totaled.legTotalS).toBe(33.3);
     expect(nav.remainingS).toBe(87.1);
     expect(nav.legId).toBe(3);
+    expect(nav.stops).toEqual(['hub_b']);
+    expect(nav.legIndex).toBe(0);
+    expect(nav.hailS).toBe(0);
+  });
+
+  it('builds CHART_STATE snapshots', () => {
+    const chart = makeChartState(
+      'ship',
+      [{ id: 'hub_a', kind: 'hub', label: 'NEW ANCHORAGE', short: 'ANCHORAGE', known: true }],
+      44,
+      1200
+    );
+    expect(chart.type).toBe('CHART_STATE');
+    expect(chart.v).toBe(PROTOCOL_VERSION);
+    expect(chart.nodes).toHaveLength(1);
+    expect(chart.nodes[0]).toMatchObject({ id: 'hub_a', known: true });
   });
 });

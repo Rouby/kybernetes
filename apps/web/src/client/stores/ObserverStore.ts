@@ -12,6 +12,7 @@ import type {
   TelemetryBroadcast,
 } from '@kybernetes/protocol';
 import { PROTOCOL_VERSION } from '@kybernetes/protocol';
+import { harborWsUrl } from '../../harbor/harborEndpoint';
 import {
   createHarborCaches,
   type HarborCaches,
@@ -83,7 +84,7 @@ export function createObserverStore(
 
   function connect(): void {
     if (disposed) return;
-    const socket = createSocket('ws://localhost:3001');
+    const socket = createSocket(harborWsUrl());
     ws = socket;
     caches.snapshot.current = null;
     caches.telemetry.current = null;

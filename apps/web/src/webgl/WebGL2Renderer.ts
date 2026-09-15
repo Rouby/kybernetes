@@ -25,6 +25,7 @@ import {
   updateExplorationGrid,
 } from '@kybernetes/sim-core';
 import { type CargoCrateView, renderCarriedCrates, renderFloorCrates } from './CargoMarkers';
+import { renderChartScene } from './ChartScene';
 import { renderClutter } from './Clutter';
 import { clearFowGrid, createFowGrid, loadFowGrid, saveFowGrid } from './fowMemory';
 import { addThickSegment, createCameraMatrix, createProgram } from './glUtils';
@@ -127,6 +128,10 @@ export interface WebGLRenderState extends HudDrawState {
   nearestCargoId?: string | null;
   /** Drag-to-pack bench in screen pixels (M8); absent while closed. */
   pack?: import('./PackScene').PackSceneView | null;
+  /** Nav-console star chart in screen pixels; absent unless plotting. */
+  chart?: import('./ChartScene').ChartSceneView | null;
+  /** Star chart open: ambient HUD widgets yield so the map reads clean. */
+  chartOpen?: boolean;
 }
 
 function bareRoomId(roomA: string): string {
@@ -994,6 +999,7 @@ export class WebGL2Renderer {
       height
     );
     this.renderPackOverlay(state, width, height);
+    this.renderChartOverlay(state, width, height);
     this.renderHudPass(state, width, height, playerLoSPoly, timeSec);
   }
 
@@ -1008,6 +1014,20 @@ export class WebGL2Renderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     this.bindFlatProgram(screenOrthoMatrix(width, height));
     renderPackScene(this.getRenderContext(), pack);
+    gl.bindVertexArray(null);
+  }
+
+  /** Star chart under the nav overlay, over the world. Own framebuffer. */
+  private renderChartOverlay(state: WebGLRenderState, width: number, height: number): void {
+    const chart = state.chart;
+    if (chart === undefined || chart === null) return;
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    this.bindFlatProgram(screenOrthoMatrix(width, height));
+    renderChartScene(this.getRenderContext(), chart);
     gl.bindVertexArray(null);
   }
 
@@ -1093,7 +1113,19 @@ export class WebGL2Renderer {
     this.trackFowExploration(state.pawn, playerLoSPoly);
     const welders = state.welderArcs || (state.welderState ? [state.welderState] : []);
     this.lightingPass.updateLights(state.boarding?.projectiles, welders, playerLoSPoly);
+    if (state.chartOpen === true) this.floodLightmap(width, height);
     return { playerLoSPoly, welders };
+  }
+
+  /** Chart screen: neutral lightmap so ship-room lights never pool on the map. */
+  private floodLightmap(width: number, height: number): void {
+    const gl = this.gl;
+    const { fbo } = this.framebufferManager.ensureLightFBO(width, height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, width, height);
+    gl.disable(gl.BLEND);
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
   }
 
   /** PASS 2: ship base scene into the scene FBO. */
@@ -1121,6 +1153,11 @@ export class WebGL2Renderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     this.starfieldPass.render(width, height, state.camera, timeSec);
+    if (state.chartOpen === true) {
+      // Chart screen owns the frame: deep-space backdrop only, no ship interior.
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return;
+    }
     this.deckPass.renderOuterHull(this.flatProg, this.flatVAO, matrix, timeSec);
     this.deckPass.renderDeckFloors(
       matrix,
@@ -1190,10 +1227,16 @@ export class WebGL2Renderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec, playerLoSPoly);
-    this.renderVisibleWelderArcs(state, matrix, doors, frameOffset, welders);
+    if (state.chartOpen !== true) {
+      this.renderProjectiles(matrix, state.boarding?.projectiles || [], timeSec, playerLoSPoly);
+      this.renderVisibleWelderArcs(state, matrix, doors, frameOffset, welders);
+    }
 
-    if (state.chargingState?.active && state.chargingState.weaponType === 'pulse_laser') {
+    if (
+      state.chartOpen !== true &&
+      state.chargingState?.active &&
+      state.chargingState.weaponType === 'pulse_laser'
+    ) {
       this.renderChargingReticle(
         matrix,
         state.pawn,
@@ -1203,25 +1246,27 @@ export class WebGL2Renderer {
       );
     }
 
-    this.particleSystem.renderImpactParticles(
-      gl,
-      this.flatProg,
-      this.flatVAO,
-      matrix,
-      dt,
-      this.drawQuad.bind(this)
-    );
-    this.particleSystem.renderAirflowParticles(
-      gl,
-      this.flatProg,
-      this.flatVAO,
-      matrix,
-      timeSec,
-      dt,
-      this.drawQuad.bind(this),
-      this.drawCircle.bind(this)
-    );
-    this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
+    if (state.chartOpen !== true) {
+      this.particleSystem.renderImpactParticles(
+        gl,
+        this.flatProg,
+        this.flatVAO,
+        matrix,
+        dt,
+        this.drawQuad.bind(this)
+      );
+      this.particleSystem.renderAirflowParticles(
+        gl,
+        this.flatProg,
+        this.flatVAO,
+        matrix,
+        timeSec,
+        dt,
+        this.drawQuad.bind(this),
+        this.drawCircle.bind(this)
+      );
+      this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
+    }
     this.renderHypoxiaOverlay(state, timeSec);
   }
 

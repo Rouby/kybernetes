@@ -119,7 +119,7 @@ function rig() {
 
 function first(calls: ParamCall[], op: ParamCall['op']): ParamCall {
   const found = calls.find((c) => c.op === op);
-  if (!found) throw new Error('missing param call: ' + op);
+  if (!found) throw new Error(`missing param call: ${op}`);
   return found;
 }
 

@@ -127,6 +127,8 @@ export interface HudDrawState {
   currentRoomId?: string;
   /** Pack bench open: ambient widgets yield so the bench reads clean. */
   packOpen?: boolean;
+  /** Star chart open: ambient widgets yield so the map reads clean. */
+  chartOpen?: boolean;
   /** Modal GL screen painted last. Null/undefined skips it. */
   uiOverlay?: {
     readonly layout: UiScreenLayout;
@@ -1116,7 +1118,8 @@ export class HudRenderer {
     height: number,
     nowMs: number
   ): void {
-    this.overlayBackdrop(width, height);
+    if (layout.bare === true) this.overlayBlocker(width, height);
+    else this.overlayBackdrop(width, height);
     this.overlayCard(layout, onAction, nowMs);
   }
 
@@ -1273,7 +1276,7 @@ export class HudRenderer {
     gl.bindVertexArray(null);
   }
 
-  private overlayBackdrop(width: number, height: number, alpha = 0.72): void {
+  private overlayBlocker(width: number, height: number): void {
     this.hitTester.register({
       id: GL_UI_BLOCKER_ID,
       type: 'rect',
@@ -1284,6 +1287,10 @@ export class HudRenderer {
       cursor: 'default',
       onClick: () => undefined,
     });
+  }
+
+  private overlayBackdrop(width: number, height: number, alpha = 0.72): void {
+    this.overlayBlocker(width, height);
     this.addQuad(0, 0, width, height, 0.016, 0.024, 0.039, alpha);
   }
 
@@ -1387,8 +1394,8 @@ export class HudRenderer {
     // 1. VISOR GLASS SHADER PASS
     this.renderVisorGlass(width, height, timeSec);
 
-    // 2. COMPOSE HUD WIDGETS (ambient yields while the pack bench is open)
-    if (state.packOpen !== true) {
+    // 2. COMPOSE HUD WIDGETS (ambient yields while pack bench / chart is open)
+    if (state.packOpen !== true && state.chartOpen !== true) {
       this.renderLowerLeftVitals(state, width, height);
       this.renderLivingStrip(state, width, height);
       this.renderLowerRightCombat(state, width, height);
@@ -1398,7 +1405,7 @@ export class HudRenderer {
     this.renderCenterAlerts(state, width);
 
     const zoom = state.zoom ?? 1.0;
-    if (state.packOpen !== true) {
+    if (state.packOpen !== true && state.chartOpen !== true) {
       const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
       this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
       const hovered = this.findHoveredCrewMember(state, width, height, losPoly);

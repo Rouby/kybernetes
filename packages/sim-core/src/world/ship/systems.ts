@@ -7,17 +7,18 @@
 
 import { sealPortal, unsealPortal } from '../doors.js';
 import { SHIP_FAR_ORIGIN, SHIP_ORIGIN } from '../schedule.js';
-import type { VesselSchedulePhase, World } from '../types.js';
+import { FIXED_DT, type VesselSchedulePhase, type World } from '../types.js';
+import { chartNodeFor, plotChartCourse } from './chart.js';
 import type { EngineState } from './engine.js';
 import { coldEngine, effectiveTune, serviceEngine, tickEngine, wearEngine } from './engine.js';
 import {
   cancelLeg,
   DOCKED_NAV,
+  hailForRescue,
   isUnderway,
   type NavState,
   type PlotChecks,
   type PlotReject,
-  plotCourse,
   resetLegTo,
   tickNavLeg,
 } from './navTransit.js';
@@ -47,6 +48,8 @@ export interface ShipSystems {
   readonly condition: number;
   /** Fuel cells aboard; synced with the ShipRecord by the host. */
   readonly fuelCells: number;
+  /** Surveyed POI ids (fog-of-war discovery); hubs are known by default. */
+  readonly surveyed: readonly string[];
 }
 
 export function defaultShipSystems(vesselId: string): ShipSystems {
@@ -59,6 +62,7 @@ export function defaultShipSystems(vesselId: string): ShipSystems {
     nav: { ...DOCKED_NAV },
     condition: FULL_CONDITION,
     fuelCells: 1,
+    surveyed: [],
   };
 }
 
@@ -91,16 +95,21 @@ export function syncShipStores(world: World, vesselId: string, fuelCells: number
   return updateSystems(world, vesselId, (systems) => ({ ...systems, fuelCells }));
 }
 
-export function plotVoyage(
+/**
+ * Commit a multi-stop voyage (chart path). New chart rejects surface
+ * verbatim; the single-hub wrapper below remaps them to legacy names.
+ */
+export function plotChartVoyage(
   world: World,
   vesselId: string,
-  destHubId: string,
-  checks: PlotChecks
+  stops: readonly string[],
+  checks: PlotChecks,
+  thrust01 = 1
 ): { world: World; reject?: PlotReject } {
   const ensured = ensureShipSystems(world, vesselId);
   const current = ensured.ships[vesselId];
   if (current === undefined) return { world: ensured };
-  const plotted = plotCourse(current.nav, destHubId, checks);
+  const plotted = plotChartCourse(current.nav, stops, checks, thrust01);
   if (!('nav' in plotted)) return { world: ensured, reject: plotted.reject };
   return {
     world: {
@@ -110,8 +119,30 @@ export function plotVoyage(
   };
 }
 
+export function plotVoyage(
+  world: World,
+  vesselId: string,
+  destHubId: string,
+  checks: PlotChecks,
+  thrust01 = 1
+): { world: World; reject?: PlotReject } {
+  const charted = plotChartVoyage(world, vesselId, [destHubId], checks, thrust01);
+  if (charted.reject === undefined) return charted;
+  if (charted.reject === 'unknown-node') return { ...charted, reject: 'unknown-hub' };
+  if (charted.reject === 'same-stop') return { ...charted, reject: 'same-hub' };
+  return charted;
+}
+
 export function cancelVoyage(world: World, vesselId: string): World {
   return updateSystems(world, vesselId, (systems) => ({ ...systems, nav: cancelLeg(systems.nav) }));
+}
+
+/** HAIL rescue: start the drone countdown on a flamed-out leg (no-op otherwise). */
+export function hailRescueVoyage(world: World, vesselId: string): World {
+  return updateSystems(world, vesselId, (systems) => ({
+    ...systems,
+    nav: hailForRescue(systems.nav),
+  }));
 }
 
 export function tuneShipReactor(
@@ -167,6 +198,7 @@ export function tickShipSystems(world: World, dtSeconds: number): World {
   for (const systems of Object.values(prev)) {
     const ticked = next.ships[systems.vesselId] ?? systems;
     next = applyVoyage(next, systems.nav, ticked, systems.vesselId);
+    next = surveyReachedStop(next, systems.nav, ticked);
   }
   return next;
 }
@@ -183,7 +215,8 @@ function tickOneVessel(systems: ShipSystems, dtSeconds: number, tick: number): S
     { hot: reactor.hot, scrammed: reactor.scrammed },
     systems.engineTier,
     systems.fuelCells,
-    dtSeconds
+    dtSeconds,
+    tick * FIXED_DT
   );
   const condition = applyScramDamage(systems.condition, leg.nav, reactor, engine, dtSeconds);
   if (
@@ -308,6 +341,23 @@ function sealDock(world: World, hubId: string, open: boolean): World {
     }
   }
   return changed ? { ...world, portals } : world;
+}
+
+/**
+ * Fog-of-war discovery: entering a hop surveys its POI stop. Hubs are
+ * known by default and repeats are ignored. Survives tows and dockings
+ * because only the leg state resets, never the survey list.
+ */
+function surveyReachedStop(world: World, prev: NavState, ticked: ShipSystems): World {
+  if (ticked.nav.legIndex <= prev.legIndex) return world;
+  const reached = ticked.nav.stops[ticked.nav.legIndex - 1];
+  const node = reached === undefined ? undefined : chartNodeFor(reached);
+  if (node === undefined || node.kind !== 'poi') return world;
+  if (ticked.surveyed.includes(node.id)) return world;
+  return updateSystems(world, ticked.vesselId, (systems) => ({
+    ...systems,
+    surveyed: [...systems.surveyed, node.id],
+  }));
 }
 
 function updateSystems(

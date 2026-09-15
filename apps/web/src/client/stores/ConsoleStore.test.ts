@@ -39,6 +39,20 @@ describe('ConsoleStore', () => {
     expect(store.getSnapshot().consoleOpen).toBeNull();
   });
 
+  it('steps draft throttle in tens within the band', () => {
+    const store = new ConsoleStore();
+    expect(store.getSnapshot().thrustPct).toBe(100);
+    store.setThrustPct(73);
+    expect(store.getSnapshot().thrustPct).toBe(70);
+    store.setThrustPct(5);
+    expect(store.getSnapshot().thrustPct).toBe(10);
+    store.setThrustPct(140);
+    expect(store.getSnapshot().thrustPct).toBe(100);
+    store.previewCourse(['hub_b']);
+    store.closeConsole();
+    expect(store.getSnapshot().thrustPct).toBe(100);
+  });
+
   it('opens consoles explicitly without toggling', () => {
     const store = new ConsoleStore();
     store.openConsole('market');
@@ -47,6 +61,18 @@ describe('ConsoleStore', () => {
     expect(store.getSnapshot().consoleOpen).toBe('pack');
     store.openConsole('pack');
     expect(store.getSnapshot().consoleOpen).toBe('pack');
+  });
+
+  it('drafts and clears course previews', () => {
+    const store = new ConsoleStore();
+    expect(store.getSnapshot().coursePreview).toBeNull();
+    store.previewCourse(['poi_kestrel', 'hub_b']);
+    expect(store.getSnapshot().coursePreview).toEqual(['poi_kestrel', 'hub_b']);
+    store.clearPreview();
+    expect(store.getSnapshot().coursePreview).toBeNull();
+    store.previewCourse(['hub_b']);
+    store.closeConsole();
+    expect(store.getSnapshot().coursePreview).toBeNull();
   });
 
   it('publishes ship systems to subscribers', () => {

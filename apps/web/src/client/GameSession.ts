@@ -15,6 +15,7 @@ import {
   withSnapshotStates,
 } from '@kybernetes/sim-core';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import type { FlightSnapshot, SmoothClock } from '../harbor/chartModel';
 import type { InteractTarget } from '../harbor/interactTarget';
 import type { PredictedShot } from '../harbor/predictedShots';
 import { withDockWalkable } from '../harbor/renderState';
@@ -60,6 +61,8 @@ export class GameSession {
   private prevNoticeId = 0;
   private readonly statics: World = buildHarborWorld();
   private readonly targetRef: { current: InteractTarget | null } = { current: null };
+  private readonly chartLeg: { current: FlightSnapshot | null } = { current: null };
+  private readonly simClock: { current: SmoothClock | null } = { current: null };
   private readonly aimLocked = { current: false };
   private readonly facing = { current: 0 };
   private readonly pausedFlag = { current: false };
@@ -298,6 +301,8 @@ export class GameSession {
       onFireDown: () => this.fire.pressFireStart(),
       onFireUp: () => this.fire.pressFireEnd(),
       targetRef: this.targetRef,
+      chartLegRef: this.chartLeg,
+      simClockRef: this.simClock,
       glOverlay: this.buildOverlay(state, paused, dead),
     };
   }
@@ -322,10 +327,16 @@ export class GameSession {
       consoles: {
         consoleOpen: consoleSnap.consoleOpen,
         shipSystems: consoleSnap.shipSystems,
+        coursePreview: consoleSnap.coursePreview,
+        thrustPct: consoleSnap.thrustPct,
         openConsole: (kind) => this.consoles.openConsole(kind),
         closeConsole: () => this.consoles.closeConsole(),
+        previewCourse: (stops) => this.consoles.previewCourse(stops),
+        clearPreview: () => this.consoles.clearPreview(),
+        setThrustPct: (pct) => this.consoles.setThrustPct(pct),
       },
       navState: state.navState,
+      chartState: state.chartState,
       packStore: this.pack,
       marketStates: state.marketStates,
       credits: state.shipStatus?.credits ?? 0,

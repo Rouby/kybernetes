@@ -6,6 +6,7 @@
  */
 
 import type {
+  ChartStateBroadcast,
   ClientIntent,
   DeathCause,
   DockStatusBroadcast,
@@ -22,13 +23,15 @@ import type {
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
 } from '@kybernetes/protocol';
-import { createInitialDoors, type World } from '@kybernetes/sim-core';
+import { createInitialDoors, FIXED_DT, type World } from '@kybernetes/sim-core';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { PredictedPose } from '../client/stores/MovementController';
 import type { PackScreenModel } from '../pack/packModel';
+import { chartSceneViewOf } from '../webgl/ChartScene';
 import type { LivingView } from '../webgl/LivingFixtures';
 import {
   cargoConsoleIntent,
+  confirmPlotIntent,
   engineConsoleIntent,
   type GlAudioState,
   marketConsoleIntent,
@@ -53,6 +56,15 @@ import {
 } from '../webgl/ui/UiScreens';
 import { packBenchTransform, packPlace, publishUiZones } from '../webgl/ui/UiToolkit';
 import type { WebGL2Renderer, WebGLRenderState } from '../webgl/WebGL2Renderer';
+import {
+  appendDraft,
+  type ChartMapView,
+  type ClockInput,
+  chartMapView,
+  type FlightSnapshot,
+  previewStopsFor,
+  type SmoothClock,
+} from './chartModel';
 import {
   doorSpotsOf,
   type InteractTarget,
@@ -173,6 +185,12 @@ export interface GlSessionWiring {
   readonly audio: GlAudioState;
   readonly console: GlConsoleState | null;
   readonly navState: NavStateBroadcast | null;
+  readonly chartState: ChartStateBroadcast | null;
+  readonly coursePreview: readonly string[] | null;
+  readonly onPreviewCourse: (stops: readonly string[]) => void;
+  readonly onClearPreview: () => void;
+  readonly courseThrust: number;
+  readonly onThrustPct: (pct: number) => void;
   readonly cargo: CargoWiring | null;
   readonly market: MarketWiring | null;
   readonly sell: SellWiring | null;
@@ -218,6 +236,10 @@ export interface HarborViewportProps {
   onFireDown: () => void;
   onFireUp: () => void;
   targetRef: { current: InteractTarget | null };
+  /** Departure snapshot cell (ship integrates from here on the sim clock). */
+  chartLegRef: MutableRef<FlightSnapshot | null>;
+  /** Broadcast clock smoothing state across frames. */
+  simClockRef?: MutableRef<SmoothClock | null>;
   /** Pause/death/settings/console actions rendered as a GL overlay. */
   glOverlay?: GlSessionWiring | null;
 }
@@ -407,6 +429,45 @@ function boardingRenderSection(args: {
   };
 }
 
+/** Star-chart scene behind the nav overlay; absent unless plotting. */
+function chartSceneSection(
+  view: HarborViewportProps,
+  canvas: HTMLCanvasElement,
+  timeSec: number
+): Pick<WebGLRenderState, 'chart' | 'chartOpen'> | Record<string, never> {
+  const overlay = view.glOverlay;
+  if (overlay?.console?.kind !== 'nav_console') return {};
+  const map = buildChartMap(view, overlay, canvas, timeSec);
+  if (view.chartLegRef !== undefined) view.chartLegRef.current = map.liveLeg;
+  if (view.simClockRef !== undefined && map.clock !== null) view.simClockRef.current = map.clock;
+  return { chart: chartSceneViewOf(map), chartOpen: true };
+}
+
+function buildChartMap(
+  view: HarborViewportProps,
+  overlay: NonNullable<HarborViewportProps['glOverlay']>,
+  canvas: HTMLCanvasElement,
+  timeSec: number
+): ChartMapView {
+  const tick = overlay.navState?.tick;
+  const simSeconds = tick === undefined ? timeSec : tick * FIXED_DT;
+  const cell = view.simClockRef;
+  return chartMapView(
+    overlay.navState,
+    overlay.chartState,
+    overlay.shipStatus,
+    canvas.width,
+    canvas.height,
+    simSeconds,
+    overlay.coursePreview,
+    overlay.courseThrust / 100,
+    view.chartLegRef?.current ?? null,
+    cell === undefined
+      ? null
+      : { prev: cell.current, wallSec: timeSec, paused: overlay.paused ?? false }
+  );
+}
+
 function packSceneOf(
   view: HarborViewportProps,
   canvas: HTMLCanvasElement
@@ -514,7 +575,8 @@ const SETTINGS_ACTIONS: Record<string, OverlayHandler> = {
 /** Session overlay: death, audio, pause, consoles; sized to the live canvas. */
 function glSessionOverlay(
   view: HarborViewportProps,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  timeSec: number
 ): Pick<WebGLRenderState, 'uiOverlay'> | Record<string, never> {
   const wiring = view.glOverlay;
   if (wiring === undefined || wiring === null) return {};
@@ -525,8 +587,18 @@ function glSessionOverlay(
     console: wiring.console?.kind ?? null,
   });
   if (selected === null) return {};
-  const layout = overlayLayoutFor(selected, wiring, canvas.width, canvas.height);
+  const layout = overlayLayoutFor(
+    selected,
+    wiring,
+    canvas.width,
+    canvas.height,
+    timeSec,
+    frozenLegOf(view),
+    clockBundle(view, wiring, timeSec)
+  );
   if (layout === null) return {};
+  trackChartLeg(view, selected, layout.liveLeg ?? null);
+  trackSimClock(view, selected, layout.clock ?? null);
   publishUiZones(window, layout.buttons);
   return {
     uiOverlay: {
@@ -536,11 +608,48 @@ function glSessionOverlay(
   };
 }
 
+function frozenLegOf(view: HarborViewportProps): FlightSnapshot | null {
+  return view.chartLegRef?.current ?? null;
+}
+
+function trackChartLeg(
+  view: HarborViewportProps,
+  selected: SessionOverlayId,
+  liveLeg: FlightSnapshot | null
+): void {
+  if (selected !== 'nav_console') return;
+  if (view.chartLegRef === undefined) return;
+  view.chartLegRef.current = liveLeg;
+}
+
+function clockBundle(
+  view: HarborViewportProps,
+  wiring: GlSessionWiring,
+  timeSec: number
+): ClockInput | null {
+  const cell = view.simClockRef;
+  if (cell === undefined) return null;
+  return { prev: cell.current, wallSec: timeSec, paused: wiring.paused };
+}
+
+function trackSimClock(
+  view: HarborViewportProps,
+  selected: SessionOverlayId,
+  clock: SmoothClock | null
+): void {
+  if (selected !== 'nav_console') return;
+  if (view.simClockRef === undefined || clock === null) return;
+  view.simClockRef.current = clock;
+}
+
 function overlayLayoutFor(
   selected: SessionOverlayId,
   wiring: GlSessionWiring,
   width: number,
-  height: number
+  height: number,
+  timeSec: number,
+  snapPrev: FlightSnapshot | null,
+  clockIn?: ClockInput | null
 ): UiScreenLayout | null {
   if (selected === 'death') return layoutDeathScreen(width, height, wiring.cause);
   if (selected === 'settings') {
@@ -553,14 +662,17 @@ function overlayLayoutFor(
     );
   }
   if (selected === 'pause') return layoutPauseScreen(width, height);
-  return consoleLayoutFor(selected, wiring, width, height);
+  return consoleLayoutFor(selected, wiring, width, height, timeSec, snapPrev, clockIn);
 }
 
 function consoleLayoutFor(
   kind: ConsoleKind,
   wiring: GlSessionWiring,
   width: number,
-  height: number
+  height: number,
+  timeSec: number,
+  snapPrev: FlightSnapshot | null,
+  clockIn?: ClockInput | null
 ): UiScreenLayout | null {
   if (kind === 'cargo') {
     const cargo = wiring.cargo;
@@ -582,20 +694,35 @@ function consoleLayoutFor(
     if (pack === null) return null;
     return layoutPackScreen(width, height, pack.screen);
   }
-  return shipConsoleLayoutFor(kind, wiring, width, height);
+  return shipConsoleLayoutFor(kind, wiring, width, height, timeSec, snapPrev, clockIn);
 }
 
 function shipConsoleLayoutFor(
   kind: ConsoleKind,
   wiring: GlSessionWiring,
   width: number,
-  height: number
+  height: number,
+  timeSec: number,
+  snapPrev: FlightSnapshot | null,
+  clockIn?: ClockInput | null
 ): UiScreenLayout | null {
   const systems = wiring.console?.systems;
   if (systems === undefined) return null;
   if (kind === 'reactor_console') return layoutReactorScreen(width, height, systems);
   if (kind === 'engine_console') return layoutEngineScreen(width, height, systems);
-  return layoutNavScreen(width, height, wiring.navState, systems, wiring.shipStatus);
+  return layoutNavScreen(
+    width,
+    height,
+    wiring.navState,
+    systems,
+    wiring.shipStatus,
+    wiring.chartState,
+    timeSec,
+    wiring.coursePreview,
+    wiring.courseThrust,
+    snapPrev,
+    clockIn ?? null
+  );
 }
 
 function dispatchOverlayAction(
@@ -614,11 +741,49 @@ function dispatchConsoleAction(kind: ConsoleKind, wiring: GlSessionWiring, id: s
     wiring.onCloseConsole();
     return;
   }
+  if (dispatchCourseDraft(kind, wiring, id)) return;
   if (dispatchLocalConsoleAction(kind, wiring, id)) return;
   const intent = consoleIntentFor(kind, id, wiring);
   if (intent === null) return;
   wiring.sendIntent(intent);
   ShipAudioEngine.getInstance().playUiClick();
+}
+
+/** Preview-select, confirm, and clear for drafted courses; true when handled. */
+function dispatchCourseDraft(kind: ConsoleKind, wiring: GlSessionWiring, id: string): boolean {
+  if (id === 'confirm') return commitPreview(wiring);
+  if (id === 'clear') {
+    wiring.onClearPreview();
+    return true;
+  }
+  if (id === 'thrustUp' || id === 'thrustDown') return adjustThrust(wiring, id);
+  if (kind !== 'nav_console') return false;
+  return selectCourseStop(wiring, id);
+}
+
+function selectCourseStop(wiring: GlSessionWiring, id: string): boolean {
+  const stops = previewStopsFor(id, wiring.navState?.portHubId ?? 'hub_a');
+  if (stops === null) return false;
+  const chained = appendDraft(wiring.coursePreview, stops);
+  if (chained.length === (wiring.coursePreview ?? []).length) return true;
+  wiring.onPreviewCourse(chained);
+  ShipAudioEngine.getInstance().playUiClick();
+  return true;
+}
+
+function adjustThrust(wiring: GlSessionWiring, id: string): boolean {
+  wiring.onThrustPct(wiring.courseThrust + (id === 'thrustUp' ? 10 : -10));
+  ShipAudioEngine.getInstance().playUiClick();
+  return true;
+}
+
+function commitPreview(wiring: GlSessionWiring): boolean {
+  const intent = confirmPlotIntent(wiring.coursePreview, wiring.courseThrust);
+  if (intent === null) return false;
+  wiring.sendIntent(intent);
+  wiring.onClearPreview();
+  ShipAudioEngine.getInstance().playUiClick();
+  return true;
 }
 
 function consoleIntentFor(
@@ -640,7 +805,7 @@ function consoleIntentFor(
   const systems = wiring.console?.systems;
   if (systems === undefined) return null;
   if (kind === 'engine_console') return engineConsoleIntent(id, systems);
-  return navConsoleIntent(id, wiring.navState, systems, wiring.shipStatus);
+  return navConsoleIntent(id, wiring.navState);
 }
 
 /** Pack bench and its entries are local (no intents); true when handled. */
@@ -775,7 +940,8 @@ function viewportRenderState(args: {
       weaponType: 'kinetic_carbine' as const,
     })),
     inGameNotice: session.notice?.text,
-    ...glSessionOverlay(view, args.canvas),
+    ...glSessionOverlay(view, args.canvas, now / 1000),
+    ...chartSceneSection(view, args.canvas, now / 1000),
     timeMs: now,
     shipOffset: shipOffsetOf(viewOrigins),
     shipUnderway: view.shipUnderway,

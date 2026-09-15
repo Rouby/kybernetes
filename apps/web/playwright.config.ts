@@ -15,8 +15,8 @@ export default defineConfig({
   // starves every vessel's broadcasts until the 60s test cap. File-level
   // parallelism keeps the proven-green serial semantics per file.
   fullyParallel: false,
-  // One private daemon per file (see helpers startDaemon): files run serially
-  // so daemon restarts never overlap on the port.
+  // One private daemon per file on an ephemeral port (see e2e/daemon): files run
+  // serially so daemon restarts never overlap, and a stale :3001 never taints results.
   workers: 1,
   retries: isCI ? 2 : 1,
   timeout: 60_000,
