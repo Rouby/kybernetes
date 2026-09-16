@@ -34,28 +34,65 @@ function mouthCrossesStationToVessel(
   return worldPos.x >= mouthX && worldPos.y >= y1 && worldPos.y <= y2;
 }
 
+interface MouthBounds {
+  readonly mouthX: number;
+  readonly y1: number;
+  readonly y2: number;
+}
+
+function mouthBounds(dock: NonNullable<World['docks'][string]>): MouthBounds {
+  return {
+    mouthX: dock.mouthWorld.x1,
+    y1: Math.min(dock.mouthWorld.y1, dock.mouthWorld.y2),
+    y2: Math.max(dock.mouthWorld.y1, dock.mouthWorld.y2),
+  };
+}
+
+function crossStationToVessel(
+  world: World,
+  pawn: PawnBody,
+  dock: NonNullable<World['docks'][string]>,
+  worldPos: Vec2,
+  mouth: MouthBounds
+): PawnBody | undefined {
+  if (!mouthCrossesStationToVessel(worldPos, mouth.mouthX, mouth.y1, mouth.y2)) return undefined;
+  return rebasePawn(world, pawn, dock.vesselFrame, worldPos);
+}
+
+function crossVesselToStation(
+  world: World,
+  pawn: PawnBody,
+  dock: NonNullable<World['docks'][string]>,
+  worldPos: Vec2,
+  mouth: MouthBounds
+): PawnBody | undefined {
+  const inMouthAperture = worldPos.y >= mouth.y1 && worldPos.y <= mouth.y2;
+  if (worldPos.x >= mouth.mouthX || !inMouthAperture) return undefined;
+  return rebasePawn(world, pawn, dock.stationFrame, worldPos);
+}
+
+function rebasePawn(
+  world: World,
+  pawn: PawnBody,
+  frameId: string,
+  worldPos: Vec2
+): PawnBody | undefined {
+  const local = localForFrame(world, frameId, worldPos);
+  const room = roomAt(world, frameId, local.x, local.y);
+  if (room === undefined) return undefined;
+  return { ...pawn, frameId, pos: local, roomHint: room };
+}
+
 function crossOneDock(world: World, pawn: PawnBody, dockId: string): PawnBody | undefined {
   const dock = world.docks[dockId];
   if (dock === undefined) return undefined;
   if (!isDockGateWalkable(world, dock.stationPortal)) return undefined;
   const worldPos = pawnWorldPos(world, pawn);
-  const mouthX = dock.mouthWorld.x1;
-  const y1 = Math.min(dock.mouthWorld.y1, dock.mouthWorld.y2);
-  const y2 = Math.max(dock.mouthWorld.y1, dock.mouthWorld.y2);
-  if (pawn.frameId === dock.stationFrame) {
-    if (!mouthCrossesStationToVessel(worldPos, mouthX, y1, y2)) return undefined;
-    const local = localForFrame(world, dock.vesselFrame, worldPos);
-    const room = roomAt(world, dock.vesselFrame, local.x, local.y);
-    if (room === undefined) return undefined;
-    return { ...pawn, frameId: dock.vesselFrame, pos: local, roomHint: room };
-  }
-  if (pawn.frameId === dock.vesselFrame) {
-    if (mouthCrossesStationToVessel(worldPos, mouthX, y1, y2)) return undefined;
-    const local = localForFrame(world, dock.stationFrame, worldPos);
-    const room = roomAt(world, dock.stationFrame, local.x, local.y);
-    if (room === undefined) return undefined;
-    return { ...pawn, frameId: dock.stationFrame, pos: local, roomHint: room };
-  }
+  const mouth = mouthBounds(dock);
+  if (pawn.frameId === dock.stationFrame)
+    return crossStationToVessel(world, pawn, dock, worldPos, mouth);
+  if (pawn.frameId === dock.vesselFrame)
+    return crossVesselToStation(world, pawn, dock, worldPos, mouth);
   return undefined;
 }
 

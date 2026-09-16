@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildSnapshot, buildVitals, snapshotPawnsOf } from './channels.js';
 import { deathCauseFor, isDead, readVitalsSignals, restartRun } from './death.js';
+import { pickupCrate, spawnCrate } from './ship/cargo.js';
 import { defaultVitals } from './survival.js';
 import { createEmptyWorld, type PawnBody, type World } from './types.js';
+import { startWatch } from './watch.js';
 
 function mkPawn(over: Partial<PawnBody> = {}): PawnBody {
   return {
@@ -118,6 +120,55 @@ describe('authoritative death', () => {
     expect(world.pawns.p1?.trim).toBe('ion');
     expect(world.pawns.p1?.color).toBe('#ffd166');
     expect(restartRun(world, 'ghost', { frameId: 's', roomId: 's.r', x: 0, y: 0 })).toBe(world);
+  });
+
+  it('releases crates, fixtures, and watch tasks on restart', () => {
+    const tired = mkPawn({ health: { hp: 0, maxHp: 100, suitSealed: false, incapacitated: true } });
+    let world = mkWorld(tired);
+    const spawned = spawnCrate(world.cargo, {
+      id: 'c1',
+      items: [{ goodId: 'scrap', qty: 2 }],
+      where: 'bayFloor',
+      frameId: 'station',
+      x: 12,
+      y: 10,
+    });
+    if (!spawned.ok) throw new Error('seed failed');
+    world = { ...world, cargo: spawned.hold };
+    const lifted = pickupCrate(world.cargo, 'c1', 'p1', 'station', { x: 10, y: 10 });
+    if (!lifted.ok) throw new Error('pickup failed');
+    world = {
+      ...world,
+      cargo: lifted.hold,
+      fixtures: {
+        locker: {
+          id: 'locker',
+          roomId: 'station.r1',
+          kind: 'personal_locker',
+          pos: { x: 0, y: 0 },
+          radius: 24,
+          claimedBy: 'p1',
+        },
+      },
+      watches: {
+        ship: startWatch(
+          'ship',
+          1,
+          0,
+          [
+            { pawnId: 'p1', role: 'engineer' },
+            { pawnId: 'p2', role: 'cook' },
+          ],
+          20
+        ),
+      },
+    };
+    world = restartRun(world, 'p1', { frameId: 'station', roomId: 'station.r1', x: 1, y: 2 });
+    expect(world.cargo.crates.c1?.where).not.toBe('carriedBy');
+    expect(world.cargo.crates.c1?.carrierId).toBeUndefined();
+    expect(world.fixtures.locker?.claimedBy).toBeUndefined();
+    expect(world.watches.ship?.tasks.map((task) => task.pawnId)).not.toContain('p1');
+    expect(world.watches.ship?.tasks.map((task) => task.pawnId)).toContain('p2');
   });
 
   it('reads vitals signals with nominal defaults', () => {

@@ -167,8 +167,26 @@ function completeReload(vitals: PawnVitals, dt: number): PawnVitals {
   return { ...vitals, mags: [best, ...retained], reloadingS: 0 };
 }
 
+export const LUNG_HYPOXIA_BONUS = 8;
+
+/** Damaged lungs strain breathing: destroyed pairs add vacuum-scale hypoxia. */
+export function lungHypoxiaBonus(pawn: PawnBody): number {
+  const organs = pawn.health.organs;
+  if (organs === undefined) return 0;
+  const left = organs.find((entry) => entry.organ === 'lungL')?.hp ?? 100;
+  const right = organs.find((entry) => entry.organ === 'lungR')?.hp ?? 100;
+  const average = Math.min(1, Math.max(0, (left + right) / 200));
+  return (1 - average) * LUNG_HYPOXIA_BONUS;
+}
+
+function strainLungs(vitals: PawnVitals, pawn: PawnBody, dt: number): PawnVitals {
+  const bonus = lungHypoxiaBonus(pawn);
+  if (!(bonus > 0)) return vitals;
+  return { ...vitals, hypoxia: clamp01(vitals.hypoxia + bonus * dt) };
+}
+
 function tickPawnVitals(world: World, pawn: PawnBody, dt: number): World {
-  const vitals = completeReload(ensureVitals(world, pawn.id), dt);
+  const vitals = strainLungs(completeReload(ensureVitals(world, pawn.id), dt), pawn, dt);
   const air = world.atmos[pawn.roomHint];
   const pressureKpa = air?.pressureKpa ?? 101.3;
   const o2Percent = air?.o2Percent ?? 20.9;

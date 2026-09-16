@@ -314,23 +314,36 @@ export function unpackCrates(
   return { ok: true, hold: secured };
 }
 
-export function repackCargo(
+function validateRepackRequest(
   hold: CargoState,
   vesselId: string,
   pawnFrame: string,
   items: readonly CrateItem[],
-  spawn: { id: string; frameId: string; x: number; y: number }
-): CargoResult {
-  if (pawnFrame !== vesselId) return { ok: false, reason: 'wrong-frame' };
-  if (!validCrateItems(items)) return { ok: false, reason: 'bad-qty' };
-  if (crateAreaOf(items) > CRATE_AREA) return { ok: false, reason: 'overfilled' };
-  if (!validId(spawn.id) || hold.crates[spawn.id] !== undefined) {
-    return { ok: false, reason: 'duplicate-crate' };
-  }
-  if (!securedCovers(hold, vesselId, items)) return { ok: false, reason: 'insufficient-secured' };
+  spawn: { id: string }
+): CargoReject | null {
+  if (pawnFrame !== vesselId) return 'wrong-frame';
+  if (!validCrateItems(items)) return 'bad-qty';
+  if (crateAreaOf(items) > CRATE_AREA) return 'overfilled';
+  if (!validId(spawn.id) || hold.crates[spawn.id] !== undefined) return 'duplicate-crate';
+  if (!securedCovers(hold, vesselId, items)) return 'insufficient-secured';
+  return null;
+}
+
+function deductSecuredGoods(
+  hold: CargoState,
+  vesselId: string,
+  items: readonly CrateItem[]
+): Readonly<Record<string, number>> {
   const vessel = { ...(hold.secured[vesselId] ?? {}) };
   for (const item of items) vessel[item.goodId] = (vessel[item.goodId] ?? 0) - item.qty;
-  const crate: Crate = {
+  return vessel;
+}
+
+function createRepackedCrate(
+  items: readonly CrateItem[],
+  spawn: { id: string; frameId: string; x: number; y: number }
+): Crate {
+  return {
     id: spawn.id,
     items: items.map((item) => ({ goodId: item.goodId, qty: item.qty })),
     where: 'shipFloor',
@@ -339,6 +352,19 @@ export function repackCargo(
     y: spawn.y,
     angle: 0,
   };
+}
+
+export function repackCargo(
+  hold: CargoState,
+  vesselId: string,
+  pawnFrame: string,
+  items: readonly CrateItem[],
+  spawn: { id: string; frameId: string; x: number; y: number }
+): CargoResult {
+  const rejected = validateRepackRequest(hold, vesselId, pawnFrame, items, spawn);
+  if (rejected !== null) return { ok: false, reason: rejected };
+  const vessel = deductSecuredGoods(hold, vesselId, items);
+  const crate = createRepackedCrate(items, spawn);
   return {
     ok: true,
     hold: {
@@ -387,6 +413,33 @@ function pawnPointsOf(
 
 function pawnNeedsDrop(pawn: { health: { hp: number; incapacitated: boolean } }): boolean {
   return pawn.health.hp <= 0 || pawn.health.incapacitated;
+}
+
+/**
+ * Lightweight second-pass cargo: drops crates for newly downed pawns without
+ * re-syncing every carried position (pawn poses did not move since tickCargo).
+ */
+export function dropIncapacitatedCrates(world: World): World {
+  let hold = world.cargo;
+  for (const pawn of Object.values(world.pawns)) {
+    if (!pawnNeedsDrop(pawn)) continue;
+    const carried = carriedCrateOf(hold, pawn.id);
+    if (carried === undefined) continue;
+    const where = world.vessels[pawn.frameId] === undefined ? 'bayFloor' : 'shipFloor';
+    const dropped = dropCrate(
+      hold,
+      pawn.id,
+      pawn.frameId,
+      carried.x,
+      carried.y,
+      where,
+      [],
+      pawn.facing
+    );
+    if (dropped.ok) hold = dropped.hold;
+  }
+  if (hold === world.cargo) return world;
+  return { ...world, cargo: hold };
 }
 
 /** Per-tick cargo: carried crates follow paws; death/incap auto-drops in place. */

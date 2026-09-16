@@ -23,11 +23,13 @@ import {
   resolveImpactStyle,
   SPREAD_MAX,
   SPREAD_PER_SHOT,
+  strikePawn,
   tickSpread,
   weaponDamage,
 } from './combat.js';
 import { isPortalConnecting } from './doors.js';
 import type { HullSpec } from './hullCompiler.js';
+import { pickupCrate, spawnCrate } from './ship/cargo.js';
 import { defaultVitals } from './survival.js';
 import { tickWorld } from './tickWorld.js';
 import type { World } from './types.js';
@@ -150,24 +152,109 @@ describe('simulated projectiles', () => {
     expect(fired.world.spread.p1).toBeCloseTo(SPREAD_PER_SHOT, 10);
   });
 
-  it('wounds pawns on contact with hp-only resolution and bleeding', () => {
-    const limbs = [{ limb: 'arm', hp: 50 }];
-    const organs = [{ organ: 'heart', hp: 90 }];
+  it('wounds pawns on contact with limb trauma and bleeding', () => {
     let world = boxDuel();
+    const fired = fireWeapon(world, 'p1', 0, 'kinetic_carbine');
+    world = tickWorld(fired.world, 0.05, []);
+    expect(world.pawns.p2?.health.hp).toBe(75);
+    expect(world.pawns.p2?.health.limbs?.find((entry) => entry.limb === 'leftArm')?.hp).toBe(75);
+    expect(world.pawns.p2?.speed).toBe(200);
+    expect(world.spread.p2 ?? 0).toBeGreaterThan(0);
+    expect(world.vitals.p2?.bleedoutS).toBe(20);
+    expect(Object.keys(world.projectiles)).toHaveLength(0);
+    expect(world.impacts.map((impact) => impact.kind)).toEqual(['pawn']);
+  });
+
+  it('routes torso hits into lung and heart trauma', () => {
+    const world = boxDuel();
+    const target = world.pawns.p2;
+    if (target === undefined) throw new Error('missing target');
+    const hurt = applyDamage(target, {
+      force: 40,
+      materialK: 1,
+      materialE: 0,
+      point: { x: target.pos.x, y: target.pos.y },
+    });
+    expect(hurt.health.hp).toBe(60);
+    expect(hurt.health.limbs?.find((entry) => entry.limb === 'torso')?.hp).toBe(60);
+    expect(hurt.health.organs?.find((entry) => entry.organ === 'lungL')?.hp).toBe(80);
+    expect(hurt.health.organs?.find((entry) => entry.organ === 'lungR')?.hp).toBe(80);
+    expect(hurt.health.organs?.find((entry) => entry.organ === 'heart')?.hp).toBe(90);
+  });
+
+  it('slows pawns proportionally to leg damage', () => {
+    const world = boxDuel();
+    const target = world.pawns.p2;
+    if (target === undefined) throw new Error('missing target');
+    const hurt = applyDamage(target, {
+      force: 50,
+      materialK: 1,
+      materialE: 0,
+      point: { x: target.pos.x, y: target.pos.y + 10 },
+    });
+    expect(hurt.health.limbs?.find((entry) => entry.limb === 'leftLeg')?.hp).toBe(50);
+    expect(hurt.speed).toBeLessThan(target.speed);
+    expect(hurt.speed).toBe(168);
+  });
+
+  it('drops carried crates when an arm is severed', () => {
+    let world = boxDuel();
+    const seeded = spawnCrate(world.cargo, {
+      id: 'c1',
+      items: [{ goodId: 'scrap', qty: 2 }],
+      where: 'shipFloor',
+      frameId: 'box',
+      x: 62,
+      y: 50,
+    });
+    if (!seeded.ok) throw new Error('seed failed');
+    world = { ...world, cargo: seeded.hold };
+    const lifted = pickupCrate(world.cargo, 'c1', 'p2', 'box', { x: 60, y: 50 });
+    if (!lifted.ok) throw new Error('pickup failed');
     const target = world.pawns.p2;
     if (target === undefined) throw new Error('missing target');
     world = {
       ...world,
-      pawns: { ...world.pawns, p2: { ...target, health: { ...target.health, limbs, organs } } },
+      cargo: lifted.hold,
+      pawns: {
+        ...world.pawns,
+        p2: { ...target, health: { ...target.health, hp: 200, maxHp: 200 } },
+      },
     };
-    const fired = fireWeapon(world, 'p1', 0, 'kinetic_carbine');
-    world = tickWorld(fired.world, 0.05, []);
-    expect(world.pawns.p2?.health.hp).toBe(75);
-    expect(world.pawns.p2?.health.limbs).toEqual(limbs);
-    expect(world.pawns.p2?.health.organs).toEqual(organs);
-    expect(world.vitals.p2?.bleedoutS).toBe(20);
-    expect(Object.keys(world.projectiles)).toHaveLength(0);
-    expect(world.impacts.map((impact) => impact.kind)).toEqual(['pawn']);
+    const struck = strikePawn(world, 'p2', 120, { x: 72, y: 50 });
+    expect(struck.pawns.p2?.health.limbs?.find((entry) => entry.limb === 'rightArm')?.hp).toBe(0);
+    expect(struck.pawns.p2?.health.hp).toBe(80);
+    expect(struck.cargo.crates.c1?.where).not.toBe('carriedBy');
+    expect(struck.cargo.crates.c1?.carrierId).toBeUndefined();
+    expect(struck.spread.p2 ?? 0).toBeGreaterThan(0);
+  });
+
+  it('strains breathing when lungs are ruined', () => {
+    let world = boxDuel();
+    const target = world.pawns.p2;
+    if (target === undefined) throw new Error('missing target');
+    const ruined = applyDamage(target, {
+      force: 200,
+      materialK: 1,
+      materialE: 0,
+      point: { x: target.pos.x, y: target.pos.y },
+    });
+    world = {
+      ...world,
+      pawns: { ...world.pawns, p2: { ...ruined, health: { ...ruined.health, hp: 100 } } },
+      atmos: {
+        'box.a': {
+          roomId: 'box.a',
+          pressureKpa: 101.3,
+          tempCelsius: 21,
+          o2Percent: 10,
+          co2Ppm: 600,
+          repressurizing: false,
+        },
+      },
+    };
+    for (let i = 0; i < 20; i += 1) world = tickWorld(world, 0.05, []);
+    expect(world.vitals.p2?.hypoxia ?? 0).toBeGreaterThan(world.vitals.p1?.hypoxia ?? 0);
   });
 
   it('ignores pawns in other frames', () => {

@@ -10,6 +10,7 @@ import {
   tickBots,
 } from './bots.js';
 import { HesperiaV2Spec } from './content/HesperiaV2.hull.js';
+import { buildHarborWorld } from './scenarios.js';
 import { tickWorld } from './tickWorld.js';
 import type { World } from './types.js';
 
@@ -122,6 +123,17 @@ describe('bot schedules', () => {
     };
     for (let i = 0; i < BOT_STUCK_TICKS + 120; i += 1) world = tickWorld(world, 0.05, []);
     expect(world.bots.b1?.index ?? 0).toBeGreaterThan(0);
+  });
+
+  it('routes across the dock tube between station and ship', () => {
+    const world = buildHarborWorld();
+    const hop = routeSubTarget(world, 'station.andock_tube', 'ship.korridor_schiff');
+    expect(hop).toBeDefined();
+    expect(hop?.x).toBeCloseTo(1210, 0);
+    const back = routeSubTarget(world, 'ship.korridor_schiff', 'station.andock_tube');
+    expect(back).toBeDefined();
+    const far = routeSubTarget(world, 'station.habitat', 'ship.bruecke');
+    expect(far).toBeDefined();
   });
 
   it('dwells on arrival before moving to the next waypoint', () => {

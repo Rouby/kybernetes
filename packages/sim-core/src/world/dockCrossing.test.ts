@@ -80,4 +80,19 @@ describe('seamless dock crossing', () => {
     const empty = { ...world, docks: {} };
     expect(stepCrossFrame(empty)).toBe(empty);
   });
+
+  it('holds vessel pawns outside the mouth aperture', () => {
+    const world = spawnPawn(buildHarborWorld(), {
+      id: 'p1',
+      owner: 'u1',
+      frameId: 'ship',
+      roomId: 'ship.korridor_schiff',
+      x: -5,
+      y: 305,
+      color: '#fff',
+    });
+    const pawn = world.pawns.p1;
+    if (pawn === undefined) throw new Error('missing pawn');
+    expect(tryCrossDock(world, pawn).frameId).toBe('ship');
+  });
 });

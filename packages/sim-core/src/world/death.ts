@@ -6,6 +6,7 @@
  */
 
 import type { DeathCause } from '@kybernetes/protocol';
+import { dropAllForPawn } from './ship/cargo.js';
 import { defaultVitals } from './survival.js';
 import type { PawnBody, World } from './types.js';
 
@@ -94,6 +95,9 @@ export function restartRun(world: World, pawnId: string, point: RespawnPoint): W
   delete spread[pawnId];
   const memory = { ...world.memory };
   delete memory[pawnId];
+  const cargo = dropPawnCargo(world, pawn);
+  const fixtures = releasePawnFixtures(world, pawnId);
+  const watches = prunePawnWatches(world, pawnId);
   return {
     ...world,
     pawns: {
@@ -112,5 +116,44 @@ export function restartRun(world: World, pawnId: string, point: RespawnPoint): W
     crew,
     spread,
     memory,
+    cargo,
+    fixtures,
+    watches,
   };
+}
+
+function dropPawnCargo(world: World, pawn: PawnBody): World['cargo'] {
+  const where = world.vessels[pawn.frameId] === undefined ? 'bayFloor' : 'shipFloor';
+  return dropAllForPawn(
+    world.cargo,
+    pawn.id,
+    pawn.frameId,
+    pawn.pos.x,
+    pawn.pos.y,
+    where,
+    pawn.facing
+  );
+}
+
+function releasePawnFixtures(world: World, pawnId: string): World['fixtures'] {
+  let changed = false;
+  const fixtures = { ...world.fixtures };
+  for (const fix of Object.values(fixtures)) {
+    if (fix.claimedBy !== pawnId) continue;
+    fixtures[fix.id] = { ...fix, claimedBy: undefined };
+    changed = true;
+  }
+  return changed ? fixtures : world.fixtures;
+}
+
+function prunePawnWatches(world: World, pawnId: string): World['watches'] {
+  let changed = false;
+  const watches = { ...world.watches };
+  for (const [vesselId, watch] of Object.entries(watches)) {
+    const tasks = watch.tasks.filter((task) => task.pawnId !== pawnId);
+    if (tasks.length === watch.tasks.length) continue;
+    watches[vesselId] = { ...watch, tasks };
+    changed = true;
+  }
+  return changed ? watches : world.watches;
 }

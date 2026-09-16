@@ -5,7 +5,7 @@
  */
 
 import { isPortalConnecting, nearestPortal, tryToggleDoor } from './doors.js';
-import { dockLinkForPortal } from './schedule.js';
+import { dockLinkForPortal, isDockGateWalkable } from './schedule.js';
 import type { WorldInput } from './tickWorld.js';
 import type { PawnBody, PortalEdge, Vec2, World } from './types.js';
 
@@ -91,6 +91,7 @@ function tickBot(world: World, pawnId: string): { world: World; input?: WorldInp
   const bot = world.bots[pawnId];
   const pawn = world.pawns[pawnId];
   if (bot === undefined || pawn === undefined) return { world };
+  if (pawn.health.hp <= 0 || pawn.health.incapacitated) return { world };
   const cleared = clearExpiredSay(world, pawnId);
   if (cleared.tick < bot.waitUntilTick) return { world: cleared };
   const unstuck = checkStuck(cleared, bot.pawnId);
@@ -151,6 +152,25 @@ function neighborRooms(world: World, roomId: string): { room: string; via: Porta
       out.push({ room: portal.roomB, via: portal });
     } else if (portal.roomB === roomId) {
       out.push({ room: portal.roomA, via: portal });
+    }
+  }
+  out.push(...dockNeighbors(world, roomId));
+  return out;
+}
+
+/** Dock-tube jumps: while the dock stays walkable the tube room borders the vessel mouth room. */
+function dockNeighbors(world: World, roomId: string): { room: string; via: PortalEdge }[] {
+  const out: { room: string; via: PortalEdge }[] = [];
+  for (const dock of Object.values(world.docks)) {
+    if (!isDockGateWalkable(world, dock.stationPortal)) continue;
+    const vesselRoom = world.portals[dock.vesselPortal]?.roomA;
+    if (vesselRoom === undefined) continue;
+    if (roomId === dock.tubeRoom) {
+      const via = world.portals[dock.tubePortal];
+      if (via !== undefined) out.push({ room: vesselRoom, via });
+    } else if (roomId === vesselRoom) {
+      const via = world.portals[dock.vesselPortal];
+      if (via !== undefined) out.push({ room: dock.tubeRoom, via });
     }
   }
   return out;

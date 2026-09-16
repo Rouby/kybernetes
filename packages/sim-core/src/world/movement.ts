@@ -90,8 +90,56 @@ function pointInRect(p: Vec2, rect: { x: number; y: number; w: number; h: number
  * Colliders for a frame: compiled walls plus shut-portal segments. Closed
  * doors block — except dock gates while the cycle holds them walkable, so
  * crews stroll the tube in world space with no teleport.
+ *
+ * Results are cached by frame id and reused while the portal table and the
+ * frame wall list keep their references (world updates are immutable, so any
+ * toggle, breach, or seal hands a fresh reference — the portalRev signal).
  */
 export function collidersForFrame(world: World, frameId: string): WallSegment[] {
+  const walls = world.wallsByFrame[frameId];
+  const cached = colliderCache.get(frameId);
+  if (cached !== undefined && sameColliderInputs(cached, world, walls)) return cached.result;
+  const result = buildColliders(world, frameId);
+  colliderCache.set(frameId, {
+    portals: world.portals,
+    walls,
+    vessels: world.vessels,
+    docks: world.docks,
+    stations: world.stations,
+    rooms: world.rooms,
+    result,
+  });
+  return result;
+}
+
+interface ColliderEntry {
+  readonly portals: World['portals'];
+  readonly walls: readonly WallSegment[] | undefined;
+  readonly vessels: World['vessels'];
+  readonly docks: World['docks'];
+  readonly stations: World['stations'];
+  readonly rooms: World['rooms'];
+  readonly result: WallSegment[];
+}
+
+function sameColliderInputs(
+  cached: ColliderEntry,
+  world: World,
+  walls: readonly WallSegment[] | undefined
+): boolean {
+  return (
+    cached.portals === world.portals &&
+    cached.walls === walls &&
+    cached.vessels === world.vessels &&
+    cached.docks === world.docks &&
+    cached.stations === world.stations &&
+    cached.rooms === world.rooms
+  );
+}
+
+const colliderCache = new Map<string, ColliderEntry>();
+
+function buildColliders(world: World, frameId: string): WallSegment[] {
   const colliders = [...(world.wallsByFrame[frameId] ?? [])];
   for (const portal of Object.values(world.portals)) {
     if (isPortalConnecting(portal)) continue;

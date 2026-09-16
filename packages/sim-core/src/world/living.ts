@@ -171,9 +171,18 @@ function findKindInRoom(world: World, roomId: string, kind: string): Fixture | u
   return undefined;
 }
 
-function tickRoomPower(world: World, roomId: string): World {
+function groupFixturesByRoom(world: World): Map<string, Fixture[]> {
+  const groups = new Map<string, Fixture[]>();
+  for (const fix of Object.values(world.fixtures)) {
+    const list = groups.get(fix.roomId);
+    if (list === undefined) groups.set(fix.roomId, [fix]);
+    else list.push(fix);
+  }
+  return groups;
+}
+
+function tickRoomPower(world: World, roomId: string, fixes: readonly Fixture[]): World {
   const room = ensureRoomLiving(world, roomId);
-  const fixes = Object.values(world.fixtures).filter((f) => f.roomId === roomId);
   const load = fixes.reduce((sum, f) => sum + fixtureLoadKw(f), 0);
   const breaker = fixes.find((f) => f.kind === 'breaker_box');
   const breakerDead = breaker !== undefined && fixtureIntegrity(breaker) <= 0;
@@ -229,9 +238,9 @@ function tickRecycler(world: World, fix: Fixture, dt: number): World {
   });
 }
 
-function tickGrowth(world: World, roomId: string, dt: number): World {
+function tickGrowth(world: World, roomId: string, dt: number, fixes: readonly Fixture[]): World {
   const room = ensureRoomLiving(world, roomId);
-  const tray = findKindInRoom(world, roomId, 'hydro_tray');
+  const tray = fixes.find((fix) => fix.kind === 'hydro_tray');
   if (tray === undefined || !fixtureOnline(tray)) return world;
   if (room.breakerTripped) return world;
   if (room.waterCleanL < 0.5) return world;
@@ -253,13 +262,14 @@ function tickGrowth(world: World, roomId: string, dt: number): World {
 
 export function tickLiving(world: World, dtSeconds: number): World {
   if (!(dtSeconds > 0)) return world;
+  const powerGroups = groupFixturesByRoom(world);
   let next = world;
-  const roomIds = new Set<string>(Object.values(world.fixtures).map((f) => f.roomId));
-  for (const roomId of roomIds) next = tickRoomPower(next, roomId);
+  for (const [roomId, fixes] of powerGroups) next = tickRoomPower(next, roomId, fixes);
   for (const fix of Object.values(next.fixtures)) {
     if (fix.kind === 'stove') next = tickStove(next, fix, dtSeconds);
     if (fix.kind === 'water_recycler') next = tickRecycler(next, fix, dtSeconds);
   }
-  for (const roomId of roomIds) next = tickGrowth(next, roomId, dtSeconds);
+  const growthGroups = groupFixturesByRoom(next);
+  for (const [roomId, fixes] of growthGroups) next = tickGrowth(next, roomId, dtSeconds, fixes);
   return next;
 }

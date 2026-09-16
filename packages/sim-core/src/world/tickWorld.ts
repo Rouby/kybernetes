@@ -29,7 +29,7 @@ import {
   updateRoomHint,
 } from './movement.js';
 import { tickSchedule } from './schedule.js';
-import { speedMultiplierFor, tickCargo } from './ship/cargo.js';
+import { dropIncapacitatedCrates, speedMultiplierFor, tickCargo } from './ship/cargo.js';
 import { tickShipSystems } from './ship/systems.js';
 import { tickSurvival } from './survival.js';
 import { FIXED_DT, type PawnBody, type Vec2, type World } from './types.js';
@@ -59,7 +59,7 @@ export function tickWorld(
   const scheduled = tickSchedule(crossed, dt);
   const watched = tickWatches(scheduled, dt);
   const survived = tickSurvival(watched, dt);
-  const dropped = tickCargo(survived);
+  const dropped = dropIncapacitatedCrates(survived);
   const lived = tickLiving(dropped, dt);
   const shot = tickProjectiles(lived, dt);
   const cooled = tickSpread(tickImpacts(shot), dt);
@@ -99,6 +99,22 @@ function resolveFacing(pawn: PawnBody, input: WorldInput | undefined): number {
   return facing !== undefined && Number.isFinite(facing) ? facing : pawn.facing;
 }
 
+function driveForPawn(
+  world: World,
+  pawn: PawnBody,
+  input: WorldInput | undefined,
+  dt: number
+): { accel: Vec2; vel: Vec2 } {
+  if (pawn.health.hp <= 0 || pawn.health.incapacitated)
+    return { accel: { x: 0, y: 0 }, vel: { x: 0, y: 0 } };
+  const mult = speedMultiplierFor(world.cargo, pawn.id);
+  const accel = inputToAccel({
+    moveVec: { x: (input?.moveX ?? 0) * mult, y: (input?.moveY ?? 0) * mult },
+    sprint: input?.sprint ?? false,
+  });
+  return { accel, vel: integratePawnVelocity(pawn, accel, dt) };
+}
+
 function stepPawn(
   world: World,
   pawn: PawnBody,
@@ -106,20 +122,15 @@ function stepPawn(
   dt: number,
   air?: AirAuthorityState
 ): PawnBody {
-  const mult = speedMultiplierFor(world.cargo, pawn.id);
-  const accel = inputToAccel({
-    moveVec: { x: (input?.moveX ?? 0) * mult, y: (input?.moveY ?? 0) * mult },
-    sprint: input?.sprint ?? false,
-  });
-  const vel = integratePawnVelocity(pawn, accel, dt);
-  const target = integratePawnPosition({ ...pawn, vel }, vel, dt);
+  const drive = driveForPawn(world, pawn, input, dt);
+  const target = integratePawnPosition({ ...pawn, vel: drive.vel }, drive.vel, dt);
   const dragged = applyWindToTarget(target, dragOffsetForPawn(pawn, air, dt));
   const collided = collidePawn(pawn, dragged, collidersForFrame(world, pawn.frameId));
   const pos = carryByFrame(world, pawn.frameId, collided, dt);
   return {
     ...pawn,
     pos,
-    vel,
+    vel: drive.vel,
     facing: resolveFacing(pawn, input),
     roomHint: updateRoomHint(world, pawn, pos),
   };
@@ -155,9 +166,20 @@ function pawnWindOffset(air: AirAuthorityState, frameId: string, roomId: string,
 function stepMemory(world: World): World {
   const memory = { ...world.memory };
   for (const pawn of Object.values(world.pawns)) {
+    if (!isMemoryPawn(pawn)) continue;
     memory[pawn.id] = unionRooms(memory[pawn.id] ?? [], visibleRooms(world, pawn.id));
   }
   return { ...world, memory };
+}
+
+/**
+ * Fog-of-war is tracked for player-controlled pawns only; ambient station
+ * crowds (npc:*) never build explored-memory, saving a raycast fan per tick.
+ * Player sessions spawn as pawn:* (tests use bare ids like p1/hero), so the
+ * crowd prefix — not the spec sketch of user: — is the reliable filter.
+ */
+function isMemoryPawn(pawn: PawnBody): boolean {
+  return !pawn.id.startsWith('npc:');
 }
 
 function stepFrames(world: World, dt: number): World {

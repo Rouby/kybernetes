@@ -11,8 +11,18 @@ import { roomContainingPoint } from './crew.js';
 import { addDecal, decalRadiusFor, makeDecalId, shouldDecal } from './decals.js';
 import { destroyPortal } from './doors.js';
 import { carryByFrame, collidersForFrame } from './movement.js';
+import { dropAllForPawn } from './ship/cargo.js';
 import { ensureVitals, startBleeding } from './survival.js';
-import type { DamageEvent, PawnBody, PortalEdge, ProjectileBody, Vec2, World } from './types.js';
+import type {
+  DamageEvent,
+  LimbHealth,
+  OrganHealth,
+  PawnBody,
+  PortalEdge,
+  ProjectileBody,
+  Vec2,
+  World,
+} from './types.js';
 
 export const RIFLE_DAMAGE = 25;
 export const WELDER_DAMAGE = 15;
@@ -297,10 +307,134 @@ function dropProjectile(world: World, id: string): World {
   return { ...world, projectiles };
 }
 
-/** v1 hit resolution fills hp only; limbs and organs pass through untouched. */
+export type LimbId = 'head' | 'torso' | 'leftArm' | 'rightArm' | 'leftLeg' | 'rightLeg';
+
+export type OrganId = 'heart' | 'lungL' | 'lungR';
+
+export const LIMB_MAX_HP = 100;
+
+const PAWN_BASE_SPEED = 200;
+const MIN_PAWN_SPEED = 40;
+const ARM_BLOOM_PENALTY = 0.05;
+
+const STANDARD_LIMBS: readonly LimbId[] = [
+  'head',
+  'torso',
+  'leftArm',
+  'rightArm',
+  'leftLeg',
+  'rightLeg',
+];
+
+/** Impact force transmitted through tissue from material (k, e) properties. */
+export function limbDamageOf(event: DamageEvent): number {
+  if (!Number.isFinite(event.force) || event.force <= 0) return 0;
+  const stiffness = Number.isFinite(event.materialK) ? Math.max(0, event.materialK) : 1;
+  const elasticity = Number.isFinite(event.materialE)
+    ? Math.min(1, Math.max(0, event.materialE))
+    : 0;
+  return event.force * stiffness * (1 - elasticity);
+}
+
+/**
+ * Limb under the impact point: height bands pick head/torso/legs while the
+ * bearing of the hit around the body picks the left/right side. An explicit
+ * limbHint overrides the geometric routing.
+ */
+export function limbForImpact(pawn: PawnBody, event: DamageEvent): LimbId {
+  if (
+    event.limbHint !== undefined &&
+    (STANDARD_LIMBS as readonly string[]).includes(event.limbHint)
+  ) {
+    return event.limbHint as LimbId;
+  }
+  const dx = event.point.x - pawn.pos.x;
+  const dy = event.point.y - pawn.pos.y;
+  const radius = Math.max(1, pawn.radius);
+  if (dy <= -radius * 0.5) return 'head';
+  if (dy <= radius * 0.25)
+    return Math.abs(dx) > radius * 0.5 ? (dx > 0 ? 'rightArm' : 'leftArm') : 'torso';
+  return dx > 0 ? 'rightLeg' : 'leftLeg';
+}
+
+export function limbHpOf(limbs: readonly LimbHealth[] | undefined, limb: string): number {
+  return limbs?.find((entry) => entry.limb === limb)?.hp ?? LIMB_MAX_HP;
+}
+
+export function organHpOf(organs: readonly OrganHealth[] | undefined, organ: string): number {
+  return organs?.find((entry) => entry.organ === organ)?.hp ?? LIMB_MAX_HP;
+}
+
+function standardLimbs(): LimbHealth[] {
+  return STANDARD_LIMBS.map((limb) => ({ limb, hp: LIMB_MAX_HP }));
+}
+
+function standardOrgans(): OrganHealth[] {
+  return [
+    { organ: 'heart', hp: LIMB_MAX_HP },
+    { organ: 'lungL', hp: LIMB_MAX_HP },
+    { organ: 'lungR', hp: LIMB_MAX_HP },
+  ];
+}
+
+function applyLimbDamage(
+  limbs: readonly LimbHealth[] | undefined,
+  limb: LimbId,
+  damage: number
+): LimbHealth[] {
+  const next = limbs === undefined ? standardLimbs() : limbs.map((entry) => ({ ...entry }));
+  const index = next.findIndex((entry) => entry.limb === limb);
+  if (index === -1) {
+    next.push({ limb, hp: Math.max(0, LIMB_MAX_HP - damage) });
+    return next;
+  }
+  const current = next[index] as LimbHealth;
+  next[index] = { limb: current.limb, hp: Math.max(0, current.hp - damage) };
+  return next;
+}
+
+/** Thoracic hits bruise both lungs and the heart; peripheral hits spare organs. */
+function applyOrganDamage(
+  organs: readonly OrganHealth[] | undefined,
+  limb: LimbId,
+  damage: number
+): OrganHealth[] | undefined {
+  if (limb !== 'torso')
+    return organs === undefined ? undefined : organs.map((entry) => ({ ...entry }));
+  const next = organs === undefined ? standardOrgans() : organs.map((entry) => ({ ...entry }));
+  return next.map((entry) => {
+    if (entry.organ === 'lungL' || entry.organ === 'lungR') {
+      return { organ: entry.organ, hp: Math.max(0, entry.hp - damage * 0.5) };
+    }
+    if (entry.organ === 'heart')
+      return { organ: entry.organ, hp: Math.max(0, entry.hp - damage * 0.25) };
+    return { ...entry };
+  });
+}
+
+/** Leg-averaged gait factor: full stride at 1, crawl floor when both legs are gone. */
+export function legSpeedFactor(limbs: readonly LimbHealth[] | undefined): number {
+  const average = (limbHpOf(limbs, 'leftLeg') + limbHpOf(limbs, 'rightLeg')) / (2 * LIMB_MAX_HP);
+  return 0.35 + 0.65 * Math.min(1, Math.max(0, average));
+}
+
+export function speedForLimbs(limbs: readonly LimbHealth[] | undefined): number {
+  return Math.max(MIN_PAWN_SPEED, Math.round(PAWN_BASE_SPEED * legSpeedFactor(limbs)));
+}
+
+/** Hit resolution: scalar hp plus routed limb/organ trauma and gait debility. */
 export function applyDamage(pawn: PawnBody, event: DamageEvent): PawnBody {
   const hp = Math.min(pawn.health.maxHp, Math.max(0, pawn.health.hp - Math.max(0, event.force)));
-  return { ...pawn, health: { ...pawn.health, hp } };
+  const damage = limbDamageOf(event);
+  if (damage <= 0) return { ...pawn, health: { ...pawn.health, hp } };
+  const limb = limbForImpact(pawn, event);
+  const limbs = applyLimbDamage(pawn.health.limbs, limb, damage);
+  const organs = applyOrganDamage(pawn.health.organs, limb, damage);
+  return {
+    ...pawn,
+    speed: speedForLimbs(limbs),
+    health: { ...pawn.health, hp, limbs, organs },
+  };
 }
 
 export function tickSpread(world: World, dtSeconds: number): World {
@@ -320,11 +454,44 @@ export function strikePawn(world: World, targetId: string, damage: number, point
   const target = world.pawns[targetId];
   if (target === undefined) return world;
   const hurt = applyDamage(target, { force: damage, materialK: 1, materialE: 0, point });
-  const replaced: World = {
-    ...world,
-    pawns: { ...world.pawns, [targetId]: hurt },
-  };
-  return startBleeding(replaced, targetId, COMBAT_BLEED_S);
+  let next: World = { ...world, pawns: { ...world.pawns, [targetId]: hurt } };
+  next = applyArmEffects(next, target, hurt, damage, point);
+  return startBleeding(next, targetId, COMBAT_BLEED_S);
+}
+
+/** Arm hits shake aim; a severed arm drops whatever the pawn was hauling. */
+function applyArmEffects(
+  world: World,
+  before: PawnBody,
+  hurt: PawnBody,
+  damage: number,
+  point: Vec2
+): World {
+  const limb = limbForImpact(before, { force: damage, materialK: 1, materialE: 0, point });
+  if (limb !== 'leftArm' && limb !== 'rightArm') return world;
+  let next = addArmBloom(world, before.id);
+  const wasAlive = limbHpOf(before.health.limbs, limb) > 0;
+  if (wasAlive && limbHpOf(hurt.health.limbs, limb) <= 0) next = dropPawnCrate(next, before);
+  return next;
+}
+
+function addArmBloom(world: World, pawnId: string): World {
+  const bloom = Math.min(SPREAD_MAX, (world.spread[pawnId] ?? 0) + ARM_BLOOM_PENALTY);
+  return { ...world, spread: { ...world.spread, [pawnId]: bloom } };
+}
+
+function dropPawnCrate(world: World, pawn: PawnBody): World {
+  const where = world.vessels[pawn.frameId] === undefined ? 'bayFloor' : 'shipFloor';
+  const cargo = dropAllForPawn(
+    world.cargo,
+    pawn.id,
+    pawn.frameId,
+    pawn.pos.x,
+    pawn.pos.y,
+    where,
+    pawn.facing
+  );
+  return cargo === world.cargo ? world : { ...world, cargo };
 }
 
 function damageDoor(world: World, portalId: string, damage: number): { world: World } {
