@@ -1,66 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import {
-  coldEngine,
-  effectiveTune,
-  engineDemandMw,
-  serviceEngine,
-  speedFactor,
-  tickEngine,
-  wearEngine,
+  clampEngineFuel,
+  FUEL_PER_CELL,
+  fuelCostForLeg,
+  fuelMaxForTier,
+  fuelRateForLeg,
+  loadFuelCell,
+  unloadFuelCell,
 } from './engine.js';
 
-const DT = 0.05;
-const IDLE = { spoolCmd: 0 as const };
-const SPOOL = { spoolCmd: 1 as const };
-
-function tickMany(seconds: number, outputMW: number, underway: boolean, spoolCmd: 0 | 1) {
-  let current = coldEngine();
-  const ticks = Math.round(seconds / DT);
-  for (let i = 0; i < ticks; i += 1) {
-    current = tickEngine(current, outputMW, underway, DT, { spoolCmd });
-  }
-  return current;
-}
-
-describe('engine (M2 spool and tune)', () => {
-  it('refuses to spool without reactor power and flags brownout', () => {
-    const stalled = tickMany(10, 0, false, 1);
-    expect(stalled.spool).toBe(0);
-    expect(stalled.brownout).toBe(true);
+describe('engine fuel bunker (slotted cells -> fuel-value)', () => {
+  it('gives the starter two slots of 1000 fuel each', () => {
+    expect(fuelMaxForTier(0)).toBe(2 * FUEL_PER_CELL);
+    expect(fuelMaxForTier(1)).toBe(3 * FUEL_PER_CELL);
+    expect(fuelMaxForTier(2)).toBe(4 * FUEL_PER_CELL);
   });
 
-  it('spools to full on T0 power within the spool-up window', () => {
-    const hot = tickMany(10, 40, false, 1);
-    expect(hot.spool).toBeCloseTo(1, 2);
-    expect(hot.brownout).toBe(false);
+  it('loads one cell into fuel-value and clamps at capacity', () => {
+    expect(loadFuelCell(1, 0, 0)).toEqual({ looseCells: 0, engineFuel: 1000 });
+    expect(loadFuelCell(2, 1000, 0)).toEqual({ looseCells: 1, engineFuel: 2000 });
+    expect(loadFuelCell(1, 2000, 0)).toBeUndefined();
+    expect(loadFuelCell(0, 0, 0)).toBeUndefined();
   });
 
-  it('brownouts when load outgrows output and unwinds the spool', () => {
-    const full = tickMany(10, 40, false, 1);
-    const starved = tickEngine(full, engineDemandMw(1) - 1, false, DT, SPOOL);
-    expect(starved.brownout).toBe(true);
-    expect(starved.spool).toBeLessThan(full.spool);
+  it('unloads full cells back to loose stores', () => {
+    expect(unloadFuelCell(0, 1000, 0)).toEqual({ looseCells: 1, engineFuel: 0 });
+    expect(unloadFuelCell(1, 500, 0)).toBeUndefined();
   });
 
-  it('decays tune underway but holds it docked', () => {
-    expect(tickMany(60, 40, true, 0).tune).toBeCloseTo(0.76, 2);
-    expect(tickMany(60, 40, false, 0).tune).toBe(1);
+  it('burns the hop cost continuously at the per-second rate', () => {
+    expect(fuelRateForLeg(0, 1)).toBeCloseTo(6.5, 9);
+    expect(fuelCostForLeg(0, 1, 33)).toBe(Math.round(fuelRateForLeg(0, 1) * 33));
   });
 
-  it('clamps absolute tune sets and drops invalid ticks', () => {
-    const set = tickEngine(coldEngine(), 40, false, DT, { spoolCmd: 0, tuneSet: 5 });
-    expect(set.tune).toBe(1);
-    const low = tickEngine(coldEngine(), 40, false, DT, { spoolCmd: 0, tuneSet: -2 });
-    expect(low.tune).toBe(0);
-    expect(tickEngine(coldEngine(), 40, false, 0, IDLE)).toEqual(coldEngine());
-  });
-
-  it('caps effective tune by wear until dockside service', () => {
-    const worn = wearEngine(wearEngine(coldEngine(), 4), 3);
-    expect(worn.wear).toBeCloseTo(1, 6);
-    expect(effectiveTune(worn)).toBeCloseTo(0.5, 6);
-    expect(serviceEngine(worn).wear).toBe(0);
-    expect(speedFactor(coldEngine())).toBe(1);
-    expect(speedFactor({ tune: 0, wear: 0 })).toBeCloseTo(0.55, 6);
+  it('scales burn cost with distance and thrust, not flat cells', () => {
+    const short = fuelCostForLeg(0, 1, 30);
+    const long = fuelCostForLeg(0, 1, 150);
+    expect(long).toBeGreaterThan(short);
+    expect(fuelCostForLeg(0, 0.5, 150)).toBeLessThan(long);
+    expect(clampEngineFuel(99999, 0)).toBe(2000);
   });
 });

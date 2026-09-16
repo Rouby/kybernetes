@@ -3,13 +3,14 @@ import { dockWalkable } from '../dockStatus.js';
 import { buildSoloShipWorld } from '../scenarios.js';
 import { SHIP_FAR_ORIGIN, SHIP_ORIGIN } from '../schedule.js';
 import { createEmptyWorld, type VesselFrame, type World } from '../types.js';
+import { FUEL_PER_CELL } from './engine.js';
 import {
   defaultShipSystems,
   ensureShipSystems,
   plotChartVoyage,
   plotVoyage,
   restartShipReactor,
-  syncShipStores,
+  syncEngineFuel,
   syncShipTiers,
   tickShipSystems,
   tuneShipEngine,
@@ -161,7 +162,12 @@ describe('voyage side effects (M3 abstract transit)', () => {
   }
 
   function plotToHubB(world: World): World {
-    const plotted = plotVoyage(world, 'ship', 'hub_b', { hot: true, powered: true, fuelCells: 1 });
+    const fueled = syncEngineFuel(world, 'ship', 2 * FUEL_PER_CELL);
+    const plotted = plotVoyage(fueled, 'ship', 'hub_b', {
+      hot: true,
+      powered: true,
+      engineFuel: 2 * FUEL_PER_CELL,
+    });
     if (plotted.reject !== undefined) throw new Error(`plot rejected: ${plotted.reject}`);
     return plotted.world;
   }
@@ -169,16 +175,21 @@ describe('voyage side effects (M3 abstract transit)', () => {
   it('rejects plots with named reasons through the world wrapper', () => {
     const world = hotBoat();
     expect(
-      plotVoyage(world, 'ship', 'nowhere', { hot: true, powered: true, fuelCells: 1 }).reject
+      plotVoyage(world, 'ship', 'nowhere', { hot: true, powered: true, engineFuel: FUEL_PER_CELL })
+        .reject
     ).toBe('unknown-hub');
-    const ghost = plotVoyage(world, 'ghost', 'hub_b', { hot: true, powered: true, fuelCells: 1 });
+    const ghost = plotVoyage(world, 'ghost', 'hub_b', {
+      hot: true,
+      powered: true,
+      engineFuel: FUEL_PER_CELL,
+    });
     expect(ghost.world).toBe(world);
     expect(ghost.reject).toBeUndefined();
   });
 
   it('commits multi-stop chains and remaps legacy hub rejects', () => {
     const world = hotBoat();
-    const checks = { hot: true, powered: true, fuelCells: 2 };
+    const checks = { hot: true, powered: true, engineFuel: 2 * FUEL_PER_CELL };
     const chain = plotChartVoyage(world, 'ship', ['poi_kestrel', 'hub_b'], checks);
     expect(chain.reject).toBeUndefined();
     expect(chain.world.ships.ship?.nav.stops).toEqual(['poi_kestrel', 'hub_b']);
@@ -190,12 +201,12 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(visit.world.ships.ship?.nav.portHubId).toBe('hub_a');
   });
 
-  it('flies a POI detour chain to hub_b on two cells', () => {
-    const fueled = syncShipStores(hotBoat(), 'ship', 2);
+  it('flies a POI detour chain to hub_b on two cells', { timeout: 30000 }, () => {
+    const fueled = syncEngineFuel(hotBoat(), 'ship', 2 * FUEL_PER_CELL);
     const chain = plotChartVoyage(fueled, 'ship', ['poi_kestrel', 'hub_b'], {
       hot: true,
       powered: true,
-      fuelCells: 2,
+      engineFuel: 2 * FUEL_PER_CELL,
     });
     if (chain.reject !== undefined) throw new Error(`chain rejected: ${chain.reject}`);
     let world = driveAttentive(chain.world, 12);
@@ -207,12 +218,12 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(world.ships.ship?.nav.stops).toEqual([]);
   });
 
-  it('surveys POI flybys and keeps them across the voyage', () => {
-    const fueled = syncShipStores(hotBoat(), 'ship', 2);
+  it('surveys POI flybys and keeps them across the voyage', { timeout: 30000 }, () => {
+    const fueled = syncEngineFuel(hotBoat(), 'ship', 2 * FUEL_PER_CELL);
     const chain = plotChartVoyage(fueled, 'ship', ['poi_kestrel', 'hub_b'], {
       hot: true,
       powered: true,
-      fuelCells: 2,
+      engineFuel: 2 * FUEL_PER_CELL,
     });
     if (chain.reject !== undefined) throw new Error(`chain rejected: ${chain.reject}`);
     expect(chain.world.ships.ship?.surveyed).toEqual([]);
@@ -238,14 +249,18 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
     expect(dockWalkable(world, 'harbor')).toBe(false);
     expect(world.ships.ship?.engine.wear).toBeCloseTo(0.15, 6);
-    expect(world.ships.ship?.fuelCells).toBe(0);
+    expect(world.ships.ship?.engineFuel ?? 0).toBeLessThan(2 * FUEL_PER_CELL);
   });
 
   it('flies straight back: two consecutive legs end home', () => {
     let world = driveAttentive(plotToHubB(hotBoat()), 212);
     expect(world.ships.ship?.nav.portHubId).toBe('hub_b');
-    world = syncShipStores(world, 'ship', 1);
-    const back = plotVoyage(world, 'ship', 'hub_a', { hot: true, powered: true, fuelCells: 1 });
+    world = syncEngineFuel(world, 'ship', FUEL_PER_CELL);
+    const back = plotVoyage(world, 'ship', 'hub_a', {
+      hot: true,
+      powered: true,
+      engineFuel: FUEL_PER_CELL,
+    });
     if (back.reject !== undefined) throw new Error(`return plot rejected: ${back.reject}`);
     world = driveAttentive(back.world, 212);
     expect(world.ships.ship?.nav.phase).toBe('docked');

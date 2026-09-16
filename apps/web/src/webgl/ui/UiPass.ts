@@ -98,6 +98,8 @@ export function engineConsoleIntent(
 ): ClientIntent | null {
   if (id === 'spool') return { type: 'ENGINE_TUNE', seq: 0, spoolCmd: systems.spool > 0.5 ? 0 : 1 };
   if (id === 'tuneDown' || id === 'tuneUp') return engineTuneIntent(id, systems);
+  if (id === 'loadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'load' };
+  if (id === 'unloadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'unload' };
   return null;
 }
 

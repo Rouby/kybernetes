@@ -10,7 +10,15 @@ import { SHIP_FAR_ORIGIN, SHIP_ORIGIN } from '../schedule.js';
 import { FIXED_DT, type VesselSchedulePhase, type World } from '../types.js';
 import { chartNodeFor, plotChartCourse } from './chart.js';
 import type { EngineState } from './engine.js';
-import { coldEngine, effectiveTune, serviceEngine, tickEngine, wearEngine } from './engine.js';
+import {
+  coldEngine,
+  effectiveTune,
+  FUEL_PER_CELL,
+  fuelMaxForTier,
+  serviceEngine,
+  tickEngine,
+  wearEngine,
+} from './engine.js';
 import {
   cancelLeg,
   DOCKED_NAV,
@@ -46,8 +54,10 @@ export interface ShipSystems {
   readonly nav: NavState;
   /** Hull condition 0-100; the host mirrors it into the ShipRecord. */
   readonly condition: number;
-  /** Fuel cells aboard; synced with the ShipRecord by the host. */
-  readonly fuelCells: number;
+  /** Flyable fuel-value in the engine bunker; synced with the ShipRecord. */
+  readonly engineFuel: number;
+  /** @deprecated mirror of engineFuel in legacy cell units; do not use. */
+  readonly fuelCells?: number;
   /** Surveyed POI ids (fog-of-war discovery); hubs are known by default. */
   readonly surveyed: readonly string[];
 }
@@ -61,7 +71,7 @@ export function defaultShipSystems(vesselId: string): ShipSystems {
     engine: coldEngine(),
     nav: { ...DOCKED_NAV },
     condition: FULL_CONDITION,
-    fuelCells: 1,
+    engineFuel: 0,
     surveyed: [],
   };
 }
@@ -89,10 +99,57 @@ export function syncShipTiers(
 }
 
 export function syncShipStores(world: World, vesselId: string, fuelCells: number): World {
-  if (!Number.isFinite(fuelCells) || fuelCells < 0) return world;
+  return syncEngineFuel(world, vesselId, Math.floor(fuelCells * 1000));
+}
+
+/** Sync the engine bunker fuel-value (preferred; syncShipStores is legacy). */
+export function syncEngineFuel(world: World, vesselId: string, engineFuel: number): World {
+  if (!Number.isFinite(engineFuel) || engineFuel < 0) return world;
   const current = world.ships[vesselId];
-  if (current === undefined || current.fuelCells === fuelCells) return world;
-  return updateSystems(world, vesselId, (systems) => ({ ...systems, fuelCells }));
+  if (current === undefined || current.engineFuel === engineFuel) return world;
+  return updateSystems(world, vesselId, (systems) => ({ ...systems, engineFuel }));
+}
+
+function loadFuelCellSafe(
+  looseCells: number,
+  engineFuel: number,
+  tier: EngineTier
+): { looseCells: number; engineFuel: number } | undefined {
+  if (!Number.isInteger(looseCells) || looseCells < 1) return undefined;
+  if (!Number.isFinite(engineFuel) || engineFuel < 0) return undefined;
+  if (engineFuel + FUEL_PER_CELL > fuelMaxForTier(tier)) return undefined;
+  return { looseCells: looseCells - 1, engineFuel: engineFuel + FUEL_PER_CELL };
+}
+
+function unloadFuelCellSafe(
+  looseCells: number,
+  engineFuel: number
+): { looseCells: number; engineFuel: number } | undefined {
+  if (!Number.isInteger(looseCells) || looseCells < 0) return undefined;
+  if (!Number.isFinite(engineFuel) || engineFuel < FUEL_PER_CELL) return undefined;
+  return { looseCells: looseCells + 1, engineFuel: engineFuel - FUEL_PER_CELL };
+}
+
+export type FuelTransfer =
+  | { readonly ok: true; readonly looseCells: number; readonly engineFuel: number }
+  | { readonly ok: false; readonly reason: 'no-cell' | 'no-room' | 'no-fuel' };
+
+/** Pure load: one loose cell -> +FUEL_PER_CELL bunker (docked, engine console). */
+export function transferFuelToEngine(
+  looseCells: number,
+  engineFuel: number,
+  engineTier: EngineTier
+): FuelTransfer {
+  const out = loadFuelCellSafe(looseCells, engineFuel, engineTier);
+  if (out === undefined) return { ok: false, reason: looseCells < 1 ? 'no-cell' : 'no-room' };
+  return { ok: true, looseCells: out.looseCells, engineFuel: out.engineFuel };
+}
+
+/** Pure unload: -FUEL_PER_CELL bunker -> one loose cell. */
+export function transferFuelFromEngine(looseCells: number, engineFuel: number): FuelTransfer {
+  const out = unloadFuelCellSafe(looseCells, engineFuel);
+  if (out === undefined) return { ok: false, reason: 'no-fuel' };
+  return { ok: true, looseCells: out.looseCells, engineFuel: out.engineFuel };
 }
 
 /**
@@ -109,7 +166,7 @@ export function plotChartVoyage(
   const ensured = ensureShipSystems(world, vesselId);
   const current = ensured.ships[vesselId];
   if (current === undefined) return { world: ensured };
-  const plotted = plotChartCourse(current.nav, stops, checks, thrust01);
+  const plotted = plotChartCourse(current.nav, stops, checks, thrust01, current.engineTier);
   if (!('nav' in plotted)) return { world: ensured, reject: plotted.reject };
   return {
     world: {
@@ -214,7 +271,7 @@ function tickOneVessel(systems: ShipSystems, dtSeconds: number, tick: number): S
     engine,
     { hot: reactor.hot, scrammed: reactor.scrammed },
     systems.engineTier,
-    systems.fuelCells,
+    systems.engineFuel,
     dtSeconds,
     tick * FIXED_DT
   );
@@ -223,12 +280,12 @@ function tickOneVessel(systems: ShipSystems, dtSeconds: number, tick: number): S
     reactor === systems.reactor &&
     engine === systems.engine &&
     leg.nav === systems.nav &&
-    leg.fuelCells === systems.fuelCells &&
+    leg.engineFuel === systems.engineFuel &&
     condition === systems.condition
   ) {
     return systems;
   }
-  return { ...systems, reactor, engine, nav: leg.nav, fuelCells: leg.fuelCells, condition };
+  return { ...systems, reactor, engine, nav: leg.nav, engineFuel: leg.engineFuel, condition };
 }
 
 function applyScramDamage(

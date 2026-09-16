@@ -17,11 +17,10 @@ import {
 
 export type NavPanelPhase = 'docked' | 'spooling' | 'in_transit' | 'docking' | 'unknown';
 
-/** Wallet shows whole cells, fractional burns show one decimal. */
-export function formatFuelCells(cells: number): string {
-  if (!Number.isFinite(cells)) return '0';
-  if (Number.isInteger(cells)) return String(cells);
-  return (Math.round(cells * 10) / 10).toFixed(1);
+/** Bunker fuel-value display: integer units (1 cell = 1000 fuel). */
+export function formatFuel(fuel: number): string {
+  if (!Number.isFinite(fuel)) return '0';
+  return String(Math.max(0, Math.floor(fuel)));
 }
 
 export interface NavViewModel {
@@ -31,7 +30,11 @@ export interface NavViewModel {
   readonly otherHubId: string;
   readonly otherHubLabel: string;
   readonly countdownS: number;
+  /** Loose cells in hold (kept for compat; use fuel for flight readiness). */
   readonly fuelCells: number;
+  /** Flyable fuel-value in the engine bunker. */
+  readonly fuel: number;
+  readonly fuelMax: number;
   readonly fuelNeeded: number;
   /** Soft planning aid; null when sufficient or not plottable. Never blocks plot. */
   readonly fuelWarning: string | null;
@@ -120,6 +123,8 @@ export function navViewModel(
   const portHubId = nav?.portHubId ?? 'hub_a';
   const other = otherHub(portHubId);
   const fuelCells = status?.stores.fuelCells ?? 0;
+  const fuel = systems?.fuel ?? status?.engineFuel ?? 0;
+  const fuelMax = systems?.fuelMax ?? 0;
   const voyage = projectSingleHop(portHubId, other, status, systems);
   return {
     phase: navPhase(nav),
@@ -130,8 +135,10 @@ export function navViewModel(
     otherHubLabel: hubLabel(other),
     countdownS: countdownFor(nav),
     fuelCells,
+    fuel,
+    fuelMax,
     fuelNeeded: voyage.fuelNeeded,
-    fuelWarning: lowFuelWarning(nav, fuelCells, voyage.fuelNeeded),
+    fuelWarning: lowFuelWarning(nav, fuel, voyage.fuelNeeded),
     heatWarning: heatWarningFor(nav, voyage.heatRisk),
     ...manifestViewModel(nav, portHubId, other, chart ?? null),
     ...strandedViewModel(nav),
@@ -215,7 +222,7 @@ function projectSingleHop(
     tune: systems?.tune ?? 1,
     wear: systems?.wear ?? 0,
   });
-  if (!('plan' in result)) return { fuelNeeded: 1, heatRisk: false };
+  if (!('plan' in result)) return { fuelNeeded: 1000, heatRisk: false };
   return { fuelNeeded: result.plan.fuelNeeded, heatRisk: result.plan.heatRisk };
 }
 
@@ -274,12 +281,12 @@ function heatWarningFor(nav: NavStateBroadcast | null, heatRisk: boolean): strin
 
 function lowFuelWarning(
   nav: NavStateBroadcast | null,
-  fuelCells: number,
+  fuel: number,
   fuelNeeded: number
 ): string | null {
   if (nav?.phase !== 'docked') return null;
-  if (fuelCells >= fuelNeeded) return null;
-  return `LOW FUEL: NEED ${formatFuelCells(fuelNeeded)} HOLD ${formatFuelCells(fuelCells)}`;
+  if (fuel >= fuelNeeded) return null;
+  return `LOW FUEL ${formatFuel(fuelNeeded)}/${formatFuel(fuel)} LOAD CELLS`;
 }
 
 function estimateEta(

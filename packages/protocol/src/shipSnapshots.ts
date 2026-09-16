@@ -25,6 +25,7 @@ export interface ShipStatusSource {
   readonly locationHubId: string;
   readonly alive: boolean;
   readonly stores: ShipStatusStores;
+  readonly engineFuel?: number;
 }
 
 export interface ShipStatusBroadcast {
@@ -41,6 +42,7 @@ export interface ShipStatusBroadcast {
   readonly locationHubId: string;
   readonly alive: boolean;
   readonly stores: ShipStatusStores;
+  readonly engineFuel: number;
 }
 
 export type ShipLostReason = 'reactor' | 'vitals' | 'hull' | 'admin';
@@ -73,6 +75,7 @@ export function makeShipStatus(
     locationHubId: record.locationHubId,
     alive: record.alive,
     stores: record.stores,
+    engineFuel: record.engineFuel ?? 0,
   };
 }
 
@@ -92,6 +95,9 @@ export interface ShipSystemsSource {
   readonly wear: number;
   readonly brownout: boolean;
   readonly condition: number;
+  readonly fuel?: number;
+  readonly fuelMax?: number;
+  readonly fuelSlots?: number;
 }
 
 export interface ShipSystemsBroadcast {
@@ -114,6 +120,9 @@ export interface ShipSystemsBroadcast {
   readonly wear: number;
   readonly brownout: boolean;
   readonly condition: number;
+  readonly fuel: number;
+  readonly fuelMax: number;
+  readonly fuelSlots: number;
 }
 
 export function makeShipSystems(
@@ -141,6 +150,9 @@ export function makeShipSystems(
     wear: q2(systems.wear),
     brownout: systems.brownout,
     condition: q1(systems.condition),
+    fuel: Math.floor(systems.fuel ?? 0),
+    fuelMax: Math.floor(systems.fuelMax ?? 0),
+    fuelSlots: Math.floor(systems.fuelSlots ?? 0),
   };
 }
 

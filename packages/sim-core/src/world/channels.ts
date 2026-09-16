@@ -45,7 +45,7 @@ import { samePortalGeometry, snapshotBreachFields } from './breachView.js';
 import { deathCauseFor } from './death.js';
 import { snapshotDecalsOf } from './decals.js';
 import { chartSnapshotNodes } from './ship/chart.js';
-import { engineDemandMw } from './ship/engine.js';
+import { engineDemandMw, engineSpecFor } from './ship/engine.js';
 import { listingsFor } from './ship/market.js';
 import { reactorBandFor, reactorOutputMw } from './ship/reactor.js';
 import { type PawnVitals, spareRounds } from './survival.js';
@@ -559,6 +559,9 @@ export function buildShipSystems(
       wear: systems.engine.wear,
       brownout: systems.engine.brownout,
       condition: systems.condition,
+      fuel: systems.engineFuel,
+      fuelMax: engineSpecFor(systems.engineTier).fuelSlots * 1000,
+      fuelSlots: engineSpecFor(systems.engineTier).fuelSlots,
     },
     world.tick,
     nowMs

@@ -95,6 +95,7 @@ function status(): ShipStatusBroadcast {
     locationHubId: 'hub_a',
     alive: true,
     stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 2 },
+    engineFuel: 2000,
   };
 }
 
@@ -172,8 +173,8 @@ describe('previewCourse', () => {
     expect(preview).toMatchObject({
       routeLabel: '??>KEPLER',
       totalS: 53,
-      fuelNeeded: 2,
-      fuelCells: 2,
+      fuelNeeded: 345,
+      fuelCells: 2000,
       heatRisk: false,
     });
     expect(preview?.stops).toEqual(['poi_kestrel', 'hub_b']);
@@ -181,9 +182,9 @@ describe('previewCourse', () => {
 
   it('scales time and fuel with draft throttle', () => {
     const slow = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart(), 0.5);
-    expect(slow).toMatchObject({ thrustPct: 50, totalS: 146, fuelNeeded: 1 });
+    expect(slow).toMatchObject({ thrustPct: 50, totalS: 146, fuelNeeded: 759 });
     const full = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart());
-    expect(full).toMatchObject({ thrustPct: 100, totalS: 53, fuelNeeded: 2 });
+    expect(full).toMatchObject({ thrustPct: 100, totalS: 53, fuelNeeded: 345 });
   });
 
   it('projects a direct hop without a via leg', () => {

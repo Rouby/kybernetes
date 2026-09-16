@@ -95,10 +95,13 @@ describe('storesLine', () => {
     expect(storesLine(null)).toBe('stores:-');
   });
 
-  it('reads rations, water, o2, and fuel', () => {
+  it('reads rations, water, o2, loose fuel, and bunker', () => {
     expect(
-      storesLine({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 } } as never)
-    ).toBe('stores:rations x2 water x4 o2 x2 fuel x1');
+      storesLine({
+        stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 },
+        engineFuel: 1450,
+      } as never)
+    ).toBe('stores:rations x2 water x4 o2 x2 fuel x1 bunker 1450');
   });
 });
 

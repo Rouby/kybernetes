@@ -62,9 +62,14 @@ describe('solo-ship wire (M1)', () => {
     expect(validateClientIntent({ type: 'ENGINE_TUNE', seq: 8, spoolCmd: 0, tuneSet: 9 }).ok).toBe(
       false
     );
+    expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 9, op: 'load' }).ok).toBe(true);
+    expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 10, op: 'unload' }).ok).toBe(true);
+    expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 11, op: 'vent' }).ok).toBe(false);
+    expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 12 }).ok).toBe(false);
     expect(INTENT_RATE_LIMIT_PER_SECOND.REACTOR_TUNE).toBe(8);
     expect(INTENT_RATE_LIMIT_PER_SECOND.REACTOR_RESTART).toBe(8);
     expect(INTENT_RATE_LIMIT_PER_SECOND.ENGINE_TUNE).toBe(8);
+    expect(INTENT_RATE_LIMIT_PER_SECOND.ENGINE_FUEL).toBe(4);
   });
 
   it('builds quantized SHIP_SYSTEMS snapshots', () => {
@@ -85,6 +90,9 @@ describe('solo-ship wire (M1)', () => {
         wear: 0,
         brownout: false,
         condition: 99.95,
+        fuel: 1450,
+        fuelMax: 2000,
+        fuelSlots: 2,
       },
       43,
       1100
@@ -94,6 +102,9 @@ describe('solo-ship wire (M1)', () => {
     expect(systems.tempK).toBe(660.1);
     expect(systems.rods).toBe(0.33);
     expect(systems.condition).toBe(100);
+    expect(systems.fuel).toBe(1450);
+    expect(systems.fuelMax).toBe(2000);
+    expect(systems.fuelSlots).toBe(2);
   });
 
   it('validates nav intents and rate-limits them at 2Hz', () => {

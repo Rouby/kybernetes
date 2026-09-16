@@ -84,7 +84,7 @@ describe('SimHost solo spawn (M1)', () => {
         ...host.currentWorld.ships,
         ship: {
           ...systems,
-          fuelCells: 0,
+          engineFuel: 0,
           nav: {
             phase: 'in_transit',
             destHubId: 'hub_b',
@@ -120,7 +120,7 @@ describe('SimHost solo spawn (M1)', () => {
           ...host.currentWorld.ships,
           ship: {
             ...systems,
-            fuelCells: 0,
+            engineFuel: 0,
             nav: {
               phase: 'in_transit',
               destHubId: 'hub_b',
@@ -161,7 +161,7 @@ describe('SimHost solo spawn (M1)', () => {
           ...host.currentWorld.ships,
           ship: {
             ...systems,
-            fuelCells: 0,
+            engineFuel: 0,
             nav: {
               phase: 'in_transit',
               destHubId,
@@ -205,7 +205,7 @@ describe('SimHost solo spawn (M1)', () => {
         ship: {
           ...systems,
           engine: { ...systems.engine, tune: 0 },
-          fuelCells: 1,
+          engineFuel: 1000,
           nav: {
             phase: 'in_transit',
             destHubId: 'hub_b',
@@ -222,8 +222,11 @@ describe('SimHost solo spawn (M1)', () => {
     });
     for (let i = 0; i < 3; i += 1) host.slice(1000 + i * 50, 50);
     host.drainShipNotices();
-    expect(host.currentWorld.ships.ship?.fuelCells).toBe(0);
-    expect(host.shipRecordFor('u1')?.stores.fuelCells).toBe(0);
+    const kernelFuel = host.currentWorld.ships.ship?.engineFuel ?? Number.NaN;
+    expect(kernelFuel).toBeLessThan(700);
+    expect(kernelFuel).toBeGreaterThan(690);
+    expect(host.shipRecordFor('u1')?.engineFuel).toBe(kernelFuel);
+    expect(host.shipRecordFor('u1')?.stores.fuelCells).toBe(1);
     host.stop();
   });
 

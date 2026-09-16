@@ -9,10 +9,12 @@
 
 import type { ChartNodeState } from '@kybernetes/protocol';
 import { planTripLeg, torchAccel } from '../../astro/guidance.js';
-import { effectiveTune, engineSpecFor, speedFactor } from './engine.js';
+import { effectiveTune, fuelCostForLeg, HEAT_EXTRA_FUEL, speedFactor } from './engine.js';
 import {
+  checksEngineFuel,
   clampThrust01,
   DOCKED_NAV,
+  hopScaledS,
   LOW_TUNE_BURN,
   legDurationSeconds,
   type NavState,
@@ -151,7 +153,7 @@ function planHop(
       fromId,
       toId,
       legS,
-      fuel: engineSpecFor(req.tier).fuelPerLeg * thrust,
+      fuel: fuelCostForLeg(req.tier, thrust, legS),
       known: known.has(toId),
     },
   };
@@ -161,7 +163,7 @@ function summarizeVoyage(hops: readonly ChartHop[], req: VoyageRequest): VoyageP
   const tuneWear = saneTuneWear(req.tune, req.wear);
   const heatRisk = effectiveTune(tuneWear) < LOW_TUNE_BURN;
   let totalS = 0;
-  let fuelNeeded = heatRisk ? 1 : 0;
+  let fuelNeeded = heatRisk ? HEAT_EXTRA_FUEL : 0;
   const unknowns: string[] = [];
   for (const hop of hops) {
     totalS += hop.legS;
@@ -205,7 +207,8 @@ export function plotChartCourse(
   nav: NavState,
   stops: readonly string[],
   checks: PlotChecks,
-  thrust01 = 1
+  thrust01 = 1,
+  engineTier = 0 as import('./shipRecord.js').EngineTier
 ): { nav: NavState } | { reject: PlotReject } {
   if (nav.phase !== 'docked') return { reject: 'already-underway' };
   if (stops.length === 0) return { reject: 'empty-voyage' };
@@ -215,9 +218,16 @@ export function plotChartCourse(
   if (chainRepeats(nav.portHubId, stops)) return { reject: 'same-stop' };
   const last = stops[stops.length - 1];
   if (last === undefined) return { reject: 'empty-voyage' };
+  const first = stops[0] ?? last;
   const thrust = clampThrust01(thrust01);
   if (!checks.hot || !checks.powered) return { reject: 'no-power' };
-  if (!Number.isFinite(checks.fuelCells) || checks.fuelCells < thrust) return { reject: 'no-fuel' };
+  const fuel = checksEngineFuel(checks);
+  const need = fuelCostForLeg(
+    engineTier,
+    thrust,
+    hopScaledS(nav.portHubId, first, engineTier, thrust)
+  );
+  if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
   return {
     nav: {
       ...DOCKED_NAV,

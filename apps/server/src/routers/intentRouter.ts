@@ -411,7 +411,7 @@ function routeNavPlot(
   const checks = {
     hot: systems.reactor.hot && !systems.reactor.scrammed,
     powered: output >= engineDemandMw(systems.engine.spool),
-    fuelCells: systems.fuelCells,
+    engineFuel: systems.engineFuel,
   };
   const thrust = intent.thrust01 ?? 1;
   // Empty waypoints take the legacy path so stale clients see identical notices.

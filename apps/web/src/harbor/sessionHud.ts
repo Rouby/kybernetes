@@ -70,7 +70,8 @@ export function vitalsLine(socket: HudVitalsSource): string {
 export function storesLine(status: ShipStatusBroadcast | null): string {
   const stores = status?.stores;
   if (stores === undefined) return 'stores:-';
-  return `stores:rations x${stores.rations} water x${stores.waterL} o2 x${stores.o2Cells} fuel x${stores.fuelCells}`;
+  const bunker = status?.engineFuel ?? 0;
+  return `stores:rations x${stores.rations} water x${stores.waterL} o2 x${stores.o2Cells} fuel x${stores.fuelCells} bunker ${bunker}`;
 }
 
 export function offerLine(offer: HarborSocket['offer']): string {

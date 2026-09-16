@@ -8,7 +8,16 @@
  */
 
 import { planTripLeg, torchAccel } from '../../astro/guidance.js';
-import { type EngineState, effectiveTune, engineSpecFor, speedFactor } from './engine.js';
+import {
+  type EngineState,
+  effectiveTune,
+  engineSpecFor,
+  fuelCostForLeg,
+  fuelMaxForTier,
+  fuelRateForLeg,
+  HEAT_EXTRA_FUEL,
+  speedFactor,
+} from './engine.js';
 import { chartLaneFraction, HUB_A, isHubId } from './ports.js';
 import type { EngineTier } from './shipRecord.js';
 
@@ -83,6 +92,16 @@ export function thrustBurnCells(tier: EngineTier, thrust01: number): number {
   return engineSpecFor(tier).fuelPerLeg * clampThrust01(thrust01);
 }
 
+/** Fuel-value cost of one hop at throttle for a known leg duration. */
+export function thrustBurnFuel(tier: EngineTier, thrust01: number, legS: number): number {
+  return fuelCostForLeg(tier, thrust01, legS);
+}
+
+/** Heat penalty in fuel-value (cold tune mid-leg extra burn). */
+export function heatBurnFuel(thrust01: number): number {
+  return Math.max(1, Math.round(HEAT_EXTRA_FUEL * clampThrust01(thrust01)));
+}
+
 /** Leg seconds from guidance when clocked, else the lane-table nominal. */
 export function legWindowS(
   fromId: string,
@@ -116,7 +135,10 @@ export function isUnderway(nav: NavState): boolean {
 export interface PlotChecks {
   readonly hot: boolean;
   readonly powered: boolean;
-  readonly fuelCells: number;
+  /** Flyable fuel-value in the engine bunker (replaces loose fuelCells). */
+  readonly engineFuel: number;
+  /** @deprecated loose cells; accepted as fallback (cells*1000) during migration. */
+  readonly fuelCells?: number;
 }
 
 export type PlotReject =
@@ -129,16 +151,26 @@ export type PlotReject =
   | 'empty-voyage'
   | 'same-stop';
 
+/** Resolve flyable fuel from checks (prefers engineFuel, falls back to cells). */
+export function checksEngineFuel(checks: PlotChecks): number {
+  if (Number.isFinite(checks.engineFuel)) return checks.engineFuel;
+  if (Number.isFinite(checks.fuelCells)) return (checks.fuelCells as number) * 1000;
+  return Number.NaN;
+}
+
 export function plotCourse(
   nav: NavState,
   destHubId: string,
-  checks: PlotChecks
+  checks: PlotChecks,
+  engineTier: EngineTier = 0
 ): { nav: NavState } | { reject: PlotReject } {
   if (nav.phase !== 'docked') return { reject: 'already-underway' };
   if (!isHubId(destHubId)) return { reject: 'unknown-hub' };
   if (destHubId === nav.portHubId) return { reject: 'same-hub' };
   if (!checks.hot || !checks.powered) return { reject: 'no-power' };
-  if (!Number.isFinite(checks.fuelCells) || checks.fuelCells < 1) return { reject: 'no-fuel' };
+  const fuel = checksEngineFuel(checks);
+  const need = fuelCostForLeg(engineTier, 1, hopScaledS(nav.portHubId, destHubId, engineTier, 1));
+  if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
   return {
     nav: {
       phase: 'spooling',
@@ -212,23 +244,25 @@ export function tickNavLeg(
   engine: EngineState,
   reactor: ReactorPower,
   engineTier: EngineTier,
-  fuelCells: number,
+  engineFuel: number,
   dtSeconds: number,
   nowS?: number
-): { nav: NavState; fuelCells: number } {
-  if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return { nav, fuelCells };
-
+): { nav: NavState; engineFuel: number; fuelCells: number } {
+  if (!Number.isFinite(dtSeconds) || dtSeconds <= 0)
+    return { nav, engineFuel, fuelCells: engineFuel };
   if (nav.phase === 'spooling') {
-    return tickSpooling(nav, engine, reactor, engineTier, fuelCells, dtSeconds, nowS);
+    const out = tickSpooling(nav, engine, reactor, engineTier, engineFuel, dtSeconds, nowS);
+    return { nav: out.nav, engineFuel: out.engineFuel, fuelCells: out.engineFuel };
   }
-
   if (nav.phase === 'in_transit') {
-    return tickTransit(nav, engine, reactor, engineTier, fuelCells, dtSeconds, nowS);
+    const out = tickTransit(nav, engine, reactor, engineTier, engineFuel, dtSeconds, nowS);
+    return { nav: out.nav, engineFuel: out.engineFuel, fuelCells: out.engineFuel };
   }
-
-  if (nav.phase === 'docking') return tickDocking(nav, fuelCells, dtSeconds);
-
-  return { nav, fuelCells };
+  if (nav.phase === 'docking') {
+    const out = tickDocking(nav, engineFuel, dtSeconds);
+    return { nav: out.nav, engineFuel: out.engineFuel, fuelCells: out.engineFuel };
+  }
+  return { nav, engineFuel, fuelCells: engineFuel };
 }
 
 function tickSpooling(
@@ -236,18 +270,18 @@ function tickSpooling(
   engine: EngineState,
   reactor: ReactorPower,
   engineTier: EngineTier,
-  fuelCells: number,
+  engineFuel: number,
   dtSeconds: number,
   nowS: number | undefined
-): { nav: NavState; fuelCells: number } {
-  if (!reactor.hot || reactor.scrammed) return { nav, fuelCells };
+): { nav: NavState; engineFuel: number } {
+  if (!reactor.hot || reactor.scrammed) return { nav, engineFuel };
   const remaining = nav.remainingS - dtSeconds;
-  if (remaining > 0) return { nav: { ...nav, remainingS: remaining }, fuelCells };
-  const burn = thrustBurnCells(engineTier, nav.thrust01);
-  if (engine.spool < SPOOL_READY || fuelCells < burn) {
-    return { nav: { ...nav, remainingS: 0 }, fuelCells };
-  }
+  if (remaining > 0) return { nav: { ...nav, remainingS: remaining }, engineFuel };
   const firstLegS = legWindowS(nav.portHubId, hopTo(nav), engineTier, nav.thrust01, nowS);
+  const need = fuelCostForLeg(engineTier, nav.thrust01, firstLegS);
+  if (engine.spool < SPOOL_READY || engineFuel < need) {
+    return { nav: { ...nav, remainingS: 0 }, engineFuel };
+  }
   return {
     nav: {
       ...nav,
@@ -255,7 +289,7 @@ function tickSpooling(
       remainingS: firstLegS,
       legTotalS: firstLegS,
     },
-    fuelCells: fuelCells - burn,
+    engineFuel,
   };
 }
 
@@ -264,40 +298,54 @@ function tickTransit(
   engine: EngineState,
   reactor: ReactorPower,
   engineTier: EngineTier,
-  fuelCells: number,
+  engineFuel: number,
   dtSeconds: number,
   nowS: number | undefined
-): { nav: NavState; fuelCells: number } {
-  if (nav.flameout) return tickStranded(nav, reactor, engineTier, fuelCells, dtSeconds);
-  if (reactor.scrammed) return { nav, fuelCells };
-
-  const burned = burnExtraFuel(nav, engine, engineTier, fuelCells);
+): { nav: NavState; engineFuel: number } {
+  if (nav.flameout) return tickStranded(nav, reactor, engineTier, engineFuel, dtSeconds);
+  if (reactor.scrammed) return { nav, engineFuel };
+  const burned = burnExtraFuel(nav, engine, engineTier, engineFuel);
   if (burned.nav.flameout) return burned;
+  const stepBurn = fuelRateForLeg(engineTier, nav.thrust01) * dtSeconds;
+  const fuelAfter = burned.engineFuel - stepBurn;
+  if (fuelAfter <= 0) {
+    return { nav: { ...burned.nav, flameout: true }, engineFuel: 0 };
+  }
   const remaining = burned.nav.remainingS - dtSeconds * speedFactor(engine);
   if (remaining > 0)
-    return { nav: { ...burned.nav, remainingS: remaining }, fuelCells: burned.fuelCells };
-
-  return finishHop(burned.nav, engineTier, burned.fuelCells, nowS);
+    return { nav: { ...burned.nav, remainingS: remaining }, engineFuel: fuelAfter };
+  return finishHop(burned.nav, engineTier, fuelAfter, nowS);
 }
 
 /**
- * Frozen leg clock with two ways back: a hailed drone covers the owed
- * cell on arrival, or burning a restored cell resumes immediately. Both
- * need a hot, unscrammed reactor; ration pressure does the rest.
+ * Frozen leg clock with two ways back: a hailed drone refuels the
+ * remainder on arrival, or restored bunker fuel resumes the burn
+ * immediately. Both need a hot, unscrammed reactor.
  */
 function tickStranded(
   nav: NavState,
   reactor: ReactorPower,
   engineTier: EngineTier,
-  fuelCells: number,
+  engineFuel: number,
   dtSeconds: number
-): { nav: NavState; fuelCells: number } {
+): { nav: NavState; engineFuel: number } {
   const hailed = tickHail(nav, dtSeconds);
-  if (!hailed.flameout) return { nav: hailed, fuelCells };
-  if (!reactor.hot || reactor.scrammed) return { nav: hailed, fuelCells };
-  const burn = thrustBurnCells(engineTier, hailed.thrust01);
-  if (fuelCells < burn) return { nav: hailed, fuelCells };
-  return { nav: { ...hailed, flameout: false, hailS: 0 }, fuelCells: fuelCells - burn };
+  if (!hailed.flameout) {
+    if (nav.flameout && nav.hailS > 0) {
+      return { nav: hailed, engineFuel: refuelFromDrone(engineTier, hailed, engineFuel) };
+    }
+    return { nav: hailed, engineFuel };
+  }
+  if (!reactor.hot || reactor.scrammed) return { nav: hailed, engineFuel };
+  if (engineFuel <= 0) return { nav: hailed, engineFuel };
+  return { nav: { ...hailed, flameout: false, hailS: 0 }, engineFuel };
+}
+
+/** Rescue-drone refuel: covers the estimated remainder of the live hop. */
+function refuelFromDrone(engineTier: EngineTier, nav: NavState, engineFuel: number): number {
+  const grant = fuelRateForLeg(engineTier, nav.thrust01) * Math.max(0, nav.remainingS);
+  const max = fuelMaxForTier(engineTier);
+  return Math.min(max, engineFuel + grant);
 }
 
 function tickHail(nav: NavState, dtSeconds: number): NavState {
@@ -309,10 +357,10 @@ function tickHail(nav: NavState, dtSeconds: number): NavState {
 function finishHop(
   nav: NavState,
   engineTier: EngineTier,
-  fuelCells: number,
+  engineFuel: number,
   nowS: number | undefined
-): { nav: NavState; fuelCells: number } {
-  if (nav.legIndex + 1 < nav.stops.length) return advanceHop(nav, engineTier, fuelCells, nowS);
+): { nav: NavState; engineFuel: number } {
+  if (nav.legIndex + 1 < nav.stops.length) return advanceHop(nav, engineTier, engineFuel, nowS);
   return {
     nav: {
       ...nav,
@@ -320,30 +368,29 @@ function finishHop(
       destHubId: nav.destHubId,
       remainingS: DOCKING_S,
     },
-    fuelCells,
+    engineFuel,
   };
 }
 
 function advanceHop(
   nav: NavState,
   engineTier: EngineTier,
-  fuelCells: number,
+  engineFuel: number,
   nowS: number | undefined
-): { nav: NavState; fuelCells: number } {
+): { nav: NavState; engineFuel: number } {
   const next = nav.legIndex + 1;
   const from = nav.stops[nav.legIndex] ?? nav.portHubId;
   const to = nav.stops[next] ?? nav.destHubId ?? nav.portHubId;
   const baseS = legWindowS(from, to, engineTier, nav.thrust01, nowS);
-  const burn = thrustBurnCells(engineTier, nav.thrust01);
-  if (fuelCells < burn) {
+  if (engineFuel <= 0) {
     return {
       nav: { ...nav, legIndex: next, remainingS: baseS, legTotalS: baseS, flameout: true },
-      fuelCells,
+      engineFuel: 0,
     };
   }
   return {
     nav: { ...nav, legIndex: next, remainingS: baseS, legTotalS: baseS },
-    fuelCells: fuelCells - burn,
+    engineFuel,
   };
 }
 
@@ -351,30 +398,27 @@ function burnExtraFuel(
   nav: NavState,
   engine: EngineState,
   engineTier: EngineTier,
-  fuelCells: number
-): { nav: NavState; fuelCells: number } {
+  engineFuel: number
+): { nav: NavState; engineFuel: number } {
   const halfHop =
     (nav.legTotalS ?? hopScaledS(hopFrom(nav), hopTo(nav), engineTier, nav.thrust01)) / 2;
   if (nav.extraBurned || nav.remainingS > halfHop) {
-    return { nav, fuelCells };
+    return { nav, engineFuel };
   }
-
   const claimed = { ...nav, extraBurned: true };
-  if (effectiveTune(engine) >= LOW_TUNE_BURN) return { nav: claimed, fuelCells };
-
-  const burn = thrustBurnCells(engineTier, nav.thrust01);
-  if (fuelCells >= burn) return { nav: claimed, fuelCells: fuelCells - burn };
-
-  return { nav: { ...claimed, flameout: true }, fuelCells };
+  if (effectiveTune(engine) >= LOW_TUNE_BURN) return { nav: claimed, engineFuel };
+  const burn = heatBurnFuel(nav.thrust01);
+  if (engineFuel >= burn) return { nav: claimed, engineFuel: engineFuel - burn };
+  return { nav: { ...claimed, flameout: true }, engineFuel: 0 };
 }
 
 function tickDocking(
   nav: NavState,
-  fuelCells: number,
+  engineFuel: number,
   dtSeconds: number
-): { nav: NavState; fuelCells: number } {
+): { nav: NavState; engineFuel: number } {
   const remaining = nav.remainingS - dtSeconds;
-  if (remaining > 0) return { nav: { ...nav, remainingS: remaining }, fuelCells };
+  if (remaining > 0) return { nav: { ...nav, remainingS: remaining }, engineFuel };
   return {
     nav: {
       phase: 'docked',
@@ -389,6 +433,6 @@ function tickDocking(
       legIndex: 0,
       thrust01: 1,
     },
-    fuelCells,
+    engineFuel,
   };
 }

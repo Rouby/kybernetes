@@ -146,6 +146,16 @@ describe('console intents', () => {
       spoolCmd: 0,
       tuneSet: 0,
     });
+    expect(engineConsoleIntent('loadFuel', systems)).toEqual({
+      type: 'ENGINE_FUEL',
+      seq: 0,
+      op: 'load',
+    });
+    expect(engineConsoleIntent('unloadFuel', systems)).toEqual({
+      type: 'ENGINE_FUEL',
+      seq: 0,
+      op: 'unload',
+    });
     expect(engineConsoleIntent('close', systems)).toBeNull();
   });
 

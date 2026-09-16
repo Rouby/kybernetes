@@ -99,6 +99,7 @@ export interface ChartPreview {
   readonly routeLabel: string;
   readonly totalS: number;
   readonly fuelNeeded: number;
+  /** Bunker fuel-value available (renamed from cells; now fuel units). */
   readonly fuelCells: number;
   readonly heatRisk: boolean;
   readonly thrustPct: number;
@@ -164,7 +165,7 @@ export function previewCourse(
     routeLabel: labels.join('>'),
     totalS: planned.plan.totalS,
     fuelNeeded: planned.plan.fuelNeeded,
-    fuelCells: status?.stores.fuelCells ?? 0,
+    fuelCells: status?.engineFuel ?? 0,
     heatRisk: planned.plan.heatRisk,
     thrustPct: Math.round(thrust01 * 100),
   };

@@ -307,7 +307,6 @@ export class ShipAudioEngine {
     this.uiSynth.playPromptChirp(this.busManager.uiGain);
   }
 
-  // fallow-ignore-next-line unused-class-member -- no debrief flow on the v2 client yet
   public playDebriefStamp(): void {
     if (!this.busManager || !this.uiSynth) return;
     this.uiSynth.playDebriefStamp(this.busManager.uiGain);
@@ -366,7 +365,6 @@ export class ShipAudioEngine {
     this.uiSynth.playTelemetrySquelch(this.busManager.uiGain, 0.5);
   }
 
-  // fallow-ignore-next-line unused-class-member -- no blast events on the v2 client yet
   public playExplosionShockwave(): void {
     if (!this.busManager || !this.vitalsSynth) return;
     this.vitalsSynth.playTinnitusRing(this.busManager.crisisGain, 3.5, 0.7);

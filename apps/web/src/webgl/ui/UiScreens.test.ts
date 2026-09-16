@@ -53,6 +53,9 @@ function makeSystems(over: Partial<ShipSystemsBroadcast> = {}): ShipSystemsBroad
     wear: 0.1,
     brownout: false,
     condition: 100,
+    fuel: 1500,
+    fuelMax: 2000,
+    fuelSlots: 2,
     ...over,
   };
 }
@@ -92,6 +95,7 @@ function makeStatus(): ShipStatusBroadcast {
     locationHubId: 'hub_a',
     alive: true,
     stores: { rations: 1, waterL: 1, o2Cells: 1, fuelCells: 3 },
+    engineFuel: 1500,
   };
 }
 
@@ -449,7 +453,7 @@ describe('console screens', () => {
       atSeconds: 1 * FIXED_DT,
     });
     if (!('plan' in quoted)) throw new Error('quote should succeed');
-    expect(texts).toContain(`TIME ${quoted.plan.totalS}S FUEL NEED 2 HAVE 3`);
+    expect(texts).toContain(`TIME ${quoted.plan.totalS}S FUEL ${quoted.plan.fuelNeeded}/1500`);
     expect(texts).toContain('THRUST 100%');
     expect(layout.buttons.map((b) => b.id)).toEqual([
       'plot:hub_b',
@@ -484,7 +488,7 @@ describe('console screens', () => {
       atSeconds: 1 * FIXED_DT,
     });
     if (!('plan' in half)) throw new Error('half quote should succeed');
-    expect(throttledTexts).toContain(`TIME ${half.plan.totalS}S FUEL NEED 1 HAVE 3`);
+    expect(throttledTexts).toContain(`TIME ${half.plan.totalS}S FUEL ${half.plan.fuelNeeded}/1500`);
     const plain = layoutNavScreen(
       W,
       H,
@@ -511,11 +515,19 @@ describe('console screens', () => {
   });
 
   it('nav surfaces a low-fuel soft warning without hiding plot', () => {
-    const sys = makeSystems();
+    const sys = makeSystems({ fuel: 0, fuelMax: 2000 });
     const empty = { rations: 1, waterL: 1, o2Cells: 1, fuelCells: 0 };
-    const status = { ...makeStatus(), stores: empty };
+    const status = { ...makeStatus(), stores: empty, engineFuel: 0 };
     const layout = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, status);
-    expect(layout.texts.map((t) => t.text)).toContain('LOW FUEL: NEED 1 HOLD 0');
+    const single = planVoyage({
+      fromId: 'hub_a',
+      stops: ['hub_b'],
+      tier: 0,
+      tune: sys.tune,
+      wear: sys.wear,
+    });
+    const need = single !== null && 'plan' in single ? single.plan.fuelNeeded : 215;
+    expect(layout.texts.map((t) => t.text)).toContain(`LOW FUEL ${need}/0 LOAD CELLS`);
     expect(layout.buttons.map((b) => b.id)).toContain('plot:hub_b');
     expectContained(
       layout.panel,

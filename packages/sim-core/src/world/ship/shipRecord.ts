@@ -31,6 +31,8 @@ export interface ShipRecord {
   readonly locationHubId: string;
   readonly alive: boolean;
   readonly stores: ShipStores;
+  /** Flyable fuel-value in the engine bunker (loose cells live in stores). */
+  readonly engineFuel: number;
 }
 
 export const STARTER_HULL_ID = 'skiff_alpha';
@@ -51,6 +53,7 @@ export function createStarterSkiff(ownerId: string): ShipRecord {
     locationHubId: STARTER_HUB_ID,
     alive: true,
     stores: { ...STARTER_STORES },
+    engineFuel: 0,
   };
 }
 
@@ -100,10 +103,18 @@ export function restoreShipRecord(raw: string): ShipRecord | undefined {
     if (!isTier(parsed.reactorTier) || !isTier(parsed.engineTier)) return undefined;
     if (!Number.isFinite(parsed.credits) || !Number.isFinite(parsed.condition)) return undefined;
     if (typeof parsed.alive !== 'boolean' || !isStores(parsed.stores)) return undefined;
-    return parsed as ShipRecord;
+    const engineFuel = parseEngineFuel(parsed.engineFuel);
+    if (engineFuel === undefined) return undefined;
+    return { ...(parsed as ShipRecord), engineFuel };
   } catch {
     return undefined;
   }
+}
+
+function parseEngineFuel(value: unknown): number | undefined {
+  if (value === undefined) return 0;
+  if (!Number.isFinite(value) || (value as number) < 0) return undefined;
+  return Math.floor(value as number);
 }
 
 function isTier(value: unknown): value is ReactorTier {

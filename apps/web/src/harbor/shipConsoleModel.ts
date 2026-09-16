@@ -30,6 +30,11 @@ export interface EngineViewModel {
   readonly wearPct: number;
   readonly brownout: boolean;
   readonly spoolLabel: string;
+  readonly fuel: number;
+  readonly fuelMax: number;
+  readonly fuelSlots: number;
+  readonly fuelPct: number;
+  readonly fuelLabel: string;
 }
 
 const SCRAM_CRITICAL_MARGIN_K = 60;
@@ -53,12 +58,20 @@ export function reactorViewModel(systems: ShipSystemsBroadcast): ReactorViewMode
 }
 
 export function engineViewModel(systems: ShipSystemsBroadcast): EngineViewModel {
+  const fuel = Math.max(0, Math.floor(systems.fuel ?? 0));
+  const fuelMax = Math.max(1, Math.floor(systems.fuelMax ?? 2000));
+  const fuelSlots = Math.max(1, Math.floor(systems.fuelSlots ?? 2));
   return {
     spoolPct: Math.round(systems.spool * 100),
     tunePct: Math.round(systems.tune * 100),
     wearPct: Math.round(systems.wear * 100),
     brownout: systems.brownout,
     spoolLabel: systems.spool > 0.5 ? 'SPOOL OFF' : 'SPOOL ON',
+    fuel,
+    fuelMax,
+    fuelSlots,
+    fuelPct: Math.max(0, Math.min(100, Math.round((fuel / fuelMax) * 100))),
+    fuelLabel: `FUEL ${fuel}/${fuelMax} SLOTS ${fuelSlots}`,
   };
 }
 

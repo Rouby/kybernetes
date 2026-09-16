@@ -415,6 +415,12 @@ export function validateCargoRepack(raw: Record<string, unknown>): ValidateResul
   return { ok: true, intent: { type: 'CARGO_REPACK', seq: raw.seq as number, items } };
 }
 
+export function validateEngineFuel(raw: Record<string, unknown>): ValidateResult {
+  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
+  if (raw.op !== 'load' && raw.op !== 'unload') return fail('bad-field', 'op');
+  return { ok: true, intent: { type: 'ENGINE_FUEL', seq: raw.seq as number, op: raw.op } };
+}
+
 export function validateEngineTune(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   if (raw.spoolCmd !== 0 && raw.spoolCmd !== 1) return fail('bad-field', 'spoolCmd');

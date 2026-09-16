@@ -24,7 +24,7 @@ import {
 } from '../../harbor/chartModel';
 import { deathHint, deathTitle } from '../../harbor/deathNotice';
 import type { MarketScreenModel, MarketTableCell, SellScreenModel } from '../../harbor/marketModel';
-import { formatFuelCells, type NavViewModel, navViewModel } from '../../harbor/navConsoleModel';
+import { formatFuel, type NavViewModel, navViewModel } from '../../harbor/navConsoleModel';
 import { engineViewModel, reactorViewModel } from '../../harbor/shipConsoleModel';
 import {
   GAME_OVER_BODY,
@@ -486,6 +486,13 @@ function engineTextsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly 
     textAt(`SPOOL ${vm.spoolPct}%`, tx, y0 + KICKER_SIZE + 8, BODY_SIZE, 'primary'),
     textAt(`TUNE ${vm.tunePct}%`, tx, y0 + KICKER_SIZE + 8 + LINE_H, BODY_SIZE, 'primary'),
     textAt(`WEAR ${vm.wearPct}%`, tx, y0 + KICKER_SIZE + 8 + LINE_H * 2, BODY_SIZE, 'muted'),
+    textAt(
+      uiEllipsize(vm.fuelLabel, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * 3,
+      BODY_SIZE,
+      'primary'
+    ),
   ];
   if (vm.brownout)
     rows.push(textAt('BROWNOUT', tx, y0 + KICKER_SIZE + 8 + LINE_H * 3, BODY_SIZE, 'danger'));
@@ -494,9 +501,22 @@ function engineTextsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly 
 
 function engineButtonsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly UiButton[] {
   const vm = engineViewModel(systems);
-  const top = panel.y + panel.h - PAD - (4 * BTN_H + 3 * GAP);
-  const labels = { spool: vm.spoolLabel, tuneDown: 'TUNE -', tuneUp: 'TUNE +', close: 'CLOSE [E]' };
-  return columnFor(panel, top, ['spool', 'tuneDown', 'tuneUp', 'close'], labels, 'spool');
+  const top = panel.y + panel.h - PAD - (6 * BTN_H + 5 * GAP);
+  const labels = {
+    spool: vm.spoolLabel,
+    tuneDown: 'TUNE -',
+    tuneUp: 'TUNE +',
+    loadFuel: 'LOAD CELL',
+    unloadFuel: 'UNLOAD',
+    close: 'CLOSE [E]',
+  };
+  return columnFor(
+    panel,
+    top,
+    ['spool', 'tuneDown', 'tuneUp', 'loadFuel', 'unloadFuel', 'close'],
+    labels,
+    'spool'
+  );
 }
 
 export function layoutEngineScreen(
@@ -551,7 +571,7 @@ function navTextsFor(
   line += 1;
   rows.push(
     textAt(
-      `FUEL ${formatFuelCells(vm.fuelCells)}`,
+      `FUEL ${formatFuel(vm.fuel)} CELLS ${vm.fuelCells}`,
       tx,
       y0 + KICKER_SIZE + 8 + LINE_H * line,
       BODY_SIZE,
@@ -659,7 +679,7 @@ function pushPreviewRows(
       'muted'
     )
   );
-  const fuel = `TIME ${course.totalS}S FUEL NEED ${formatFuelCells(course.fuelNeeded)} HAVE ${formatFuelCells(course.fuelCells)}`;
+  const fuel = `TIME ${course.totalS}S FUEL ${formatFuel(course.fuelNeeded)}/${formatFuel(course.fuelCells)}`;
   rows.push(
     textAt(
       uiEllipsize(fuel, PREVIEW_FONT, innerW),
@@ -1232,7 +1252,7 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   customize: ['back', 'embark'],
   intro: ['embark'],
   reactor: ['rodsDown', 'rodsUp', 'coolantDown', 'coolantUp', 'restart', 'close'],
-  engine: ['spool', 'tuneDown', 'tuneUp', 'close'],
+  engine: ['spool', 'tuneDown', 'tuneUp', 'loadFuel', 'unloadFuel', 'close'],
   nav: ['plot:hub_b', 'via:poi_kestrel', 'via:poi_vigil', 'close'],
   cargo: ['unpackAll', 'drop', 'packHold', 'close'],
   market: ['buy', 'sell', 'close'],

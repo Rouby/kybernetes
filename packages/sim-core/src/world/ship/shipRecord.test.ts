@@ -21,6 +21,7 @@ describe('shipRecord (M1 ownership)', () => {
     expect(ship.alive).toBe(true);
     expect(ship.credits).toBe(20);
     expect(ship.stores.fuelCells).toBe(1);
+    expect(ship.engineFuel).toBe(0);
     expect(isShipLost(ship)).toBe(false);
   });
 
@@ -28,6 +29,13 @@ describe('shipRecord (M1 ownership)', () => {
     const ship = createStarterSkiff('u2');
     const back = restoreShipRecord(serializeShipRecord(ship));
     expect(back).toEqual(ship);
+  });
+
+  it('restores legacy saves without engineFuel as empty bunker', () => {
+    const ship = createStarterSkiff('legacy');
+    const { engineFuel: _dropped, ...legacy } = ship as unknown as Record<string, unknown>;
+    void _dropped;
+    expect(restoreShipRecord(JSON.stringify(legacy))?.engineFuel).toBe(0);
   });
 
   it('rejects corrupt restores', () => {

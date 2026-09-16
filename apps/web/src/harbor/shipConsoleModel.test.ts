@@ -48,10 +48,14 @@ describe('shipConsoleModel (M2 panels)', () => {
   });
 
   it('reads engine spool tune and brownout', () => {
-    const vm = engineViewModel(systems());
+    const vm = engineViewModel(systems({ fuel: 1450, fuelMax: 2000, fuelSlots: 2 }));
     expect(vm.spoolPct).toBe(100);
     expect(vm.spoolLabel).toBe('SPOOL OFF');
     expect(vm.brownout).toBe(false);
+    expect(vm.fuel).toBe(1450);
+    expect(vm.fuelMax).toBe(2000);
+    expect(vm.fuelSlots).toBe(2);
+    expect(vm.fuelLabel).toBe('FUEL 1450/2000 SLOTS 2');
     const stalled = engineViewModel(systems({ spool: 0.2, brownout: true }));
     expect(stalled.spoolLabel).toBe('SPOOL ON');
     expect(stalled.brownout).toBe(true);

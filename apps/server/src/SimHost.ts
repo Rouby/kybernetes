@@ -28,6 +28,7 @@ import {
   debitShip,
   type EngineTier,
   FIXED_DT,
+  type FuelTransfer,
   type HireOfferRecord,
   type HopCursor,
   HUB_A,
@@ -45,15 +46,18 @@ import {
   restartRun,
   roomContainingPoint,
   type ShipRecord,
+  type ShipSystems,
   settleLegFood,
   spawnCrate,
   spawnPawn,
   starvePawn,
   sweepFuelToStores,
-  syncShipStores,
+  syncEngineFuel,
   syncShipTiers,
   talkToCaptain,
   tickWorld,
+  transferFuelFromEngine,
+  transferFuelToEngine,
   tryBuy,
   trySell,
   type World,
@@ -123,6 +127,20 @@ export interface ShipNotice {
   readonly severity: NoticeBroadcast['severity'];
   readonly title: string;
   readonly message: string;
+}
+
+type EngineFuelGate =
+  | { readonly notice: string }
+  | { readonly record: ShipRecord; readonly systems: ShipSystems; readonly frameId: string };
+
+function moveBunkerFuel(
+  op: 'load' | 'unload',
+  record: ShipRecord,
+  systems: ShipSystems
+): FuelTransfer {
+  return op === 'load'
+    ? transferFuelToEngine(record.stores.fuelCells, systems.engineFuel, systems.engineTier)
+    : transferFuelFromEngine(record.stores.fuelCells, systems.engineFuel);
 }
 
 interface ShipEdgeMemory {
@@ -445,9 +463,54 @@ export class SimHost {
         return this.handleMarketBuy(clientId, intent.hubId, intent.items);
       case 'MARKET_SELL':
         return this.handleMarketSell(clientId, intent.hubId, intent.crateIds);
+      case 'ENGINE_FUEL':
+        return this.handleEngineFuel(clientId, intent.op);
       default:
         return undefined;
     }
+  }
+
+  /** Engine bunker load/unload: loose cells <-> fuel-value, docked at engine console. */
+  private handleEngineFuel(clientId: string, op: 'load' | 'unload'): HostIntentResult {
+    const gated = this.gateEngineFuel(clientId);
+    if (!('record' in gated)) return { notice: gated.notice };
+    const moved = moveBunkerFuel(op, gated.record, gated.systems);
+    if (!moved.ok) return { notice: `ENGINE_${moved.reason}` };
+    saveSoloShip(this.ships, {
+      ...gated.record,
+      stores: { ...gated.record.stores, fuelCells: moved.looseCells },
+      engineFuel: moved.engineFuel,
+    });
+    this.world = syncEngineFuel(this.world, gated.frameId, moved.engineFuel);
+    return { notice: 'ENGINE_ok' };
+  }
+
+  private gateEngineFuel(clientId: string): EngineFuelGate {
+    const client = this.clients.get(clientId);
+    if (client === undefined) return { notice: 'not-joined' };
+    return this.gateEngineFuelPawn(client);
+  }
+
+  private gateEngineFuelPawn(client: HostClient): EngineFuelGate {
+    const pawn = this.world.pawns[client.pawnId];
+    const systems = pawn === undefined ? undefined : this.world.ships[pawn.frameId];
+    if (pawn === undefined || systems === undefined) return { notice: 'ENGINE_denied' };
+    if (this.world.vessels[pawn.frameId] === undefined) return { notice: 'ENGINE_too-far' };
+    if (systems.nav.phase !== 'docked') return { notice: 'ENGINE_underway' };
+    if (isCarrying(this.world.cargo, client.pawnId)) return { notice: 'ENGINE_hands-full' };
+    if (!this.engineConsoleNear(pawn.frameId, pawn.pos)) return { notice: 'ENGINE_too-far' };
+    const record = getSoloShip(this.ships, client.userId);
+    if (record === undefined) return { notice: 'ENGINE_denied' };
+    return { record, systems, frameId: pawn.frameId };
+  }
+
+  private engineConsoleNear(frameId: string, pos: { x: number; y: number }): boolean {
+    return Object.values(this.world.fixtures).some(
+      (fix) =>
+        fix.kind === 'engine_console' &&
+        fix.roomId.startsWith(`${frameId}.`) &&
+        Math.hypot(pos.x - fix.pos.x, pos.y - fix.pos.y) <= 150
+    );
   }
 
   handleIntent(clientId: string, intent: ClientIntent): HostIntentResult {
@@ -619,7 +682,7 @@ export class SimHost {
     if (point === undefined) return { denied: 'no-spawn' };
     this.world = spawnPawn(this.world, soloSpawnRequest(pawnId, id, point, color, appearance));
     this.world = syncShipTiers(this.world, point.frameId, ship.reactorTier, ship.engineTier);
-    this.world = syncShipStores(this.world, point.frameId, ship.stores.fuelCells);
+    this.world = syncEngineFuel(this.world, point.frameId, ship.engineFuel);
     return { pawnId, resumed: false };
   }
 
@@ -649,7 +712,7 @@ export class SimHost {
     for (const systems of Object.values(this.world.ships)) {
       this.settleArrival(systems.vesselId, systems.nav.phase);
       notices.push(...this.drainVesselNotices(systems.vesselId));
-      this.mirrorHull(systems.vesselId, systems.condition, systems.fuelCells);
+      this.mirrorHull(systems.vesselId, systems.condition, systems.engineFuel);
     }
     return notices;
   }
@@ -747,14 +810,12 @@ export class SimHost {
     return undefined;
   }
 
-  private mirrorHull(vesselId: string, condition: number, fuelCells: number): void {
+  private mirrorHull(vesselId: string, condition: number, engineFuel: number): void {
     for (const userId of this.aboardUserIds(vesselId)) {
       const record = getSoloShip(this.ships, userId);
       if (record === undefined) continue;
-      const stores =
-        record.stores.fuelCells === fuelCells ? record.stores : { ...record.stores, fuelCells };
-      if (record.condition !== condition || stores !== record.stores) {
-        saveSoloShip(this.ships, { ...record, condition, stores });
+      if (record.condition !== condition || record.engineFuel !== engineFuel) {
+        saveSoloShip(this.ships, { ...record, condition, engineFuel });
       }
     }
   }
@@ -957,7 +1018,7 @@ export class SimHost {
     return routed.notice === undefined ? {} : { notice: routed.notice };
   }
 
-  /** Unpacked fuel cells feed ship stores immediately (flat-priced overhead). */
+  /** Unpacked fuel cells feed loose ship stores (load them into the engine separately). */
   private sweepUnpackedFuel(userId: string, pawnId: string): void {
     const pawn = this.world.pawns[pawnId];
     if (pawn === undefined || this.world.vessels[pawn.frameId] === undefined) return;
@@ -971,7 +1032,6 @@ export class SimHost {
       ...record,
       stores: { ...record.stores, fuelCells: refueled },
     });
-    this.world = syncShipStores(this.world, pawn.frameId, refueled);
   }
 
   private latchInput(pawnId: string, intent: ClientIntent, movement: readonly WorldInput[]): void {

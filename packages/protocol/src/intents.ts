@@ -162,6 +162,12 @@ export interface EngineTuneIntent {
   readonly tuneSet?: number;
 }
 
+export interface EngineFuelIntent {
+  readonly type: 'ENGINE_FUEL';
+  readonly seq: number;
+  readonly op: 'load' | 'unload';
+}
+
 export interface NavPlotIntent {
   readonly type: 'NAV_PLOT';
   readonly seq: number;
@@ -254,6 +260,7 @@ export type ClientIntent =
   | ReactorTuneIntent
   | ReactorRestartIntent
   | EngineTuneIntent
+  | EngineFuelIntent
   | NavPlotIntent
   | NavCancelIntent
   | DistressIntent
@@ -292,6 +299,7 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'REACTOR_TUNE',
   'REACTOR_RESTART',
   'ENGINE_TUNE',
+  'ENGINE_FUEL',
   'NAV_PLOT',
   'NAV_CANCEL',
   'DISTRESS',

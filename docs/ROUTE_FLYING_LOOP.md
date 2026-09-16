@@ -17,7 +17,7 @@ You are not a stick-and-rudder pilot. You are a **planner + caretaker**:
 
 - Two hubs only: `hub_a` (NEW ANCHORAGE) <-> `hub_b` (KEPLER YARD).
 - Phases: `docked → spooling (SPOOL_S=0s, lights off the tick the drive is ready) → in_transit (guidance-predicted leg times) → docking (DOCKING_S=0s, instant on arrival) → docked`. No dead air around flights.
-- Departure burns `engineSpecFor(tier).fuelPerLeg = 1` on spool→transit commit. Mid-leg second half with `effectiveTune < LOW_TUNE_BURN (0.4)` burns +1 or sets `flameout`.
+- Departure gates on the full first-hop fuel cost but subtracts nothing; the bunker drains continuously in flight at `fuelRateForLeg(tier, thrust)` per real second. Mid-leg second half with `effectiveTune < LOW_TUNE_BURN (0.4)` burns a `HEAT_EXTRA_FUEL` lump or sets `flameout` when dry.
 - Transit speed scales with `speedFactor = 0.55 + 0.45 * effectiveTune`. Tune decays underway (`TUNE_DECAY_PER_S=0.004`), wear caps tune (`WEAR_TUNE_PENALTY=0.5`, `WEAR_PER_LEG=0.15`).
 - Server hard-rejects plot with `no-fuel` / `no-power` / `already-underway` / `same-hub` (`plotCourse` in `navTransit.ts`).
 - Client: nav console shows PORT / DEST / ETA / FUEL / COUNTDOWN + FLAMEOUT flag. Plot allowed only when `phase === 'docked'`. Viewport stays interior top-down; transit is a HUD progress countdown.
@@ -81,9 +81,9 @@ interface VoyagePlan { hops: ChartHop[]; totalS: number; fuelNeeded: number; unk
 
 - Graph: `hub_a` <-> `hub_b` direct lane (1.0 leg) plus `poi_kestrel` (0.4/0.8) and `poi_vigil` (0.5/0.7) detours; kestrel<->vigil 0.3. Detour via Kestrel totals 1.2 legs (~+30s at T0).
 - `legS` per hop = `fraction * legDurationSeconds(tier) / speedFactor`, so direct-hop projection matches the leg machine exactly (150/110/80s).
-- `fuelNeeded` = 1 cell per hop + 1 reserve when `effectiveTune < 0.4` (mirrors the mid-leg extra burn).
+- `fuelNeeded` = summed per-hop burn-rate cost + `HEAT_EXTRA_FUEL` reserve when `effectiveTune < 0.4` (mirrors the mid-leg extra burn).
 - Uncharted pairs fall back to a full-leg cost so free plotting stays projectable later.
-- Execution is multi-hop since slice 1b: the leg machine ticks each hop, burns one cell per hop entry, and flames out between stops when dry. `NAV_PLOT` stays single-destination until slice 2.
+- Execution is multi-hop since slice 1b: the leg machine ticks each hop, drains the bunker continuously in flight, and flames out the moment it runs dry (mid-leg or at a hop boundary). A hailed rescue drone refuels the estimated remainder on arrival.
 - Discovery state (known/unknown + rumor hints) persists per crew/ship — TBD store; callers pass `knownIds` (hubs known by default).
 
 ## 6. Low-fuel soft warning (shipped)

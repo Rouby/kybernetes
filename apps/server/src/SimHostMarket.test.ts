@@ -141,7 +141,7 @@ describe('SimHost market trade (M5)', () => {
     host.stop();
   });
 
-  it('sweeps unpacked fuel into ship stores and syncs the reactor budget', () => {
+  it('sweeps unpacked fuel into loose stores without auto-fueling the bunker', () => {
     const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
     const pawnId = spawn(host);
     const world = host.currentWorld;
@@ -173,7 +173,7 @@ describe('SimHost market trade (M5)', () => {
     expect(unpacked.notice).toBe('CARGO_ok');
     expect(host.shipRecordFor('u1')?.stores.fuelCells).toBe(3);
     host.drainShipNotices();
-    expect(host.currentWorld.ships.ship?.fuelCells).toBe(3);
+    expect(host.currentWorld.ships.ship?.engineFuel).toBe(0);
     host.stop();
   });
 

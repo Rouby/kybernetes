@@ -104,6 +104,7 @@ describe('nav console intents', () => {
       color: '#fff',
     });
     world = core.ensureShipSystems(world, 'ship');
+    world = core.syncEngineFuel(world, 'ship', 2000);
     world = core.restartShipReactor(world, 'ship');
     return core.tuneShipEngine(world, 'ship', 1, 1);
   }
@@ -168,7 +169,7 @@ describe('nav console intents', () => {
   it('refuses plots without power, fuel, or proximity', async () => {
     const core = await import('@kybernetes/sim-core');
     const world = await bridgeWorld();
-    const dry = core.syncShipStores(world, 'ship', 0);
+    const dry = core.syncEngineFuel(world, 'ship', 0);
     expect(
       routeIntent(
         dry,

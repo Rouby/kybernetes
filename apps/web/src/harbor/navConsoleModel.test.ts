@@ -55,6 +55,9 @@ function systems(over: Partial<ShipSystemsBroadcast> = {}): ShipSystemsBroadcast
     wear: 0,
     brownout: false,
     condition: 100,
+    fuel: 1000,
+    fuelMax: 2000,
+    fuelSlots: 2,
     ...over,
   };
 }
@@ -74,6 +77,7 @@ function status(over: Partial<ShipStatusBroadcast> = {}): ShipStatusBroadcast {
     locationHubId: 'hub_a',
     alive: true,
     stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 },
+    engineFuel: 1000,
     ...over,
   };
 }
@@ -97,7 +101,8 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(vm.destLabel).toBe('—');
     expect(vm.etaS).toBe(150);
     expect(vm.fuelCells).toBe(1);
-    expect(vm.fuelNeeded).toBe(1);
+    expect(vm.fuel).toBe(1000);
+    expect(vm.fuelNeeded).toBe(215);
     expect(vm.fuelWarning).toBeNull();
     expect(vm.heatWarning).toBeNull();
   });
@@ -105,18 +110,22 @@ describe('navConsoleModel (M3 panel)', () => {
   it('warns softly on low fuel but keeps plot enabled', () => {
     const empty = navViewModel(
       nav(),
-      systems(),
-      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 0 } })
+      systems({ fuel: 0, fuelMax: 2000 }),
+      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 0 }, engineFuel: 0 })
     );
-    expect(empty.fuelNeeded).toBe(1);
-    expect(empty.fuelWarning).toBe('LOW FUEL: NEED 1 HOLD 0');
+    expect(empty.fuelNeeded).toBe(215);
+    expect(empty.fuelWarning).toBe('LOW FUEL 215/0 LOAD CELLS');
     expect(empty.canPlot).toBe(true);
   });
 
   it('projects extra burn when tune is cold', () => {
-    const cold = navViewModel(nav(), systems({ tune: 0.2, wear: 0 }), status());
-    expect(cold.fuelNeeded).toBe(2);
-    expect(cold.fuelWarning).toBe('LOW FUEL: NEED 2 HOLD 1');
+    const cold = navViewModel(
+      nav(),
+      systems({ tune: 0.2, wear: 0, fuel: 0, fuelMax: 2000 }),
+      status({ engineFuel: 0 })
+    );
+    expect(cold.fuelNeeded).toBe(515);
+    expect(cold.fuelWarning).toBe('LOW FUEL 515/0 LOAD CELLS');
     expect(cold.heatWarning).toBe('HEAT RISK: TUNE LOW');
     expect(cold.canPlot).toBe(true);
   });
@@ -124,8 +133,11 @@ describe('navConsoleModel (M3 panel)', () => {
   it('flags heat risk on a fueled cold leg', () => {
     const cold = navViewModel(
       nav(),
-      systems({ tune: 0.2, wear: 0 }),
-      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 2 } })
+      systems({ tune: 0.2, wear: 0, fuel: 2000, fuelMax: 2000 }),
+      status({
+        stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 2 },
+        engineFuel: 2000,
+      })
     );
     expect(cold.fuelWarning).toBeNull();
     expect(cold.heatWarning).toBe('HEAT RISK: TUNE LOW');
