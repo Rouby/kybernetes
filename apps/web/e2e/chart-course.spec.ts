@@ -203,16 +203,19 @@ const CORRIDOR_MID = { x: 12, y: 320 };
 const CORRIDOR_BOTTOM = { x: 12, y: 560 };
 const REACTOR_DOOR = { x: 60, y: 560 };
 const REACTOR_CONSOLE = { x: 110, y: 480, zoneId: 'restart' };
+// Engine console sits 60px east in the same room (170, 480).
 const TO_REACTOR = [BRIDGE_DOOR, CORRIDOR_TOP, CORRIDOR_MID, CORRIDOR_BOTTOM, REACTOR_DOOR];
 const TO_BRIDGE = [REACTOR_DOOR, CORRIDOR_BOTTOM, CORRIDOR_MID, CORRIDOR_TOP, BRIDGE_DOOR];
 
 test.describe('Star chart course plotting', () => {
   test.setTimeout(300000);
   let daemon: StartedDaemon | null = null;
-  test.beforeAll(async () => {
+  // Fresh daemon per attempt: plotting burns the starter cell and leaves
+  // docked state behind, so retries need a clean world, not a shared one.
+  test.beforeEach(async () => {
     daemon = await startDaemon();
   });
-  test.afterAll(async () => {
+  test.afterEach(async () => {
     await stopDaemon(daemon);
     daemon = null;
   });
@@ -223,16 +226,55 @@ test.describe('Star chart course plotting', () => {
     await clickZone(page, 'gl-splash', await waitUiZone(page, 'embark'));
     await page.waitForTimeout(1200);
     await clickZone(page, 'gl-splash', await waitUiZone(page, 'embark'));
-    const box = await page.getByTestId('harbor-canvas').boundingBox();
-    if (box === null) throw new Error('canvas missing: harbor-canvas');
+    const canvasBox = async (): Promise<{ x: number; y: number }> => {
+      const fresh = await page.getByTestId('harbor-canvas').boundingBox();
+      if (fresh === null) throw new Error('canvas missing: harbor-canvas');
+      return fresh;
+    };
     const clickUiZone = async (id: string): Promise<void> => {
       const zone = await waitUiZone(page, id);
-      await page.mouse.click(box.x + zone.x + zone.w / 2, box.y + zone.y + zone.h / 2);
+      const fresh = await canvasBox();
+      await page.mouse.click(fresh.x + zone.x + zone.w / 2, fresh.y + zone.y + zone.h / 2);
+    };
+    const clickZoneFresh = async (zone: UiZone): Promise<void> => {
+      const fresh = await canvasBox();
+      await page.mouse.click(fresh.x + zone.x + zone.w / 2, fresh.y + zone.y + zone.h / 2);
     };
     await expect(page.getByTestId('harbor-canvas')).toBeVisible({ timeout: 30000 });
     await waitForHarbor(page, 'harbor-pawn', (t) => t !== '' && t !== '-', 20000);
+    // Seal the suit for the long interior walks; slow runners otherwise die of hypoxia.
+    await page.keyboard.press('t');
+    await waitForHarbor(page, 'harbor-vitals', (t) => t.includes('suit:sealed'), 10000);
     expect(await walkRoute(page, TO_REACTOR, REACTOR_CONSOLE, 400)).toBe(true);
     await clickUiZone('restart');
+    await page.waitForTimeout(800);
+    await clickUiZone('close');
+    await page.waitForTimeout(800);
+    // Solo-ship trader loop: plots burn bunker fuel and departures need spool.
+    // Load the starter cell at the engine console, then latch spool before plotting.
+    // The engine sits 60px east in the same room; nudge east and tap E.
+    // Both consoles are in reach here, so close the reactor screen if it reopens.
+    let engineOpen = false;
+    for (let attempt = 0; attempt < 20 && !engineOpen; attempt += 1) {
+      const zonesNow = await uiZoneIds(page);
+      if (zonesNow.includes('loadFuel')) {
+        engineOpen = true;
+        break;
+      }
+      if (zonesNow.includes('restart')) {
+        await clickUiZone('close');
+        await page.waitForTimeout(400);
+      }
+      await page.keyboard.down('KeyD');
+      await page.waitForTimeout(250);
+      await page.keyboard.up('KeyD');
+      await page.keyboard.press('e');
+      await page.waitForTimeout(400);
+    }
+    expect(engineOpen || (await uiZoneIds(page)).includes('loadFuel')).toBe(true);
+    await clickUiZone('loadFuel');
+    await waitForHarbor(page, 'harbor-stores', (t) => t.includes('bunker 1000'), 20000);
+    await clickUiZone('spool');
     await page.waitForTimeout(800);
     await clickUiZone('close');
     await page.waitForTimeout(800);
@@ -247,7 +289,7 @@ test.describe('Star chart course plotting', () => {
     expect(via).toBeDefined();
     if (via === undefined) throw new Error('no POI detour zone');
     const zone = await waitUiZone(page, via);
-    await page.mouse.click(box.x + zone.x + zone.w / 2, box.y + zone.y + zone.h / 2);
+    await clickZoneFresh(zone);
     await page.waitForFunction(
       () => ((window as unknown as UiWindow).__uiZones ?? []).some((z) => z.id === 'confirm'),
       null,
@@ -256,17 +298,24 @@ test.describe('Star chart course plotting', () => {
     await page.waitForTimeout(800);
     await page.screenshot({ path: 'test-results/chart-preview.png' });
     const down = await waitUiZone(page, 'thrustDown');
-    await page.mouse.click(box.x + down.x + down.w / 2, box.y + down.y + down.h / 2);
-    await page.mouse.click(box.x + down.x + down.w / 2, box.y + down.y + down.h / 2);
+    await clickZoneFresh(down);
+    await clickZoneFresh(down);
     await page.waitForTimeout(800);
     expect(await uiZoneIds(page)).toContain('confirm');
     await page.screenshot({ path: 'test-results/chart-thrust.png' });
     const confirm = await waitUiZone(page, 'confirm');
-    await page.mouse.click(box.x + confirm.x + confirm.w / 2, box.y + confirm.y + confirm.h / 2);
+    await clickZoneFresh(confirm);
     await page.waitForFunction(
       () => !((window as unknown as UiWindow).__uiZones ?? []).some((z) => z.id === 'confirm'),
       null,
       { timeout: 15000 }
+    );
+    // Departure proves the server accepted the draft (needs bunker fuel + spool).
+    // Plot buttons vanish as soon as the leg leaves docked.
+    await page.waitForFunction(
+      () => !((window as unknown as UiWindow).__uiZones ?? []).some((z) => z.id === 'plot:hub_b'),
+      null,
+      { timeout: 30000 }
     );
     await page.waitForTimeout(14000);
     await expect(page.getByTestId('harbor-canvas')).toBeVisible();
