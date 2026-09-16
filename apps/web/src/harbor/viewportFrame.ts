@@ -118,6 +118,7 @@ import {
 } from './renderState';
 import type { ConsoleKind } from './sessionActions';
 import { actionHintsFor, type HintsInput } from './sessionHud';
+import type { ShipExhaustView } from './shipExhaust.js';
 
 const VIEW_MIN_H = 480;
 const CAMERA_LERP = 0.12;
@@ -248,6 +249,8 @@ export interface HarborViewportProps {
   fireSignalRef: MutableRef<number>;
   shotsRef: MutableRef<PredictedShot[]>;
   shipUnderway: boolean;
+  /** Authoritative torch state (nav + systems + owner tint); renderer burns this. */
+  shipExhaust?: ShipExhaustView;
   onFireDown: () => void;
   onFireUp: () => void;
   targetRef: { current: InteractTarget | null };
@@ -1045,6 +1048,7 @@ function viewportRenderState(args: {
     timeMs: now,
     shipOffset: shipOffsetOf(viewOrigins),
     shipUnderway: view.shipUnderway,
+    shipExhaust: view.shipExhaust,
     screenWidth: args.canvas.clientWidth,
     screenHeight: args.canvas.clientHeight,
   };

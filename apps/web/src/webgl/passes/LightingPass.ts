@@ -171,6 +171,28 @@ export class LightingPass {
     return lightIdx;
   }
 
+  /** Stern torch spill: first free dynamic slot after welders/projectiles. */
+  public pushSternLight(
+    x: number,
+    y: number,
+    radius: number,
+    intensity: number,
+    color: [number, number, number]
+  ): void {
+    for (let i = 0; i < 6; i += 1) {
+      if (this.currentLights[i * 4 + 2] <= 0) {
+        this.currentLights[i * 4 + 0] = x;
+        this.currentLights[i * 4 + 1] = y;
+        this.currentLights[i * 4 + 2] = radius;
+        this.currentLights[i * 4 + 3] = intensity;
+        this.currentLightColors[i * 3 + 0] = color[0];
+        this.currentLightColors[i * 3 + 1] = color[1];
+        this.currentLightColors[i * 3 + 2] = color[2];
+        return;
+      }
+    }
+  }
+
   /** Live projectiles into the uniform slots; returns the next free slot. */
   private accumulateProjectileLights(
     projectiles: ProjectileState[] | undefined,

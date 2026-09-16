@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createMockGl } from '../hud/HudTestUtils';
-import { PARTICLE_MAX_INSTANCES, ParticleSystem } from './ParticleSystem';
+import {
+  EXHAUST_MAX_PARTICLES,
+  IMPACT_MAX_PARTICLES,
+  PARTICLE_MAX_INSTANCES,
+  ParticleSystem,
+} from './ParticleSystem';
 
 function particleCount(system: ParticleSystem): number {
   return (system as unknown as { particles: unknown[] }).particles.length;
@@ -49,7 +54,48 @@ describe('thruster exhaust', () => {
   it('caps the shared pool under sustained burn', () => {
     const system = new ParticleSystem();
     for (let i = 0; i < 2000; i += 1) system.emitExhaust(100, 100, 1, 0, 1);
-    expect(particleCount(system)).toBeLessThanOrEqual(600);
+    expect(particleCount(system)).toBeLessThanOrEqual(IMPACT_MAX_PARTICLES);
+  });
+
+  it('streams layered plume particles with tint mix', () => {
+    const system = new ParticleSystem();
+    system.emitMainPlume(
+      100,
+      100,
+      0,
+      1,
+      { speedMin: 220, speedMax: 370, spreadRad: 0.1, coreMix: 0.4, alpha: 0.9, sourceWidth: 148 },
+      { r: 1, g: 0.65, b: 0.15 },
+      12
+    );
+    expect(system.exhaustCount()).toBe(12);
+    system.updateParticles(0.016);
+    expect(system.exhaustCount()).toBe(12);
+    expect(system.fxCount()).toBeGreaterThanOrEqual(12);
+  });
+
+  it('caps the exhaust pool near 900 under full torch', () => {
+    const system = new ParticleSystem();
+    const plume = {
+      speedMin: 220,
+      speedMax: 370,
+      spreadRad: 0.1,
+      coreMix: 0.4,
+      alpha: 0.9,
+      sourceWidth: 148,
+    };
+    for (let i = 0; i < 300; i += 1) {
+      system.emitMainPlume(100, 100, 0, 1, plume, { r: 0, g: 0.95, b: 1 }, 12);
+    }
+    expect(system.exhaustCount()).toBeLessThanOrEqual(EXHAUST_MAX_PARTICLES);
+  });
+
+  it('puffs RCS laterally for docking', () => {
+    const system = new ParticleSystem();
+    system.emitRcsPuff(50, 50, 1, 0, 0.8, { r: 0, g: 0.95, b: 1 });
+    expect(system.exhaustCount()).toBeGreaterThanOrEqual(4);
+    system.emitRcsPuff(50, 50, 1, 0, 0, { r: 0, g: 0.95, b: 1 });
+    expect(system.exhaustCount()).toBeGreaterThanOrEqual(4);
   });
 });
 

@@ -33,6 +33,7 @@ export * from './world/schedule';
 export * from './world/ship/cargo';
 export * from './world/ship/chart';
 export * from './world/ship/engine';
+export * from './world/ship/exhaust';
 export * from './world/ship/market';
 export * from './world/ship/navTransit';
 export * from './world/ship/packGame';

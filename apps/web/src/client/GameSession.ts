@@ -19,6 +19,7 @@ import type { FlightSnapshot, SmoothClock } from '../harbor/chartModel';
 import type { InteractTarget } from '../harbor/interactTarget';
 import type { PredictedShot } from '../harbor/predictedShots';
 import { withDockWalkable } from '../harbor/renderState';
+import { mapShipExhaust } from '../harbor/shipExhaust.js';
 import type { HarborViewportProps } from '../harbor/viewportFrame';
 import { type PackSnapshot, PackStore } from '../pack/PackStore';
 import { packLayoutFor } from '../webgl/ui/UiToolkit';
@@ -308,7 +309,14 @@ export class GameSession {
       aimLockedRef: this.aimLocked,
       fireSignalRef: this.fireSignalHolder,
       shotsRef: this.shotsHolder,
-      shipUnderway: state.watch?.phase === 'active_watch',
+      shipUnderway: isUnderway(state.navState?.phase, state.dock?.phase),
+      shipExhaust: mapShipExhaust(
+        state.navState,
+        state.shipSystems,
+        this.props.identity.thruster,
+        state.shipStatus?.engineTier,
+        state.dock?.phase
+      ),
       onFireDown: () => this.fire.pressFireStart(),
       onFireUp: () => this.fire.pressFireEnd(),
       targetRef: this.targetRef,
@@ -374,4 +382,10 @@ export class GameSession {
     this.sync();
     this.raf = requestAnimationFrame(this.tick);
   };
+}
+
+/** True while the vessel is maneuvering: committed nav leg or harbor transit. */
+function isUnderway(navPhase: unknown, dockPhase: unknown): boolean {
+  if (navPhase === 'spooling' || navPhase === 'in_transit' || navPhase === 'docking') return true;
+  return dockPhase === 'inbound' || dockPhase === 'departing';
 }

@@ -836,14 +836,16 @@ out vec4 fragColor;
 
 void main() {
   float alpha = v_col.a;
-  if (v_kind > 0.5) {
-    float d = length(v_p);
-    if (v_kind < 1.5) {
-      if (d > 0.5) discard;
-    } else {
-      alpha *= smoothstep(0.5, 0.1, d);
-    }
+  vec3 rgb = v_col.rgb;
+  float d = length(v_p);
+  if (v_kind > 0.5 && v_kind < 1.5) {
+    float body = smoothstep(0.5, 0.16, d);
+    if (body <= 0.003) discard;
+    alpha *= body;
+    rgb *= 1.0 + 0.8 * smoothstep(0.3, 0.0, d);
+  } else if (v_kind >= 1.5) {
+    alpha *= smoothstep(0.5, 0.1, d);
   }
-  fragColor = vec4(v_col.rgb, alpha);
+  fragColor = vec4(rgb, alpha);
 }
 `;

@@ -4,8 +4,11 @@ import { PARTICLE_INST_FS, PARTICLE_INST_VS } from '../shaders.js';
 
 /** Interleaved instance fields: x, y, size, kind, r, g, b, a. */
 const INSTANCE_FLOATS = 8;
-/** Worst case: 600 impact + 500 airflow + 40 motes, plus headroom. */
-export const PARTICLE_MAX_INSTANCES = 1200;
+/** 900 exhaust + 600 impact + 500 airflow, plus headroom. */
+export const PARTICLE_MAX_INSTANCES = 2000;
+/** Per-list caps so a sustained torch burn never starves impacts. */
+export const EXHAUST_MAX_PARTICLES = 900;
+export const IMPACT_MAX_PARTICLES = 600;
 
 const KIND_SQUARE = 0;
 const KIND_DISC = 1;
@@ -41,6 +44,38 @@ interface MuzzleFlash {
   maxLife: number;
 }
 
+export interface PlumeTint {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+export interface MainPlumeParams {
+  readonly speedMin: number;
+  readonly speedMax: number;
+  readonly spreadRad: number;
+  readonly coreMix: number;
+  readonly alpha: number;
+  /** Full source width px across the nozzle exit (fringe spans this). */
+  readonly sourceWidth: number;
+}
+
+interface ExhaustParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  g: number;
+  b: number;
+  size: number;
+  grow: number;
+  life: number;
+  maxLife: number;
+  seed: number;
+  core: boolean;
+}
+
 interface AirflowParticle {
   kind: 'vapor' | 'glint';
   x: number;
@@ -57,6 +92,7 @@ interface AirflowParticle {
 
 export class ParticleSystem {
   private particles: ImpactParticle[] = [];
+  private exhaust: ExhaustParticle[] = [];
   private airflowParticles: AirflowParticle[] = [];
   private dustMotes: DustMote[] = [];
   private muzzleFlashes: MuzzleFlash[] = [];
@@ -372,9 +408,116 @@ export class ParticleSystem {
         maxLife: 0.65,
       });
     }
-    if (this.particles.length > 600) {
-      this.particles.splice(0, this.particles.length - 600);
+    if (this.particles.length > IMPACT_MAX_PARTICLES) {
+      this.particles.splice(0, this.particles.length - IMPACT_MAX_PARTICLES);
     }
+  }
+
+  /** Expanse torch: white core + tinted body + expanding dissipation. */
+  public emitMainPlume(
+    x: number,
+    y: number,
+    dirX: number,
+    dirY: number,
+    params: MainPlumeParams,
+    tint: PlumeTint,
+    count: number
+  ): void {
+    if (count <= 0) return;
+    const len = Math.hypot(dirX, dirY) || 1;
+    const nx = dirX / len;
+    const ny = dirY / len;
+    for (let i = 0; i < count; i += 1) this.spawnPlumeParticle(x, y, nx, ny, params, tint);
+    this.trimExhaust();
+  }
+
+  private spawnPlumeParticle(
+    x: number,
+    y: number,
+    nx: number,
+    ny: number,
+    params: MainPlumeParams,
+    tint: PlumeTint
+  ): void {
+    const core = Math.random() < params.coreMix;
+    const jitter = (Math.random() - 0.5) * 2 * params.spreadRad;
+    const cos = Math.cos(jitter);
+    const sin = Math.sin(jitter);
+    const speed = params.speedMin + Math.random() * (params.speedMax - params.speedMin);
+    const coreSpeed = core ? speed * 1.2 : speed * (0.8 + Math.random() * 0.25);
+    const mix = core ? 0.85 : 0.3 + Math.random() * 0.3;
+    this.exhaust.push({
+      x: x + (Math.random() - 0.5) * params.sourceWidth,
+      y: y + (Math.random() - 0.5) * 12,
+      vx: (nx * cos - ny * sin) * coreSpeed,
+      vy: (nx * sin + ny * cos) * coreSpeed,
+      r: tint.r + (1 - tint.r) * mix,
+      g: tint.g + (1 - tint.g) * mix,
+      b: 1,
+      size: core ? 4.2 + Math.random() * 2.4 : 6 + Math.random() * 3.5,
+      grow: core ? 7 : 18 + Math.random() * 8,
+      life: core ? 0.34 + Math.random() * 0.22 : 0.42 + Math.random() * 0.3,
+      maxLife: 0.8,
+      seed: Math.random() * 100,
+      core,
+    });
+  }
+
+  /** Short lateral/retro puff for docking maneuvers. */
+  public emitRcsPuff(
+    x: number,
+    y: number,
+    dirX: number,
+    dirY: number,
+    strength: number,
+    tint: PlumeTint
+  ): void {
+    if (strength <= 0.03) return;
+    const len = Math.hypot(dirX, dirY) || 1;
+    const nx = dirX / len;
+    const ny = dirY / len;
+    const count = 2 + Math.round(strength * 3);
+    for (let i = 0; i < count; i += 1) this.spawnRcsParticle(x, y, nx, ny, strength, tint);
+    this.trimExhaust();
+  }
+
+  private spawnRcsParticle(
+    x: number,
+    y: number,
+    nx: number,
+    ny: number,
+    strength: number,
+    tint: PlumeTint
+  ): void {
+    const jitter = (Math.random() - 0.5) * 0.6;
+    const cos = Math.cos(jitter);
+    const sin = Math.sin(jitter);
+    const speed = (120 + Math.random() * 100) * (0.5 + strength * 0.7);
+    this.exhaust.push({
+      x: x + (Math.random() - 0.5) * 5,
+      y: y + (Math.random() - 0.5) * 5,
+      vx: (nx * cos - ny * sin) * speed,
+      vy: (nx * sin + ny * cos) * speed,
+      r: 0.6 + tint.r * 0.4,
+      g: 0.75 + tint.g * 0.25,
+      b: 1,
+      size: 3.5 + Math.random() * 2,
+      grow: 16,
+      life: 0.2 + Math.random() * 0.16,
+      maxLife: 0.42,
+      seed: Math.random() * 100,
+      core: false,
+    });
+  }
+
+  private trimExhaust(): void {
+    if (this.exhaust.length > EXHAUST_MAX_PARTICLES) {
+      this.exhaust.splice(0, this.exhaust.length - EXHAUST_MAX_PARTICLES);
+    }
+  }
+
+  public exhaustCount(): number {
+    return this.exhaust.length;
   }
 
   public emitAirflow(x: number, y: number, u: number, v: number, intensity = 1.0): void {
@@ -496,12 +639,7 @@ export class ParticleSystem {
     gl.bindVertexArray(null);
   }
 
-  /** Integrate every particle list once per frame (no GL calls). */
-  public updateParticles(dt: number): void {
-    for (const m of this.dustMotes) {
-      m.x = 60 + ((m.x + (m.vx + this.ambientWind.x * 0.35) * dt - 60 + 1080) % 1080);
-      m.y = 60 + ((m.y + (m.vy + this.ambientWind.y * 0.35) * dt - 60 + 680) % 680);
-    }
+  private integrateImpacts(dt: number): void {
     for (const p of this.particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
@@ -510,6 +648,28 @@ export class ParticleSystem {
       p.life -= dt;
     }
     this.particles = this.particles.filter((p) => p.life > 0);
+  }
+
+  private integrateExhaust(dt: number): void {
+    for (const p of this.exhaust) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.994;
+      p.vy *= 0.994;
+      p.size += p.grow * dt;
+      p.life -= dt;
+    }
+    this.exhaust = this.exhaust.filter((p) => p.life > 0);
+  }
+
+  /** Integrate every particle list once per frame (no GL calls). */
+  public updateParticles(dt: number): void {
+    for (const m of this.dustMotes) {
+      m.x = 60 + ((m.x + (m.vx + this.ambientWind.x * 0.35) * dt - 60 + 1080) % 1080);
+      m.y = 60 + ((m.y + (m.vy + this.ambientWind.y * 0.35) * dt - 60 + 680) % 680);
+    }
+    this.integrateImpacts(dt);
+    this.integrateExhaust(dt);
     for (const particle of this.airflowParticles) {
       particle.x += particle.vx * dt;
       particle.y += particle.vy * dt;
@@ -572,7 +732,7 @@ export class ParticleSystem {
     this.drawInstances(gl, matrix, this.dustMotes.length);
   }
 
-  /** Emissive-pass effects: impacts plus airflow in a single instanced draw. */
+  /** Emissive-pass effects: impacts + torch exhaust + airflow, one draw. */
   public renderFx(gl: WebGL2RenderingContext, matrix: Float32Array, timeSec: number): void {
     this.ensureGl(gl);
     let o = 0;
@@ -582,8 +742,30 @@ export class ParticleSystem {
       o = this.pushInstance(o, p.x, p.y, p.size, KIND_SQUARE, p.r, p.g, p.b, p.life / p.maxLife);
       count += 1;
     }
-    const fx = this.fillAirflowInstances(o, count, timeSec);
+    const withExhaust = this.fillExhaustInstances(o, count, timeSec);
+    const fx = this.fillAirflowInstances(withExhaust.offset, withExhaust.count, timeSec);
     this.drawInstances(gl, matrix, fx);
+  }
+
+  private fillExhaustInstances(
+    o: number,
+    count: number,
+    timeSec: number
+  ): { offset: number; count: number } {
+    for (const p of this.exhaust) {
+      if (count >= PARTICLE_MAX_INSTANCES) break;
+      const life01 = Math.max(0, Math.min(1, p.life / p.maxLife));
+      const progress = 1 - life01;
+      const flicker = 0.85 + 0.15 * Math.sin(timeSec * 31 + p.seed);
+      const envelope = Math.sin(Math.min(1, progress * 1.12) * Math.PI);
+      const alpha = Math.max(0, envelope * flicker);
+      const cool = 1 - 0.3 * progress;
+      const kind = p.core ? KIND_DISC : KIND_VAPOR;
+      const size = p.core ? p.size : p.size * (0.8 + 0.4 * Math.sqrt(progress));
+      o = this.pushInstance(o, p.x, p.y, size, kind, p.r * cool, p.g * cool, p.b, alpha);
+      count += 1;
+    }
+    return { offset: o, count };
   }
 
   private fillAirflowInstances(o: number, count: number, timeSec: number): number {
@@ -625,9 +807,12 @@ export class ParticleSystem {
     return count;
   }
 
-  /** Live effect count across impact and airflow lists (capped at the buffer). */
+  /** Live effect count across impact, exhaust and airflow lists (capped). */
   public fxCount(): number {
-    return Math.min(PARTICLE_MAX_INSTANCES, this.particles.length + this.airflowParticles.length);
+    return Math.min(
+      PARTICLE_MAX_INSTANCES,
+      this.particles.length + this.exhaust.length + this.airflowParticles.length
+    );
   }
 }
 

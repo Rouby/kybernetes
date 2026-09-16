@@ -34,6 +34,22 @@ export const THRUSTER_BELLS: ReadonlyArray<{ x: number; y: number }> = [
   { x: 170, y: 716 },
 ];
 
+/** Engine mount hardware in ship-local coords (single source of truth). */
+const ENGINE_HOUSING_RECT = { x: 38, y: 700, w: 144, h: 32 } as const;
+export const ENGINE_LIP_RECT = { x: 34, y: 726, w: 152, h: 8 } as const;
+
+/**
+ * Merged torch throat, derived from the lip: the exhaust fills the full
+ * exit plane by definition, so the plume root always matches the nozzle.
+ * A new hull only retargets ENGINE_LIP_RECT; every width below follows.
+ */
+export const SINGLE_PLUME_NOZZLE = {
+  x: ENGINE_LIP_RECT.x + ENGINE_LIP_RECT.w / 2,
+  y: 722,
+} as const;
+/** Half-width of the nozzle exit plane; the plume throat identity. */
+const NOZZLE_EXIT_HALF = ENGINE_LIP_RECT.w / 2;
+
 /** Tapered outer armor silhouette in ship-local coords (reference-ship style:
  * chamfered nose, straight mid-body, stepped engineering shoulders, flared
  * drive housing). Pure visuals: collision stays on the hull-compiler rects
@@ -100,9 +116,16 @@ function renderHullEngineHousing(
   prog: WebGLProgram
 ): void {
   gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.1, 0.12, 0.17, 1.0);
-  drawQuad(gl, buf, 38, 700, 144, 32);
+  drawQuad(
+    gl,
+    buf,
+    ENGINE_HOUSING_RECT.x,
+    ENGINE_HOUSING_RECT.y,
+    ENGINE_HOUSING_RECT.w,
+    ENGINE_HOUSING_RECT.h
+  );
   gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.16, 0.19, 0.26, 1.0);
-  drawQuad(gl, buf, 34, 726, 152, 8);
+  drawQuad(gl, buf, ENGINE_LIP_RECT.x, ENGINE_LIP_RECT.y, ENGINE_LIP_RECT.w, ENGINE_LIP_RECT.h);
 }
 
 function renderHullGreebles(
@@ -366,6 +389,88 @@ function accumulatePuncturePits(
     const cool = Math.min(1, Math.max(0, breach.ageTicks / 200));
     accumulatePit(layers, breach.cx + dx, breach.cy + dy, radius, 'kinetic_carbine', cool);
   }
+}
+
+/** Lerp one channel halfway toward white for the plume mid layer. */
+function mixTowardWhite(channel: number): number {
+  return channel + (1 - channel) * 0.45;
+}
+
+/** Vacuum skirt: narrow throat diverging into a diffuse trumpet (no confinement). */
+const SKIRT_PROFILE = [0.55, 0.66, 0.8, 0.96, 1.14, 1.34];
+/** Bright stub hugging the throat; the only collimated part in vacuum. */
+const CORE_PROFILE = [1, 0.9, 0.78, 0.64, 0.5, 0.38];
+
+/** Tapered plume strip from the throat, with a slight expansion bulge. */
+function plumeTaperTris(
+  halfRoot: number,
+  halfTip: number,
+  length: number,
+  wobble: number,
+  profile: readonly number[]
+): Float32Array {
+  const verts: number[] = [];
+  for (let i = 0; i < profile.length - 1; i += 1) {
+    const t0 = i / (profile.length - 1);
+    const t1 = (i + 1) / (profile.length - 1);
+    pushPlumeQuad(verts, profile, t0, t1, halfRoot, halfTip, length, wobble);
+  }
+  return new Float32Array(verts);
+}
+
+function plumeHalfWidth(
+  profile: readonly number[],
+  t: number,
+  halfRoot: number,
+  halfTip: number
+): number {
+  const idx = t * (profile.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.min(profile.length - 1, lo + 1);
+  const base = (profile[lo] ?? 1) + ((profile[hi] ?? 1) - (profile[lo] ?? 1)) * (idx - lo);
+  const bulge = 1 + 0.06 * Math.exp(-(((t - 0.2) / 0.16) ** 2));
+  return (halfRoot + (halfTip - halfRoot) * t) * base * bulge;
+}
+
+function pushPlumeQuad(
+  verts: number[],
+  profile: readonly number[],
+  t0: number,
+  t1: number,
+  halfRoot: number,
+  halfTip: number,
+  length: number,
+  wobble: number
+): void {
+  const cx = SINGLE_PLUME_NOZZLE.x;
+  const y0 = SINGLE_PLUME_NOZZLE.y + 2 + t0 * length;
+  const y1 = SINGLE_PLUME_NOZZLE.y + 2 + t1 * length;
+  const x0 = cx + wobble * t0;
+  const x1 = cx + wobble * t1;
+  const w0 = plumeHalfWidth(profile, t0, halfRoot, halfTip);
+  const w1 = plumeHalfWidth(profile, t1, halfRoot, halfTip);
+  verts.push(x0 - w0, y0, x0 + w0, y0, x1 - w1, y1);
+  verts.push(x0 + w0, y0, x1 + w1, y1, x1 - w1, y1);
+}
+
+/** Small diamond knot centered on the plume axis at a height offset. */
+function diamondTris(yOff: number, halfW: number, halfH: number): Float32Array {
+  const cx = SINGLE_PLUME_NOZZLE.x;
+  const cy = SINGLE_PLUME_NOZZLE.y + 2 + yOff;
+  return new Float32Array([
+    cx,
+    cy - halfH,
+    cx + halfW,
+    cy,
+    cx - halfW,
+    cy,
+    cx - halfW,
+    cy,
+    cx + halfW,
+    cy,
+    cx,
+    cy + halfH,
+  ]);
 }
 
 export class DeckPass {
@@ -675,7 +780,7 @@ export class DeckPass {
     renderHullGreebles(gl, this.dynamicBuffer, flatProg);
 
     // Thruster bell housings mounted on the drive face (south edge).
-    // Plumes are live exhaust particles (see emitThrusterExhaust), not quads,
+    // Plumes are live exhaust particles (see emitTorchPlume), not quads,
     // so docked ships idle instead of burning at full scale.
     gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.14, 0.17, 0.24, 1.0);
     drawQuad(gl, this.dynamicBuffer, 60, 706, 20, 14);
@@ -683,6 +788,142 @@ export class DeckPass {
     drawQuad(gl, this.dynamicBuffer, 160, 706, 20, 14);
 
     gl.bindVertexArray(null);
+  }
+
+  /** Single mouth-only glow for the merged torch (particles carry the column). */
+  public renderEngineGlow(
+    flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
+    matrix: Float32Array,
+    glow: { tint: readonly [number, number, number]; intensity01: number; glow: number },
+    timeSec: number
+  ): void {
+    if (glow.glow <= 0.05) return;
+    const gl = this.bindFlat(
+      flatProg,
+      flatVAO,
+      translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
+    );
+    const flicker = 0.85 + 0.15 * Math.sin(timeSec * 27);
+    this.drawMouthGlow(gl, flatProg, glow, flicker);
+    gl.bindVertexArray(null);
+  }
+
+  private drawMouthGlow(
+    gl: WebGL2RenderingContext,
+    flatProg: WebGLProgram,
+    glow: { tint: readonly [number, number, number]; intensity01: number },
+    flicker: number
+  ): void {
+    gl.uniform4f(
+      gl.getUniformLocation(flatProg, 'u_color'),
+      glow.tint[0],
+      glow.tint[1],
+      glow.tint[2],
+      (0.22 + 0.2 * glow.intensity01) * flicker
+    );
+    drawQuad(
+      gl,
+      this.dynamicBuffer,
+      ENGINE_HOUSING_RECT.x,
+      712,
+      ENGINE_HOUSING_RECT.w,
+      8 + 8 * glow.intensity01
+    );
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 1, 0.97, 0.92, 0.55 * flicker);
+    drawQuad(
+      gl,
+      this.dynamicBuffer,
+      SINGLE_PLUME_NOZZLE.x - ENGINE_HOUSING_RECT.w / 4,
+      714,
+      ENGINE_HOUSING_RECT.w / 2,
+      5 + 5 * glow.intensity01
+    );
+  }
+
+  /** Structured torch body: tapered layers + shock diamonds (additive pass). */
+  public renderStructuredPlume(
+    flatProg: WebGLProgram,
+    flatVAO: WebGLVertexArrayObject,
+    matrix: Float32Array,
+    glow: { tint: readonly [number, number, number]; intensity01: number; glow: number },
+    timeSec: number
+  ): void {
+    if (glow.glow <= 0.05 || glow.intensity01 <= 0.03) return;
+    const gl = this.bindFlat(
+      flatProg,
+      flatVAO,
+      translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
+    );
+    const length = 80 + 120 * glow.intensity01;
+    const wobble = Math.sin(timeSec * 23) * 2.5 * glow.intensity01;
+    this.drawPlumeLayer(
+      gl,
+      flatProg,
+      glow.tint,
+      0.08,
+      NOZZLE_EXIT_HALF,
+      NOZZLE_EXIT_HALF,
+      length,
+      wobble,
+      SKIRT_PROFILE
+    );
+    this.drawPlumeLayer(
+      gl,
+      flatProg,
+      [mixTowardWhite(glow.tint[0]), mixTowardWhite(glow.tint[1]), mixTowardWhite(glow.tint[2])],
+      0.2,
+      Math.round(NOZZLE_EXIT_HALF * 0.6),
+      Math.round(NOZZLE_EXIT_HALF * 0.6),
+      length * 0.92,
+      wobble * 0.6,
+      SKIRT_PROFILE
+    );
+    this.drawPlumeLayer(
+      gl,
+      flatProg,
+      [1, 0.97, 0.92],
+      0.5,
+      Math.round(NOZZLE_EXIT_HALF * 0.29),
+      Math.round(NOZZLE_EXIT_HALF * 0.12),
+      length * 0.45,
+      0,
+      CORE_PROFILE
+    );
+    this.drawThroatKnot(gl, flatProg, length, glow.intensity01, timeSec);
+    gl.bindVertexArray(null);
+  }
+
+  private drawPlumeLayer(
+    gl: WebGL2RenderingContext,
+    flatProg: WebGLProgram,
+    rgb: readonly [number, number, number],
+    alpha: number,
+    halfRoot: number,
+    halfTip: number,
+    length: number,
+    wobble: number,
+    profile: readonly number[]
+  ): void {
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), rgb[0], rgb[1], rgb[2], alpha);
+    bufferAndDraw(
+      gl,
+      this.dynamicBuffer,
+      plumeTaperTris(halfRoot, halfTip, length, wobble, profile)
+    );
+  }
+
+  /** Single soft knot hugging the throat; no diamond train in vacuum. */
+  private drawThroatKnot(
+    gl: WebGL2RenderingContext,
+    flatProg: WebGLProgram,
+    length: number,
+    intensity: number,
+    timeSec: number
+  ): void {
+    const pulse = 0.7 + 0.3 * Math.sin(timeSec * 30);
+    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 1, 1, 1, 0.35 * pulse * intensity);
+    bufferAndDraw(gl, this.dynamicBuffer, diamondTris(length * 0.12, 10, 8));
   }
 
   public renderFurniture(

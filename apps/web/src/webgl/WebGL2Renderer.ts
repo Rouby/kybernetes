@@ -33,7 +33,29 @@ import { type HudDrawState, type HudHitTester, HudRenderer } from './hud';
 import { type LivingView, renderLivingFixtures } from './LivingFixtures';
 import { renderPackScene, screenOrthoMatrix } from './PackScene';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
-import { DeckPass, THRUSTER_BELLS } from './passes/DeckPass';
+import { DeckPass, ENGINE_LIP_RECT, SINGLE_PLUME_NOZZLE, THRUSTER_BELLS } from './passes/DeckPass';
+
+/** Lateral maneuver nozzles in ship-local coords (bow/mid/stern pairs). */
+const RCS_NOZZLES: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }> = [
+  { x: 8, y: 60, dx: -1, dy: 0.2 },
+  { x: 232, y: 60, dx: 1, dy: 0.2 },
+  { x: 2, y: 350, dx: -1, dy: 0 },
+  { x: 238, y: 350, dx: 1, dy: 0 },
+];
+
+/** Bow braking thrusters: mounted forward of the hull so exhaust streams into open space. */
+const RETRO_NOZZLES: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }> = [
+  { x: 70, y: -20, dx: -0.25, dy: -1 },
+  { x: 150, y: -20, dx: 0.25, dy: -1 },
+];
+
+import {
+  isRcsPhase,
+  RCS_PULSE_PERIOD_S,
+  rcsLane,
+  rcsPulseOn,
+  type ShipExhaustView,
+} from '../harbor/shipExhaust.js';
 import { FogOfWarPass } from './passes/FogOfWarPass';
 import { LightingPass } from './passes/LightingPass';
 import { StarfieldPass } from './passes/StarfieldPass';
@@ -61,7 +83,7 @@ import {
   PROJECTILE_VS,
 } from './shaders';
 import { FramebufferManager } from './systems/FramebufferManager';
-import { ParticleSystem } from './systems/ParticleSystem';
+import { type MainPlumeParams, ParticleSystem, type PlumeTint } from './systems/ParticleSystem';
 
 export interface ImpactRenderState {
   readonly x: number;
@@ -108,6 +130,8 @@ export interface WebGLRenderState extends HudDrawState {
   shipOffset?: { x: number; y: number };
   /** True while the vessel is underway (in transit); exhaust burns full. */
   shipUnderway?: boolean;
+  /** Authoritative torch state; when present it drives the plume. */
+  shipExhaust?: ShipExhaustView;
   impacts?: Array<ImpactRenderState>;
   /** Persistent scorch decals (server LRU, world-space). */
   decals?: DecalRenderState[];
@@ -922,11 +946,47 @@ export class WebGL2Renderer {
     this.particleSystem.setAmbientWind(wind?.windX ?? 0, wind?.windY ?? 0);
   }
 
-  private emitThrusterExhaust(
+  private emitTorchPlume(
     offset: { x: number; y: number },
+    exhaust: ShipExhaustView | undefined,
     underway: boolean,
-    dt: number
+    dt: number,
+    timeSec: number
   ): void {
+    if (exhaust === undefined) {
+      this.emitLegacyExhaust(offset, underway, dt);
+      return;
+    }
+    const rate = exhaust.params.ratePerSecPerBell * THRUSTER_BELLS.length;
+    if (rate <= 0.5) return;
+    const flicker = exhaust.brownout ? 0.6 + 0.4 * Math.abs(Math.sin(timeSec * 23)) : 1;
+    this.exhaustAcc += dt * rate * flicker;
+    const tint: PlumeTint = { r: exhaust.tint[0], g: exhaust.tint[1], b: exhaust.tint[2] };
+    const plume: MainPlumeParams = {
+      speedMin: exhaust.params.speedMin,
+      speedMax: exhaust.params.speedMax,
+      spreadRad: exhaust.params.spreadRad,
+      coreMix: exhaust.params.coreMix,
+      alpha: exhaust.params.alpha,
+      sourceWidth: ENGINE_LIP_RECT.w,
+    };
+    while (this.exhaustAcc >= 1) {
+      this.exhaustAcc -= 1;
+      if (Math.random() > 0.38) continue;
+      this.particleSystem.emitMainPlume(
+        SINGLE_PLUME_NOZZLE.x + offset.x,
+        SINGLE_PLUME_NOZZLE.y + offset.y,
+        0,
+        1,
+        plume,
+        tint,
+        1
+      );
+    }
+    if (isRcsPhase(exhaust.phase)) this.emitDockingRcs(offset, tint, timeSec);
+  }
+
+  private emitLegacyExhaust(offset: { x: number; y: number }, underway: boolean, dt: number): void {
     this.exhaustAcc += dt * (underway ? 90 : 8);
     while (this.exhaustAcc >= 1) {
       this.exhaustAcc -= 1;
@@ -941,6 +1001,43 @@ export class WebGL2Renderer {
         underway ? 1 : 0.3
       );
     }
+  }
+
+  private emitDockingRcs(
+    offset: { x: number; y: number },
+    tint: { r: number; g: number; b: number },
+    timeSec: number
+  ): void {
+    if (!rcsPulseOn(timeSec, 0)) return;
+    const nozzle = RCS_NOZZLES[rcsLane(timeSec, RCS_NOZZLES.length)];
+    if (nozzle === undefined) return;
+    this.particleSystem.emitRcsPuff(
+      nozzle.x + offset.x,
+      nozzle.y + offset.y,
+      nozzle.dx,
+      nozzle.dy,
+      0.7,
+      tint
+    );
+    this.emitRetroPuff(offset, tint, timeSec);
+  }
+
+  private emitRetroPuff(
+    offset: { x: number; y: number },
+    tint: { r: number; g: number; b: number },
+    timeSec: number
+  ): void {
+    if (!rcsPulseOn(timeSec, RCS_PULSE_PERIOD_S / 2)) return;
+    const retro = RETRO_NOZZLES[rcsLane(timeSec, RETRO_NOZZLES.length)];
+    if (retro === undefined) return;
+    this.particleSystem.emitRcsPuff(
+      retro.x + offset.x,
+      retro.y + offset.y,
+      retro.dx,
+      retro.dy,
+      0.5,
+      tint
+    );
   }
 
   private renderFrostCrystals(timeSec: number, intensity: number, aspect: number): void {
@@ -1042,8 +1139,50 @@ export class WebGL2Renderer {
     this.emitBreachPlumes(state, frameOffset);
     this.applyAmbientWind(state);
     this.particleSystem.update(dt);
-    this.emitThrusterExhaust(frameOffset, state.shipUnderway === true, dt);
+    const timeSec = state.timeMs * 0.001;
+    this.emitTorchPlume(frameOffset, state.shipExhaust, state.shipUnderway === true, dt, timeSec);
+    this.pushSternLight(state, frameOffset);
     return doors;
+  }
+
+  private pushSternLight(state: WebGLRenderState, frameOffset: { x: number; y: number }): void {
+    const exhaust = state.shipExhaust;
+    if (exhaust === undefined || exhaust.params.glow <= 0.05) return;
+    this.lightingPass.pushSternLight(
+      SINGLE_PLUME_NOZZLE.x + frameOffset.x,
+      730 + frameOffset.y,
+      90 + 130 * exhaust.params.intensity01,
+      0.5 + 1.1 * exhaust.params.intensity01,
+      [exhaust.tint[0], exhaust.tint[1], exhaust.tint[2]]
+    );
+  }
+
+  private renderStructuredPlume(
+    matrix: Float32Array,
+    state: WebGLRenderState,
+    timeSec: number
+  ): void {
+    const exhaust = state.shipExhaust;
+    if (exhaust === undefined) return;
+    this.deckPass.renderStructuredPlume(
+      this.flatProg,
+      this.flatVAO,
+      matrix,
+      { tint: exhaust.tint, intensity01: exhaust.params.intensity01, glow: exhaust.params.glow },
+      timeSec
+    );
+  }
+
+  private renderEngineGlow(matrix: Float32Array, state: WebGLRenderState, timeSec: number): void {
+    const exhaust = state.shipExhaust;
+    if (exhaust === undefined) return;
+    this.deckPass.renderEngineGlow(
+      this.flatProg,
+      this.flatVAO,
+      matrix,
+      { tint: exhaust.tint, intensity01: exhaust.params.intensity01, glow: exhaust.params.glow },
+      timeSec
+    );
   }
 
   /** Ease the visor-frost overlay toward its target intensity. */
@@ -1158,6 +1297,7 @@ export class WebGL2Renderer {
       return;
     }
     this.deckPass.renderOuterHull(this.flatProg, this.flatVAO, matrix, timeSec);
+    this.renderEngineGlow(matrix, state, timeSec);
     this.deckPass.renderDeckFloors(
       matrix,
       timeSec,
@@ -1239,6 +1379,7 @@ export class WebGL2Renderer {
 
     if (state.chartOpen !== true) {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      this.renderStructuredPlume(matrix, state, timeSec);
       this.particleSystem.renderFx(gl, matrix, timeSec);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
