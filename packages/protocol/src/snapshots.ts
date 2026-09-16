@@ -108,18 +108,6 @@ export interface PawnState {
   };
 }
 
-export interface BulkheadState {
-  id: string;
-  deckId: string;
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  isLocked: boolean;
-  isSealed: boolean;
-  isTransparent: boolean;
-}
-
 export interface WallSegment {
   id: string;
   x1: number;
@@ -151,18 +139,6 @@ export interface StationFixture {
   y: number;
   radius: number;
   prompt?: string;
-}
-
-export interface DutyDefinition {
-  id: string;
-  stationType: StationFixture['stationType'];
-  name: string;
-  description: string;
-  durationSeconds: number;
-  staminaCostPerSecond: number;
-  creditReward: number;
-  clearanceXp: number;
-  roleBonus?: LegacyStartingRole;
 }
 
 export interface DeckDefinition {
@@ -601,29 +577,6 @@ export interface RoomAtmosphereSummary {
   windY?: number;
 }
 
-export type BreachKind = 'puncture' | 'breach' | 'door';
-
-export interface BreachDescriptor {
-  id: string;
-  roomId: string;
-  kind: BreachKind;
-  areaM2: number;
-  x?: number;
-  y?: number;
-}
-
-export interface CompartmentAtmosphere {
-  compartmentId: string;
-  roomId: string;
-  volumeM3: number;
-  pressureKpa: number;
-  tempCelsius: number;
-  o2Percent: number;
-  co2Ppm: number;
-  isVenting: boolean;
-  isRepressurizing: boolean;
-}
-
 /**
  * Legacy v1 shapes (moved verbatim from deprecated `boarding.ts`, now deleted).
  * Frozen render/adapter consumers import these from the package index;
@@ -738,8 +691,6 @@ export interface JobOffer {
   color: string;
 }
 
-export const HIREABLE_JOBS: readonly HireableJob[] = ['engineer', 'cook', 'deckhand'] as const;
-
 export const JOB_OFFER_CATALOG: Record<HireableJob, JobOffer> = {
   engineer: {
     job: 'engineer',
@@ -767,34 +718,12 @@ export const JOB_OFFER_CATALOG: Record<HireableJob, JobOffer> = {
   },
 };
 
-export interface TalkToCaptainAction {
-  type: 'TALK_TO_CAPTAIN';
-  captainId: string;
-}
-
-export interface AcceptJobOfferAction {
-  type: 'ACCEPT_JOB_OFFER';
-  offerId: string;
-  job: HireableJob;
-}
-
 export interface VesselKinematics {
   x: number;
   y: number;
   vx: number;
   vy: number;
   flightMode: DockingPhase;
-}
-
-export interface ShipDockingUpdateBroadcast {
-  type: 'SHIP_DOCKING_UPDATE';
-  phase: DockingPhase;
-  shipName: string;
-  destination: string;
-  etaSeconds: number;
-  legIndex: number;
-  timestamp: number;
-  kinematics?: VesselKinematics;
 }
 
 export interface CaptainJobOfferBroadcast {
@@ -806,34 +735,11 @@ export interface CaptainJobOfferBroadcast {
   timestamp: number;
 }
 
-export interface JobAssignedBroadcast {
-  type: 'JOB_ASSIGNED';
-  playerId: string;
-  job: HireableJob;
-  title: string;
-  timestamp: number;
-}
-
-export interface TransitUpdateBroadcast {
-  type: 'TRANSIT_UPDATE';
-  destination: string;
-  progressPercent: number;
-  legIndex: number;
-  timestamp: number;
-}
-
 /**
  * Legacy v1 shapes (moved verbatim from deprecated `broadcasts.ts`, now deleted).
  * Frozen render/adapter consumers import these from the package index;
  * semantic migration to the v2 channels above is future work.
  */
-export interface SpatialSnapshotBroadcast {
-  type: 'SPATIAL_SNAPSHOT';
-  timestamp: number;
-  pawns: PawnState[];
-  bulkheads: BulkheadState[];
-}
-
 export interface TelemetryDeltaBroadcast {
   type: 'TELEMETRY_DELTA';
   timestamp: number;
@@ -857,58 +763,6 @@ export interface TelemetryDeltaBroadcast {
   roomAtmospheres?: Record<string, RoomAtmosphereSummary>;
 }
 
-export interface VitalsDeltaBroadcast {
-  type: 'VITALS_DELTA';
-  playerId: string;
-  vitals: PlayerVitals;
-  credits: number;
-  clearanceLevel: number;
-}
-
-export interface CrewManifestBroadcast {
-  type: 'CREW_MANIFEST';
-  crew: Array<{
-    id: string;
-    callsign: string;
-    role: string;
-    deckId: string;
-    status: 'on_duty' | 'idle' | 'resting' | 'in_combat';
-    dutyName?: string;
-  }>;
-}
-
-export interface ShipAlertBroadcast {
-  type: 'SHIP_ALERT';
-  id: string;
-  severity: 'info' | 'warning' | 'critical';
-  title: string;
-  message: string;
-  timestamp: number;
-}
-
-export interface DutyCompletedBroadcast {
-  type: 'DUTY_COMPLETED';
-  dutyId: string;
-  stationId: string;
-  creditsEarned: number;
-  xpEarned: number;
-  timestamp: number;
-}
-
-export interface NavalDamageEventBroadcast {
-  type: 'NAVAL_DAMAGE_EVENT';
-  event: NavalDamageEvent;
-}
-
-export interface DamageTriageBroadcast {
-  type: 'DAMAGE_TRIAGE_RESULT';
-  eventId?: string;
-  actionType: string;
-  success: boolean;
-  message: string;
-  timestamp: number;
-}
-
 export interface DualProtocolBroadcast {
   type: 'DUAL_PROTOCOL_UPDATE';
   protocolId: string;
@@ -921,48 +775,3 @@ export interface DualProtocolBroadcast {
   message: string;
   timestamp: number;
 }
-
-export interface CollabShiftUpdateBroadcast {
-  type: 'COLLAB_SHIFT_UPDATE';
-  shiftId: string;
-  stationId: string;
-  title: string;
-  progressPercent: number;
-  participants: string[];
-  isCompleted: boolean;
-  timestamp: number;
-}
-
-export interface LobbyStateBroadcast {
-  type: 'LOBBY_STATE';
-  vesselCode: string;
-  shipName: string;
-  connectedCrew: number;
-}
-
-export interface WatchRotationBroadcast {
-  type: 'WATCH_ROTATION_UPDATE';
-  watchNumber: number;
-  activeSection: 'alpha' | 'bravo';
-  phase: 'active_watch' | 'off_duty';
-  timeRemainingSeconds?: number;
-  timestamp: number;
-}
-
-export type ServerBroadcast =
-  | SpatialSnapshotBroadcast
-  | TelemetryDeltaBroadcast
-  | VitalsDeltaBroadcast
-  | CrewManifestBroadcast
-  | ShipAlertBroadcast
-  | DutyCompletedBroadcast
-  | NavalDamageEventBroadcast
-  | DamageTriageBroadcast
-  | DualProtocolBroadcast
-  | CollabShiftUpdateBroadcast
-  | LobbyStateBroadcast
-  | WatchRotationBroadcast
-  | ShipDockingUpdateBroadcast
-  | CaptainJobOfferBroadcast
-  | JobAssignedBroadcast
-  | TransitUpdateBroadcast;

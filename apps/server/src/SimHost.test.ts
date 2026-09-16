@@ -110,7 +110,7 @@ describe('SimHost scaffold', () => {
   it('drops malformed JSON before sim', () => {
     const rates = createRateState(0);
     expect(parsePipeInput('not-json', 0, rates).kind).toBe('invalid');
-    expect(validatePipePacket({ type: 'INPUT' }, 0, createRateState(0)).kind).toBe('invalid');
+    expect(validatePipePacket({ v: 2, type: 'INPUT' }, 0, createRateState(0)).kind).toBe('invalid');
   });
 
   it('rejects stale protocol versions without reaching sim', () => {
@@ -120,9 +120,21 @@ describe('SimHost scaffold', () => {
     if (outcome.kind === 'version-mismatch') expect(outcome.received).toBe(1);
   });
 
+  it('treats legacy packets without a version as mismatches', () => {
+    expect(validatePipePacket({ type: 'JOIN_VESSEL' }, 0, createRateState(0)).kind).toBe(
+      'version-mismatch'
+    );
+    const legacy = validatePipePacket({ type: 'JOIN_VESSEL' }, 0, createRateState(0));
+    if (legacy.kind === 'version-mismatch') expect(legacy.received).toBeUndefined();
+    expect(validatePipePacket({ v: 2, type: 'JOIN_VESSEL' }, 0, createRateState(0)).kind).toBe(
+      'version-mismatch'
+    );
+  });
+
   it('dedupes retried and reordered intents per sender', () => {
     const cursor = createSeqCursor();
     const input = (seq: number) => ({
+      v: 2 as const,
       type: 'INPUT' as const,
       seq,
       moveVec: { x: 0, y: 0 },
@@ -139,6 +151,7 @@ describe('SimHost scaffold', () => {
   it('rate-limits input floods and reopens the window', () => {
     const rates = createRateState(0);
     const input = (seq: number) => ({
+      v: 2 as const,
       type: 'INPUT' as const,
       seq,
       moveVec: { x: 0, y: 0 },

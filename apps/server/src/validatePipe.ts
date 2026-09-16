@@ -63,11 +63,16 @@ export function validatePipePacket(
   seqCursor?: SeqCursorState
 ): PipeOutcome {
   const version = readPacketVersion(raw);
-  if (version !== undefined && version !== PROTOCOL_VERSION) {
+  if (version !== PROTOCOL_VERSION) {
     return { kind: 'version-mismatch', received: version };
   }
   const result = validateClientIntent(raw);
-  if (!result.ok) return { kind: 'invalid', reason: result.reason };
+  if (!result.ok) {
+    if (result.reason === 'unknown-type' || result.reason === 'bad-version') {
+      return { kind: 'version-mismatch', received: version };
+    }
+    return { kind: 'invalid', reason: result.reason };
+  }
   const duplicate = checkDuplicate(result.intent, seqCursor);
   if (duplicate !== undefined) return duplicate;
   if (isRateLimited(rates, result.intent.type, nowMs)) {

@@ -7,6 +7,7 @@
 
 import { isPawnTrim, isThrusterTint } from './appearance.js';
 import { isRole } from './content.js';
+import { PROTOCOL_VERSION } from './envelope.js';
 import type { ClientIntent } from './intents.js';
 
 export type ValidateFailure = 'not-object' | 'unknown-type' | 'bad-field' | 'bad-version';
@@ -67,7 +68,7 @@ export function validateHello(raw: Record<string, unknown>): ValidateResult {
   }
   if (raw.callsign.length > MAX_CALLSIGN_LENGTH) return fail('bad-field', 'callsign');
   if (typeof raw.color !== 'string' || raw.color.length > 16) return fail('bad-field', 'color');
-  if (!isFiniteNumber(raw.clientVersion)) return fail('bad-field', 'clientVersion');
+  if (raw.clientVersion !== PROTOCOL_VERSION) return fail('bad-version', 'clientVersion');
   if (raw.trim !== undefined && !isPawnTrim(raw.trim)) return fail('bad-field', 'trim');
   if (raw.thruster !== undefined && !isThrusterTint(raw.thruster))
     return fail('bad-field', 'thruster');

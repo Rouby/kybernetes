@@ -767,11 +767,17 @@ export class SimHost {
     return notices;
   }
 
-  private aboardUserIds(vesselId: string): string[] {
+  /** User ids crewed aboard a vessel: the scoped audience for ship telemetry. */
+  aboardUserIds(vesselId: string): string[] {
+    return this.userIdsOnFrame(vesselId);
+  }
+
+  /** User ids with pawns on a frame: stations scope their market the same way. */
+  userIdsOnFrame(frameId: string): string[] {
     const users = new Set<string>();
     for (const client of this.clients.values()) {
       const pawn = this.world.pawns[client.pawnId];
-      if (pawn !== undefined && pawn.frameId === vesselId) users.add(client.userId);
+      if (pawn !== undefined && pawn.frameId === frameId) users.add(client.userId);
     }
     return [...users];
   }

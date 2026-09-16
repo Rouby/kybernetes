@@ -44,6 +44,7 @@ import {
   createAirAuthority,
   diffAtmos,
   dockStatusOf,
+  HUB_PORTS,
   MARKET_HUBS,
   mergeAtmos,
   mergeFrames,
@@ -65,6 +66,23 @@ interface SocketMeta {
   clientId: string;
   rates: RateState;
   seq: SeqCursorState;
+  /** Last ping answered; a second consecutive miss reaps the half-open socket. */
+  isAlive: boolean;
+  /** Overfull buffer: snapshot deltas withheld until the next full SNAPSHOT. */
+  staleSnapshot: boolean;
+  /** Overfull buffer: telemetry deltas withheld until the next full TELEMETRY. */
+  staleTelemetry: boolean;
+}
+
+/** Slow-consumer ceiling: deltas are lossy, baselines are not. */
+const BACKPRESSURE_BYTES = 256 * 1024;
+
+/** High-frequency ticked channels may be dropped under backpressure. */
+function isSkippableTick(payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload === null) return false;
+  const record = payload as Record<string, unknown>;
+  if (record.type === 'SNAPSHOT_DELTA') return true;
+  return record.type === 'TELEMETRY' && record.full === false;
 }
 
 export interface ChannelStats {
@@ -111,6 +129,8 @@ function emptyStats(): ChannelStats {
 
 const SNAPSHOT_FULL_EVERY = 10;
 const TELEMETRY_FULL_EVERY = 5;
+/** Application ping sweep: half-open sockets linger for hours on OS keepalive alone. */
+const HEARTBEAT_INTERVAL_MS = 30_000;
 const MANIFEST_HEARTBEAT_MS = 5000;
 const WATCH_HEARTBEAT_MS = 1000;
 const VITALS_HEARTBEAT_MS = 1000;
@@ -163,6 +183,7 @@ export class HarborDaemon {
   private lastWatchRev: number | undefined;
   private lastWatchMs = 0;
   private readonly vitalsSent = new Map<string, { body: string; ms: number }>();
+  private heartbeat: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly port: number = 3001,
@@ -210,6 +231,10 @@ export class HarborDaemon {
   public async stop(): Promise<void> {
     this.host.stop();
     this.listening = false;
+    if (this.heartbeat !== null) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
+    }
     this.lastDecalIds = [];
     this.lastStatsMs = 0;
     this.lastDockMs = 0;
@@ -229,7 +254,9 @@ export class HarborDaemon {
   }
 
   private bindPort(pending: PendingStart): void {
-    const server = new WebSocketServer({ port: this.port });
+    // Client intents never exceed 4 KB; cap ingress so a flooded socket dies
+    // loudly instead of stalling JSON.parse or exhausting process memory.
+    const server = new WebSocketServer({ port: this.port, maxPayload: 64 * 1024 });
     this.wss = server;
     let finished = false;
     const settle = (err?: Error): void => {
@@ -271,7 +298,36 @@ export class HarborDaemon {
     console.log(`[Harbor Daemon] Authority running on ws://localhost:${this.port}`);
     server.on('error', logServerError);
     server.on('connection', (ws: WebSocket) => this.admit(ws));
+    this.heartbeat = setInterval(() => this.heartbeatSweep(), HEARTBEAT_INTERVAL_MS);
+    if (typeof this.heartbeat.unref === 'function') this.heartbeat.unref();
     this.host.start(Date.now());
+  }
+
+  /** One ping sweep; public so tests can drive it without waiting 30 seconds. */
+  public heartbeatSweep(): void {
+    for (const [ws, meta] of this.meta) {
+      if (!meta.isAlive) {
+        this.reapSilentSocket(ws, meta.clientId);
+        continue;
+      }
+      meta.isAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        this.reapSilentSocket(ws, meta.clientId);
+      }
+    }
+  }
+
+  private reapSilentSocket(ws: WebSocket, clientId: string): void {
+    try {
+      ws.terminate();
+    } catch {
+      // Already gone; registry cleanup below is what matters.
+    }
+    this.meta.delete(ws);
+    this.host.leaveClient(clientId);
+    this.vitalsSent.delete(clientId);
   }
 
   private admit(ws: WebSocket): void {
@@ -281,6 +337,13 @@ export class HarborDaemon {
       clientId,
       rates: createRateState(Date.now()),
       seq: createSeqCursor(),
+      isAlive: true,
+      staleSnapshot: false,
+      staleTelemetry: false,
+    });
+    ws.on('pong', () => {
+      const meta = this.meta.get(ws);
+      if (meta !== undefined) meta.isAlive = true;
     });
     ws.on('message', (data: WebSocket.RawData) => {
       this.handleMessage(ws, clientId, data.toString());
@@ -333,7 +396,7 @@ export class HarborDaemon {
       return;
     }
     if (outcome.kind === 'version-mismatch') {
-      this.send(ws, makeHelloMismatch(this.host.currentWorld.tick, Date.now(), outcome.received));
+      this.rejectMismatch(ws, outcome.received);
       return;
     }
     if (outcome.kind === 'rate-limited' || outcome.kind === 'duplicate') {
@@ -341,6 +404,16 @@ export class HarborDaemon {
       return;
     }
     this.routeIntent(ws, clientId, outcome.intent);
+  }
+
+  /** Outdated or legacy wire: one mismatch notice, then a clean close for reload. */
+  private rejectMismatch(ws: WebSocket, received: number | undefined): void {
+    this.send(ws, makeHelloMismatch(this.host.currentWorld.tick, Date.now(), received));
+    try {
+      if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'protocol-mismatch');
+    } catch {
+      // Already gone; the notice above was best-effort.
+    }
   }
 
   private routeIntent(ws: WebSocket, clientId: string, intent: ClientIntent): void {
@@ -509,8 +582,31 @@ export class HarborDaemon {
     return text.length;
   }
 
+  /**
+   * Lossy delta fan-out: pressured sockets are marked stale and skipped until
+   * the next full baseline for that stream re-seeds them, bounding memory.
+   */
+  private sendStreamed(payload: unknown, flag: 'staleSnapshot' | 'staleTelemetry'): number {
+    const text = JSON.stringify(payload);
+    for (const [ws, meta] of this.meta) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      if (meta[flag]) continue;
+      if (ws.bufferedAmount >= BACKPRESSURE_BYTES) {
+        meta[flag] = true;
+        continue;
+      }
+      ws.send(text);
+    }
+    return text.length;
+  }
+
+  private clearStreamFlag(flag: 'staleSnapshot' | 'staleTelemetry'): void {
+    for (const meta of this.meta.values()) meta[flag] = false;
+  }
+
   private send(ws: WebSocket, payload: unknown): void {
     if (ws.readyState !== WebSocket.OPEN) return;
+    if (isSkippableTick(payload) && ws.bufferedAmount >= BACKPRESSURE_BYTES) return;
     ws.send(JSON.stringify(payload));
   }
 
@@ -527,6 +623,7 @@ export class HarborDaemon {
     if (this.snapshotsSinceFull >= SNAPSHOT_FULL_EVERY) {
       const full = buildSnapshot(world, nowMs);
       const bytes = this.sendAll(full);
+      this.clearStreamFlag('staleSnapshot');
       this.lastPortals = [...full.portals];
       this.lastFrames = [...full.frames];
       this.lastDecalIds = (full.decals ?? []).map((decal) => decal.id);
@@ -543,7 +640,7 @@ export class HarborDaemon {
       nowMs,
       this.lastDecalIds
     );
-    const bytes = this.sendAll(delta);
+    const bytes = this.sendStreamed(delta, 'staleSnapshot');
     this.lastPortals = mergePortals(this.lastPortals, delta.portals, delta.removedPortalIds);
     this.lastFrames = mergeFrames(this.lastFrames, delta.frames);
     if (delta.decals !== undefined) this.lastDecalIds = delta.decals.map((decal) => decal.id);
@@ -560,6 +657,7 @@ export class HarborDaemon {
     if (this.telemetrySinceFull >= TELEMETRY_FULL_EVERY || this.lastAtmos.length === 0) {
       const full = buildTelemetry(world, nowMs, rooms, true, flows);
       const bytes = this.sendAll(full);
+      this.clearStreamFlag('staleTelemetry');
       this.lastAtmos = [...full.atmos];
       this.telemetrySinceFull = 0;
       this.bump('telemetryFull', 'telemetryBytes', bytes);
@@ -568,23 +666,48 @@ export class HarborDaemon {
     }
     const changed = diffAtmos(this.lastAtmos, rooms);
     const delta = buildTelemetry(world, nowMs, changed, false, flows);
-    const bytes = this.sendAll(delta);
+    const bytes = this.sendStreamed(delta, 'staleTelemetry');
     this.lastAtmos = mergeAtmos(this.lastAtmos, delta.atmos);
     this.bump('telemetryDelta', 'telemetryBytes', bytes);
     this.sendShipSystems(world, nowMs);
   }
 
+  /**
+   * Scoped fan-out: ship internals reach only crew aboard that vessel and each
+   * market reaches only pawns on its station frame, cutting O(V x M) chatter.
+   */
   private sendShipSystems(world: World, nowMs: number): void {
     for (const vesselId of Object.keys(world.vessels)) {
+      const aboard = this.host.aboardUserIds(vesselId);
+      if (aboard.length === 0) continue;
       const systems = buildShipSystems(world, vesselId, nowMs);
-      if (systems !== undefined) this.sendAll(systems);
+      if (systems !== undefined) this.sendToUsers(aboard, systems);
       const nav = buildNavState(world, vesselId, nowMs);
-      if (nav !== undefined) this.sendAll(nav);
+      if (nav !== undefined) this.sendToUsers(aboard, nav);
       const chart = buildChartState(world, vesselId, nowMs);
-      if (chart !== undefined) this.sendAll(chart);
-      this.sendAll(buildCargoState(world, vesselId, nowMs));
+      if (chart !== undefined) this.sendToUsers(aboard, chart);
+      this.sendToUsers(aboard, buildCargoState(world, vesselId, nowMs));
     }
-    for (const hubId of MARKET_HUBS) this.sendAll(buildMarketState(world, hubId, nowMs));
+    for (const hubId of MARKET_HUBS) this.sendHubMarket(world, hubId, nowMs);
+  }
+
+  private sendHubMarket(world: World, hubId: string, nowMs: number): void {
+    const frame = HUB_PORTS[hubId]?.stationFrame;
+    if (frame === undefined) return;
+    const locals = this.host.userIdsOnFrame(frame);
+    if (locals.length === 0) return;
+    this.sendToUsers(locals, buildMarketState(world, hubId, nowMs));
+  }
+
+  private sendToUsers(userIds: readonly string[], payload: unknown): void {
+    const targets = new Set(userIds);
+    const text = JSON.stringify(payload);
+    for (const [ws, meta] of this.meta) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      const client = this.host.clientOf(meta.clientId);
+      if (client === undefined || !targets.has(client.userId)) continue;
+      ws.send(text);
+    }
   }
 
   private sendFullTelemetryTo(ws: WebSocket, world: World, nowMs: number): void {

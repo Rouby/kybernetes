@@ -43,6 +43,28 @@ describe('protocol v2 validate', () => {
     expect(validateClientIntent({ type: 'OBSERVE', seq: 0, beacon: '' }).ok).toBe(false);
   });
 
+  it('pins HELLO to the protocol version', () => {
+    const good = validateClientIntent({
+      type: 'HELLO',
+      callsign: 'Rook',
+      color: '#fff',
+      clientVersion: 2,
+    });
+    expect(good.ok).toBe(true);
+    const stale = validateClientIntent({
+      type: 'HELLO',
+      callsign: 'Rook',
+      color: '#fff',
+      clientVersion: 1,
+    });
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) {
+      expect(stale.reason).toBe('bad-version');
+      expect(stale.field).toBe('clientVersion');
+    }
+    expect(validateClientIntent({ type: 'HELLO', callsign: 'Rook', color: '#fff' }).ok).toBe(false);
+  });
+
   it('round-trips hire intents through JSON', () => {
     const raw = { type: 'HIRE', seq: 7, offerId: 'offer_1', job: 'engineer' };
     const parsed = JSON.parse(JSON.stringify(raw));

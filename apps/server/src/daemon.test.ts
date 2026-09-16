@@ -3,6 +3,7 @@ import { buildHarborWorld, type World } from '@kybernetes/sim-core';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
 import { HarborDaemon } from './daemon.js';
+import { createRateState, createSeqCursor } from './validatePipe.js';
 
 const TIMEOUT_MS = 10_000;
 
@@ -341,7 +342,14 @@ describe('HarborDaemon v2 transport', () => {
       });
     }
     ws.send('this is not json{{{');
-    send(ws, { type: 'JOIN_VESSEL', vesselCode: 'HESP01' });
+    send(ws, {
+      type: 'INPUT',
+      seq: 99,
+      moveVec: { x: 5, y: 0 },
+      facing: 0,
+      sprint: false,
+      sealed: false,
+    });
     let endX = startX;
     for (let i = 0; i < 20 && !(endX > startX); i += 1) {
       endX = heroX(await waitForSnapshot(ws));
@@ -355,10 +363,182 @@ describe('HarborDaemon v2 transport', () => {
     const { port } = await startDaemon();
     const ws = await connect(port);
     sockets.push(ws);
+    const closed = new Promise<void>((resolve) => ws.on('close', () => resolve()));
     ws.send(JSON.stringify({ v: 1, type: 'INPUT', seq: 0 }));
     const mismatch = await waitForType(ws, 'HELLO_MISMATCH');
     expect(mismatch.expectedVersion).toBe(2);
+    expect(mismatch.receivedVersion).toBe(1);
+    await closed;
+    expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it('disconnects legacy packets without a version cleanly', async () => {
+    const { port } = await startDaemon();
+    const ws = await connect(port);
+    sockets.push(ws);
+    const closed = new Promise<void>((resolve) => ws.on('close', () => resolve()));
+    ws.send(JSON.stringify({ type: 'JOIN_VESSEL' }));
+    const mismatch = await waitForType(ws, 'HELLO_MISMATCH');
+    expect(mismatch.expectedVersion).toBe(2);
+    expect(mismatch.receivedVersion).toBeUndefined();
+    await closed;
+    expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it('rejects HELLO handshakes with a stale client version', async () => {
+    const { port } = await startDaemon();
+    const ws = await connect(port);
+    sockets.push(ws);
+    const closed = new Promise<void>((resolve) => ws.on('close', () => resolve()));
+    ws.send(
+      JSON.stringify({ v: 2, type: 'HELLO', callsign: 'Old', color: '#fff', clientVersion: 1 })
+    );
+    const mismatch = await waitForType(ws, 'HELLO_MISMATCH');
+    expect(mismatch.expectedVersion).toBe(2);
+    await closed;
+    expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it('drops oversized payloads without crashing', async () => {
+    const { daemon, port } = await startDaemon();
+    const ws = await connect(port);
+    sockets.push(ws);
+    const closed = new Promise<number>((resolve) =>
+      ws.on('close', (code: number) => resolve(code))
+    );
+    ws.send(
+      JSON.stringify({
+        v: 2,
+        type: 'INPUT',
+        seq: 0,
+        moveVec: { x: 0, y: 0 },
+        facing: 0,
+        sprint: false,
+        sealed: false,
+        pad: 'x'.repeat(100 * 1024),
+      })
+    );
+    const code = await Promise.race([
+      closed,
+      sleep(5000).then(() => {
+        throw new Error('oversized payload never closed');
+      }),
+    ]);
+    expect(code).toBe(1009);
+    const survivor = await connectAndJoin(port, 'After', 'e2e-after-flood');
+    sockets.push(survivor);
+    await waitForType(survivor, 'JOINED');
+    expect(daemon.running).toBe(true);
+  });
+
+  it('reaps sockets that miss consecutive heartbeats', async () => {
+    const { daemon, port } = await startDaemon();
+    const ws = await connectAndJoin(port, 'Pulse', 'e2e-pulse');
+    sockets.push(ws);
+    await waitForType(ws, 'JOINED');
+    const closed = new Promise<void>((resolve) => ws.on('close', () => resolve()));
+    const internals = daemon as unknown as { meta: Map<WebSocket, { isAlive: boolean }> };
+    for (const meta of internals.meta.values()) meta.isAlive = false;
+    daemon.heartbeatSweep();
+    await Promise.race([
+      closed,
+      sleep(5000).then(() => {
+        throw new Error('silent socket never reaped');
+      }),
+    ]);
+    expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it('keeps responsive sockets across heartbeats', async () => {
+    const { daemon, port } = await startDaemon();
+    const ws = await connectAndJoin(port, 'Beat', 'e2e-beat');
+    sockets.push(ws);
+    await waitForType(ws, 'JOINED');
+    daemon.heartbeatSweep();
+    await sleep(300);
     expect(ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('withholds deltas from pressured sockets until the next baseline', () => {
+    const daemon = new HarborDaemon(0);
+    daemons.push(daemon);
+    const seen: string[] = [];
+    const fakeSocket = {
+      readyState: WebSocket.OPEN,
+      bufferedAmount: 10 * 1024 * 1024,
+      send: (text: string) => seen.push(text),
+    };
+    const fake = fakeSocket as unknown as WebSocket;
+    const internals = daemon as unknown as {
+      meta: Map<
+        WebSocket,
+        {
+          clientId: string;
+          rates: unknown;
+          seq: unknown;
+          isAlive: boolean;
+          staleSnapshot: boolean;
+          staleTelemetry: boolean;
+        }
+      >;
+      sendSnapshot(world: World, nowMs: number): void;
+    };
+    internals.meta.set(fake, {
+      clientId: 'slow',
+      rates: createRateState(Date.now()),
+      seq: createSeqCursor(),
+      isAlive: true,
+      staleSnapshot: false,
+      staleTelemetry: false,
+    });
+    const world = daemon.world;
+    internals.sendSnapshot(world, Date.now());
+    expect(seen).toHaveLength(1);
+    internals.sendSnapshot(world, Date.now());
+    expect(seen).toHaveLength(1);
+    expect(internals.meta.get(fake)?.staleSnapshot).toBe(true);
+    fakeSocket.bufferedAmount = 0;
+    for (let i = 0; i < 10; i += 1) internals.sendSnapshot(world, Date.now());
+    expect(seen.length).toBeGreaterThan(1);
+    expect((JSON.parse(seen[seen.length - 1] as string) as { type: string }).type).toBe('SNAPSHOT');
+  });
+
+  it('skips pressured unicast deltas but never baselines', () => {
+    const daemon = new HarborDaemon(0);
+    daemons.push(daemon);
+    const seen: string[] = [];
+    const fakeSocket = {
+      readyState: WebSocket.OPEN,
+      bufferedAmount: 10 * 1024 * 1024,
+      send: (text: string) => seen.push(text),
+    };
+    const sender = daemon as unknown as { send(ws: WebSocket, payload: unknown): void };
+    const fake = fakeSocket as unknown as WebSocket;
+    sender.send(fake, { type: 'SNAPSHOT_DELTA' });
+    sender.send(fake, { type: 'TELEMETRY', full: false });
+    expect(seen).toHaveLength(0);
+    sender.send(fake, { type: 'TELEMETRY', full: true });
+    sender.send(fake, { type: 'JOINED' });
+    expect(seen).toHaveLength(2);
+  });
+
+  it('withholds ship telemetry from station-bound clients', async () => {
+    const { port } = await startDaemon(0, buildHarborWorld);
+    const ws = await connectAndJoin(port, 'Hub', 'e2e-hub');
+    sockets.push(ws);
+    await waitForType(ws, 'JOINED');
+    const tap = tapMessages(ws);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    tap.stop();
+    const types = new Set(tap.seen.map((message) => message.type));
+    expect(types.has('SNAPSHOT') || types.has('SNAPSHOT_DELTA')).toBe(true);
+    expect(types.has('SHIP_SYSTEMS')).toBe(false);
+    expect(types.has('NAV_STATE')).toBe(false);
+    expect(types.has('CARGO_STATE')).toBe(false);
+    expect(types.has('CHART_STATE')).toBe(false);
+    const markets = tap.seen.filter((message) => message.type === 'MARKET_STATE');
+    expect(markets.length).toBeGreaterThan(0);
+    expect(markets.every((message) => message.hubId === 'hub_a')).toBe(true);
   });
 
   it('streams full snapshots with deltas and tracks channel stats', async () => {
