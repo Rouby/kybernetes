@@ -617,6 +617,7 @@ describe('uiScreenButtonIds', () => {
       creditsLabel: 'Credits: 25cr',
       left: [{ name: 'scrap', stock: 50, buy: 10, sell: 9 }],
       right: [{ name: 'meds', stock: 0, buy: 15, sell: 13 }],
+      rumors: ['Kepler Yard structural shortage - paying premium on Scrap (+3cr/unit).'],
     });
     expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
     expect(layout.buttons.map((b) => b.id)).toEqual(['buy', 'sell', 'close']);
@@ -624,9 +625,34 @@ describe('uiScreenButtonIds', () => {
     expect(words).toContain('50x scrap');
     expect(words).toContain('-10cr');
     expect(words).toContain('+13cr');
+    expect(words.some((t) => t.includes('RUMORS // TRADE INTEL'))).toBe(true);
+    expect(words.some((t) => t.includes('Scrap'))).toBe(true);
     expect(words.some((t) => t.includes('packs') || t.includes('lists'))).toBe(false);
     expectContained(layout.panel, layout.buttons);
     expectNoOverlap(layout.buttons);
+  });
+
+  it('market rumors respect panel bounds and wrap within width', () => {
+    const layout = layoutMarketScreen(W, H, {
+      hubId: 'hub_a',
+      hubLabel: 'NEW ANCHORAGE',
+      creditsLabel: 'Credits: 25cr',
+      left: [{ name: 'scrap', stock: 50, buy: 10, sell: 9 }],
+      right: [{ name: 'meds', stock: 0, buy: 15, sell: 13 }],
+      rumors: [
+        'Kepler Yard structural shortage - paying premium on Scrap (+3cr/unit).',
+        'Engine bunkers burn 1000 fuel per transit leg. Ensure adequate fuel stores.',
+      ],
+    });
+    for (const text of layout.texts) {
+      expect(text.x).toBeGreaterThanOrEqual(layout.panel.x);
+      expect(text.x).toBeLessThanOrEqual(layout.panel.x + layout.panel.w);
+      expect(text.y).toBeGreaterThanOrEqual(layout.panel.y);
+      expect(text.y).toBeLessThanOrEqual(layout.panel.y + layout.panel.h);
+    }
+    const rumorLines = layout.texts.filter((t) => t.color === 'muted');
+    expect(rumorLines.length).toBeGreaterThan(0);
+    expect(rumorLines.length).toBeLessThanOrEqual(6);
   });
 
   it('sell lists each bay crate with green values', () => {

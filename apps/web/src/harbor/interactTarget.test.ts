@@ -357,6 +357,29 @@ describe('cargo crates (M4)', () => {
     expect(targetPromptWithCarry(target, true)).toBe('Set down first (hands full)');
     expect(targetPromptWithCarry(target, false)).toBe(targetPrompt(target));
   });
+
+  it('offers direct sell at the market stall while carrying', () => {
+    const target = selectInteractTarget({
+      fixtures: [
+        {
+          ...STOVE,
+          id: 'station.stall',
+          kind: 'market_stall',
+          roomId: 'station.hall',
+          x: 10,
+          y: 0,
+        },
+      ],
+      doors: [],
+      openById: openById([]),
+      frameId: 'station',
+      at: { x: 10, y: 0 },
+      facing: 0,
+    });
+    if (target?.kind !== 'fixture') throw new Error('fixture missed');
+    expect(targetPromptWithCarry(target, true)).toBe('Sell cargo');
+    expect(targetPromptWithCarry(target, false)).toBe(targetPrompt(target));
+  });
 });
 
 describe('doorSpotsOf', () => {

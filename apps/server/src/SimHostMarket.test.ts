@@ -36,7 +36,7 @@ describe('SimHost market trade (M5)', () => {
       items: [{ goodId: 'scrap', qty: 2 }],
     });
     expect(bought.notice).toBe('MARKET_ok');
-    expect(host.shipRecordFor('u1')?.credits).toBe(0);
+    expect(host.shipRecordFor('u1')?.credits).toBe(30);
     expect(host.currentWorld.market.stock.hub_a?.scrap).toBe(48);
     expect(bayCrates(host, 'station').length).toBeGreaterThan(0);
     host.stop();
@@ -81,7 +81,7 @@ describe('SimHost market trade (M5)', () => {
       type: 'MARKET_BUY',
       seq: 6,
       hubId: 'hub_a',
-      items: [{ goodId: 'meds', qty: 2 }],
+      items: [{ goodId: 'meds', qty: 4 }],
     });
     expect(broke.notice).toBe('MARKET_insufficient-funds');
     host.stop();
@@ -122,8 +122,49 @@ describe('SimHost market trade (M5)', () => {
       crateIds: [boughtId],
     });
     expect(sold.notice).toBe('MARKET_sold:1');
-    expect(host.shipRecordFor('u1')?.credits).toBe(24);
+    expect(host.shipRecordFor('u1')?.credits).toBe(54);
     expect(host.currentWorld.cargo.crates[boughtId]).toBeUndefined();
+    host.stop();
+  });
+
+  it('sells the carried crate without setting it down first', () => {
+    const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
+    const pawnId = spawn(host);
+    movePawn(host, pawnId, 'station', 430, 410);
+    const picked = host.handleIntent('c1', {
+      type: 'CARGO_PICKUP',
+      seq: 1,
+      crateId: 'bay:scrap-a',
+    });
+    expect(picked.notice).toBe('CARGO_ok');
+    movePawn(host, pawnId, 'station', 460, 440);
+    const sold = host.handleIntent('c1', {
+      type: 'MARKET_SELL',
+      seq: 2,
+      hubId: 'hub_a',
+      crateIds: ['bay:scrap-a'],
+    });
+    expect(sold.notice).toBe('MARKET_sold:1');
+    expect(host.currentWorld.cargo.crates['bay:scrap-a']).toBeUndefined();
+    expect(host.shipRecordFor('u1')?.credits).toBe(77);
+    host.stop();
+  });
+
+  it('still blocks market buys while carrying', () => {
+    const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
+    const pawnId = spawn(host);
+    movePawn(host, pawnId, 'station', 430, 410);
+    expect(
+      host.handleIntent('c1', { type: 'CARGO_PICKUP', seq: 1, crateId: 'bay:scrap-a' }).notice
+    ).toBe('CARGO_ok');
+    movePawn(host, pawnId, 'station', 460, 440);
+    const blocked = host.handleIntent('c1', {
+      type: 'MARKET_BUY',
+      seq: 2,
+      hubId: 'hub_a',
+      items: [{ goodId: 'scrap', qty: 1 }],
+    });
+    expect(blocked.notice).toBe('MARKET_hands-full');
     host.stop();
   });
 

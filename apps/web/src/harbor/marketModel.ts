@@ -21,6 +21,7 @@ export interface MarketScreenModel {
   readonly creditsLabel: string;
   readonly left: readonly MarketTableCell[];
   readonly right: readonly MarketTableCell[];
+  readonly rumors: readonly string[];
 }
 
 export interface SellCrateRow {
@@ -46,6 +47,57 @@ const HUB_LABELS: Readonly<Record<string, string>> = {
   hub_a: 'NEW ANCHORAGE',
   hub_b: 'KEPLER YARD',
 };
+
+const FUEL_RUMOR = 'Engine bunkers burn 1000 fuel per transit leg. Ensure adequate fuel stores.';
+
+/** Cross-hub trade intel per hub (pure; pinned by Vitest). */
+export function marketRumorsFor(hubId: string | null): readonly string[] {
+  if (hubId === 'hub_a') return [scrapRumor(), FUEL_RUMOR];
+  if (hubId === 'hub_b') return [medsRumor(), FUEL_RUMOR];
+  return [];
+}
+
+function scrapRumor(): string {
+  return 'Kepler Yard structural shortage - paying premium on Scrap (+3cr/unit).';
+}
+
+function medsRumor(): string {
+  return 'New Anchorage hospitals depleted - paying premium on Meds (+4cr/unit).';
+}
+
+/** Word-wrap a rumor to lines of at most maxChars (pure UI budgeting). */
+export function wrapRumor(rumor: string, maxChars: number): readonly string[] {
+  const cap = Math.max(1, Math.floor(maxChars));
+  return wrapWords(
+    rumor.split(' ').filter((part) => part.length > 0),
+    cap
+  );
+}
+
+function wrapWords(words: readonly string[], cap: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const next = line.length === 0 ? word : `${line} ${word}`;
+    if (next.length <= cap || line.length === 0) {
+      line = next.length <= cap ? next : splitLongWord(word, cap, lines);
+    } else {
+      lines.push(line);
+      line = word.length <= cap ? word : splitLongWord(word, cap, lines);
+    }
+  }
+  if (line.length > 0) lines.push(line);
+  return lines;
+}
+
+function splitLongWord(word: string, cap: number, lines: string[]): string {
+  let rest = word;
+  while (rest.length > cap) {
+    lines.push(rest.slice(0, cap));
+    rest = rest.slice(cap);
+  }
+  return rest;
+}
 
 export function hubIdForFrame(frameId: string | null): string | null {
   if (frameId === null) return null;
@@ -77,6 +129,7 @@ export function marketScreenFor(
     creditsLabel: `Credits: ${credits}cr`,
     left: cells.slice(0, half),
     right: cells.slice(half),
+    rumors: marketRumorsFor(hubId),
   };
 }
 
@@ -88,7 +141,7 @@ export function sellScreenFor(
   const frameId = pawnFrameOf(snapshot, pawnId);
   const hubId = hubIdForFrame(frameId);
   if (market === null || hubId === null || market.hubId !== hubId) return emptySell(hubId);
-  const sellIds = sellIdsFor(snapshot, frameId, market);
+  const sellIds = sellIdsFor(snapshot, frameId, pawnId, market);
   const rows = sellRowsFor(snapshot, sellIds, market);
   const total = rows.reduce((sum, row) => sum + row.value, 0);
   return {
@@ -119,6 +172,7 @@ function emptyMarket(hubId: string | null): MarketScreenModel {
     creditsLabel: 'Credits: —',
     left: [],
     right: [],
+    rumors: [],
   };
 }
 
@@ -149,15 +203,25 @@ function sellRowsFor(
 function sellIdsFor(
   snapshot: SnapshotBroadcast | null,
   frameId: string | null,
+  pawnId: string | null,
   market: MarketStateBroadcast
 ): string[] {
   if (snapshot === null || frameId === null) return [];
   const priced = new Set(market.listings.map((listing) => listing.goodId));
   return (snapshot.crates ?? [])
-    .filter((crate) => crate.where === 'bayFloor' && crate.frameId === frameId)
+    .filter((crate) => isSellableCrate(crate, frameId, pawnId))
     .filter((crate) => crate.items.every((item) => priced.has(item.goodId)))
     .slice(0, MAX_SELL_IDS)
     .map((crate) => crate.id);
+}
+
+function isSellableCrate(
+  crate: NonNullable<SnapshotBroadcast['crates']>[number],
+  frameId: string,
+  pawnId: string | null
+): boolean {
+  if (crate.where === 'bayFloor' && crate.frameId === frameId) return true;
+  return crate.where === 'carriedBy' && pawnId !== null && crate.carrierId === pawnId;
 }
 
 function sellHint(rows: number, sellIds: number): string {

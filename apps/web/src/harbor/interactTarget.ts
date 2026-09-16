@@ -220,8 +220,11 @@ export function targetIntent(target: InteractTarget): ClientIntent {
   return { type: 'DOOR', seq: 0, portalId: target.id, wantOpen: !target.open };
 }
 
-/** Hands-full aware prompt: carriers must set the crate down first. */
+/** Hands-full aware prompt: carriers sell directly at the market stall. */
 export function targetPromptWithCarry(target: InteractTarget, carrying: boolean): string {
+  if (carrying && target.kind === 'fixture' && target.contact.kind === 'market_stall') {
+    return 'Sell cargo';
+  }
   if (carrying && target.kind === 'fixture') return 'Set down first (hands full)';
   return targetPrompt(target);
 }

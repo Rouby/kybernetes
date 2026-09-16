@@ -23,7 +23,12 @@ import {
   type SmoothClock,
 } from '../../harbor/chartModel';
 import { deathHint, deathTitle } from '../../harbor/deathNotice';
-import type { MarketScreenModel, MarketTableCell, SellScreenModel } from '../../harbor/marketModel';
+import {
+  type MarketScreenModel,
+  type MarketTableCell,
+  type SellScreenModel,
+  wrapRumor,
+} from '../../harbor/marketModel';
 import { formatFuel, type NavViewModel, navViewModel } from '../../harbor/navConsoleModel';
 import { engineViewModel, reactorViewModel } from '../../harbor/shipConsoleModel';
 import {
@@ -1006,7 +1011,59 @@ function marketTextsFor(panel: UiRect, model: MarketScreenModel): readonly UiTex
       rows.push(...marketTableRow(cx, colW, tableTop + LINE_H * (row + 1), cell));
     }
   }
+  rows.push(...marketRumorTexts(panel, model, rumorTopFor(model)));
   return rows;
+}
+
+const RUMOR_SIZE = 12;
+const MAX_RUMOR_LINES = 6;
+
+function rumorTopFor(model: MarketScreenModel): number {
+  const rows = Math.max(model.left.length, model.right.length);
+  const tableTop = KICKER_SIZE + 8 + LINE_H + 4;
+  return PAD + tableTop + LINE_H * (rows + 1) + GAP;
+}
+
+function marketRumorTexts(
+  panel: UiRect,
+  model: MarketScreenModel,
+  topOffset: number
+): readonly UiText[] {
+  if (model.rumors.length === 0) return [];
+  const tx = panel.x + PAD;
+  const innerW = panel.w - PAD * 2;
+  const top = panel.y + topOffset;
+  const maxChars = Math.max(10, Math.floor(innerW / uiCharWidth(RUMOR_SIZE)));
+  const lines = rumorLinesFor(model.rumors, maxChars).slice(0, MAX_RUMOR_LINES);
+  return [rumorKicker(tx, top, innerW), ...rumorLines(tx, top, innerW, lines)];
+}
+
+function rumorKicker(tx: number, top: number, innerW: number): UiText {
+  return textAt(
+    uiEllipsize('RUMORS // TRADE INTEL', KICKER_SIZE, innerW),
+    tx,
+    top,
+    KICKER_SIZE,
+    'dim'
+  );
+}
+
+function rumorLines(tx: number, top: number, innerW: number, lines: readonly string[]): UiText[] {
+  return lines.map((line, index) =>
+    textAt(
+      uiEllipsize(line, RUMOR_SIZE, innerW),
+      tx,
+      top + KICKER_SIZE + 8 + index * LINE_H,
+      RUMOR_SIZE,
+      'muted'
+    )
+  );
+}
+
+function rumorLinesFor(rumors: readonly string[], maxChars: number): string[] {
+  const out: string[] = [];
+  for (const rumor of rumors) out.push(...wrapRumor(rumor, maxChars));
+  return out;
 }
 
 const TABLE_SIZE = 12;

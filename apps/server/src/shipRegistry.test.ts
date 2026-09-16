@@ -24,7 +24,7 @@ describe('shipRegistry (M1 solo ownership)', () => {
     saveSoloShip(registry, damageShip(ship, 999));
     const fresh = ensureSoloShip(registry, 'u9');
     expect(fresh.alive).toBe(true);
-    expect(fresh.credits).toBe(20);
+    expect(fresh.credits).toBe(50);
   });
 
   it('builds stable solo entries with pawn ids', () => {

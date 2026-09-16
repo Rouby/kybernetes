@@ -19,7 +19,7 @@ describe('shipRecord (M1 ownership)', () => {
     expect(ship.reactorTier).toBe(0);
     expect(ship.engineTier).toBe(0);
     expect(ship.alive).toBe(true);
-    expect(ship.credits).toBe(20);
+    expect(ship.credits).toBe(50);
     expect(ship.stores.fuelCells).toBe(1);
     expect(ship.engineFuel).toBe(0);
     expect(isShipLost(ship)).toBe(false);
@@ -48,8 +48,8 @@ describe('shipRecord (M1 ownership)', () => {
     expect(debitShip(ship, 999)).toBeUndefined();
     expect(debitShip(ship, -5)).toBeUndefined();
     const paid = debitShip(ship, 5);
-    expect(paid?.credits).toBe(15);
-    expect(creditShip(ship, 5).credits).toBe(25);
+    expect(paid?.credits).toBe(45);
+    expect(creditShip(ship, 5).credits).toBe(55);
   });
 
   it('wipes hard on lethal damage and restarts fresh', () => {
@@ -60,7 +60,7 @@ describe('shipRecord (M1 ownership)', () => {
     expect(wipeOnLoss(ship).alive).toBe(false);
     const fresh = restartSkiff('u4');
     expect(isShipLost(fresh)).toBe(false);
-    expect(fresh.credits).toBe(20);
+    expect(fresh.credits).toBe(50);
   });
 
   it('ignores non-positive damage', () => {

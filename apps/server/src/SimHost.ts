@@ -869,7 +869,7 @@ export class SimHost {
     if (client === undefined) return { notice: 'not-joined' };
     const station = this.marketStation(client.pawnId, hubId);
     if (station === undefined) return { notice: 'MARKET_wrong-frame' };
-    const gate = this.marketGate(client.pawnId, station);
+    const gate = this.marketGate(client.pawnId, station, false);
     if (gate !== undefined) return gate;
     if (!items.every((item) => isTradeGood(item.goodId))) {
       return { notice: 'MARKET_unknown-good' };
@@ -897,11 +897,11 @@ export class SimHost {
     if (client === undefined) return { notice: 'not-joined' };
     const station = this.marketStation(client.pawnId, hubId);
     if (station === undefined) return { notice: 'MARKET_wrong-frame' };
-    const gate = this.marketGate(client.pawnId, station);
+    const gate = this.marketGate(client.pawnId, station, true);
     if (gate !== undefined) return gate;
     const record = getSoloShip(this.ships, client.userId);
     if (record === undefined) return { notice: 'MARKET_no-ship' };
-    const sold = this.sellBayCrates(station, hubId, crateIds);
+    const sold = this.sellBayCrates(client.pawnId, station, hubId, crateIds);
     if (sold.count < 1) return { notice: 'MARKET_denied' };
     saveSoloShip(this.ships, creditShip(record, sold.revenue));
     return { notice: `MARKET_sold:${sold.count}` };
@@ -915,9 +915,15 @@ export class SimHost {
     return pawn.frameId === port.stationFrame ? port.stationFrame : undefined;
   }
 
-  /** Hands-free at the stall: carriers set the crate down first. */
-  private marketGate(pawnId: string, station: string): HostIntentResult | undefined {
-    if (isCarrying(this.world.cargo, pawnId)) return { notice: 'MARKET_hands-full' };
+  /** Buyers go hands-free; sellers may hand over the carried crate directly. */
+  private marketGate(
+    pawnId: string,
+    station: string,
+    allowCarry: boolean
+  ): HostIntentResult | undefined {
+    if (!allowCarry && isCarrying(this.world.cargo, pawnId)) {
+      return { notice: 'MARKET_hands-full' };
+    }
     if (!this.stallNear(station, this.world.pawns[pawnId]?.pos))
       return { notice: 'MARKET_too-far' };
     return undefined;
@@ -955,6 +961,7 @@ export class SimHost {
   }
 
   private sellBayCrates(
+    pawnId: string,
     station: string,
     hubId: string,
     crateIds: readonly string[]
@@ -965,8 +972,8 @@ export class SimHost {
     let revenue = 0;
     for (const id of crateIds) {
       const crate = hold.crates[id];
-      if (crate === undefined || crate.where !== 'bayFloor' || crate.frameId !== station) continue;
-      if (!this.stallNear(station, crate)) continue;
+      if (crate === undefined) continue;
+      if (!this.isSellableCrate(crate, pawnId, station)) continue;
       if (!crate.items.every((item) => isTradeGood(item.goodId))) continue;
       const deal = trySell(ledger, hubId, crate.items, this.world.timeMs);
       if (!deal.ok) continue;
@@ -977,6 +984,16 @@ export class SimHost {
     }
     if (count > 0) this.world = { ...this.world, market: ledger, cargo: hold };
     return { count, revenue };
+  }
+
+  private isSellableCrate(
+    crate: { where: string; frameId: string; carrierId?: string; x: number; y: number },
+    pawnId: string,
+    station: string
+  ): boolean {
+    if (crate.where === 'carriedBy' && crate.carrierId === pawnId) return true;
+    if (crate.where !== 'bayFloor' || crate.frameId !== station) return false;
+    return this.stallNear(station, crate);
   }
 
   private handleSpawnAboard(clientId: string, userId?: string): HostIntentResult {

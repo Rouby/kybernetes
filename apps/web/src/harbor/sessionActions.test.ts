@@ -41,6 +41,9 @@ describe('consoleKindOf', () => {
     expect(consoleKindOf({ kind: 'fixture', contact: { ...contact, kind: 'market_stall' } })).toBe(
       'market'
     );
+    expect(
+      consoleKindOf({ kind: 'fixture', contact: { ...contact, kind: 'market_stall' } }, true)
+    ).toBe('sell');
     expect(consoleKindOf({ kind: 'door', id: 'd', open: false, dist: 5 })).toBeNull();
     expect(consoleKindOf(null)).toBeNull();
   });

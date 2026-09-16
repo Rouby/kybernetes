@@ -27,15 +27,15 @@ export type ConsoleKind =
   | 'pack';
 
 /** Fixture kinds that open a console panel instead of firing a one-shot intent. */
-export function consoleKindOf(target: InteractTarget | null): ConsoleKind | null {
+export function consoleKindOf(target: InteractTarget | null, carrying = false): ConsoleKind | null {
   if (target === null || target.kind !== 'fixture') return null;
-  return consoleKindOfFixture(target.contact.kind);
+  return consoleKindOfFixture(target.contact.kind, carrying);
 }
 
-function consoleKindOfFixture(kind: FixtureKind): ConsoleKind | null {
+function consoleKindOfFixture(kind: FixtureKind, carrying: boolean): ConsoleKind | null {
   if (kind === 'reactor_console' || kind === 'engine_console' || kind === 'nav_console')
     return kind;
-  if (kind === 'market_stall') return 'market';
+  if (kind === 'market_stall') return carrying ? 'sell' : 'market';
   return null;
 }
 

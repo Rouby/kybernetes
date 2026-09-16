@@ -134,13 +134,22 @@ function activateUseTarget(
   target: InteractTarget,
   at: { x: number; y: number }
 ): void {
-  const consoleKind = consoleKindOf(target);
+  const consoleKind = consoleKindOf(target, isCarryingHands(wiring));
   if (consoleKind !== null) {
     wiring.onConsole(consoleKind);
     ShipAudioEngine.getInstance().playUiClick();
     return;
   }
   sendTargetIntent(wiring, target, at);
+}
+
+function isCarryingHands(wiring: ActionWiring): boolean {
+  const snapshot = wiring.getSnapshot();
+  const pawnId = wiring.getPawnId();
+  if (snapshot === null || pawnId === null) return false;
+  return (snapshot.crates ?? []).some(
+    (crate) => crate.where === 'carriedBy' && crate.carrierId === pawnId
+  );
 }
 
 function sendTargetIntent(

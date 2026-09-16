@@ -39,6 +39,8 @@ export const STARTER_HULL_ID = 'skiff_alpha';
 
 export const STARTER_HUB_ID = 'hub_a';
 
+export const STARTER_CREDITS = 50;
+
 const STARTER_STORES: ShipStores = { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 };
 
 export function createStarterSkiff(ownerId: string): ShipRecord {
@@ -48,7 +50,7 @@ export function createStarterSkiff(ownerId: string): ShipRecord {
     hullId: STARTER_HULL_ID,
     reactorTier: 0,
     engineTier: 0,
-    credits: 20,
+    credits: STARTER_CREDITS,
     condition: 100,
     locationHubId: STARTER_HUB_ID,
     alive: true,
