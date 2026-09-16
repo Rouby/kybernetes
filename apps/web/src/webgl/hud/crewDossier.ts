@@ -1,4 +1,5 @@
 import type { LegacyStartingRole, PawnState } from '@kybernetes/protocol';
+import { isPointInPolygon } from '@kybernetes/sim-core';
 
 export interface CrewDossierInfo {
   callsign: string;
@@ -77,7 +78,31 @@ export function resolveCrewDossier(pawn: PawnState): CrewDossierInfo {
   };
 }
 
-export function isPawnHovered(
+function isVisibleInPoly(p: PawnState, losPoly: readonly { x: number; y: number }[]): boolean {
+  return losPoly.length < 3 || isPointInPolygon({ x: p.x, y: p.y }, [...losPoly]);
+}
+
+/** Pure hover pick shared by the renderer: remotes in view first, then the hero. */
+export function pickHoveredCrew(
+  remotes: readonly PawnState[],
+  hero: PawnState,
+  camera: { x: number; y: number },
+  halfW: number,
+  halfH: number,
+  mouseWorld: { x: number; y: number } | undefined,
+  mouseScreen: { x: number; y: number } | undefined,
+  zoom: number,
+  losPoly: readonly { x: number; y: number }[]
+): PawnState | undefined {
+  for (const rp of remotes) {
+    if (!isVisibleInPoly(rp, losPoly)) continue;
+    if (isPawnHovered(rp, camera, halfW, halfH, mouseWorld, mouseScreen, zoom)) return rp;
+  }
+  if (isPawnHovered(hero, camera, halfW, halfH, mouseWorld, mouseScreen, zoom)) return hero;
+  return undefined;
+}
+
+function isPawnHovered(
   p: PawnState,
   cam: { x: number; y: number },
   halfW: number,

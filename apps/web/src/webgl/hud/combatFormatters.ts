@@ -41,7 +41,7 @@ export function combatPanelGeometry(
   const marginX = Math.max(72, Math.round(width * 0.055));
   const marginY = Math.max(52, Math.round(height * 0.065));
   const panelW = 375;
-  const panelH = isKinetic ? (hasInteraction ? 220 : 160) : hasInteraction ? 190 : 130;
+  const panelH = isKinetic ? (hasInteraction ? 242 : 182) : hasInteraction ? 190 : 130;
   return {
     marginX,
     marginY,
@@ -58,6 +58,7 @@ export interface FormattedKineticAmmo {
   statusText: string;
   ammoCol: string;
   magLine: string;
+  statusLine: string;
   isLow: boolean;
 }
 
@@ -72,6 +73,7 @@ export function formatKineticAmmo(
       ? '[LOW AMMO - R TO RELOAD]'
       : '[R] RELOAD';
   const ammoCol = ammo.isReloading ? '#00e5ff' : ammo.current < 8 ? '#ff3344' : '#00ff88';
+  const isLow = ammo.current < 8 && !ammo.isReloading;
   const weaponTitle = equipped === 'railgun_pistol' ? 'RAILGUN PISTOL' : 'KINETIC CARBINE';
   const reserve = ammo.reserve !== undefined ? `  RES: ${ammo.reserve}` : '';
   return {
@@ -79,8 +81,9 @@ export function formatKineticAmmo(
     weaponTitle,
     statusText,
     ammoCol,
-    magLine: `MAG: ${ammo.current}/${ammo.max}${reserve}  ${statusText}`,
-    isLow: ammo.current < 8 && !ammo.isReloading,
+    magLine: `MAG: ${ammo.current}/${ammo.max}${reserve}`,
+    statusLine: isLow ? '[LOW AMMO - R]' : statusText,
+    isLow,
   };
 }
 

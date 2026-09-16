@@ -1,4 +1,15 @@
 import type { WeaponType } from '@kybernetes/protocol';
+import { createProgram } from '../glUtils.js';
+import { PARTICLE_INST_FS, PARTICLE_INST_VS } from '../shaders.js';
+
+/** Interleaved instance fields: x, y, size, kind, r, g, b, a. */
+const INSTANCE_FLOATS = 8;
+/** Worst case: 600 impact + 500 airflow + 40 motes, plus headroom. */
+export const PARTICLE_MAX_INSTANCES = 1200;
+
+const KIND_SQUARE = 0;
+const KIND_DISC = 1;
+const KIND_VAPOR = 2;
 
 interface ImpactParticle {
   x: number;
@@ -51,6 +62,11 @@ export class ParticleSystem {
   private muzzleFlashes: MuzzleFlash[] = [];
   private lastWeaponRecoil = 0;
   private ambientWind = { x: 0, y: 0 };
+  private particleProg: WebGLProgram | null = null;
+  private particleVAO: WebGLVertexArrayObject | null = null;
+  private particleQuad: WebGLBuffer | null = null;
+  private particleInst: WebGLBuffer | null = null;
+  private instanceScratch = new Float32Array(PARTICLE_MAX_INSTANCES * INSTANCE_FLOATS);
 
   constructor() {
     for (let i = 0; i < 40; i++) {
@@ -436,119 +452,182 @@ export class ParticleSystem {
     return this.lastWeaponRecoil;
   }
 
-  public renderDustMotes(
-    gl: WebGL2RenderingContext,
-    flatProg: WebGLProgram,
-    flatVAO: WebGLVertexArrayObject,
-    matrix: Float32Array,
-    timeSec: number,
-    dt: number,
-    drawCircle: (cx: number, cy: number, r: number, segments: number) => void
-  ): void {
-    gl.useProgram(flatProg);
-    gl.bindVertexArray(flatVAO);
-    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
+  /** Release the instanced particle program and buffers. */
+  public disposeGl(gl: WebGL2RenderingContext): void {
+    if (this.particleProg) gl.deleteProgram(this.particleProg);
+    if (this.particleVAO) gl.deleteVertexArray(this.particleVAO);
+    if (this.particleQuad) gl.deleteBuffer(this.particleQuad);
+    if (this.particleInst) gl.deleteBuffer(this.particleInst);
+    this.particleProg = null;
+    this.particleVAO = null;
+    this.particleQuad = null;
+    this.particleInst = null;
+  }
 
-    for (const m of this.dustMotes) {
-      m.x = 60 + ((m.x + (m.vx + this.ambientWind.x * 0.35) * dt - 60 + 1080) % 1080);
-      m.y = 60 + ((m.y + (m.vy + this.ambientWind.y * 0.35) * dt - 60 + 680) % 680);
-
-      const shimmer = m.alpha * (0.8 + 0.2 * Math.sin(timeSec * 3.0 + m.x));
-      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.8, 0.9, 1.0, shimmer);
-      drawCircle(m.x, m.y, m.size, 6);
-    }
+  private ensureGl(gl: WebGL2RenderingContext): void {
+    if (this.particleProg !== null) return;
+    this.particleProg = createProgram(gl, PARTICLE_INST_VS, PARTICLE_INST_FS);
+    this.particleQuad = gl.createBuffer();
+    this.particleInst = gl.createBuffer();
+    this.particleVAO = gl.createVertexArray();
+    if (!this.particleQuad || !this.particleInst || !this.particleVAO) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.particleQuad);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5]),
+      gl.STATIC_DRAW
+    );
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.particleInst);
+    gl.bufferData(gl.ARRAY_BUFFER, PARTICLE_MAX_INSTANCES * INSTANCE_FLOATS * 4, gl.STREAM_DRAW);
+    gl.bindVertexArray(this.particleVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.particleQuad);
+    const corner = gl.getAttribLocation(this.particleProg, 'a_corner');
+    gl.enableVertexAttribArray(corner);
+    gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.particleInst);
+    const inst = gl.getAttribLocation(this.particleProg, 'a_inst');
+    gl.enableVertexAttribArray(inst);
+    gl.vertexAttribPointer(inst, 4, gl.FLOAT, false, 32, 0);
+    gl.vertexAttribDivisor(inst, 1);
+    const col = gl.getAttribLocation(this.particleProg, 'a_col');
+    gl.enableVertexAttribArray(col);
+    gl.vertexAttribPointer(col, 4, gl.FLOAT, false, 32, 16);
+    gl.vertexAttribDivisor(col, 1);
     gl.bindVertexArray(null);
   }
 
-  // fallow-ignore-next-line complexity
-  public renderImpactParticles(
-    gl: WebGL2RenderingContext,
-    flatProg: WebGLProgram,
-    flatVAO: WebGLVertexArrayObject,
-    matrix: Float32Array,
-    dt: number,
-    drawQuad: (x: number, y: number, w: number, h: number) => void
-  ): void {
-    if (this.particles.length === 0) return;
-
-    gl.useProgram(flatProg);
-    gl.bindVertexArray(flatVAO);
-    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
+  /** Integrate every particle list once per frame (no GL calls). */
+  public updateParticles(dt: number): void {
+    for (const m of this.dustMotes) {
+      m.x = 60 + ((m.x + (m.vx + this.ambientWind.x * 0.35) * dt - 60 + 1080) % 1080);
+      m.y = 60 + ((m.y + (m.vy + this.ambientWind.y * 0.35) * dt - 60 + 680) % 680);
+    }
+    for (const p of this.particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.vx *= 0.92;
       p.vy *= 0.92;
       p.life -= dt;
-      if (p.life <= 0) {
-        this.particles.splice(i, 1);
-        continue;
-      }
-
-      const alpha = p.life / p.maxLife;
-      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), p.r, p.g, p.b, alpha);
-      drawQuad(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     }
-
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.bindVertexArray(null);
-  }
-
-  public renderAirflowParticles(
-    gl: WebGL2RenderingContext,
-    flatProg: WebGLProgram,
-    flatVAO: WebGLVertexArrayObject,
-    matrix: Float32Array,
-    timeSec: number,
-    dt: number,
-    drawQuad: (x: number, y: number, w: number, h: number) => void,
-    drawCircle: (cx: number, cy: number, r: number, segments: number) => void
-  ): void {
-    if (this.airflowParticles.length === 0) return;
-
-    gl.useProgram(flatProg);
-    gl.bindVertexArray(flatVAO);
-    gl.uniformMatrix3fv(gl.getUniformLocation(flatProg, 'u_matrix'), false, matrix);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-
-    for (let i = this.airflowParticles.length - 1; i >= 0; i--) {
-      const particle = this.airflowParticles[i];
+    this.particles = this.particles.filter((p) => p.life > 0);
+    for (const particle of this.airflowParticles) {
       particle.x += particle.vx * dt;
       particle.y += particle.vy * dt;
       particle.vx *= 0.982;
       particle.vy *= 0.982;
       particle.life -= dt;
-      if (particle.life <= 0) {
-        this.airflowParticles.splice(i, 1);
-        continue;
-      }
+    }
+    this.airflowParticles = this.airflowParticles.filter((particle) => particle.life > 0);
+  }
 
+  private pushInstance(
+    o: number,
+    x: number,
+    y: number,
+    size: number,
+    kind: number,
+    r: number,
+    g: number,
+    b: number,
+    a: number
+  ): number {
+    const s = this.instanceScratch;
+    s[o] = x;
+    s[o + 1] = y;
+    s[o + 2] = size;
+    s[o + 3] = kind;
+    s[o + 4] = r;
+    s[o + 5] = g;
+    s[o + 6] = b;
+    s[o + 7] = a;
+    return o + INSTANCE_FLOATS;
+  }
+
+  private drawInstances(gl: WebGL2RenderingContext, matrix: Float32Array, count: number): void {
+    if (
+      count === 0 ||
+      this.particleProg === null ||
+      this.particleVAO === null ||
+      this.particleInst === null
+    ) {
+      return;
+    }
+    gl.useProgram(this.particleProg);
+    gl.bindVertexArray(this.particleVAO);
+    gl.uniformMatrix3fv(gl.getUniformLocation(this.particleProg, 'u_matrix'), false, matrix);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.particleInst);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.instanceScratch.subarray(0, count * INSTANCE_FLOATS));
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
+    gl.bindVertexArray(null);
+  }
+
+  /** Scene-pass motes: one instanced draw for the persistent 40. */
+  public renderMotes(gl: WebGL2RenderingContext, matrix: Float32Array, timeSec: number): void {
+    this.ensureGl(gl);
+    let o = 0;
+    for (const m of this.dustMotes) {
+      const shimmer = m.alpha * (0.8 + 0.2 * Math.sin(timeSec * 3.0 + m.x));
+      o = this.pushInstance(o, m.x, m.y, m.size, KIND_DISC, 0.8, 0.9, 1.0, shimmer);
+    }
+    this.drawInstances(gl, matrix, this.dustMotes.length);
+  }
+
+  /** Emissive-pass effects: impacts plus airflow in a single instanced draw. */
+  public renderFx(gl: WebGL2RenderingContext, matrix: Float32Array, timeSec: number): void {
+    this.ensureGl(gl);
+    let o = 0;
+    let count = 0;
+    for (const p of this.particles) {
+      if (count >= PARTICLE_MAX_INSTANCES) break;
+      o = this.pushInstance(o, p.x, p.y, p.size, KIND_SQUARE, p.r, p.g, p.b, p.life / p.maxLife);
+      count += 1;
+    }
+    const fx = this.fillAirflowInstances(o, count, timeSec);
+    this.drawInstances(gl, matrix, fx);
+  }
+
+  private fillAirflowInstances(o: number, count: number, timeSec: number): number {
+    for (const particle of this.airflowParticles) {
+      if (count >= PARTICLE_MAX_INSTANCES) break;
       if (particle.kind === 'vapor') {
         const progress = Math.max(0, 1.0 - particle.life / particle.maxLife);
-        const currentRadius =
-          particle.size + (particle.maxSize - particle.size) * Math.sqrt(progress);
+        const radius = particle.size + (particle.maxSize - particle.size) * Math.sqrt(progress);
         const alpha = Math.sin(progress * Math.PI) * 0.18 * particle.intensity;
-        gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.88, 0.95, 1.0, alpha);
-        drawCircle(particle.x, particle.y, currentRadius, 6);
+        o = this.pushInstance(
+          o,
+          particle.x,
+          particle.y,
+          radius,
+          KIND_VAPOR,
+          0.88,
+          0.95,
+          1.0,
+          alpha
+        );
       } else {
         const glintLife = particle.life / particle.maxLife;
         const shimmer = 0.45 + 0.55 * Math.sin(timeSec * 28.0 + particle.seed);
         const alpha = glintLife * shimmer * 0.75 * particle.intensity;
-        gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.96, 0.98, 1.0, alpha);
-        drawQuad(
-          particle.x - particle.size * 0.5,
-          particle.y - particle.size * 0.5,
+        o = this.pushInstance(
+          o,
+          particle.x,
+          particle.y,
           particle.size,
-          particle.size
+          KIND_SQUARE,
+          0.96,
+          0.98,
+          1.0,
+          alpha
         );
       }
+      count += 1;
     }
+    return count;
+  }
 
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.bindVertexArray(null);
+  /** Live effect count across impact and airflow lists (capped at the buffer). */
+  public fxCount(): number {
+    return Math.min(PARTICLE_MAX_INSTANCES, this.particles.length + this.airflowParticles.length);
   }
 }
 

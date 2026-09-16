@@ -777,12 +777,15 @@ export const HUD_TEXT_VS = `#version 300 es
 precision highp float;
 in vec2 a_position;
 in vec2 a_uv;
+in vec4 a_color;
 uniform mat3 u_matrix;
 uniform float u_curvature;
 out vec2 v_uv;
+out vec4 v_color;
 
 void main() {
   v_uv = a_uv;
+  v_color = a_color;
   vec2 clipPos = (u_matrix * vec3(a_position, 1.0)).xy;
   float r2 = dot(clipPos, clipPos);
   vec2 curvedPos = clipPos * (1.0 + u_curvature * r2);
@@ -793,12 +796,54 @@ void main() {
 export const HUD_TEXT_FS = `#version 300 es
 precision highp float;
 in vec2 v_uv;
+in vec4 v_color;
 uniform sampler2D u_atlas;
 uniform vec4 u_tint;
 out vec4 fragColor;
 
 void main() {
-  vec4 sampleCol = texture(u_atlas, v_uv);
-  fragColor = sampleCol * u_tint;
+  float glyphAlpha = texture(u_atlas, v_uv).a;
+  fragColor = vec4(v_color.rgb, v_color.a * glyphAlpha) * u_tint;
+}
+`;
+
+export const PARTICLE_INST_VS = `#version 300 es
+precision highp float;
+in vec2 a_corner;
+in vec4 a_inst;
+in vec4 a_col;
+uniform mat3 u_matrix;
+out vec2 v_p;
+out vec4 v_col;
+out float v_kind;
+
+void main() {
+  vec2 world = a_inst.xy + a_corner * a_inst.z;
+  v_p = a_corner;
+  v_col = a_col;
+  v_kind = a_inst.w;
+  vec2 clipPos = (u_matrix * vec3(world, 1.0)).xy;
+  gl_Position = vec4(clipPos, 0.0, 1.0);
+}
+`;
+
+export const PARTICLE_INST_FS = `#version 300 es
+precision highp float;
+in vec2 v_p;
+in vec4 v_col;
+in float v_kind;
+out vec4 fragColor;
+
+void main() {
+  float alpha = v_col.a;
+  if (v_kind > 0.5) {
+    float d = length(v_p);
+    if (v_kind < 1.5) {
+      if (d > 0.5) discard;
+    } else {
+      alpha *= smoothstep(0.5, 0.1, d);
+    }
+  }
+  fragColor = vec4(v_col.rgb, alpha);
 }
 `;

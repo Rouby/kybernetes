@@ -1,5 +1,6 @@
 import type { PlayerVitals, RoomAtmosphereSummary } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
+import { uiFitsText } from '../ui/UiToolkit';
 import {
   formatAtmosphereStatus,
   formatIncapacitatedNotice,
@@ -177,6 +178,35 @@ describe('formatAtmosphereStatus', () => {
   });
 });
 
+describe('vitals text budgets', () => {
+  it('fits the condensed incap notice inside the 380px panel budget', () => {
+    const notice = formatIncapacitatedNotice(
+      makeVitals(
+        {},
+        { isIncapacitated: true, cause: 'decompression', bleedoutSecondsRemaining: 45 }
+      )
+    );
+    expect(notice).toBe('CRIT: INCAP (VACUUM) \u2022 BLEED 45s');
+    expect(notice !== null && uiFitsText(notice, 14, 380, 15)).toBe(true);
+  });
+
+  it('fits suit and atmosphere lines inside the panel budget', () => {
+    const suit = formatSuitStatus(
+      makeVitals({
+        isSealed: true,
+        o2RemainingSeconds: 600,
+        maxO2Seconds: 600,
+        integrityPercent: 72,
+      })
+    );
+    expect(uiFitsText(suit.o2Text, 14, 380, 15)).toBe(true);
+    expect(uiFitsText(suit.integrityText, 13, 145, 0)).toBe(true);
+    expect(uiFitsText(formatAtmosphereStatus(STATION_ATMOS_SUMMARY).ambientText, 14, 380, 15)).toBe(
+      true
+    );
+  });
+});
+
 describe('formatIncapacitatedNotice', () => {
   it('returns null for conscious crew', () => {
     expect(formatIncapacitatedNotice(makeVitals({}))).toBeNull();
@@ -187,8 +217,6 @@ describe('formatIncapacitatedNotice', () => {
       {},
       { isIncapacitated: true, cause: 'vacuum', bleedoutSecondsRemaining: 12.4 }
     );
-    expect(formatIncapacitatedNotice(vitals)).toBe(
-      'CRITICAL: INCAPACITATED (VACUUM) - BLEEDOUT: 12s'
-    );
+    expect(formatIncapacitatedNotice(vitals)).toBe('CRIT: INCAP (VACUUM) \u2022 BLEED 12s');
   });
 });

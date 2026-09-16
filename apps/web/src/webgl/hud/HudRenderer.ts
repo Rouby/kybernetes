@@ -31,26 +31,16 @@ import {
 } from '../ui/UiPass';
 import type { UiScreenLayout } from '../ui/UiScreens';
 import type { UiButtonDetail, UiField, UiSwatch } from '../ui/UiToolkit';
-import {
-  cartridgeLoadedStates,
-  cartridgeSlotCell,
-  combatPanelGeometry,
-  formatKineticAmmo,
-  formatLaserCharge,
-  formatWelderStatus,
-  isKineticWeapon,
-  type KineticAmmoState,
-} from './combatFormatters';
-import { isPawnHovered, resolveCrewDossier } from './crewDossier';
-import { HudAtlas, type TextRenderOptions } from './HudAtlas';
+import { pickHoveredCrew, resolveCrewDossier } from './crewDossier';
+import { GLYPH_BAKE_PX, HudAtlas, type TextRenderOptions } from './HudAtlas';
 import { HudHitTester } from './HudHitTester';
-import { formatLivingStrip, type LivingSummary } from './livingFormatters';
-import {
-  formatAtmosphereStatus,
-  formatIncapacitatedNotice,
-  formatSuitStatus,
-  resolveRoomAtmosSummary,
-} from './vitalsFormatters';
+import type { LivingSummary } from './livingFormatters';
+import type { WidgetHost } from './WidgetHost';
+import { AlertsWidget } from './widgets/AlertsWidget';
+import { ChecklistWidget } from './widgets/ChecklistWidget';
+import { CombatWidget } from './widgets/CombatWidget';
+import { HeaderWidget } from './widgets/HeaderWidget';
+import { VitalsWidget } from './widgets/VitalsWidget';
 
 export interface HudDrawState {
   pawn: PawnState;
@@ -136,13 +126,47 @@ export interface HudDrawState {
   } | null;
 }
 
+/** Steady-state vertex capacity per HUD pass; grown on demand, never per frame. */
+const HUD_SCRATCH_FLOATS = 1 << 20;
+
+function nextScratchSize(needed: number): number {
+  let size = HUD_SCRATCH_FLOATS;
+  while (size < needed) size *= 2;
+  return size;
+}
+
+function bubbleBorder(color: string | undefined): [number, number, number] {
+  if (color?.startsWith('#') && color.length >= 7) {
+    return [
+      parseInt(color.slice(1, 3), 16) / 255,
+      parseInt(color.slice(3, 5), 16) / 255,
+      parseInt(color.slice(5, 7), 16) / 255,
+    ];
+  }
+  return [0.0, 0.9, 1.0];
+}
+
+function cartridgePalette(
+  isReloading: boolean,
+  isLowAmmo: boolean
+): { body: [number, number, number]; tip: [number, number, number] } {
+  if (isReloading) return { body: [0.2, 0.85, 1.0], tip: [0.6, 0.95, 1.0] };
+  if (isLowAmmo) return { body: [0.95, 0.25, 0.2], tip: [1.0, 0.55, 0.2] };
+  return { body: [0.82, 0.65, 0.22], tip: [1.0, 0.42, 0.18] };
+}
+
 export interface SplashInput {
   readonly mouse?: { x: number; y: number };
   readonly focusId?: string;
 }
 
-export class HudRenderer {
+export class HudRenderer implements WidgetHost {
   private gl: WebGL2RenderingContext;
+  private readonly headerWidget = new HeaderWidget();
+  private readonly vitalsWidget = new VitalsWidget();
+  private readonly combatWidget = new CombatWidget();
+  private readonly checklistWidget = new ChecklistWidget();
+  private readonly alertsWidget = new AlertsWidget();
   private visorProg: WebGLProgram;
   private vectorProg: WebGLProgram;
   private textProg: WebGLProgram;
@@ -157,10 +181,12 @@ export class HudRenderer {
   private vectorBuffer: WebGLBuffer;
   private vectorVAO: WebGLVertexArrayObject;
   private vectorData: number[] = [];
+  private vectorScratch = new Float32Array(HUD_SCRATCH_FLOATS);
 
   private textBuffer: WebGLBuffer;
   private textVAO: WebGLVertexArrayObject;
   private textData: number[] = [];
+  private textScratch = new Float32Array(HUD_SCRATCH_FLOATS);
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -197,26 +223,64 @@ export class HudRenderer {
     gl.enableVertexAttribArray(vecCol);
     gl.vertexAttribPointer(vecCol, 4, gl.FLOAT, false, 24, 8);
 
-    // 3. Text HUD geometry (x, y, u, v)
+    // 3. Text HUD geometry (x, y, u, v, r, g, b, a) with pre-allocated storage
     this.textBuffer = gl.createBuffer()!;
     this.textVAO = gl.createVertexArray()!;
     gl.bindVertexArray(this.textVAO);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.textBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, HUD_SCRATCH_FLOATS * 4, gl.STREAM_DRAW);
     const textPos = gl.getAttribLocation(this.textProg, 'a_position');
     const textUv = gl.getAttribLocation(this.textProg, 'a_uv');
+    const textCol = gl.getAttribLocation(this.textProg, 'a_color');
     gl.enableVertexAttribArray(textPos);
-    gl.vertexAttribPointer(textPos, 2, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribPointer(textPos, 2, gl.FLOAT, false, 32, 0);
     gl.enableVertexAttribArray(textUv);
-    gl.vertexAttribPointer(textUv, 2, gl.FLOAT, false, 16, 8);
+    gl.vertexAttribPointer(textUv, 2, gl.FLOAT, false, 32, 8);
+    gl.enableVertexAttribArray(textCol);
+    gl.vertexAttribPointer(textCol, 4, gl.FLOAT, false, 32, 16);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vectorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, HUD_SCRATCH_FLOATS * 4, gl.STREAM_DRAW);
 
     gl.bindVertexArray(null);
+    this.atlas.uploadAtlas(gl, this.atlasTexture);
+  }
+
+  /** Grow-once scratch views; steady-state frames copy without allocating. */
+  private vectorView(): Float32Array {
+    if (this.vectorScratch.length < this.vectorData.length) {
+      this.vectorScratch = new Float32Array(nextScratchSize(this.vectorData.length));
+    }
+    return this.vectorScratch;
+  }
+
+  private textView(): Float32Array {
+    if (this.textScratch.length < this.textData.length) {
+      this.textScratch = new Float32Array(nextScratchSize(this.textData.length));
+    }
+    return this.textScratch;
   }
 
   public getHitTester(): HudHitTester {
     return this.hitTester;
   }
 
-  private addQuad(
+  /** Release every GL object owned by the HUD: 3 programs, 3 VAOs, 3 buffers, atlas texture. */
+  public dispose(): void {
+    const gl = this.gl;
+    gl.deleteProgram(this.visorProg);
+    gl.deleteProgram(this.vectorProg);
+    gl.deleteProgram(this.textProg);
+    gl.deleteVertexArray(this.visorVAO);
+    gl.deleteVertexArray(this.vectorVAO);
+    gl.deleteVertexArray(this.textVAO);
+    gl.deleteBuffer(this.fsQuadBuffer);
+    gl.deleteBuffer(this.vectorBuffer);
+    gl.deleteBuffer(this.textBuffer);
+    gl.deleteTexture(this.atlasTexture);
+  }
+
+  public addQuad(
     x: number,
     y: number,
     w: number,
@@ -233,7 +297,7 @@ export class HudRenderer {
     d.push(x, y2, r, g, b, a, x2, y, r, g, b, a, x2, y2, r, g, b, a);
   }
 
-  private addTriangle(
+  public addTriangle(
     x1: number,
     y1: number,
     x2: number,
@@ -273,7 +337,7 @@ export class HudRenderer {
   }
 
   // Segmented borders so linear edges bow smoothly with visor curvature
-  private addBorder(
+  public addBorder(
     x: number,
     y: number,
     w: number,
@@ -295,7 +359,7 @@ export class HudRenderer {
     }
   }
 
-  private addCurvedPanel(
+  public addCurvedPanel(
     x: number,
     y: number,
     w: number,
@@ -313,8 +377,7 @@ export class HudRenderer {
     this.addBorder(x, y, w, h, 1, 0.0, 0.9, 1.0, a * 0.6);
   }
 
-  // fallow-ignore-next-line complexity
-  private addCartridge(
+  public addCartridge(
     x: number,
     y: number,
     isLoaded: boolean,
@@ -323,41 +386,26 @@ export class HudRenderer {
   ): void {
     const w = 7.5;
     const h = 18;
-
     if (!isLoaded) {
       this.addBorder(x, y + 4.5, w, h - 4.5, 1, 0.2, 0.3, 0.4, 0.22);
       return;
     }
-
-    let bodyR = 0.82;
-    let bodyG = 0.65;
-    let bodyB = 0.22;
-    let tipR = 1.0;
-    let tipG = 0.42;
-    let tipB = 0.18;
-
-    if (isReloading) {
-      bodyR = 0.2;
-      bodyG = 0.85;
-      bodyB = 1.0;
-      tipR = 0.6;
-      tipG = 0.95;
-      tipB = 1.0;
-    } else if (isLowAmmo) {
-      bodyR = 0.95;
-      bodyG = 0.25;
-      bodyB = 0.2;
-      tipR = 1.0;
-      tipG = 0.55;
-      tipB = 0.2;
-    }
-
-    this.addQuad(x - 0.75, y + h - 3, w + 1.5, 3, bodyR * 0.7, bodyG * 0.7, bodyB * 0.7, 0.95);
-    this.addQuad(x, y + 5.25, w, h - 8.25, bodyR, bodyG, bodyB, 0.95);
-    this.addTriangle(x, y + 5.25, x + w, y + 5.25, x + w * 0.5, y, tipR, tipG, tipB, 1.0);
+    const { body, tip } = cartridgePalette(isReloading, isLowAmmo);
+    this.addQuad(
+      x - 0.75,
+      y + h - 3,
+      w + 1.5,
+      3,
+      body[0] * 0.7,
+      body[1] * 0.7,
+      body[2] * 0.7,
+      0.95
+    );
+    this.addQuad(x, y + 5.25, w, h - 8.25, body[0], body[1], body[2], 0.95);
+    this.addTriangle(x, y + 5.25, x + w, y + 5.25, x + w * 0.5, y, tip[0], tip[1], tip[2], 1.0);
   }
 
-  private addProgressBar(
+  public addProgressBar(
     x: number,
     y: number,
     w: number,
@@ -374,33 +422,47 @@ export class HudRenderer {
     this.addBorder(x, y, w, h, 1, 0.0, 0.9, 1.0, 0.25);
   }
 
-  private addText(text: string, x: number, y: number, opts: TextRenderOptions = {}): void {
-    const entry = this.atlas.getOrDrawText(text, opts);
-    const y2 = y + entry.height;
+  private pushGlyphQuad(
+    gx: number,
+    y: number,
+    gw: number,
+    gh: number,
+    u0: number,
+    v0: number,
+    u1: number,
+    v1: number,
+    r: number,
+    g: number,
+    b: number
+  ): void {
+    const y2 = y + gh;
+    const x2 = gx + gw;
     const td = this.textData;
+    td.push(gx, y, u0, v0, r, g, b, 1, x2, y, u1, v0, r, g, b, 1, gx, y2, u0, v1, r, g, b, 1);
+    td.push(gx, y2, u0, v1, r, g, b, 1, x2, y, u1, v0, r, g, b, 1, x2, y2, u1, v1, r, g, b, 1);
+  }
 
-    // Subdivide wide text labels so they curve smoothly with the visor shader
-    const segs = entry.width > 70 ? Math.min(8, Math.ceil(entry.width / 48)) : 1;
-    if (segs === 1) {
-      const x2 = x + entry.width;
-      td.push(x, y, entry.u0, entry.v0, x2, y, entry.u1, entry.v0, x, y2, entry.u0, entry.v1);
-      td.push(x, y2, entry.u0, entry.v1, x2, y, entry.u1, entry.v0, x2, y2, entry.u1, entry.v1);
-    } else {
-      const stepX = entry.width / segs;
-      const stepU = (entry.u1 - entry.u0) / segs;
-      for (let i = 0; i < segs; i++) {
-        const sx1 = x + i * stepX;
-        const sx2 = sx1 + stepX;
-        const su1 = entry.u0 + i * stepU;
-        const su2 = su1 + stepU;
-        td.push(sx1, y, su1, entry.v0, sx2, y, su2, entry.v0, sx1, y2, su1, entry.v1);
-        td.push(sx1, y2, su1, entry.v1, sx2, y, su2, entry.v0, sx2, y2, su2, entry.v1);
+  /** Glyph-quad text: per-character quads from the pre-baked atlas (no raster, no upload). */
+  public addText(text: string, x: number, y: number, opts: TextRenderOptions = {}): void {
+    const fontSize = opts.fontSize ?? 22;
+    const scale = fontSize / GLYPH_BAKE_PX;
+    const [r, g, b] = hexToRgb(opts.color ?? '#00e5ff');
+    const gw = this.atlas.cellW * scale;
+    const gh = this.atlas.cellH * scale;
+    const inset = this.atlas.padXPx * scale;
+    const step = this.atlas.advancePx * scale;
+    const passes = opts.fontWeight === 'bold' ? 2 : 1;
+    for (let pass = 0; pass < passes; pass += 1) {
+      let penX = x + (pass === 1 ? Math.max(1, scale) : 0);
+      for (const ch of text) {
+        const uv = this.atlas.glyphUvs(this.atlas.glyphIndexFor(ch.codePointAt(0) ?? 63));
+        this.pushGlyphQuad(penX - inset, y, gw, gh, uv.u0, uv.v0, uv.u1, uv.v1, r, g, b);
+        penX += step;
       }
     }
   }
 
-  // fallow-ignore-next-line complexity
-  private addButton(
+  public addButton(
     id: string,
     x: number,
     y: number,
@@ -411,13 +473,26 @@ export class HudRenderer {
     onClick?: () => void
   ): void {
     const isHovered = this.hitTester.isHovered(id);
-    const bgR = isHovered ? 0.0 : 0.03;
-    const bgG = isHovered ? 0.2 : 0.06;
-    const bgB = isHovered ? 0.3 : 0.1;
-    const alpha = isHovered ? 0.9 : 0.75;
-    this.addQuad(x, y, w, h, bgR, bgG, bgB, alpha);
-    this.addBorder(x, y, w, h, 1, 0.0, isHovered ? 1.0 : 0.8, 1.0, isHovered ? 0.9 : 0.4);
+    this.paintButtonChrome(x, y, w, h, isHovered);
+    this.paintButtonLabel(x, y, w, h, label, opts, isHovered);
+    if (onClick) this.registerButton(id, x, y, w, h, onClick);
+  }
 
+  private paintButtonChrome(x: number, y: number, w: number, h: number, hovered: boolean): void {
+    const bg: [number, number, number] = hovered ? [0.0, 0.2, 0.3] : [0.03, 0.06, 0.1];
+    this.addQuad(x, y, w, h, bg[0], bg[1], bg[2], hovered ? 0.9 : 0.75);
+    this.addBorder(x, y, w, h, 1, 0.0, hovered ? 1.0 : 0.8, 1.0, hovered ? 0.9 : 0.4);
+  }
+
+  private paintButtonLabel(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    label: string,
+    opts: TextRenderOptions,
+    hovered: boolean
+  ): void {
     const fontSize = opts.fontSize ?? 16;
     const charW = fontSize * 0.6;
     const padX = Math.max(4, Math.floor((w - label.length * charW) / 2));
@@ -425,533 +500,30 @@ export class HudRenderer {
     this.addText(label, x + padX, y + padY, {
       ...opts,
       fontSize,
-      color: isHovered ? '#ffffff' : (opts.color ?? '#00e5ff'),
-    });
-
-    if (onClick) {
-      this.hitTester.register({
-        id,
-        type: 'rect',
-        x,
-        y,
-        width: w,
-        height: h,
-        cursor: 'pointer',
-        onClick,
-      });
-    }
-  }
-
-  // fallow-ignore-next-line complexity
-  private renderLowerLeftVitals(state: HudDrawState, width: number, height: number): void {
-    const vitals = state.vitals;
-    if (!vitals) return;
-
-    const marginX = Math.max(72, Math.round(width * 0.055));
-    const marginY = Math.max(52, Math.round(height * 0.065));
-    const panelW = 410;
-    const panelH = 228;
-    const x = marginX;
-    const y = height - panelH - marginY;
-
-    this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
-
-    const suitFmt = formatSuitStatus(vitals);
-    const roomAtmos = resolveRoomAtmosSummary(
-      state.telemetry?.roomAtmospheres,
-      state.currentRoomId
-    );
-    const atmosFmt = formatAtmosphereStatus(roomAtmos);
-    const incNotice = formatIncapacitatedNotice(vitals);
-
-    this.addText('SUIT TELEMETRY // CREW VITALS', x + 15, y + 12, {
-      fontSize: 20,
-      fontWeight: 'bold',
-      color: '#00e5ff',
-    });
-
-    this.addButton(
-      'btn_visor_toggle',
-      x + panelW - 165,
-      y + 8,
-      150,
-      24,
-      suitFmt.visorLabel,
-      { fontSize: 13, color: suitFmt.visorColor },
-      state.onToggleHelmet
-    );
-
-    this.addText(`${state.pawn.callsign} [${state.pawn.role.toUpperCase()}]`, x + 15, y + 36, {
-      fontSize: 18,
-      color: state.pawn.color || '#ffb000',
-    });
-
-    // Ambient atmosphere reading
-    const ambCol = atmosFmt.isHazard ? '#ff3344' : '#8098b0';
-    this.addText(atmosFmt.ambientText, x + 15, y + 56, {
-      fontSize: 14,
-      color: ambCol,
-    });
-
-    // 1. Vitality / Health
-    const hpCol: [number, number, number] =
-      vitals.health < 25 ? [1.0, 0.13, 0.27] : [0.0, 0.9, 1.0];
-    this.addText(`HEALTH: ${Math.round(vitals.health)}%`, x + 15, y + 74, {
-      fontSize: 16,
-      color: '#e0e6ed',
-    });
-    this.addProgressBar(x + 15, y + 90, panelW - 30, 6, vitals.health, hpCol);
-
-    // 2. Suit O2 tank & integrity
-    this.addText(suitFmt.o2Text, x + 15, y + 100, {
-      fontSize: 14,
-      color: '#c0d0e0',
-    });
-    this.addText(suitFmt.integrityText, x + panelW - 145, y + 100, {
-      fontSize: 13,
-      color: suitFmt.isLeaking ? '#ff3344' : '#608098',
-    });
-    this.addProgressBar(x + 15, y + 116, panelW - 30, 6, suitFmt.o2Percent, suitFmt.o2BarColor);
-
-    // 3. Stamina
-    this.addText(
-      `STAMINA: ${Math.round(vitals.stamina)} / ${Math.round(vitals.maxStamina)}`,
-      x + 15,
-      y + 126,
-      { fontSize: 14, color: '#c0d0e0' }
-    );
-    this.addProgressBar(
-      x + 15,
-      y + 142,
-      panelW - 30,
-      6,
-      (vitals.stamina / vitals.maxStamina) * 100,
-      [0.0, 1.0, 0.4]
-    );
-
-    // 4. Nutrition, Hydration, Fatigue
-    const hungerCol: [number, number, number] =
-      vitals.hunger < 20 ? [1.0, 0.13, 0.27] : [1.0, 0.69, 0.0];
-    this.addText(`NUT: ${Math.round(vitals.hunger)}%`, x + 15, y + 154, {
-      fontSize: 14,
-      color: '#c0d0e0',
-    });
-    this.addProgressBar(x + 15, y + 170, 110, 5, vitals.hunger, hungerCol);
-
-    const thirstCol: [number, number, number] =
-      vitals.thirst < 20 ? [1.0, 0.13, 0.27] : [0.0, 0.9, 1.0];
-    this.addText(`HYD: ${Math.round(vitals.thirst)}%`, x + 140, y + 154, {
-      fontSize: 14,
-      color: '#c0d0e0',
-    });
-    this.addProgressBar(x + 140, y + 170, 110, 5, vitals.thirst, thirstCol);
-
-    const fatigueCol: [number, number, number] =
-      vitals.fatigue > 80 ? [1.0, 0.13, 0.27] : [1.0, 0.69, 0.0];
-    this.addText(`FTG: ${Math.round(vitals.fatigue)}%`, x + 265, y + 154, {
-      fontSize: 14,
-      color: '#c0d0e0',
-    });
-    this.addProgressBar(x + 265, y + 170, 110, 5, vitals.fatigue, fatigueCol);
-
-    // Prompt & Hotkeys hint
-    if (incNotice) {
-      this.addText(incNotice, x + 15, y + 195, {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#ff2244',
-      });
-    } else {
-      this.addText('[W][A][S][D] Move • [H] Visor • [E] Action • [V] Sensor', x + 15, y + 198, {
-        fontSize: 14,
-        color: '#55708a',
-      });
-    }
-  }
-
-  private renderLivingStrip(state: HudDrawState, width: number, height: number): void {
-    if (state.livingSummary === undefined) return;
-    const formatted = formatLivingStrip(state.livingSummary, state.mealBuffS ?? 0);
-    const marginX = Math.max(72, Math.round(width * 0.055));
-    const marginY = Math.max(52, Math.round(height * 0.065));
-    const panelW = 410;
-    const panelH = formatted.alert === null ? 86 : 106;
-    const x = marginX;
-    const y = height - 228 - marginY - 12 - panelH;
-    this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
-    this.addText(formatted.title, x + 15, y + 10, {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: '#00e5ff',
-    });
-    this.addText(formatted.line1, x + 15, y + 30, { fontSize: 14, color: '#c0d0e0' });
-    this.addText(formatted.line2, x + 15, y + 48, { fontSize: 14, color: '#c0d0e0' });
-    if (formatted.alert !== null) {
-      this.addText(formatted.alert, x + 15, y + 68, {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: formatted.alertIsCritical ? '#ff2244' : '#ffb000',
-      });
-    }
-  }
-
-  private renderLowerRightCombat(state: HudDrawState, width: number, height: number): void {
-    const eq = state.equippedWeapon ?? 'kinetic_carbine';
-    const isKinetic = isKineticWeapon(eq);
-    const geo = combatPanelGeometry(width, height, isKinetic, Boolean(state.activeInteraction));
-    const { x, y, panelW, panelH } = geo;
-
-    this.addCurvedPanel(x, y, panelW, panelH, 9, 0.03, 0.06, 0.1, 0.82);
-
-    // Tool Header with hotkey hint
-    this.addText('EQUIPPED TOOL // [1-4] SELECT', x + 15, y + 12, {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: '#7088a0',
-    });
-
-    if (isKinetic) {
-      this.renderKineticBlock(state, x, y, eq);
-    } else if (eq === 'pulse_laser') {
-      this.renderLaserBlock(state, x, y, panelW);
-    } else {
-      // arc_welder has no thermal model: status follows the live arc state.
-      this.renderWelderBlock(state, x, y);
-    }
-
-    this.renderCombatFooter(state, x, y, panelW, isKinetic);
-  }
-
-  private renderKineticBlock(state: HudDrawState, x: number, y: number, eq: WeaponType): void {
-    const fmt = formatKineticAmmo(eq, state.kineticAmmo);
-    this.addText(fmt.weaponTitle, x + 15, y + 36, {
-      fontSize: 20,
-      fontWeight: 'bold',
-      color: fmt.ammoCol,
-    });
-    this.addText(fmt.magLine, x + 15, y + 58, { fontSize: 16, color: '#c8d6e5' });
-    this.renderCartridgeRack(fmt.ammo, x, y);
-  }
-
-  /** Double-stack magazine rack: 30 cartridges in 2 rows of 15. */
-  private renderCartridgeRack(ammo: KineticAmmoState, x: number, y: number): void {
-    const loaded = cartridgeLoadedStates(ammo);
-    const isLow = ammo.current < 8 && !ammo.isReloading;
-    loaded.forEach((isBulletLoaded, i) => {
-      const { row, col } = cartridgeSlotCell(i);
-      this.addCartridge(
-        x + 18 + col * 11.25,
-        y + 78 + row * 21,
-        isBulletLoaded,
-        ammo.isReloading,
-        isLow
-      );
+      color: hovered ? '#ffffff' : (opts.color ?? '#00e5ff'),
     });
   }
 
-  private renderLaserBlock(state: HudDrawState, x: number, y: number, panelW: number): void {
-    const ratio = state.chargingState?.active ? state.chargingState.ratio || 0 : 0;
-    const fmt = formatLaserCharge(ratio);
-    const laserCol = fmt.isPrimed ? '#c084fc' : '#00e5ff';
-    this.addText('PULSE LASER', x + 15, y + 36, {
-      fontSize: 22,
-      fontWeight: 'bold',
-      color: laserCol,
-    });
-    this.addText(`CHARGE: ${fmt.pct}%  ${fmt.statusText}`, x + 15, y + 60, {
-      fontSize: 18,
-      color: '#e0e6ed',
-    });
-    const barCol: [number, number, number] = fmt.isPrimed ? [0.75, 0.3, 1.0] : [0.0, 0.9, 1.0];
-    this.addProgressBar(x + 15, y + 80, panelW - 30, 8, fmt.barValue, barCol);
-  }
-
-  private renderWelderBlock(state: HudDrawState, x: number, y: number): void {
-    const isWelding = Boolean(state.welderState?.active);
-    const welderCol = isWelding ? '#ffb000' : '#7090b0';
-    this.addText('ARC WELDER', x + 15, y + 36, {
-      fontSize: 22,
-      fontWeight: 'bold',
-      color: welderCol,
-    });
-    this.addText(formatWelderStatus(isWelding), x + 15, y + 60, { fontSize: 18, color: '#e0e6ed' });
-  }
-
-  private renderCombatFooter(
-    state: HudDrawState,
+  private registerButton(
+    id: string,
     x: number,
     y: number,
-    panelW: number,
-    isKinetic: boolean
+    w: number,
+    h: number,
+    onClick: () => void
   ): void {
-    if (state.activeInteraction) {
-      this.renderShiftProgress(state, x, y, panelW, isKinetic);
-      return;
-    }
-    const hintY = isKinetic ? y + 128 : y + 98;
-    if (state.promptActionName) {
-      this.addText(`[E] ${state.promptActionName.toUpperCase()}`, x + 15, hintY, {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#00e5ff',
-      });
-      return;
-    }
-    const hint = isKinetic
-      ? '[L-CLICK / SPACE] Fire  •  [R] Reload'
-      : '[L-CLICK / SPACE] Discharge Tool';
-    this.addText(hint, x + 15, hintY, { fontSize: 16, color: '#506680' });
-  }
-
-  /** Station shift progress indicator with abort control. */
-  private renderShiftProgress(
-    state: HudDrawState,
-    x: number,
-    y: number,
-    panelW: number,
-    isKinetic: boolean
-  ): void {
-    const inter = state.activeInteraction;
-    if (!inter) return;
-    const shiftY = isKinetic ? y + 124 : y + 96;
-    const shiftPct = Math.round(inter.progress * 100);
-    this.addText(`SHIFT: ${inter.actionName.toUpperCase()} (${shiftPct}%)`, x + 15, shiftY, {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: '#00e5ff',
-    });
-    this.addProgressBar(x + 15, shiftY + 18, panelW - 30, 6, shiftPct, [0.0, 0.9, 1.0]);
-    this.addButton(
-      'abort_shift',
-      x + 15,
-      shiftY + 30,
-      panelW - 30,
-      24,
-      'ABORT SHIFT [ESC]',
-      { fontSize: 16, color: '#ff2244' },
-      state.onAbortInteraction
-    );
-    this.addText('[L-CLICK / SPACE] Discharge Weapon', x + 15, shiftY + 62, {
-      fontSize: 16,
-      color: '#506680',
+    this.hitTester.register({
+      id,
+      type: 'rect',
+      x,
+      y,
+      width: w,
+      height: h,
+      cursor: 'pointer',
+      onClick,
     });
   }
 
-  // fallow-ignore-next-line complexity
-  private renderTopVisor(state: HudDrawState, width: number, height: number): void {
-    const telemetry = state.telemetry;
-    const marginX = Math.max(72, Math.round(width * 0.055));
-    const marginY = Math.max(38, Math.round(height * 0.055));
-    const panelW = 595;
-    const panelH = 54;
-    const x = width - panelW - marginX;
-    const y = marginY;
-
-    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.08, 0.75);
-
-    const shipName = telemetry?.shipName ?? 'CSS HESPERIA';
-    this.addText(`VSSL: ${shipName}`, x + 14, y + 4, {
-      fontSize: 14,
-      fontWeight: 'bold',
-      color: '#7090b0',
-    });
-
-    // Minimal navigation buttons: BCN, CREW, BILLET, AUDIO, and DISEMBARK
-    this.addButton(
-      'btn_beacon',
-      x + 10,
-      y + 21,
-      75,
-      27,
-      `BCN: ${state.beaconCode ?? 'HESP01'}`,
-      { fontSize: 13 },
-      state.onBeaconClick
-    );
-    this.addButton(
-      'btn_crew',
-      x + 90,
-      y + 21,
-      70,
-      27,
-      `CREW: ${state.crewCount ?? 1}`,
-      { fontSize: 13 },
-      state.onManifestClick
-    );
-    this.addButton(
-      'btn_role',
-      x + 165,
-      y + 21,
-      55,
-      27,
-      'BILLET',
-      { fontSize: 13 },
-      state.onRoleClick
-    );
-    this.addButton(
-      'btn_audio',
-      x + 220,
-      y + 21,
-      80,
-      27,
-      'AUDIO [O]',
-      { fontSize: 12, color: '#00e5ff' },
-      state.onAudioClick
-    );
-
-    this.addButton(
-      'btn_leave',
-      x + 305,
-      y + 21,
-      135,
-      27,
-      'DISEMBARK',
-      { fontSize: 14, color: '#ff4466' },
-      state.onDisembarkClick
-    );
-
-    // Diegetic Alert Warning (Text indicator only, NO debug buttons to force-change it!)
-    if (state.alertLevel === 'red') {
-      this.addText('CONDITION: RED', x - 170, y + 16, {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#ff2244',
-      });
-    } else if (state.alertLevel === 'yellow') {
-      this.addText('CONDITION: YELLOW', x - 195, y + 16, {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#ffaa00',
-      });
-    }
-  }
-
-  // fallow-ignore-next-line complexity
-  private renderTopLeftShiftChecklist(state: HudDrawState, width: number, height: number): void {
-    const shift = state.shiftChecklist;
-    if (!shift) return;
-
-    const marginX = Math.max(72, Math.round(width * 0.055));
-    const marginY = Math.max(38, Math.round(height * 0.055));
-    const isOffDuty = shift.phase === 'off_duty';
-    const panelW = 425;
-    const panelH = isOffDuty ? 165 : 140;
-    const x = marginX;
-    const y = marginY;
-
-    this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.08, 0.82);
-
-    const secTag = (shift.watchSection || 'alpha').toUpperCase();
-    const headerTitle = isOffDuty
-      ? `WATCH #${shift.shiftNumber} - SEC ${secTag} [OFF-DUTY]`
-      : `WATCH #${shift.shiftNumber} - SEC ${secTag} [ACTIVE]`;
-    const headerColor = isOffDuty ? '#ffb000' : '#00e5ff';
-
-    this.addText(headerTitle, x + 15, y + 10, {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: headerColor,
-    });
-
-    const grade = state.projectedGrade || 'A';
-    const timer = state.shiftTimerFormatted || '00:00';
-    const gradeColor =
-      grade === 'S' ? '#00ff88' : grade === 'A' ? '#00e5ff' : grade === 'B' ? '#ffb000' : '#ff3344';
-    const rankBadge = shift.rankBadge ? ` [${shift.rankBadge}]` : '';
-
-    this.addText(`RATING: [${grade}]  TIME: ${timer}${rankBadge}`, x + 15, y + 36, {
-      fontSize: 16,
-      color: gradeColor,
-    });
-
-    for (let i = 0; i < shift.tasks.length; i++) {
-      const task = shift.tasks[i];
-      const ty = y + 60 + i * 26;
-      const isDone = task.completed;
-      const isActive = i === shift.currentTaskIndex && !shift.isCompleted && !isOffDuty;
-
-      let prefix = '[ ] ';
-      let col = '#55708a';
-      if (isDone) {
-        prefix = '[X] ';
-        col = '#00ff88';
-      } else if (isActive) {
-        prefix = '[>] ';
-        col = '#00e5ff';
-      }
-
-      this.addText(`${prefix}${task.name}`, x + 15, ty, {
-        fontSize: 16,
-        fontWeight: isActive ? 'bold' : 'normal',
-        color: col,
-      });
-    }
-
-    if (isOffDuty) {
-      const offDutyY = y + 60 + shift.tasks.length * 26;
-      this.addText('[>] Rest in Crew Bunk (Hand Over Watch)', x + 15, offDutyY, {
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#ffb000',
-      });
-    }
-  }
-
-  // fallow-ignore-next-line complexity
-  private renderCenterAlerts(state: HudDrawState, width: number): void {
-    const notice = state.inGameNotice || state.triageNotice;
-    if (notice) {
-      const bannerW = 570;
-      const x = Math.floor((width - bannerW) / 2);
-      this.addCurvedPanel(x, 18, bannerW, 40, 6, 0.05, 0.08, 0.12, 0.94);
-      this.addText(notice, x + 16, 26, { fontSize: 20, fontWeight: 'bold', color: '#00e5ff' });
-    }
-
-    // Dual Protocol banner
-    if (state.dualProtocol?.stage === 'primed') {
-      const p = state.dualProtocol;
-      const dpW = 600;
-      const x = Math.floor((width - dpW) / 2);
-      this.addCurvedPanel(x, 66, dpW, 45, 6, 0.15, 0.02, 0.04, 0.95);
-      this.addText(`DUAL PROTOCOL: ${p.title} (${p.remainingSeconds.toFixed(1)}s)`, x + 16, 76, {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#ff2244',
-      });
-      this.addButton(
-        'btn_exec_dual',
-        x + dpW - 195,
-        72,
-        180,
-        33,
-        'EXECUTE [E]',
-        { fontSize: 18, color: '#00ff66' },
-        state.onExecuteDualProtocol
-      );
-    }
-
-    // Collaborative Shift banner
-    if (
-      state.collabShift &&
-      !state.collabShift.isCompleted &&
-      state.collabShift.participants.length > 0
-    ) {
-      const cs = state.collabShift;
-      const csW = 630;
-      const x = Math.floor((width - csW) / 2);
-      this.addCurvedPanel(x, 118, csW, 42, 6, 0.04, 0.08, 0.12, 0.92);
-      this.addText(
-        `CO-OP SHIFT: ${cs.title} (${Math.round(cs.progressPercent)}%) [${cs.participants.length} OPS]`,
-        x + 16,
-        127,
-        {
-          fontSize: 20,
-          color: '#00e5ff',
-        }
-      );
-    }
-  }
-
-  // fallow-ignore-next-line complexity
   private renderWorldSpeechBubbles(
     pawns: PawnState[],
     camera: { x: number; y: number },
@@ -960,77 +532,48 @@ export class HudRenderer {
     losPoly: Point2D[],
     zoom = 1.0
   ): void {
-    const halfW = width / 2;
-    const halfH = height / 2;
-
     for (const p of pawns) {
       if (losPoly.length >= 3 && !isPointInPolygon({ x: p.x, y: p.y }, losPoly)) continue;
       if (!p.speechBubble || p.speechBubble.expiresAt <= Date.now()) continue;
-
-      const sx = Math.round(halfW + (p.x - camera.x) * zoom);
-      const sy = Math.round(halfH + (p.y - camera.y) * zoom - 30 * zoom);
-      const bubbleText = `"${p.speechBubble.text}"`;
-      const bWidth = Math.min(420, bubbleText.length * 9.5 + 24);
-      const bHeight = 28;
-      const bX = sx - bWidth / 2;
-      const bY = sy - 30;
-
-      let br = 0.0;
-      let bg = 0.9;
-      let bb = 1.0;
-      if (p.color?.startsWith('#') && p.color.length >= 7) {
-        br = parseInt(p.color.slice(1, 3), 16) / 255;
-        bg = parseInt(p.color.slice(3, 5), 16) / 255;
-        bb = parseInt(p.color.slice(5, 7), 16) / 255;
-      }
-
-      this.addQuad(bX, bY, bWidth, bHeight, 0.02, 0.05, 0.09, 0.94);
-      this.addBorder(bX, bY, bWidth, bHeight, 1, br, bg, bb, 0.85);
-      this.addText(bubbleText, bX + 10, bY + 4, {
-        fontSize: 16,
-        color: '#ffffff',
-      });
+      this.renderSpeechBubble(p, camera, width, height, zoom);
     }
   }
 
-  // fallow-ignore-next-line complexity
+  private renderSpeechBubble(
+    p: PawnState,
+    camera: { x: number; y: number },
+    width: number,
+    height: number,
+    zoom: number
+  ): void {
+    const sx = Math.round(width / 2 + (p.x - camera.x) * zoom);
+    const sy = Math.round(height / 2 + (p.y - camera.y) * zoom - 30 * zoom);
+    const bubbleText = `"${p.speechBubble?.text ?? ''}"`;
+    const bWidth = Math.min(420, bubbleText.length * 9.5 + 24);
+    const [br, bg, bb] = bubbleBorder(p.color);
+    this.addQuad(sx - bWidth / 2, sy - 30, bWidth, 28, 0.02, 0.05, 0.09, 0.94);
+    this.addBorder(sx - bWidth / 2, sy - 30, bWidth, 28, 1, br, bg, bb, 0.85);
+    this.addText(bubbleText, sx - bWidth / 2 + 10, sy - 26, { fontSize: 16, color: '#ffffff' });
+  }
+
   private findHoveredCrewMember(
     state: HudDrawState,
     width: number,
     height: number,
     losPoly: Point2D[]
   ): PawnState | null {
-    const halfW = width / 2;
-    const halfH = height / 2;
-    const zoom = state.zoom ?? 1.0;
-
-    if (state.remotePawns) {
-      for (const rp of state.remotePawns) {
-        if (losPoly.length >= 3 && !isPointInPolygon({ x: rp.x, y: rp.y }, losPoly)) continue;
-        if (
-          isPawnHovered(rp, state.camera, halfW, halfH, state.mouseWorld, state.mouseScreen, zoom)
-        ) {
-          return rp;
-        }
-      }
-    }
-
-    if (
-      state.pawn &&
-      isPawnHovered(
-        state.pawn,
-        state.camera,
-        halfW,
-        halfH,
-        state.mouseWorld,
-        state.mouseScreen,
-        zoom
-      )
-    ) {
-      return state.pawn;
-    }
-
-    return null;
+    const picked = pickHoveredCrew(
+      state.remotePawns ?? [],
+      state.pawn,
+      state.camera,
+      width / 2,
+      height / 2,
+      state.mouseWorld,
+      state.mouseScreen,
+      state.zoom ?? 1.0,
+      losPoly
+    );
+    return picked ?? null;
   }
 
   private renderHoverReticle(
@@ -1057,7 +600,6 @@ export class HudRenderer {
     this.addQuad(sx + r - 1.5, sy + r - arm, 1.5, arm, 0.0, 0.9, 1.0, 0.85);
   }
 
-  // fallow-ignore-next-line complexity
   private renderCrewDossierWidget(p: PawnState, width: number, height: number): void {
     const dossier = resolveCrewDossier(p);
     const marginX = Math.max(72, Math.round(width * 0.055));
@@ -1066,49 +608,45 @@ export class HudRenderer {
     const panelH = 175;
     const x = width - panelW - marginX;
     const y = marginY + 68;
-
     this.addCurvedPanel(x, y, panelW, panelH, 6, 0.02, 0.05, 0.09, 0.9);
+    this.renderDossierIdentity(dossier, x, y);
+    this.renderDossierRecord(dossier, x, y, panelW);
+  }
 
+  private renderDossierIdentity(
+    dossier: ReturnType<typeof resolveCrewDossier>,
+    x: number,
+    y: number
+  ): void {
     this.addText('CREW DOSSIER // VISOR SCAN', x + 15, y + 10, {
       fontSize: 14,
       fontWeight: 'bold',
       color: '#00e5ff',
     });
-
     this.addText(dossier.callsign, x + 15, y + 32, {
       fontSize: 18,
       fontWeight: 'bold',
       color: dossier.color,
     });
-    this.addText(dossier.rank, x + 15, y + 54, {
-      fontSize: 13,
-      color: '#a0c0e0',
-    });
-    this.addText(dossier.department, x + 15, y + 72, {
-      fontSize: 12,
-      color: '#7090b0',
-    });
+    this.addText(dossier.rank, x + 15, y + 54, { fontSize: 13, color: '#a0c0e0' });
+    this.addText(dossier.department, x + 15, y + 72, { fontSize: 12, color: '#7090b0' });
+  }
 
+  private renderDossierRecord(
+    dossier: ReturnType<typeof resolveCrewDossier>,
+    x: number,
+    y: number,
+    panelW: number
+  ): void {
     this.addText(`DUTY: ${dossier.status}`, x + 15, y + 92, {
       fontSize: 12,
       fontWeight: 'bold',
       color: '#00ff88',
     });
-
     this.addQuad(x + 15, y + 112, panelW - 30, 1, 0.0, 0.9, 1.0, 0.25);
-
-    this.addText('SERVICE RECORD // NOTES:', x + 15, y + 118, {
-      fontSize: 11,
-      color: '#55708a',
-    });
-    this.addText(dossier.bioLine1, x + 15, y + 134, {
-      fontSize: 12,
-      color: '#e0e8f0',
-    });
-    this.addText(dossier.bioLine2, x + 15, y + 150, {
-      fontSize: 12,
-      color: '#8fa5b8',
-    });
+    this.addText('SERVICE RECORD // NOTES:', x + 15, y + 118, { fontSize: 11, color: '#55708a' });
+    this.addText(dossier.bioLine1, x + 15, y + 134, { fontSize: 12, color: '#e0e8f0' });
+    this.addText(dossier.bioLine2, x + 15, y + 150, { fontSize: 12, color: '#8fa5b8' });
   }
 
   private renderUiOverlay(
@@ -1220,8 +758,8 @@ export class HudRenderer {
       this.hitTester.updateHover(input.mouse.x, input.mouse.y, width, height, curvature);
     }
     this.hitTester.clear();
-    this.vectorData = [];
-    this.textData = [];
+    this.vectorData.length = 0;
+    this.textData.length = 0;
     this.renderVisorGlass(width, height, timeSec);
     this.overlayBackdrop(width, height, 0.3);
     this.splashStars(width, height, timeSec);
@@ -1253,7 +791,9 @@ export class HudRenderer {
     gl.uniform1f(gl.getUniformLocation(this.vectorProg, 'u_glow'), 0.2);
     gl.uniform1f(gl.getUniformLocation(this.vectorProg, 'u_curvature'), curvature);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vectorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vectorData), gl.STREAM_DRAW);
+    const view = this.vectorView();
+    view.set(this.vectorData);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, view.subarray(0, this.vectorData.length));
     gl.drawArrays(gl.TRIANGLES, 0, this.vectorData.length / 6);
     gl.bindVertexArray(null);
   }
@@ -1271,8 +811,10 @@ export class HudRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTexture);
     gl.uniform1i(gl.getUniformLocation(this.textProg, 'u_atlas'), 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.textBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.textData), gl.STREAM_DRAW);
-    gl.drawArrays(gl.TRIANGLES, 0, this.textData.length / 4);
+    const view = this.textView();
+    view.set(this.textData);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, view.subarray(0, this.textData.length));
+    gl.drawArrays(gl.TRIANGLES, 0, this.textData.length / 8);
     gl.bindVertexArray(null);
   }
 
@@ -1353,12 +895,12 @@ export class HudRenderer {
     const detail = button.detail;
     if (detail === undefined) return;
     const fontSize = 12;
-    const entry = this.atlas.getOrDrawText(detail.text, { fontSize });
+    const textWidth = this.atlas.measureMonospace(detail.text, fontSize);
     const padX = 10;
     const padY = Math.max(1, Math.floor((button.rect.h - fontSize) / 2) - 1);
     this.addText(
       detail.text,
-      button.rect.x + button.rect.w - padX - entry.width,
+      button.rect.x + button.rect.w - padX - textWidth,
       button.rect.y + padY,
       {
         fontSize,
@@ -1367,7 +909,6 @@ export class HudRenderer {
     );
   }
 
-  // fallow-ignore-next-line complexity
   public render(
     state: HudDrawState,
     width: number,
@@ -1376,44 +917,17 @@ export class HudRenderer {
     losPoly: Point2D[]
   ): void {
     const curvature = 0.055;
-
-    if (state.mouseScreen) {
-      this.hitTester.updateHover(
-        state.mouseScreen.x,
-        state.mouseScreen.y,
-        width,
-        height,
-        curvature
-      );
-    }
-
+    this.trackHover(state, width, height, curvature);
     this.hitTester.clear();
-    this.vectorData = [];
-    this.textData = [];
+    this.vectorData.length = 0;
+    this.textData.length = 0;
 
     // 1. VISOR GLASS SHADER PASS
     this.renderVisorGlass(width, height, timeSec);
 
     // 2. COMPOSE HUD WIDGETS (ambient yields while pack bench / chart is open)
-    if (state.packOpen !== true && state.chartOpen !== true) {
-      this.renderLowerLeftVitals(state, width, height);
-      this.renderLivingStrip(state, width, height);
-      this.renderLowerRightCombat(state, width, height);
-      this.renderTopLeftShiftChecklist(state, width, height);
-    }
-    this.renderTopVisor(state, width, height);
-    this.renderCenterAlerts(state, width);
-
-    const zoom = state.zoom ?? 1.0;
-    if (state.packOpen !== true && state.chartOpen !== true) {
-      const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
-      this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
-      const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
-      if (hovered) {
-        this.renderHoverReticle(hovered, state.camera, width, height, zoom);
-        this.renderCrewDossierWidget(hovered, width, height);
-      }
-    }
+    this.renderWidgets(state, width, height);
+    this.renderTags(state, width, height, losPoly);
     const overlay = state.uiOverlay;
     if (overlay !== undefined && overlay !== null) {
       this.renderUiOverlay(overlay.layout, overlay.onAction, width, height, state.timeMs);
@@ -1426,5 +940,33 @@ export class HudRenderer {
 
     // 4. TEXT ATLAS HUD PASS (with helmet visor barrel curvature)
     this.flushTextPass(screenMat, curvature);
+  }
+
+  private trackHover(state: HudDrawState, width: number, height: number, curvature: number): void {
+    if (!state.mouseScreen) return;
+    this.hitTester.updateHover(state.mouseScreen.x, state.mouseScreen.y, width, height, curvature);
+  }
+
+  private renderWidgets(state: HudDrawState, width: number, height: number): void {
+    if (state.packOpen !== true && state.chartOpen !== true) {
+      this.vitalsWidget.render(this, state, width, height);
+      this.vitalsWidget.renderLivingStrip(this, state, width, height);
+      this.combatWidget.render(this, state, width, height);
+      this.checklistWidget.render(this, state, width, height);
+    }
+    this.headerWidget.render(this, state, width, height);
+    this.alertsWidget.render(this, state, width, height);
+  }
+
+  private renderTags(state: HudDrawState, width: number, height: number, losPoly: Point2D[]): void {
+    if (state.packOpen === true || state.chartOpen === true) return;
+    const zoom = state.zoom ?? 1.0;
+    const pawnsToTag = [state.pawn, ...(state.remotePawns || [])];
+    this.renderWorldSpeechBubbles(pawnsToTag, state.camera, width, height, losPoly, zoom);
+    const hovered = this.findHoveredCrewMember(state, width, height, losPoly);
+    if (hovered) {
+      this.renderHoverReticle(hovered, state.camera, width, height, zoom);
+      this.renderCrewDossierWidget(hovered, width, height);
+    }
   }
 }

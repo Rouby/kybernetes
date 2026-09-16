@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { uiFitsText } from '../ui/UiToolkit';
 import {
   cartridgeLoadedStates,
   cartridgeSlotCell,
@@ -26,12 +27,12 @@ describe('isKineticWeapon', () => {
 describe('combatPanelGeometry', () => {
   it('sizes kinetic panels taller with room for the cartridge rack', () => {
     const plain = combatPanelGeometry(1600, 900, true, false);
-    expect(plain).toMatchObject({ panelW: 375, panelH: 160 });
+    expect(plain).toMatchObject({ panelW: 375, panelH: 182 });
     expect(plain.x).toBe(1600 - 375 - plain.marginX);
   });
 
   it('grows panels while a station shift is active', () => {
-    expect(combatPanelGeometry(1600, 900, true, true).panelH).toBe(220);
+    expect(combatPanelGeometry(1600, 900, true, true).panelH).toBe(242);
     expect(combatPanelGeometry(1600, 900, false, true).panelH).toBe(190);
     expect(combatPanelGeometry(1600, 900, false, false).panelH).toBe(130);
   });
@@ -47,7 +48,8 @@ describe('formatKineticAmmo', () => {
     expect(fmt.weaponTitle).toBe('KINETIC CARBINE');
     expect(fmt.statusText).toBe('[R] RELOAD');
     expect(fmt.ammoCol).toBe('#00ff88');
-    expect(fmt.magLine).toBe('MAG: 24/30  RES: 90  [R] RELOAD');
+    expect(fmt.magLine).toBe('MAG: 24/30  RES: 90');
+    expect(fmt.statusLine).toBe('[R] RELOAD');
     expect(fmt.isLow).toBe(false);
   });
 
@@ -55,6 +57,7 @@ describe('formatKineticAmmo', () => {
     const fmt = formatKineticAmmo('railgun_pistol', { ...DEFAULT_KINETIC_AMMO, current: 5 });
     expect(fmt.weaponTitle).toBe('RAILGUN PISTOL');
     expect(fmt.statusText).toBe('[LOW AMMO - R TO RELOAD]');
+    expect(fmt.statusLine).toBe('[LOW AMMO - R]');
     expect(fmt.ammoCol).toBe('#ff3344');
     expect(fmt.isLow).toBe(true);
   });
@@ -67,6 +70,7 @@ describe('formatKineticAmmo', () => {
       reloadProgress: 0.42,
     });
     expect(fmt.statusText).toBe('[RELOADING 42%]');
+    expect(fmt.statusLine).toBe('[RELOADING 42%]');
     expect(fmt.ammoCol).toBe('#00e5ff');
     expect(fmt.isLow).toBe(false);
   });
@@ -106,6 +110,30 @@ describe('formatLaserCharge', () => {
       statusText: '[CAPACITOR PRIMED]',
       isPrimed: true,
     });
+  });
+});
+
+describe('ammunition text budgets', () => {
+  it('fits both ammo lines inside the 345px panel budget', () => {
+    const states = [
+      formatKineticAmmo('kinetic_carbine', { ...DEFAULT_KINETIC_AMMO, current: 30, reserve: 9999 }),
+      formatKineticAmmo('kinetic_carbine', { ...DEFAULT_KINETIC_AMMO, current: 5 }),
+      formatKineticAmmo('kinetic_carbine', {
+        ...DEFAULT_KINETIC_AMMO,
+        current: 0,
+        isReloading: true,
+        reloadProgress: 1,
+      }),
+    ];
+    for (const fmt of states) {
+      expect(uiFitsText(fmt.magLine, 16, 345)).toBe(true);
+      expect(uiFitsText(fmt.statusLine, 14, 345)).toBe(true);
+    }
+  });
+
+  it('fits laser and welder lines inside the panel budget', () => {
+    expect(uiFitsText(`CHARGE: 100%  ${formatLaserCharge(1).statusText}`, 17, 345)).toBe(true);
+    expect(uiFitsText(formatWelderStatus(true), 18, 345)).toBe(true);
   });
 });
 

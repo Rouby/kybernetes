@@ -1,159 +1,125 @@
-export interface CachedTextEntry {
-  key: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  u0: number;
-  v0: number;
-  u1: number;
-  v1: number;
-}
-
 export interface TextRenderOptions {
   fontSize?: number;
   fontWeight?: string;
-  fontFamily?: string;
   color?: string;
-  bgColor?: string;
-  borderColor?: string;
-  paddingX?: number;
-  paddingY?: number;
 }
 
+export interface GlyphUvs {
+  readonly u0: number;
+  readonly v0: number;
+  readonly u1: number;
+  readonly v1: number;
+}
+
+/** First printable ASCII code point baked into the atlas. */
+export const GLYPH_FIRST = 32;
+/** Printable ASCII run (32-126) baked ahead of gameplay. */
+export const GLYPH_ASCII_COUNT = 95;
+/** Non-ASCII HUD glyphs (bullets, degrees, ellipsis, box marks). */
+export const GLYPH_EXTRAS = '\u2022\u00b0\u2026\u2014\u2013\u00d7\u00b7\u25ba\u25b2\u2588\u2713';
+/** Pixel size the glyphs are rasterized at; quads scale from this basis. */
+export const GLYPH_BAKE_PX = 32;
+const ATLAS_COLS = 16;
+const ATLAS_SIZE = 512;
+const CELL_W = ATLAS_SIZE / ATLAS_COLS;
+const CELL_H = 40;
+
+export function glyphCount(): number {
+  return GLYPH_ASCII_COUNT + GLYPH_EXTRAS.length;
+}
+
+/** Atlas cell for a global glyph index (0-based over ASCII run + extras). */
+export function glyphCell(index: number): { col: number; row: number } {
+  return { col: index % ATLAS_COLS, row: Math.floor(index / ATLAS_COLS) };
+}
+
+/**
+ * Pre-baked monochrome glyph atlas: the full printable ASCII run plus HUD
+ * extras rasterized once at construction. Text renders as instanced-style
+ * quads with per-glyph UVs, so gameplay never calls texImage2D again.
+ */
 export class HudAtlas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private width = 2048;
-  private height = 2048;
-  private currentX = 2;
-  private currentY = 2;
-  private rowHeight = 0;
-  private dirty = true;
-  private cache = new Map<string, CachedTextEntry>();
+  private uploaded = false;
+  /** Monospace advance at bake size; quads scale it by fontSize / 32. */
+  readonly advancePx: number;
+  /** Blank side bearing inside a cell; quads back it out so glyphs kern. */
+  readonly padXPx: number;
+  readonly cellW = CELL_W;
+  readonly cellH = CELL_H;
 
   constructor() {
     this.canvas = document.createElement('canvas');
-    this.canvas.width = this.width;
-    this.canvas.height = this.height;
+    this.canvas.width = ATLAS_SIZE;
+    this.canvas.height = ATLAS_SIZE;
     const ctx = this.canvas.getContext('2d', { willReadFrequently: false });
     if (!ctx) {
       throw new Error('Could not create 2D context for HUD Atlas');
     }
     this.ctx = ctx;
     this.ctx.textBaseline = 'top';
+    this.bakeGlyphs();
+    this.ctx.font = `${GLYPH_BAKE_PX}px monospace`;
+    this.advancePx = this.ctx.measureText('M').width;
+    this.padXPx = Math.max(0, (CELL_W - this.advancePx) / 2);
   }
 
-  public reset(): void {
-    this.ctx.clearRect(0, 0, this.width, this.height);
-    this.currentX = 2;
-    this.currentY = 2;
-    this.rowHeight = 0;
-    this.cache.clear();
-    this.dirty = true;
-  }
-
-  private advanceShelf(itemWidth: number, itemHeight: number): void {
-    if (this.currentX + itemWidth + 2 > this.width) {
-      this.currentX = 2;
-      this.currentY += this.rowHeight + 4;
-      this.rowHeight = 0;
-    }
-    if (this.currentY + itemHeight + 2 > this.height) {
-      this.reset();
-    }
-  }
-
-  // fallow-ignore-next-line complexity
-  private buildKey(text: string, opts: TextRenderOptions): string {
-    const size = opts.fontSize ?? 22;
-    const weight = opts.fontWeight ?? 'normal';
-    const family = opts.fontFamily ?? 'monospace';
-    const color = opts.color ?? '#00e5ff';
-    const bg = opts.bgColor ?? '';
-    const border = opts.borderColor ?? '';
-    return `${text}__${size}_${weight}_${family}_${color}_${bg}_${border}`;
-  }
-
-  // fallow-ignore-next-line complexity
-  private drawTextElement(
-    text: string,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    font: string,
-    opts: TextRenderOptions
-  ): void {
+  private bakeGlyphs(): void {
     const ctx = this.ctx;
-    ctx.save();
-    if (opts.bgColor) {
-      ctx.fillStyle = opts.bgColor;
-      ctx.fillRect(x, y, w, h);
+    ctx.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+    ctx.font = `${GLYPH_BAKE_PX}px monospace`;
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < glyphCount(); i += 1) {
+      const { col, row } = glyphCell(i);
+      const ch =
+        i < GLYPH_ASCII_COUNT
+          ? String.fromCharCode(GLYPH_FIRST + i)
+          : GLYPH_EXTRAS[i - GLYPH_ASCII_COUNT];
+      const w = ctx.measureText(ch).width;
+      ctx.fillText(ch ?? '?', col * CELL_W + (CELL_W - w) / 2, row * CELL_H + 4);
     }
-    if (opts.borderColor) {
-      ctx.strokeStyle = opts.borderColor;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-    }
-    ctx.font = font;
-    ctx.fillStyle = opts.color ?? '#00e5ff';
-    const padX = opts.paddingX ?? (opts.bgColor ? 4 : 0);
-    const padY = opts.paddingY ?? (opts.bgColor ? 2 : 0);
-    ctx.fillText(text, x + padX, y + padY);
-    ctx.restore();
   }
 
-  // fallow-ignore-next-line complexity
-  public getOrDrawText(text: string, opts: TextRenderOptions = {}): CachedTextEntry {
-    const key = this.buildKey(text, opts);
-    const cached = this.cache.get(key);
-    if (cached) return cached;
+  /** Global glyph index for a code point; unknown glyphs fall back to '?'. */
+  glyphIndexFor(codePoint: number): number {
+    if (codePoint >= GLYPH_FIRST && codePoint < GLYPH_FIRST + GLYPH_ASCII_COUNT) {
+      return codePoint - GLYPH_FIRST;
+    }
+    const extra = GLYPH_EXTRAS.indexOf(String.fromCodePoint(codePoint));
+    if (extra >= 0) return GLYPH_ASCII_COUNT + extra;
+    return 63 - GLYPH_FIRST;
+  }
 
-    const font = `${opts.fontWeight ?? 'normal'} ${opts.fontSize ?? 22}px ${opts.fontFamily ?? 'monospace'}`;
-    this.ctx.font = font;
-    const metrics = this.ctx.measureText(text);
-
-    const padX = opts.paddingX ?? (opts.bgColor ? 4 : 0);
-    const padY = opts.paddingY ?? (opts.bgColor ? 2 : 0);
-    const textW = Math.ceil(metrics.width);
-    const textH = Math.ceil(opts.fontSize ?? 22) + 4;
-    const totalW = textW + padX * 2;
-    const totalH = textH + padY * 2;
-
-    this.advanceShelf(totalW, totalH);
-
-    const posX = this.currentX;
-    const posY = this.currentY;
-    this.drawTextElement(text, posX, posY, totalW, totalH, font, opts);
-
-    this.currentX += totalW + 4;
-    if (totalH > this.rowHeight) this.rowHeight = totalH;
-    this.dirty = true;
-
-    const entry: CachedTextEntry = {
-      key,
-      x: posX,
-      y: posY,
-      width: totalW,
-      height: totalH,
-      u0: posX / this.width,
-      v0: posY / this.height,
-      u1: (posX + totalW) / this.width,
-      v1: (posY + totalH) / this.height,
+  glyphUvs(index: number): GlyphUvs {
+    const { col, row } = glyphCell(index);
+    return {
+      u0: (col * CELL_W) / ATLAS_SIZE,
+      v0: (row * CELL_H) / ATLAS_SIZE,
+      u1: ((col + 1) * CELL_W) / ATLAS_SIZE,
+      v1: ((row + 1) * CELL_H) / ATLAS_SIZE,
     };
-    this.cache.set(key, entry);
-    return entry;
   }
 
-  public syncTexture(gl: WebGL2RenderingContext, texture: WebGLTexture): void {
-    if (!this.dirty) return;
+  /** Monospace measure without touching the GPU. */
+  measureMonospace(text: string, fontSize: number): number {
+    return [...text].length * this.advancePx * (fontSize / GLYPH_BAKE_PX);
+  }
+
+  /** Single full-atlas upload; gameplay frames never transfer again. */
+  uploadAtlas(gl: WebGL2RenderingContext, texture: WebGLTexture): void {
+    if (this.uploaded) return;
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    this.dirty = false;
+    this.uploaded = true;
+  }
+
+  /** Late-init safety: uploads once if construction-time upload was skipped. */
+  syncTexture(gl: WebGL2RenderingContext, texture: WebGLTexture): void {
+    if (!this.uploaded) this.uploadAtlas(gl, texture);
   }
 }

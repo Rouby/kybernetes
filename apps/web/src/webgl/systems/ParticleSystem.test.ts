@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ParticleSystem } from './ParticleSystem';
+import { createMockGl } from '../hud/HudTestUtils';
+import { PARTICLE_MAX_INSTANCES, ParticleSystem } from './ParticleSystem';
 
 function particleCount(system: ParticleSystem): number {
   return (system as unknown as { particles: unknown[] }).particles.length;
@@ -49,5 +50,43 @@ describe('thruster exhaust', () => {
     const system = new ParticleSystem();
     for (let i = 0; i < 2000; i += 1) system.emitExhaust(100, 100, 1, 0, 1);
     expect(particleCount(system)).toBeLessThanOrEqual(600);
+  });
+});
+
+describe('instanced particle batching', () => {
+  it('renders hundreds of venting effects in one instanced draw', () => {
+    const { gl, calls } = createMockGl();
+    const system = new ParticleSystem();
+    for (let i = 0; i < 120; i += 1) system.emitAirflow(100, 100, 200, 0, 1.0);
+    for (let i = 0; i < 10; i += 1) system.addImpact(100, 100, 'kinetic');
+    system.updateParticles(0.016);
+    system.renderFx(gl, new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), 1.0);
+    expect(calls.drawArraysCalls).toBe(0);
+    expect(calls.drawArraysInstancedCalls).toBe(1);
+    const drawn = calls.drawArraysInstancedArgs[0]?.primcount ?? 0;
+    expect(drawn).toBeGreaterThan(400);
+    expect(drawn).toBe(system.fxCount());
+    expect(drawn).toBeLessThanOrEqual(PARTICLE_MAX_INSTANCES);
+  });
+
+  it('renders the persistent dust motes in one instanced draw', () => {
+    const { gl, calls } = createMockGl();
+    const system = new ParticleSystem();
+    system.updateParticles(0.016);
+    system.renderMotes(gl, new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), 1.0);
+    expect(calls.drawArraysCalls).toBe(0);
+    expect(calls.drawArraysInstancedCalls).toBe(1);
+    expect(calls.drawArraysInstancedArgs[0]?.primcount).toBe(40);
+  });
+
+  it('releases particle GL objects on dispose', () => {
+    const { gl, calls } = createMockGl();
+    const system = new ParticleSystem();
+    system.renderMotes(gl, new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), 0);
+    system.disposeGl(gl);
+    expect(calls.deletedPrograms).toHaveLength(1);
+    expect(calls.deletedVaos).toHaveLength(1);
+    expect(calls.deletedBuffers).toHaveLength(2);
+    system.disposeGl(gl);
   });
 });

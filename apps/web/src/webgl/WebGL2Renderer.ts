@@ -994,7 +994,6 @@ export class WebGL2Renderer {
       welders,
       playerLoSPoly,
       timeSec,
-      dt,
       width,
       height
     );
@@ -1193,15 +1192,8 @@ export class WebGL2Renderer {
     this.renderCarriedCrates(matrix, layers.cargoCrates, timeSec);
     this.renderIntruders(matrix, layers.intruders, timeSec, playerLoSPoly);
     this.renderSentries(matrix, layers.sentries, timeSec, playerLoSPoly);
-    this.particleSystem.renderDustMotes(
-      gl,
-      this.flatProg,
-      this.flatVAO,
-      matrix,
-      timeSec,
-      dt,
-      this.drawCircle.bind(this)
-    );
+    this.particleSystem.updateParticles(dt);
+    this.particleSystem.renderMotes(gl, matrix, timeSec);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
@@ -1215,7 +1207,6 @@ export class WebGL2Renderer {
     welders: WelderArcSet,
     playerLoSPoly: Point2D[],
     timeSec: number,
-    dt: number,
     width: number,
     height: number
   ): void {
@@ -1247,24 +1238,9 @@ export class WebGL2Renderer {
     }
 
     if (state.chartOpen !== true) {
-      this.particleSystem.renderImpactParticles(
-        gl,
-        this.flatProg,
-        this.flatVAO,
-        matrix,
-        dt,
-        this.drawQuad.bind(this)
-      );
-      this.particleSystem.renderAirflowParticles(
-        gl,
-        this.flatProg,
-        this.flatVAO,
-        matrix,
-        timeSec,
-        dt,
-        this.drawQuad.bind(this),
-        this.drawCircle.bind(this)
-      );
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      this.particleSystem.renderFx(gl, matrix, timeSec);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       this.renderAimingReticle(matrix, state.pawn, state.mouseWorld);
     }
     this.renderHypoxiaOverlay(state, timeSec);
@@ -1343,6 +1319,8 @@ export class WebGL2Renderer {
   // fallow-ignore-next-line unused-class-member
   public dispose(): void {
     const gl = this.gl;
+    this.hudRenderer.dispose();
+    this.particleSystem.disposeGl(gl);
     this.framebufferManager.dispose();
     this.starfieldPass.dispose();
     this.deckPass.dispose();

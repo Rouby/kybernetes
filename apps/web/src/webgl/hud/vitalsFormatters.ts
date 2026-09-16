@@ -124,10 +124,15 @@ export function formatAtmosphereStatus(atmos?: RoomAtmosphereSummary): Formatted
   return { ambientText, hazardBanner, isHazard };
 }
 
+function incapTag(cause: string): string {
+  if (cause === 'decompression') return 'VACUUM';
+  return cause.toUpperCase();
+}
+
 export function formatIncapacitatedNotice(vitals: PlayerVitals): string | null {
   if (!vitals.incapacitated?.isIncapacitated) return null;
   const rem = Math.round(vitals.incapacitated.bleedoutSecondsRemaining);
-  return `CRITICAL: INCAPACITATED (${vitals.incapacitated.cause.toUpperCase()}) - BLEEDOUT: ${rem}s`;
+  return `CRIT: INCAP (${incapTag(vitals.incapacitated.cause)}) \u2022 BLEED ${rem}s`;
 }
 
 export function resolveRoomAtmosSummary(
