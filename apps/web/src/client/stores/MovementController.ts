@@ -56,17 +56,17 @@ export function readMoveInput(keys: ReadonlySet<string>): { x: number; y: number
   return { x: x / len, y: y / len };
 }
 
-/** Snap on teleport/sub-pixel drift, lerp the middle (mirrors the hook). */
+/** Snap on teleport/sub-pixel drift, lerp the middle; aim stays client-owned. */
 export function reconcilePrediction(prev: PredictedPose | null, auth: SnapshotPawn): PredictedPose {
   if (prev === null) return { x: auth.x, y: auth.y, facing: auth.facing };
   const error = Math.hypot(auth.x - prev.x, auth.y - prev.y);
-  if (error > SNAP_DIST || error < 6) {
-    return { x: auth.x, y: auth.y, facing: auth.facing };
+  if (error > SNAP_DIST || error < 0.25) {
+    return { x: auth.x, y: auth.y, facing: prev.facing };
   }
   return {
     x: prev.x + (auth.x - prev.x) * 0.25,
     y: prev.y + (auth.y - prev.y) * 0.25,
-    facing: auth.facing,
+    facing: prev.facing,
   };
 }
 

@@ -73,7 +73,8 @@ export class MetallicPlateSynth {
     osc.frequency.exponentialRampToValueAtTime(45, t + dur);
 
     const oscGain = this.ctx.createGain();
-    oscGain.gain.setValueAtTime(0.6 * volume, t);
+    oscGain.gain.setValueAtTime(0.001, t);
+    oscGain.gain.linearRampToValueAtTime(0.6 * volume, t + 0.002);
     oscGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
     osc.connect(oscGain);

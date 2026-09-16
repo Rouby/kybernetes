@@ -56,6 +56,8 @@ export class AudioPrefs {
     const engine = ShipAudioEngine.getInstance();
     engine.init();
     engine.resume();
+    this.detach();
+    this.attach();
     this.update(readVolumes());
   }
 

@@ -6,6 +6,7 @@ import type {
 } from '@kybernetes/protocol';
 import { AcousticSpatializer } from './AcousticSpatializer';
 import { AudioBusManager } from './AudioBusManager';
+import { SpatialFoleyPool } from './SpatialFoleyPool';
 import { AlarmSynth } from './synths/AlarmSynth';
 import { BallisticsSynth } from './synths/BallisticsSynth';
 import { type DeckSurfaceType, MetallicPlateSynth } from './synths/MetallicPlateSynth';
@@ -13,6 +14,12 @@ import { PneumaticSynth } from './synths/PneumaticSynth';
 import { ReactorDroneSynth } from './synths/ReactorDroneSynth';
 import { TerminalUiSynth } from './synths/TerminalUiSynth';
 import { VitalsMonitorSynth } from './synths/VitalsMonitorSynth';
+import {
+  assessSuffocation,
+  heartbeatTempo,
+  mapperTelemetrySnapshot,
+  type TelemetryAudioSnapshot,
+} from './TelemetryAudioMapper';
 
 export class ShipAudioEngine {
   private static instance: ShipAudioEngine | null = null;
@@ -46,6 +53,7 @@ export class ShipAudioEngine {
   // Voice Concurrency Limiting
   private activeFoleyVoices = 0;
   private readonly MAX_CONCURRENT_FOLEY = 8;
+  private foleyPool: SpatialFoleyPool | null = null;
 
   public static getInstance(): ShipAudioEngine {
     if (!ShipAudioEngine.instance) {
@@ -54,9 +62,12 @@ export class ShipAudioEngine {
     return ShipAudioEngine.instance;
   }
 
-  // fallow-ignore-next-line complexity
   public init(): void {
     if (this.ctx) return;
+    if (this.initGraph()) this.setupGestureUnlock();
+  }
+
+  private initGraph(): boolean {
     try {
       const AudioCtx =
         window.AudioContext ||
@@ -64,7 +75,6 @@ export class ShipAudioEngine {
       this.ctx = new AudioCtx();
       this.busManager = new AudioBusManager(this.ctx);
       this.spatializer = new AcousticSpatializer(this.ctx);
-
       this.metalSynth = new MetallicPlateSynth(this.ctx);
       this.pneumaticSynth = new PneumaticSynth(this.ctx);
       this.reactorSynth = new ReactorDroneSynth(this.ctx);
@@ -72,21 +82,25 @@ export class ShipAudioEngine {
       this.uiSynth = new TerminalUiSynth(this.ctx);
       this.vitalsSynth = new VitalsMonitorSynth(this.ctx);
       this.alarmSynth = new AlarmSynth(this.ctx);
-
-      this.setupGestureUnlock();
+      return true;
     } catch {
       // AudioContext unavailable in environment
+      return false;
     }
   }
 
-  // fallow-ignore-next-line complexity
   public resume(): void {
     if (!this.ctx) return;
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume().then(() => this.startAmbientLoop());
-    } else if (this.ctx.state === 'running') {
-      this.startAmbientLoop();
-    }
+    if (this.ctx.state === 'suspended') this.resumeSuspended();
+    else this.resumeRunning();
+  }
+
+  private resumeSuspended(): void {
+    this.ctx?.resume().then(() => this.startAmbientLoop());
+  }
+
+  private resumeRunning(): void {
+    if (this.ctx?.state === 'running') this.startAmbientLoop();
   }
 
   private startAmbientLoop(): void {
@@ -111,7 +125,6 @@ export class ShipAudioEngine {
     if (doors) this.activeDoors = doors;
   }
 
-  // fallow-ignore-next-line complexity
   public updateTelemetry(
     telemetry: TelemetryDeltaBroadcast,
     vitals?: PlayerVitals,
@@ -119,129 +132,120 @@ export class ShipAudioEngine {
   ): void {
     if (!this.ctx || !this.busManager) return;
     const now = performance.now();
+    const mapped = mapperTelemetrySnapshot(telemetry, currentRoomId, this.previousAlertLevel);
+    this.previousAlertLevel = mapped.alertLevel;
+    this.applyReactorSection(mapped.snapshot, currentRoomId);
+    this.applyHullSection(mapped.snapshot, now);
+    this.applyAlertSection(mapped.snapshot);
+    this.applyVentSection(mapped.snapshot, now);
+    this.processVitalsTrauma(vitals, mapped.snapshot, now);
+  }
 
-    // 1. Living ship reactor & air circulation
-    const reactorLoad = telemetry.reactorOutputMw ?? telemetry.reactor?.outputMw ?? 50;
-    const o2 = telemetry.oxygenLevelPercent ?? telemetry.lifeSupport?.o2LevelPercent ?? 100;
-    const isOnBridge = currentRoomId === 'bridge';
-    this.reactorSynth?.updateTelemetry(reactorLoad, o2, isOnBridge);
+  private applyReactorSection(
+    snapshot: TelemetryAudioSnapshot,
+    currentRoomId: string | undefined
+  ): void {
+    this.reactorSynth?.updateTelemetry(
+      snapshot.reactorLoad,
+      snapshot.oxygen,
+      currentRoomId === 'bridge'
+    );
+  }
 
-    // 2. Low Hull Groans (<50%)
-    const hullPct = telemetry.hullIntegrityPercent ?? telemetry.hull?.integrityPercent ?? 100;
-    if (hullPct < 50 && now - this.lastHullGroanTime > 7000 + Math.random() * 5000) {
-      this.lastHullGroanTime = now;
-      this.metalSynth?.playHullGroan(this.busManager.ambienceGain, (50 - hullPct) / 50);
+  private applyHullSection(snapshot: TelemetryAudioSnapshot, now: number): void {
+    if (!this.busManager) return;
+    if (snapshot.hullPct >= 50) return;
+    if (now - this.lastHullGroanTime <= 7000 + Math.random() * 5000) return;
+    this.lastHullGroanTime = now;
+    this.metalSynth?.playHullGroan(this.busManager.ambienceGain, (50 - snapshot.hullPct) / 50);
+  }
+
+  private applyAlertSection(snapshot: TelemetryAudioSnapshot): void {
+    if (!this.busManager) return;
+    if (snapshot.alertChanged === 'red') {
+      this.alarmSynth?.playRedAlertKlaxon(this.busManager.crisisGain);
+    } else if (snapshot.alertChanged === 'yellow') {
+      this.alarmSynth?.playCautionChime(this.busManager.crisisGain);
     }
+  }
 
-    // 3. Alert Level Transition
-    if (telemetry.alertLevel && telemetry.alertLevel !== this.previousAlertLevel) {
-      if (telemetry.alertLevel === 'red') {
-        this.alarmSynth?.playRedAlertKlaxon(this.busManager.crisisGain);
-      } else if (telemetry.alertLevel === 'yellow') {
-        this.alarmSynth?.playCautionChime(this.busManager.crisisGain);
-      }
-      this.previousAlertLevel = telemetry.alertLevel;
-    }
-
-    // 4. Decompression roar & venting foley
-    const roomAtmos =
-      currentRoomId && telemetry.roomAtmospheres
-        ? telemetry.roomAtmospheres[currentRoomId]
-        : undefined;
-    if (roomAtmos?.isVenting && now - this.lastDecompressionRoarTime > 3500) {
-      this.lastDecompressionRoarTime = now;
-      this.pneumaticSynth?.playVentingBurst(this.busManager.crisisGain, 2.5, 0.85);
-    }
-
-    // 5. Vitals Crisis (Heartbeat, suffocation breath, vacuum muffling)
-    this.processVitalsTrauma(vitals, o2, now, roomAtmos?.pressureKpa ?? 101.3);
+  private applyVentSection(snapshot: TelemetryAudioSnapshot, now: number): void {
+    if (!this.busManager) return;
+    if (!snapshot.venting || now - this.lastDecompressionRoarTime <= 3500) return;
+    this.lastDecompressionRoarTime = now;
+    this.pneumaticSynth?.playVentingBurst(this.busManager.crisisGain, 2.5, 0.85);
   }
 
   private processVitalsTrauma(
     vitals: PlayerVitals | undefined,
-    o2: number,
-    now: number,
-    roomPressure = 101.3
+    snapshot: TelemetryAudioSnapshot,
+    now: number
   ): void {
     if (!vitals || !this.busManager || !this.vitalsSynth) return;
-    this.processSuffocation(vitals, o2, now, roomPressure);
+    this.processSuffocation(vitals, snapshot, now);
     this.processHeartbeat(vitals, now);
   }
 
-  // fallow-ignore-next-line complexity
   private processSuffocation(
     vitals: PlayerVitals,
-    o2: number,
-    now: number,
-    roomPressure = 101.3
+    snapshot: TelemetryAudioSnapshot,
+    now: number
   ): void {
     if (!this.busManager || !this.vitalsSynth) return;
-    const isVacuumUnsealed = !vitals.suit?.isSealed && roomPressure < 50;
-    const isSuffocating =
-      vitals.hypoxiaPercent > 30 ||
-      o2 <= 25 ||
-      vitals.health <= 20 ||
-      isVacuumUnsealed ||
-      (vitals.suit?.isSealed && vitals.suit.o2RemainingSeconds < 60);
-
-    if (isSuffocating) {
-      const pressureRatio = isVacuumUnsealed ? Math.max(0.01, roomPressure / 101.3) : 1.0;
-      const severityRatio = Math.min(
-        1.0,
-        Math.max(
-          vitals.hypoxiaPercent / 100,
-          (25 - o2) / 25,
-          (20 - vitals.health) / 20,
-          1 - pressureRatio
-        )
-      );
-      const clampCutoff = Math.max(220, 20000 * Math.max(0.01, 1 - severityRatio));
-      this.busManager.setMasterCrisisCutoff(clampCutoff);
-
-      const breathInterval = vitals.hypoxiaPercent > 60 ? 900 : 1400;
-      if (now - this.lastBreathTime > breathInterval) {
-        this.lastBreathTime = now;
-        this.vitalsSynth.playSuffocationBreath(this.busManager.crisisGain, this.isInhaling);
-        this.isInhaling = !this.isInhaling;
-      }
-    } else {
+    const assessment = assessSuffocation(vitals, snapshot.oxygen, snapshot.roomPressureKpa);
+    if (assessment === null) {
       this.busManager.setMasterCrisisCutoff(20000);
+      return;
+    }
+    this.busManager.setMasterCrisisCutoff(assessment.crisisCutoffHz);
+    if (now - this.lastBreathTime > assessment.breathIntervalMs) {
+      this.lastBreathTime = now;
+      this.vitalsSynth.playSuffocationBreath(this.busManager.crisisGain, this.isInhaling);
+      this.isInhaling = !this.isInhaling;
     }
   }
 
-  // fallow-ignore-next-line complexity
   private processHeartbeat(vitals: PlayerVitals, now: number): void {
     if (!this.busManager || !this.vitalsSynth) return;
-    if (vitals.fatigue >= 75 || vitals.health <= 25) {
-      const bpm = vitals.health <= 25 ? 120 : 90;
-      const intervalMs = (60 / bpm) * 1000;
-      if (now - this.lastHeartbeatTime > intervalMs) {
-        this.lastHeartbeatTime = now;
-        this.vitalsSynth.playHeartbeat(this.busManager.crisisGain, bpm);
-      }
+    const tempo = heartbeatTempo(vitals);
+    if (tempo !== null && now - this.lastHeartbeatTime > tempo.intervalMs) {
+      this.lastHeartbeatTime = now;
+      this.vitalsSynth.playHeartbeat(this.busManager.crisisGain, tempo.bpm);
     }
   }
 
   // --- Spatial Foley & Interactions ---
 
+  private pool(): SpatialFoleyPool | null {
+    if (!this.busManager || !this.spatializer) return null;
+    if (this.foleyPool === null) {
+      this.foleyPool = new SpatialFoleyPool(this.spatializer, this.busManager.foleyGain);
+    }
+    return this.foleyPool;
+  }
+
   /**
-   * Shared spatial-foley preamble: calculate params at (x, y), drop
-   * inaudible voices below gainFloor, and return a panned channel input.
+   * Shared spatial-foley preamble: check out a pooled voice at (x, y),
+   * dropping inaudible voices below gainFloor.
    * Returns null when audio is unavailable or the voice is culled.
    */
-  private spatialFoleyInput(x: number, y: number, gainFloor: number): AudioNode | null {
-    if (!this.busManager || !this.spatializer) return null;
-    const params = this.spatializer.calculate(
+  private spatialFoleyInput(
+    x: number,
+    y: number,
+    gainFloor: number,
+    holdSeconds: number
+  ): AudioNode | null {
+    const pool = this.pool();
+    if (!pool) return null;
+    return pool.acquire(
       this.listenerX,
       this.listenerY,
       x,
       y,
-      this.activeDoors
+      this.activeDoors,
+      gainFloor,
+      holdSeconds
     );
-    if (params.gain < gainFloor) return null;
-    const channel = this.spatializer.createSpatialChannel(this.busManager.foleyGain);
-    this.spatializer.applySpatialParams(channel, params, 0.01);
-    return channel.input;
   }
 
   public playLocalFootstep(surface: DeckSurfaceType = 'steel'): void {
@@ -256,7 +260,7 @@ export class ShipAudioEngine {
   ): void {
     if (!this.metalSynth) return;
     if (this.activeFoleyVoices >= this.MAX_CONCURRENT_FOLEY) return;
-    const input = this.spatialFoleyInput(emitterX, emitterY, 0.05);
+    const input = this.spatialFoleyInput(emitterX, emitterY, 0.05, 0.15);
     if (!input) return;
 
     this.activeFoleyVoices++;
@@ -267,7 +271,6 @@ export class ShipAudioEngine {
     }, 60);
   }
 
-  // fallow-ignore-next-line complexity
   public playWeaponFire(
     originX: number,
     originY: number,
@@ -276,13 +279,23 @@ export class ShipAudioEngine {
     isLocal = true
   ): void {
     if (!this.busManager || !this.ballisticsSynth) return;
+    if (isLocal) this.fireLocalWeapon(weaponType, chargeRatio);
+    else this.fireRemoteWeapon(originX, originY, weaponType, chargeRatio);
+  }
 
-    if (isLocal) {
-      this.ballisticsSynth.playWeaponFire(this.busManager.foleyGain, weaponType, chargeRatio, 1.0);
-      return;
-    }
+  private fireLocalWeapon(weaponType: WeaponType | 'raider_plasma', chargeRatio: number): void {
+    if (!this.busManager || !this.ballisticsSynth) return;
+    this.ballisticsSynth.playWeaponFire(this.busManager.foleyGain, weaponType, chargeRatio, 1.0);
+  }
 
-    const input = this.spatialFoleyInput(originX, originY, 0.03);
+  private fireRemoteWeapon(
+    originX: number,
+    originY: number,
+    weaponType: WeaponType | 'raider_plasma',
+    chargeRatio: number
+  ): void {
+    if (!this.ballisticsSynth) return;
+    const input = this.spatialFoleyInput(originX, originY, 0.03, 0.8);
     if (!input) return;
     this.ballisticsSynth.playWeaponFire(input, weaponType, chargeRatio, 0.85);
   }
@@ -290,14 +303,14 @@ export class ShipAudioEngine {
   // Hitscan combat has no impact points yet; kept for the tracer milestone.
   public playImpact(x: number, y: number, type: 'kinetic' | 'laser' | 'welder'): void {
     if (!this.ballisticsSynth) return;
-    const input = this.spatialFoleyInput(x, y, 0.03);
+    const input = this.spatialFoleyInput(x, y, 0.03, 0.6);
     if (!input) return;
     this.ballisticsSynth.playImpact(input, type, 0.65);
   }
 
   public playDoorToggle(x: number, y: number, isOpen: boolean): void {
     if (!this.pneumaticSynth) return;
-    const input = this.spatialFoleyInput(x, y, 0.03);
+    const input = this.spatialFoleyInput(x, y, 0.03, 1.0);
     if (!input) return;
     this.pneumaticSynth.playDoorCycle(input, isOpen, 0.85);
   }

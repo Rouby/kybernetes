@@ -1,6 +1,10 @@
 /** @vitest-environment node */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FireController } from './FireController';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('FireController lifecycle', () => {
   it('exposes attach/detach for the Phase 3 session', () => {
@@ -42,6 +46,29 @@ describe('FireController', () => {
     controller.pressFireStart();
     expect(controller.getFireSignal()).toBe(0);
     expect(controller.getShots()).toHaveLength(0);
+  });
+
+  it('holds exact 6.25Hz cadence across uneven frames', () => {
+    let now = 1000;
+    const queued: FrameRequestCallback[] = [];
+    vi.stubGlobal('performance', { now: () => now });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      queued.push(cb);
+      return queued.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    const sendPlayIntent = vi.fn();
+    const controller = new FireController({ ...liveDeps(), sendPlayIntent });
+    controller.pressFireStart();
+    controller.attach();
+    for (const step of [100, 100, 100, 100, 100, 100, 100, 100, 100, 100]) {
+      now += step;
+      queued.shift()?.(now);
+    }
+    controller.pressFireEnd();
+    controller.detach();
+    expect(controller.getFireSignal()).toBe(7);
+    expect(sendPlayIntent).toHaveBeenCalledTimes(7);
   });
 
   it('reconciles server refusal notices', () => {

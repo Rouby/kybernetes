@@ -1,9 +1,19 @@
 /** @vitest-environment node */
+import { collidersForFrame, type World, withSnapshotStates } from '@kybernetes/sim-core';
 import { describe, expect, it, vi } from 'vitest';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { PackStore } from '../pack/PackStore';
 import { selectSessionOverlayId } from '../webgl/ui/UiPass';
 import { GameSession } from './GameSession';
+
+describe('GameSession statics', () => {
+  it('seeds solo-ship geometry so hub_b has colliders', () => {
+    const statics = (session() as unknown as { statics: World }).statics;
+    expect(Object.values(statics.rooms).some((room) => room.frameId === 'hub_b')).toBe(true);
+    const walls = collidersForFrame(withSnapshotStates(statics, []), 'hub_b');
+    expect(walls.length).toBeGreaterThan(0);
+  });
+});
 
 function session(): GameSession {
   return new GameSession({

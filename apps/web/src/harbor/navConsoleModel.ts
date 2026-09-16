@@ -5,15 +5,13 @@ import type {
   ShipSystemsBroadcast,
 } from '@kybernetes/protocol';
 import {
-  CHART_NODES,
   chartNodeFor,
   type EngineTier,
-  hubSellPrice,
   legDurationSeconds,
   planVoyage,
   speedFactor,
-  TRADE_GOODS,
 } from '@kybernetes/sim-core';
+import { haulRowFor } from './navTradeHints';
 
 export type NavPanelPhase = 'docked' | 'spooling' | 'in_transit' | 'docking' | 'unknown';
 
@@ -75,26 +73,16 @@ export function otherHub(portHubId: string): string {
   return portHubId === 'hub_b' ? 'hub_a' : 'hub_b';
 }
 
-/** Button id prefix for POI detours (mirrors the cargo `seal:`/`sell:` style). */
-export const DETOUR_BUTTON_PREFIX = 'via:';
+export {
+  DETOUR_BUTTON_PREFIX,
+  detourButtonId,
+  detourLabel,
+  navDetourOptions,
+} from './navDetourModel';
 /** Button id prefix for direct hub plots from the chart map. */
 export const PLOT_BUTTON_PREFIX = 'plot:';
 export function plotButtonId(hubId: string): string {
   return `${PLOT_BUTTON_PREFIX}${hubId}`;
-}
-
-/** POI ids in chart order; each becomes a docked detour button. */
-export function navDetourOptions(): readonly string[] {
-  return CHART_NODES.filter((node) => node.kind === 'poi').map((node) => node.id);
-}
-
-export function detourButtonId(poiId: string): string {
-  return `${DETOUR_BUTTON_PREFIX}${poiId}`;
-}
-
-export function detourLabel(poiId: string): string {
-  const short = poiId.startsWith('poi_') ? poiId.slice('poi_'.length) : poiId;
-  return `VIA ${short.toUpperCase()}`;
 }
 
 interface HopView {
@@ -235,22 +223,6 @@ function chartRowFor(
   const first = unknowns[0];
   if (first !== undefined) return `?? ${first.rumor ?? first.label}`;
   return `CHART ${chart.nodes.length}/${chart.nodes.length} KNOWN`;
-}
-
-function haulRowFor(
-  nav: NavStateBroadcast | null,
-  portHubId: string,
-  otherHubId: string
-): string | null {
-  if (nav?.phase !== 'docked') return null;
-  let best: { good: string; from: number; to: number } | undefined;
-  for (const good of TRADE_GOODS) {
-    const from = hubSellPrice(portHubId, good) ?? 0;
-    const to = hubSellPrice(otherHubId, good) ?? 0;
-    if (best === undefined || to - from > best.to - best.from) best = { good, from, to };
-  }
-  if (best === undefined) return null;
-  return `HAUL ${best.good.toUpperCase()} ${best.from}>${best.to}`;
 }
 
 function laneRowFor(

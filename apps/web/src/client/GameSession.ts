@@ -9,7 +9,7 @@
 
 import type { ClientIntent, SnapshotBroadcast } from '@kybernetes/protocol';
 import {
-  buildHarborWorld,
+  buildSoloShipWorld,
   collidersForFrame,
   type World,
   withSnapshotStates,
@@ -59,7 +59,7 @@ export class GameSession {
   private prevLidSeated = false;
   private prevPackOpen = false;
   private prevNoticeId = 0;
-  private readonly statics: World = buildHarborWorld();
+  private readonly statics: World = buildSoloShipWorld();
   private readonly targetRef: { current: InteractTarget | null } = { current: null };
   private readonly chartLeg: { current: FlightSnapshot | null } = { current: null };
   private readonly simClock: { current: SmoothClock | null } = { current: null };

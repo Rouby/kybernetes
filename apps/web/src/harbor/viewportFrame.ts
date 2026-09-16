@@ -250,6 +250,12 @@ interface MuzzleFlash {
   until: number;
 }
 
+export interface RemoteStepState {
+  x: number;
+  y: number;
+  acc: number;
+}
+
 export interface ViewportSession {
   renderer: WebGL2Renderer | null;
   camera: { x: number; y: number };
@@ -257,6 +263,8 @@ export interface ViewportSession {
   shipInterp: FocusOrigin | null;
   doors: DoorState[];
   seenImpacts: Set<string>;
+  seenShots: Set<string>;
+  remoteSteps: Map<string, RemoteStepState>;
   lastFrameMs: number;
   lastAudioMs: number;
   mouse: { x: number; y: number; moved: boolean; lastMs: number };
@@ -298,6 +306,8 @@ export function createViewportSession(): ViewportSession {
     shipInterp: null,
     doors: createInitialDoors(),
     seenImpacts: new Set<string>(),
+    seenShots: new Set<string>(),
+    remoteSteps: new Map<string, RemoteStepState>(),
     lastFrameMs: 0,
     lastAudioMs: 0,
     mouse: { x: 0, y: 0, moved: false, lastMs: 0 },
@@ -366,7 +376,7 @@ export function renderViewport(
   const look = leadLookTarget(at, aim, motion, own.frameId);
   stepCamera(session, look);
   trackShots(session, view, at, now);
-  stepShots(session, view, snapshot, now);
+  stepShots(session, view, snapshot, now, viewOrigins);
   session.lastFrameMs = now;
   trackNotices(session, view, now);
   frameDoors(session, view, snapshot);
@@ -1176,12 +1186,18 @@ function stepShots(
   session: ViewportSession,
   view: HarborViewportProps,
   snapshot: SnapshotBroadcast,
-  now: number
+  now: number,
+  origins: Map<string, { x: number; y: number }>
 ): void {
   const dt = Math.min(Math.max((now - session.lastFrameMs) / 1000, 0), 0.05);
   view.shotsRef.current = confirmShots(
     advanceShots(view.shotsRef.current, now, dt),
     snapshot.projectiles ?? []
+  );
+  trackRemoteShots(session.seenShots, snapshot.projectiles ?? [], view.shotsRef.current, origins);
+  trackRemoteFootsteps(
+    session.remoteSteps,
+    mapRemotePawns(snapshot, view.pawnId, view.manifest, origins)
   );
 }
 
@@ -1224,7 +1240,108 @@ function freshImpacts(
   const impacts = Array.isArray(snapshot.impacts) ? snapshot.impacts : [];
   for (const impact of impacts) collectFreshImpact(session, origins, areas, impact, live, fresh);
   pruneSeen(session.seenImpacts, live);
+  playImpactFoley(fresh);
   return fresh;
+}
+
+/** Weapon id to impact voice; unknown hardware falls back to kinetic. */
+export function impactFoleyKind(weapon: string): 'kinetic' | 'laser' | 'welder' {
+  if (weapon === 'pulse_laser') return 'laser';
+  if (weapon === 'arc_welder') return 'welder';
+  return 'kinetic';
+}
+
+/** One spatialized thunk per fresh impact; silent without an audio context. */
+export function playImpactFoley(
+  impacts: readonly { x: number; y: number; weapon: string }[]
+): void {
+  if (impacts.length === 0) return;
+  const engine = ShipAudioEngine.getInstance();
+  for (const impact of impacts)
+    engine.playImpact(impact.x, impact.y, impactFoleyKind(impact.weapon));
+}
+
+/** Step distance before a remote walker earns a footstep. */
+export const REMOTE_STEP_PX = 56;
+
+/**
+ * Remote footstep accumulation: silent until a walker covers STEP_PX, then
+ * one spatialized footstep. Departed pawns are forgotten.
+ */
+export function trackRemoteFootsteps(
+  steps: Map<string, RemoteStepState>,
+  remotes: readonly { id: string; x: number; y: number }[]
+): void {
+  const live = new Set<string>();
+  for (const pawn of remotes) {
+    live.add(pawn.id);
+    const prev = steps.get(pawn.id);
+    if (prev === undefined) {
+      steps.set(pawn.id, { x: pawn.x, y: pawn.y, acc: 0 });
+      continue;
+    }
+    const acc = prev.acc + Math.hypot(pawn.x - prev.x, pawn.y - prev.y);
+    if (acc < REMOTE_STEP_PX) {
+      steps.set(pawn.id, { x: pawn.x, y: pawn.y, acc });
+      continue;
+    }
+    steps.set(pawn.id, { x: pawn.x, y: pawn.y, acc: 0 });
+    ShipAudioEngine.getInstance().playRemoteFootstep(pawn.x, pawn.y);
+  }
+  for (const id of [...steps.keys()]) {
+    if (!live.has(id)) steps.delete(id);
+  }
+}
+
+/** Match radius pairing authoritative rounds with local predictions. */
+export const REMOTE_SHOT_PX = 48;
+
+/**
+ * Remote gunshot reports: authoritative projectiles that match no local
+ * prediction are enemy fire, spatialized once each.
+ */
+export function trackRemoteShots(
+  seen: Set<string>,
+  server: readonly { id: string; frameId: string; x: number; y: number; weapon: string }[],
+  local: readonly { frameId: string; x: number; y: number }[],
+  origins: Map<string, { x: number; y: number }>
+): void {
+  const live = new Set<string>();
+  for (const shot of server) {
+    live.add(shot.id);
+    if (seen.has(shot.id)) continue;
+    seen.add(shot.id);
+    if (isLocalShot(local, shot)) continue;
+    const origin = origins.get(shot.frameId) ?? { x: 0, y: 0 };
+    ShipAudioEngine.getInstance().playWeaponFire(
+      shot.x + origin.x,
+      shot.y + origin.y,
+      remoteFoleyWeapon(shot.weapon),
+      1.0,
+      false
+    );
+  }
+  pruneSeen(seen, live);
+}
+
+/** Snapshot weapon ids are server-validated; anything else fires kinetic. */
+function remoteFoleyWeapon(
+  weapon: string
+): 'kinetic_carbine' | 'pulse_laser' | 'arc_welder' | 'railgun_pistol' {
+  if (weapon === 'pulse_laser' || weapon === 'arc_welder' || weapon === 'railgun_pistol')
+    return weapon;
+  return 'kinetic_carbine';
+}
+
+function isLocalShot(
+  local: readonly { frameId: string; x: number; y: number }[],
+  shot: { frameId: string; x: number; y: number }
+): boolean {
+  for (const predicted of local) {
+    if (predicted.frameId !== shot.frameId) continue;
+    if (Math.hypot(predicted.x - shot.x, predicted.y - shot.y) <= REMOTE_SHOT_PX) return true;
+  }
+  return false;
 }
 
 function latestNoticeKey(notices: HarborViewportProps['notices']): string {

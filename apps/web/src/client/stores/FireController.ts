@@ -82,7 +82,7 @@ export class FireController {
     this.lastMs = now;
     this.acc += dt;
     if (this.acc >= 0.16) {
-      this.acc = 0;
+      this.acc -= 0.16;
       if (this.fireHeld) this.fireOnce();
     }
     this.raf = requestAnimationFrame(this.frame);

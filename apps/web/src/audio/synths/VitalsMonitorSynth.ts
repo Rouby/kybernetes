@@ -46,9 +46,6 @@ export class VitalsMonitorSynth {
     const t = this.ctx.currentTime;
     const dur = 0.65;
 
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = this.noiseBuffer;
-
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
     filter.Q.setValueAtTime(2.5, t);

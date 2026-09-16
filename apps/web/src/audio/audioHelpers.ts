@@ -66,6 +66,9 @@ export function triggerDecayingOsc(
 
   osc.start(startTime);
   osc.stop(startTime + duration);
+  osc.onended = () => {
+    gain.disconnect();
+  };
   return gain;
 }
 
@@ -107,10 +110,11 @@ export function triggerNoiseBurst(
   gain.gain.linearRampToValueAtTime(Math.max(0.0011, options.peak), startTime + attack);
   gain.gain.exponentialRampToValueAtTime(0.001, startTime + options.duration);
 
+  let filter: BiquadFilterNode | undefined;
   if (options.type === 'none') {
     source.connect(gain);
   } else {
-    const filter = ctx.createBiquadFilter();
+    filter = ctx.createBiquadFilter();
     filter.type = options.type;
     filter.frequency.setValueAtTime(options.frequency ?? 1000, startTime);
     if (options.frequencyEnd !== undefined) {
@@ -127,6 +131,10 @@ export function triggerNoiseBurst(
 
   source.start(startTime);
   source.stop(startTime + options.duration + 0.02);
+  source.onended = () => {
+    gain.disconnect();
+    filter?.disconnect();
+  };
 }
 
 export interface ShapedOscOptions {
@@ -161,6 +169,9 @@ export function triggerShapedOsc(
 
   osc.start(startTime);
   osc.stop(startTime + options.duration);
+  osc.onended = () => {
+    gain.disconnect();
+  };
 }
 
 export function triggerFilteredOsc(
@@ -183,5 +194,9 @@ export function triggerFilteredOsc(
 
   osc.start(startTime);
   osc.stop(startTime + duration);
+  osc.onended = () => {
+    gain.disconnect();
+    filter.disconnect();
+  };
   return gain;
 }

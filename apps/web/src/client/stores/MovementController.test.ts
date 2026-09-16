@@ -43,12 +43,12 @@ describe('reconcilePrediction', () => {
     expect(reconcilePrediction({ x: 0, y: 0, facing: 0 }, pawn(200, 0, 2))).toEqual({
       x: 200,
       y: 0,
-      facing: 2,
+      facing: 0,
     });
-    expect(reconcilePrediction({ x: 0, y: 0, facing: 0 }, pawn(3, 4, 2))).toEqual({
-      x: 3,
-      y: 4,
-      facing: 2,
+    expect(reconcilePrediction({ x: 0, y: 0, facing: 0 }, pawn(0.1, 0.05, 2))).toEqual({
+      x: 0.1,
+      y: 0.05,
+      facing: 0,
     });
   });
 
@@ -56,8 +56,22 @@ describe('reconcilePrediction', () => {
     expect(reconcilePrediction({ x: 0, y: 0, facing: 0 }, pawn(40, 0, 1))).toEqual({
       x: 10,
       y: 0,
-      facing: 1,
+      facing: 0,
     });
+  });
+
+  it('lerps walking-speed lag instead of snapping back', () => {
+    expect(reconcilePrediction({ x: 0, y: 0, facing: 0.5 }, pawn(8, 0, 1.2))).toEqual({
+      x: 2,
+      y: 0,
+      facing: 0.5,
+    });
+  });
+
+  it('keeps client aim during reconcile', () => {
+    expect(reconcilePrediction({ x: 10, y: 10, facing: -1.2 }, pawn(16, 10, 2.4)).facing).toBe(
+      -1.2
+    );
   });
 });
 

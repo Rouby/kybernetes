@@ -8,7 +8,8 @@ function foleyHarness(gain: number) {
   engine.busManager = { foleyGain } as unknown as ShipAudioEngine['busManager'];
   engine.spatializer = {
     calculate: vi.fn(() => ({ gain })),
-    createSpatialChannel: vi.fn(() => ({ input: channelInput })),
+    acquireChannel: vi.fn(() => ({ input: channelInput })),
+    releaseChannel: vi.fn(),
     applySpatialParams: vi.fn(),
   } as unknown as ShipAudioEngine['spatializer'];
   return { engine, foleyGain, channelInput };
