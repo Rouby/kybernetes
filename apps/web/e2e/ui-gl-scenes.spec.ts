@@ -48,7 +48,7 @@ async function callsignValue(page: Page): Promise<string> {
   });
 }
 
-test.describe('GL UI scenes', () => {
+test.describe('GL UI scenes', { tag: '@smoke' }, () => {
   test.setTimeout(180000);
   let daemon: StartedDaemon | null = null;
   test.beforeAll(async () => {

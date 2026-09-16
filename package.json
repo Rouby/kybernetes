@@ -12,6 +12,7 @@
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "test:e2e:smoke": "turbo run test:e2e:smoke",
+    "test:e2e:nightly": "turbo run test:e2e:nightly",
     "test:visibility": "yarn --cwd packages/sim-core test:browser",
     "typecheck": "turbo run typecheck",
     "lint": "biome check .",

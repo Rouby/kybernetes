@@ -22,6 +22,10 @@
       "dependsOn": ["build"],
       "cache": false
     },
+    "test:e2e:nightly": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
     "lint": {
       "dependsOn": ["^build"]
     },

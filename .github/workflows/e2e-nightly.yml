@@ -1,0 +1,50 @@
+name: 🌙 Nightly Full-Viewport e2e
+
+on:
+  schedule:
+    # Off-peak full run: the @slow host-timing-sensitive specs live here,
+    # never in blocking CI (see Gate 6, which runs the @smoke suite).
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-e2e:
+    name: 🎮 Full Playwright Suite (non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📡 Intercept Repository Signal (Checkout)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: ⬡ Calibrate Node.js 24 Runtime
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: 📦 Enable Corepack
+        run: corepack enable
+
+      - name: 🔒 Provision Manifest Modules (Yarn Immutable)
+        run: yarn install --immutable
+
+      - name: 🏗️ Turborepo Production Matrix Build
+        run: yarn build
+
+      - name: 🎭 Provision Chromium Tactical Sensor Rig
+        run: npx playwright install --with-deps chromium
+
+      - name: 🎮 Full Playwright Suite (smoke + @slow)
+        run: yarn test:e2e
+
+      - name: 💾 Transmit Blackbox Diagnostics on Failure
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-test-results
+          path: apps/web/test-results/
+          retention-days: 7
