@@ -52,6 +52,7 @@ import {
   layoutReactorScreen,
   layoutSellScreen,
   layoutSettingsScreen,
+  layoutTradeReceiptScreen,
   type UiScreenLayout,
 } from '../webgl/ui/UiScreens';
 import { packBenchTransform, packPlace, publishUiZones } from '../webgl/ui/UiToolkit';
@@ -72,7 +73,12 @@ import {
   sightBlockers,
   targetPromptWithCarry,
 } from './interactTarget';
-import type { MarketScreenModel, SellScreenModel } from './marketModel';
+import type {
+  MarketScreenModel,
+  SellCapture,
+  SellScreenModel,
+  TradeReceiptModel,
+} from './marketModel';
 import type { AboardGood } from './navTradeHints';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
@@ -149,6 +155,7 @@ export interface SellWiring {
   readonly hubId: string;
   readonly screen: SellScreenModel;
   readonly sellIds: readonly string[];
+  readonly captureFor: (crateIds: readonly string[]) => SellCapture | null;
 }
 
 export interface PackSceneBody {
@@ -193,6 +200,10 @@ export interface GlSessionWiring {
   readonly courseThrust: number;
   readonly onThrustPct: (pct: number) => void;
   readonly cargo: CargoWiring | null;
+  /** Settled trade receipt card; null when no sale just completed. */
+  readonly receipt: { screen: TradeReceiptModel } | null;
+  readonly onSellCapture: (capture: SellCapture) => void;
+  readonly onCloseReceipt: () => void;
   /** Goods aboard for the nav target-demand table; null when unknown. */
   readonly navAboard: readonly AboardGood[] | null;
   readonly market: MarketWiring | null;
@@ -598,6 +609,7 @@ function glSessionOverlay(
     dead: wiring.dead,
     settingsOpen: wiring.settingsOpen,
     console: wiring.console?.kind ?? null,
+    receiptOpen: wiring.receipt !== null,
   });
   if (selected === null) return {};
   const layout = overlayLayoutFor(
@@ -675,7 +687,18 @@ function overlayLayoutFor(
     );
   }
   if (selected === 'pause') return layoutPauseScreen(width, height);
+  if (selected === 'receipt') return receiptLayoutFor(wiring, width, height);
   return consoleLayoutFor(selected, wiring, width, height, timeSec, snapPrev, clockIn);
+}
+
+function receiptLayoutFor(
+  wiring: GlSessionWiring,
+  width: number,
+  height: number
+): UiScreenLayout | null {
+  const receipt = wiring.receipt;
+  if (receipt === null) return null;
+  return layoutTradeReceiptScreen(width, height, receipt.screen);
 }
 
 function consoleLayoutFor(
@@ -747,7 +770,14 @@ function dispatchOverlayAction(
   if (selected === 'settings') dispatchTableAction(SETTINGS_ACTIONS, wiring, id);
   else if (selected === 'death') dispatchDeathAction(wiring, id);
   else if (selected === 'pause') dispatchTableAction(PAUSE_ACTIONS, wiring, id);
+  else if (selected === 'receipt') dispatchReceiptAction(wiring, id);
   else dispatchConsoleAction(selected, wiring, id);
+}
+
+function dispatchReceiptAction(wiring: GlSessionWiring, id: string): void {
+  if (id !== 'continue') return;
+  wiring.onCloseReceipt();
+  ShipAudioEngine.getInstance().playUiClick();
 }
 
 function dispatchConsoleAction(kind: ConsoleKind, wiring: GlSessionWiring, id: string): void {
@@ -813,13 +843,26 @@ function consoleIntentFor(
   if (kind === 'sell') {
     const sell = wiring.sell;
     if (sell === null) return null;
-    return marketConsoleIntent(id, { hubId: sell.hubId, sellIds: sell.sellIds });
+    return sellIntentWithCapture(id, sell, wiring.onSellCapture);
   }
   if (kind === 'reactor_console') return reactorConsoleIntent(id);
   const systems = wiring.console?.systems;
   if (systems === undefined) return null;
   if (kind === 'engine_console') return engineConsoleIntent(id, systems);
   return navConsoleIntent(id, wiring.navState);
+}
+
+/** Capture the valued goods before the crates despawn, then sell. */
+function sellIntentWithCapture(
+  id: string,
+  sell: SellWiring,
+  onSellCapture: (capture: SellCapture) => void
+): ClientIntent | null {
+  const intent = marketConsoleIntent(id, { hubId: sell.hubId, sellIds: sell.sellIds });
+  if (intent === null || intent.type !== 'MARKET_SELL') return intent;
+  const capture = sell.captureFor(intent.crateIds);
+  if (capture !== null) onSellCapture(capture);
+  return intent;
 }
 
 /** Pack bench and its entries are local (no intents); true when handled. */

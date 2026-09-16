@@ -4,7 +4,9 @@ import {
   hubIdForFrame,
   marketRumorsFor,
   marketScreenFor,
+  sellCaptureFor,
   sellScreenFor,
+  tradeReceiptFor,
   wrapRumor,
 } from './marketModel';
 
@@ -116,6 +118,35 @@ describe('wrapRumor', () => {
     const lines = wrapRumor('Kepler Yard structural shortage - paying premium on Scrap', 20);
     expect(lines.length).toBeGreaterThan(1);
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(20);
+  });
+});
+
+describe('sellCaptureFor', () => {
+  it('aggregates goods and revenue for the sold crates', () => {
+    const capture = sellCaptureFor(market(), snapshot(), ['c1']);
+    expect(capture?.hubId).toBe('hub_a');
+    expect(capture?.hubLabel).toBe('NEW ANCHORAGE');
+    expect(capture?.goods).toEqual([{ goodId: 'scrap', qty: 2, revenue: 18 }]);
+    expect(capture?.total).toBe(18);
+  });
+
+  it('returns null without market, snapshot, crates, or priced goods', () => {
+    expect(sellCaptureFor(null, snapshot(), ['c1'])).toBeNull();
+    expect(sellCaptureFor(market(), null, ['c1'])).toBeNull();
+    expect(sellCaptureFor(market(), snapshot(), [])).toBeNull();
+    expect(sellCaptureFor(market(), snapshot(), ['missing'])).toBeNull();
+  });
+});
+
+describe('tradeReceiptFor', () => {
+  it('settles a capture with the post-sale balance', () => {
+    const capture = sellCaptureFor(market(), snapshot(), ['c1']);
+    if (capture === null) throw new Error('missing capture');
+    const receipt = tradeReceiptFor(capture, 65, 4242);
+    expect(receipt.totalRevenue).toBe(18);
+    expect(receipt.newBalance).toBe(65);
+    expect(receipt.timestampMs).toBe(4242);
+    expect(receipt.itemsSold).toEqual(capture.goods);
   });
 });
 

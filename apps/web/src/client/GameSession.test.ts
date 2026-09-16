@@ -225,6 +225,121 @@ describe('GameSession sync', () => {
     s.dispose();
   });
 
+  function tradeSetup(): string[] {
+    return [
+      JSON.stringify({ type: 'JOINED', v: 2, tick: 1, serverTimeMs: 1, pawnId: 'pawn:u1' }),
+      tradeSnapshot(),
+      tradeMarket(),
+      tradeStatus(),
+    ];
+  }
+
+  function tradeSnapshot(): string {
+    return JSON.stringify({
+      type: 'SNAPSHOT',
+      v: 2,
+      tick: 7,
+      serverTimeMs: 700,
+      pawns: [
+        {
+          id: 'pawn:u1',
+          x: 1,
+          y: 2,
+          vx: 0,
+          vy: 0,
+          facing: 0,
+          frameId: 'station',
+          roomHint: 'station.hall',
+          color: '#fff',
+        },
+      ],
+      impacts: [],
+      portals: [],
+      projectiles: [],
+      frames: [],
+      crates: [
+        {
+          id: 'c1',
+          items: [{ goodId: 'scrap', qty: 2 }],
+          where: 'bayFloor',
+          frameId: 'station',
+          x: 3,
+          y: 4,
+          angle: 0,
+        },
+      ],
+    });
+  }
+
+  function tradeMarket(): string {
+    return JSON.stringify({
+      type: 'MARKET_STATE',
+      v: 2,
+      tick: 7,
+      serverTimeMs: 700,
+      hubId: 'hub_a',
+      listings: [
+        { goodId: 'scrap', buyPrice: 10, sellPrice: 9, stock: 50 },
+        { goodId: 'meds', buyPrice: 15, sellPrice: 13, stock: 50 },
+      ],
+    });
+  }
+
+  function tradeStatus(): string {
+    return JSON.stringify({
+      type: 'SHIP_STATUS',
+      v: 2,
+      tick: 7,
+      serverTimeMs: 700,
+      shipId: 'ship:u1',
+      hullId: 'skiff_alpha',
+      reactorTier: 0,
+      engineTier: 0,
+      credits: 50,
+      condition: 100,
+      locationHubId: 'hub_a',
+      alive: true,
+      stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 },
+      engineFuel: 0,
+    });
+  }
+
+  function tradeNotice(message: string): string {
+    return JSON.stringify({
+      type: 'NOTICE',
+      v: 2,
+      tick: 8,
+      serverTimeMs: 800,
+      severity: 'info',
+      title: 'trade',
+      message,
+    });
+  }
+
+  it('posts the trade receipt card on sale and dismisses it', () => {
+    const fake = makeFake();
+    const s = liveSession(fake);
+    for (const data of tradeSetup()) fake.onmessage?.({ data });
+    s.sync();
+    const sell = s.getProps()?.glOverlay?.sell;
+    if (sell === undefined || sell === null) throw new Error('missing sell wiring');
+    expect(sell.sellIds).toEqual(['c1']);
+    const capture = sell.captureFor(['c1']);
+    if (capture === null) throw new Error('missing capture');
+    s.getProps()?.glOverlay?.onSellCapture(capture);
+    fake.onmessage?.({ data: tradeNotice('MARKET_sold:1') });
+    s.sync();
+    expect(s.getProps()?.glOverlay?.receipt?.screen.totalRevenue).toBe(18);
+    expect(s.getProps()?.glOverlay?.receipt?.screen.newBalance).toBe(68);
+    expect(
+      selectSessionOverlayId({ paused: false, dead: false, console: 'sell', receiptOpen: true })
+    ).toBe('receipt');
+    s.getProps()?.glOverlay?.onCloseReceipt();
+    s.sync();
+    expect(s.getProps()?.glOverlay?.receipt).toBeNull();
+    s.dispose();
+  });
+
   it('fires onShipLost and tolerates offline restart', () => {
     const onQuit = vi.fn();
     const onShipLost = vi.fn();

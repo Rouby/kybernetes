@@ -27,6 +27,7 @@ import {
   type MarketScreenModel,
   type MarketTableCell,
   type SellScreenModel,
+  type TradeReceiptModel,
   wrapRumor,
 } from '../../harbor/marketModel';
 import {
@@ -61,6 +62,7 @@ import {
   uiCharWidth,
   uiEllipsize,
   uiSplitRow,
+  uiTextWidth,
   uiVisorMargins,
 } from './UiToolkit';
 
@@ -1405,6 +1407,141 @@ function sellTextsFor(panel: UiRect, model: SellScreenModel): readonly UiText[] 
 export function layoutSellScreen(w: number, h: number, model: SellScreenModel): UiScreenLayout {
   const panel = sellPanelFor(w, h);
   return { panel, texts: sellTextsFor(panel, model), buttons: sellButtonsFor(panel, model) };
+}
+
+const RECEIPT_MAX_GOODS = 6;
+
+export function layoutTradeReceiptScreen(
+  w: number,
+  h: number,
+  model: TradeReceiptModel
+): UiScreenLayout {
+  const panel = receiptPanelFor(w, h, model.itemsSold.length);
+  return { panel, texts: receiptTextsFor(panel, model), buttons: receiptButtonsFor(panel) };
+}
+
+function receiptPanelFor(w: number, h: number, goods: number): UiRect {
+  const rows = 2 + Math.min(goods, RECEIPT_MAX_GOODS) + 2;
+  return centerPanelFor(w, h, 440, PAD + KICKER_SIZE + 8 + rows * LINE_H + GAP + BTN_H + PAD);
+}
+
+function receiptTextsFor(panel: UiRect, model: TradeReceiptModel): readonly UiText[] {
+  const tx = panel.x + PAD;
+  const innerW = panel.w - PAD * 2;
+  const right = panel.x + panel.w - PAD;
+  const y0 = panel.y + PAD;
+  const goods = model.itemsSold.slice(0, RECEIPT_MAX_GOODS);
+  return [
+    textAt('TRADE TRANSACTION SETTLED', tx, y0, KICKER_SIZE, 'dim'),
+    textAt(
+      uiEllipsize(`PORT: ${model.hubLabel}`, BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8,
+      BODY_SIZE,
+      'primary'
+    ),
+    ...goods.flatMap((line, index) => receiptGoodTexts(line, tx, right, innerW, y0, index + 1)),
+    ...receiptTotalTexts(model.totalRevenue, tx, right, innerW, y0, goods.length + 1),
+    ...receiptBalanceTexts(model, tx, right, innerW, y0, goods.length + 2),
+  ];
+}
+
+/** Right-align a money column against the panel's inner edge. */
+function receiptAmountX(right: number, amount: string): number {
+  return right - uiTextWidth(amount, BODY_SIZE);
+}
+
+function receiptGoodTexts(
+  line: TradeReceiptModel['itemsSold'][number],
+  tx: number,
+  right: number,
+  innerW: number,
+  y0: number,
+  row: number
+): UiText[] {
+  const amount = `+${line.revenue}cr`;
+  const nameWidth = innerW - uiTextWidth(amount, BODY_SIZE) - uiCharWidth(BODY_SIZE);
+  return [
+    textAt(
+      uiEllipsize(`${line.qty}x ${line.goodId.toUpperCase()}`, BODY_SIZE, nameWidth),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * row,
+      BODY_SIZE,
+      'primary'
+    ),
+    textAt(
+      amount,
+      receiptAmountX(right, amount),
+      y0 + KICKER_SIZE + 8 + LINE_H * row,
+      BODY_SIZE,
+      'good'
+    ),
+  ];
+}
+
+function receiptTotalTexts(
+  total: number,
+  tx: number,
+  right: number,
+  innerW: number,
+  y0: number,
+  row: number
+): UiText[] {
+  const amount = `+${total}cr`;
+  return [
+    textAt(
+      uiEllipsize('TOTAL', BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * row,
+      BODY_SIZE,
+      'primary'
+    ),
+    textAt(
+      amount,
+      receiptAmountX(right, amount),
+      y0 + KICKER_SIZE + 8 + LINE_H * row,
+      BODY_SIZE,
+      'good'
+    ),
+  ];
+}
+
+function receiptBalanceTexts(
+  model: TradeReceiptModel,
+  tx: number,
+  right: number,
+  innerW: number,
+  y0: number,
+  row: number
+): UiText[] {
+  const equation = receiptEquation(model);
+  const shown = uiEllipsize(equation, BODY_SIZE, innerW);
+  return [
+    textAt(
+      uiEllipsize('BALANCE', BODY_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * row,
+      BODY_SIZE,
+      'muted'
+    ),
+    textAt(
+      shown,
+      right - uiTextWidth(shown, BODY_SIZE),
+      y0 + KICKER_SIZE + 8 + LINE_H * row,
+      BODY_SIZE,
+      'primary'
+    ),
+  ];
+}
+
+function receiptEquation(model: TradeReceiptModel): string {
+  const before = model.newBalance - model.totalRevenue;
+  return `${before}cr + ${model.totalRevenue}cr = ${model.newBalance}cr`;
+}
+
+function receiptButtonsFor(panel: UiRect): readonly UiButton[] {
+  const top = panel.y + panel.h - PAD - BTN_H;
+  return columnFor(panel, top, ['continue'], { continue: 'CONTINUE [E]' }, 'continue');
 }
 
 function packStripButtons(

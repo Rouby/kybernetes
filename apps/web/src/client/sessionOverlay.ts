@@ -18,7 +18,14 @@ import type {
 } from '@kybernetes/protocol';
 import { footprintFor } from '@kybernetes/sim-core';
 import { cargoScreenFor } from '../harbor/cargoModel';
-import { hubIdForFrame, marketScreenFor, sellScreenFor } from '../harbor/marketModel';
+import {
+  hubIdForFrame,
+  marketScreenFor,
+  type SellCapture,
+  sellCaptureFor,
+  sellScreenFor,
+  type TradeReceiptModel,
+} from '../harbor/marketModel';
 import { aboardCargoFor } from '../harbor/navTradeHints';
 import type { ConsoleKind } from '../harbor/sessionActions';
 import type { GlSessionWiring } from '../harbor/viewportFrame';
@@ -64,6 +71,9 @@ export interface GlOverlayBuildArgs {
   readonly pawnId: string | null;
   readonly cargoState: CargoStateBroadcast | null;
   readonly shipStatus: ShipStatusBroadcast | null;
+  readonly receipt: TradeReceiptModel | null;
+  readonly onSellCapture: (capture: SellCapture) => void;
+  readonly onCloseReceipt: () => void;
   readonly sendIntent: (intent: ClientIntent) => void;
   readonly togglePause: () => void;
   readonly restart: () => void;
@@ -88,6 +98,9 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     courseThrust: args.consoles.thrustPct,
     onThrustPct: (pct) => args.consoles.setThrustPct(pct),
     cargo: cargoWiringOf(args.snapshot, args.pawnId, args.cargoState),
+    receipt: args.receipt === null ? null : { screen: args.receipt },
+    onSellCapture: args.onSellCapture,
+    onCloseReceipt: args.onCloseReceipt,
     navAboard: aboardCargoFor(args.snapshot, args.pawnId, args.cargoState),
     market: marketWiringOf(args.marketStates, args.snapshot, args.pawnId, args.credits),
     sell: sellWiringOf(args.marketStates, args.snapshot, args.pawnId),
@@ -152,7 +165,12 @@ function sellWiringOf(
   const market = marketStates[hubId];
   if (market === undefined) return null;
   const screen = sellScreenFor(market, snapshot, pawnId);
-  return { hubId, screen, sellIds: [...screen.sellIds] };
+  return {
+    hubId,
+    screen,
+    sellIds: [...screen.sellIds],
+    captureFor: (crateIds) => sellCaptureFor(market, snapshot, crateIds),
+  };
 }
 
 function packWiringOf(

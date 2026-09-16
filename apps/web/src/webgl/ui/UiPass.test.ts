@@ -76,6 +76,16 @@ describe('selectSessionOverlayId', () => {
     expect(selectSessionOverlayId({ paused: false, dead: true, console: 'pack' })).toBe('death');
   });
 
+  it('raises the trade receipt above consoles but below death', () => {
+    expect(selectSessionOverlayId({ paused: false, dead: false, receiptOpen: true })).toBe(
+      'receipt'
+    );
+    expect(
+      selectSessionOverlayId({ paused: false, dead: false, console: 'sell', receiptOpen: true })
+    ).toBe('receipt');
+    expect(selectSessionOverlayId({ paused: false, dead: true, receiptOpen: true })).toBe('death');
+  });
+
   it('opens the audio subscreen while paused', () => {
     expect(selectSessionOverlayId({ paused: true, dead: false, settingsOpen: true })).toBe(
       'settings'

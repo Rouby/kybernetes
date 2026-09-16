@@ -29,6 +29,7 @@ import { AudioPrefs } from './stores/AudioPrefs';
 import { ConsoleStore } from './stores/ConsoleStore';
 import { FireController } from './stores/FireController';
 import { MovementController } from './stores/MovementController';
+import { ReceiptStore } from './stores/ReceiptStore';
 import { SessionControlStore } from './stores/SessionControlStore';
 import {
   createSocketStore,
@@ -53,6 +54,7 @@ export class GameSession {
   public readonly movement: MovementController;
   public readonly fire: FireController;
   public readonly consoles: ConsoleStore;
+  private readonly receipts = new ReceiptStore();
   public readonly audio: AudioPrefs;
   private readonly pack: PackStore;
   private readonly settledBodyIds = new Set<number>();
@@ -127,6 +129,8 @@ export class GameSession {
       isPaused: () => this.controls.getSnapshot().paused,
       isDead: () => this.controls.getSnapshot().dead,
       isPackOpen: () => this.pack.isOpen(),
+      isReceiptOpen: () => this.receipts.isOpen(),
+      onCloseReceipt: () => this.receipts.dismiss(),
       onPackRotate: () => {
         if (this.pack.rotateHeld()) ShipAudioEngine.getInstance().playPackRotate();
       },
@@ -175,6 +179,12 @@ export class GameSession {
     this.hud = null;
   }
 
+  /** Settle the trade receipt card on sale notices with its cash cue. */
+  private reconcileReceipt(state: SocketStoreState): void {
+    const cash = this.receipts.reconcile(state.notices, Date.now());
+    if (cash) ShipAudioEngine.getInstance().playCashRegister();
+  }
+
   /** Bench foley from physics transitions and server trade notices. */
   private watchPackSounds(notices: readonly { id: number; message: string }[]): void {
     const snap = this.pack.getSnapshot();
@@ -219,8 +229,8 @@ export class GameSession {
     this.prevNoticeId = latest.id;
     const audio = ShipAudioEngine.getInstance();
     if (/^CARGO_ok/.test(latest.message)) audio.playSealStamp();
-    else if (/^(MARKET_ok|MARKET_sold:)/.test(latest.message)) audio.playCashRegister();
-    else if (/^(MARKET_|CARGO_)/.test(latest.message)) audio.playPackReject();
+    else if (/^MARKET_ok/.test(latest.message)) audio.playCashRegister();
+    else if (/^(MARKET_(?!sold:)|CARGO_)/.test(latest.message)) audio.playPackReject();
   }
 
   public getProps(): HarborViewportProps | null {
@@ -239,6 +249,7 @@ export class GameSession {
     this.consoles.setShipLost(state.shipLost);
     this.fire.reconcileNotices(state.notices);
     this.pack.reconcileNotices(state.notices);
+    this.reconcileReceipt(state);
     this.pack.update(performance.now());
     this.watchPackSounds(state.notices);
     const canvasSize = this.driver?.canvasSize() ?? null;
@@ -344,6 +355,10 @@ export class GameSession {
       pawnId: state.pawnId,
       cargoState: state.cargoState,
       shipStatus: state.shipStatus,
+      receipt: this.receipts.getShown(),
+      onSellCapture: (capture) =>
+        this.receipts.capture(capture, this.socket.getState().shipStatus?.credits ?? 0),
+      onCloseReceipt: () => this.receipts.dismiss(),
       sendIntent: (intent: ClientIntent) => this.controls.sendPlayIntent(intent),
       togglePause: () => this.controls.togglePause(),
       restart: () => this.controls.restart(),

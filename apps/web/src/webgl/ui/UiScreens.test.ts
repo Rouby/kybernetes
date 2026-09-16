@@ -24,10 +24,11 @@ import {
   layoutReactorScreen,
   layoutSellScreen,
   layoutSettingsScreen,
+  layoutTradeReceiptScreen,
   navigateUi,
   uiScreenButtonIds,
 } from './UiScreens';
-import { type UiButton, type UiRect, uiOverlaps, uiVisorMargins } from './UiToolkit';
+import { type UiButton, type UiRect, uiOverlaps, uiTextWidth, uiVisorMargins } from './UiToolkit';
 
 const W = 1280;
 const H = 720;
@@ -817,6 +818,34 @@ describe('uiScreenButtonIds', () => {
     expect(byId.get('sell:c1')?.detail).toEqual({ text: '+18cr', color: 'good' });
     expect(byId.has('sellAll')).toBe(true);
     expect(byId.has('close')).toBe(true);
+    expectContained(layout.panel, layout.buttons);
+    expectNoOverlap(layout.buttons);
+  });
+
+  it('receipt settles the sale with goods, total, and balance', () => {
+    const layout = layoutTradeReceiptScreen(W, H, {
+      hubId: 'hub_b',
+      hubLabel: 'KEPLER YARD',
+      itemsSold: [{ goodId: 'scrap', qty: 2, revenue: 26 }],
+      totalRevenue: 26,
+      newBalance: 65,
+      timestampMs: 4242,
+    });
+    const texts = layout.texts.map((t) => t.text);
+    expect(texts).toContain('TRADE TRANSACTION SETTLED');
+    expect(texts).toContain('PORT: KEPLER YARD');
+    expect(texts).toContain('2x SCRAP');
+    expect(texts).toContain('+26cr');
+    expect(texts).toContain('TOTAL');
+    expect(texts).toContain('BALANCE');
+    expect(texts).toContain('39cr + 26cr = 65cr');
+    const amounts = layout.texts.filter((t) => t.text === '+26cr');
+    expect(amounts.length).toBe(2);
+    for (const amount of amounts) {
+      expect(amount.x + uiTextWidth(amount.text, 13)).toBe(layout.panel.x + layout.panel.w - 24);
+    }
+    expect(layout.buttons.map((b) => b.id)).toEqual(['continue']);
+    expect(layout.buttons[0]?.label).toBe('CONTINUE [E]');
     expectContained(layout.panel, layout.buttons);
     expectNoOverlap(layout.buttons);
   });

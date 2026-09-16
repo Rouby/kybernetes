@@ -45,18 +45,20 @@ export function findUiButton(layout: UiScreenLayout, x: number, y: number): UiBu
   return null;
 }
 
-export type SessionOverlayId = 'death' | 'pause' | 'settings' | ConsoleKind;
+export type SessionOverlayId = 'death' | 'pause' | 'settings' | 'receipt' | ConsoleKind;
 
 export interface SessionOverlayRequest {
   readonly paused: boolean;
   readonly dead: boolean;
   readonly settingsOpen?: boolean;
   readonly console?: ConsoleKind | null;
+  readonly receiptOpen?: boolean;
 }
 
-/** Modal priority: death, then pack bench, then ship console, then audio, then pause. */
+/** Modal priority: death, receipt, pack bench, ship console, audio, pause. */
 export function selectSessionOverlayId(request: SessionOverlayRequest): SessionOverlayId | null {
   if (request.dead) return 'death';
+  if (request.receiptOpen === true) return 'receipt';
   if (request.console === 'pack') return 'pack';
   if (request.console !== undefined && request.console !== null) return request.console;
   if (request.paused && request.settingsOpen) return 'settings';

@@ -224,6 +224,84 @@ function isSellableCrate(
   return crate.where === 'carriedBy' && pawnId !== null && crate.carrierId === pawnId;
 }
 
+export interface ReceiptLine {
+  readonly goodId: string;
+  readonly qty: number;
+  readonly revenue: number;
+}
+
+export interface SellCapture {
+  readonly hubId: string;
+  readonly hubLabel: string;
+  readonly goods: readonly ReceiptLine[];
+  readonly total: number;
+}
+
+export interface TradeReceiptModel {
+  readonly hubId: string;
+  readonly hubLabel: string;
+  readonly itemsSold: readonly ReceiptLine[];
+  readonly totalRevenue: number;
+  readonly newBalance: number;
+  readonly timestampMs: number;
+}
+
+/** Goods a sell click is about to liquidate, valued at local sell prices. */
+export function sellCaptureFor(
+  market: MarketStateBroadcast | null,
+  snapshot: SnapshotBroadcast | null,
+  crateIds: readonly string[]
+): SellCapture | null {
+  if (market === null || snapshot === null || crateIds.length === 0) return null;
+  const prices = sellPricesOf(market);
+  const totals = new Map<string, { qty: number; revenue: number }>();
+  for (const id of crateIds) addCrateSale(totals, snapshot, prices, id);
+  const goods = [...totals.entries()].map(([goodId, line]) => ({ ...line, goodId }));
+  if (goods.length === 0) return null;
+  return {
+    hubId: market.hubId,
+    hubLabel: HUB_LABELS[market.hubId] ?? market.hubId.toUpperCase(),
+    goods: goods.sort((a, b) => b.revenue - a.revenue || (a.goodId < b.goodId ? -1 : 1)),
+    total: goods.reduce((sum, line) => sum + line.revenue, 0),
+  };
+}
+
+function sellPricesOf(market: MarketStateBroadcast): ReadonlyMap<string, number> {
+  return new Map(market.listings.map((listing) => [listing.goodId, listing.sellPrice] as const));
+}
+
+function addCrateSale(
+  totals: Map<string, { qty: number; revenue: number }>,
+  snapshot: SnapshotBroadcast,
+  prices: ReadonlyMap<string, number>,
+  crateId: string
+): void {
+  const crate = (snapshot.crates ?? []).find((entry) => entry.id === crateId);
+  if (crate === undefined) return;
+  for (const item of crate.items) {
+    const unit = prices.get(item.goodId);
+    if (unit === undefined) continue;
+    const line = totals.get(item.goodId) ?? { qty: 0, revenue: 0 };
+    totals.set(item.goodId, { qty: line.qty + item.qty, revenue: line.revenue + unit * item.qty });
+  }
+}
+
+/** Settle a captured sale into a receipt with the post-sale balance. */
+export function tradeReceiptFor(
+  capture: SellCapture,
+  newBalance: number,
+  timestampMs: number
+): TradeReceiptModel {
+  return {
+    hubId: capture.hubId,
+    hubLabel: capture.hubLabel,
+    itemsSold: capture.goods,
+    totalRevenue: capture.total,
+    newBalance,
+    timestampMs,
+  };
+}
+
 function sellHint(rows: number, sellIds: number): string {
   if (rows === 0) return 'Haul crates back to this bay to sell';
   if (sellIds > rows) return `Showing ${rows} - SELL ALL takes the rest too`;

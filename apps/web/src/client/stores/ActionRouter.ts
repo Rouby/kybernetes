@@ -41,6 +41,8 @@ export interface ActionWiring {
   readonly isPaused: () => boolean;
   readonly isDead: () => boolean;
   readonly isPackOpen: () => boolean;
+  readonly isReceiptOpen: () => boolean;
+  readonly onCloseReceipt: () => void;
   readonly onPackRotate: () => void;
   readonly onTogglePause: () => void;
   readonly onConsole: (kind: ConsoleKind) => void;
@@ -110,9 +112,17 @@ function pressReload(wiring: ActionWiring): void {
 }
 
 function pressUse(wiring: ActionWiring): void {
+  if (dismissReceipt(wiring)) return;
   const found = findUseTarget(wiring);
   if (found === null) return;
   activateUseTarget(wiring, found.target, found.at);
+}
+
+function dismissReceipt(wiring: ActionWiring): boolean {
+  if (!wiring.isReceiptOpen()) return false;
+  wiring.onCloseReceipt();
+  ShipAudioEngine.getInstance().playUiClick();
+  return true;
 }
 
 function findUseTarget(
