@@ -5,6 +5,7 @@
 
 import type { SnapshotPortal, WallSegment } from '@kybernetes/protocol';
 import { resolvePawnMovement } from '../spatial/collision.js';
+import { dragForceNewtons } from './airAuthority.js';
 import { isPortalConnecting } from './doors.js';
 import { isDockGateWalkable } from './schedule.js';
 import type { PawnBody, PortalEdge, Vec2, World } from './types.js';
@@ -19,6 +20,11 @@ const SPRINT_MULT = 1.6;
 const DAMPING = 7;
 const MAX_SPEED = 220;
 const SPRINT_MAX = 340;
+
+/** Human pawn wind-drag constants: 70kg body, 0.6m² area, Cd 1.1. */
+export const PAWN_MASS_KG = 70;
+export const PAWN_DRAG_AREA_M2 = 0.6;
+export const PAWN_DRAG_CD = 1.1;
 
 export function inputToAccel(input: MoveInput): Vec2 {
   const mult = input.sprint ? SPRINT_MULT : 1;
@@ -155,6 +161,30 @@ export function withSnapshotStates(world: World, snapshots: readonly SnapshotPor
     portals[id] = { ...portal, kind, state };
   }
   return changed ? { ...world, portals } : world;
+}
+
+/**
+ * Wind-drag displacement for one tick: F = ½ρv²CdA → a = F/m → dx = a·dt².
+ * Pure + deterministic; returns zero for still air or invalid inputs.
+ */
+export function pawnDragOffset(wind: Vec2, densityKgM3: number, dtSeconds: number): Vec2 {
+  if (!(dtSeconds > 0)) return { x: 0, y: 0 };
+  if (!Number.isFinite(wind.x) || !Number.isFinite(wind.y)) return { x: 0, y: 0 };
+  const force = dragForceNewtons(wind, densityKgM3, PAWN_DRAG_AREA_M2, PAWN_DRAG_CD);
+  return scaleDragForce(force, dtSeconds);
+}
+
+function scaleDragForce(force: Vec2, dtSeconds: number): Vec2 {
+  if (!Number.isFinite(force.x) || !Number.isFinite(force.y)) return { x: 0, y: 0 };
+  const step = (dtSeconds * dtSeconds) / PAWN_MASS_KG;
+  return { x: force.x * step, y: force.y * step };
+}
+
+/** Additive impulse: breach wind shifts the collision target before resolve. */
+export function applyWindToTarget(target: Vec2, offset: Vec2): Vec2 {
+  if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) return target;
+  if (offset.x === 0 && offset.y === 0) return target;
+  return { x: target.x + offset.x, y: target.y + offset.y };
 }
 
 /** Pawns aboard a moving vessel inherit its frame velocity (no offset-hack). */

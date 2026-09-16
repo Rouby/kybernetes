@@ -6,6 +6,7 @@ import {
   createAirAuthority,
   dragForceNewtons,
   NOMINAL_PRESSURE_KPA,
+  portalEffectiveArea,
   portalWind,
   readAirFlows,
   readAirRooms,
@@ -214,6 +215,104 @@ describe('air authority repressurizing', () => {
     const next = tickWorld(assembled, 0.05, [], auth);
     expect(next.atmos['station.habitat']?.pressureKpa).toBeCloseTo(NOMINAL_PRESSURE_KPA, 1);
     expect(refreshAtmos(auth, next, 0)).toBeDefined();
+  });
+});
+
+describe('air authority multi-hop vacuum', () => {
+  function chainWorld(): { auth: AirAuthorityState; world: World } {
+    const auth = createAirAuthority();
+    const rooms: RoomNode[] = [
+      { id: 'a', frameId: 'box', rect: { x: 0, y: 0, w: 10, h: 10 }, volumeM3: 50 },
+      { id: 'b', frameId: 'box', rect: { x: 10, y: 0, w: 10, h: 10 }, volumeM3: 50 },
+      { id: 'c', frameId: 'box', rect: { x: 20, y: 0, w: 10, h: 10 }, volumeM3: 50 },
+    ];
+    const portals: PortalEdge[] = [
+      {
+        id: 'ab',
+        roomA: 'a',
+        roomB: 'b',
+        kind: 'door',
+        state: 'open',
+        cooldownUntilTick: 0,
+        areaM2: 2,
+        segment: { x1: 10, y1: 4, x2: 10, y2: 6 },
+        clearance: 0,
+        integrity: 100,
+      },
+      {
+        id: 'bc',
+        roomA: 'b',
+        roomB: 'c',
+        kind: 'door',
+        state: 'open',
+        cooldownUntilTick: 0,
+        areaM2: 2,
+        segment: { x1: 20, y1: 4, x2: 20, y2: 6 },
+        clearance: 0,
+        integrity: 100,
+      },
+    ];
+    bindAirFrame(auth, 'box', rooms, portals);
+    const worldRooms: Record<string, RoomNode> = {
+      a: rooms[0] as RoomNode,
+      b: rooms[1] as RoomNode,
+      c: rooms[2] as RoomNode,
+    };
+    const worldPortals: Record<string, PortalEdge> = {
+      ab: portals[0] as PortalEdge,
+      bc: portals[1] as PortalEdge,
+    };
+    const world: World = { ...createEmptyWorld(0), rooms: worldRooms, portals: worldPortals };
+    return { auth, world };
+  }
+
+  it('marks a room two hops from a breach as venting', () => {
+    const { auth, world } = chainWorld();
+    expect(addPuncture(auth, 'box', 'c', 1.5)).toBeDefined();
+    const vented = stepBoth(auth, world, 3);
+    assertChainDepleted(readAllAir(auth));
+    expect(vented.atmos.a?.repressurizing).toBe(false);
+  });
+
+  function assertChainDepleted(
+    views: Record<string, { pressureKpa: number; repressurizing: boolean; roomId: string }>
+  ): void {
+    assertRoomVenting(views.c);
+    assertRoomVenting(views.b);
+    assertRoomVenting(views.a);
+  }
+
+  function assertRoomVenting(
+    view: { pressureKpa: number; repressurizing: boolean } | undefined
+  ): void {
+    expect(view?.pressureKpa ?? 999).toBeLessThan(NOMINAL_PRESSURE_KPA * 0.95);
+    expect(view?.repressurizing).toBe(false);
+  }
+});
+
+describe('air authority window destruction', () => {
+  function windowEdge(state: PortalEdge['state'], areaM2: number): PortalEdge {
+    return {
+      id: 'win',
+      roomA: 'habitat',
+      roomB: 'space',
+      kind: 'window',
+      state,
+      cooldownUntilTick: 0,
+      areaM2,
+      segment: { x1: 0, y1: 0, x2: 2, y2: 0 },
+      clearance: 0,
+      integrity: state === 'destroyed' ? 0 : 100,
+    };
+  }
+
+  it('gives destroyed windows hull-breach flow area', () => {
+    expect(portalEffectiveArea(windowEdge('destroyed', 0))).toBeGreaterThanOrEqual(1.2);
+    expect(portalEffectiveArea(windowEdge('destroyed', 2.5))).toBeCloseTo(2.5, 6);
+  });
+
+  it('keeps intact windows sealed', () => {
+    expect(portalEffectiveArea(windowEdge('closed', 0))).toBe(0);
   });
 });
 

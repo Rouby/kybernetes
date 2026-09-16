@@ -177,10 +177,10 @@ function sub(a: Vec2, b: Vec2): Vec2 {
 }
 
 export function portalEffectiveArea(portal: PortalEdge): number {
+  if (portal.state === 'destroyed') return Math.max(portal.areaM2, 1.2);
   if (portal.kind === 'window') return 0;
   if (portal.state === 'sealed') return 0;
   if (portal.state === 'closed') return 0;
-  if (portal.state === 'destroyed') return Math.max(portal.areaM2, 1.2);
   if (portal.kind === 'open') return portal.areaM2;
   return portal.areaM2;
 }
@@ -267,11 +267,40 @@ function readAirRoom(frame: FrameAirSim, roomId: string): AirRoomView {
 }
 
 function ventsToVacuum(frame: FrameAirSim, roomId: string): boolean {
+  const visited = new Set<string>([roomId]);
+  const queue: string[] = [roomId];
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    if (touchesVacuum(frame, current)) return true;
+    for (const next of openNeighbors(frame, current)) {
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return false;
+}
+
+function touchesVacuum(frame: FrameAirSim, roomId: string): boolean {
   for (const airPortal of frame.portals.values()) {
     if (airPortal.openRatio <= 0 || airPortal.roomB !== null) continue;
     if (airPortal.roomA.id === roomId) return true;
   }
   return false;
+}
+
+function openNeighbors(frame: FrameAirSim, roomId: string): string[] {
+  const next: string[] = [];
+  for (const airPortal of frame.portals.values()) {
+    if (airPortal.openRatio <= 0) continue;
+    if (airPortal.roomA.id === roomId && airPortal.roomB !== null) {
+      next.push(airPortal.roomB.id);
+    } else if (airPortal.roomB?.id === roomId) {
+      next.push(airPortal.roomA.id);
+    }
+  }
+  return next;
 }
 
 function buildAirRoomView(
@@ -341,11 +370,17 @@ export function sampleRoomWind(auth: AirAuthorityState, frameId: string, roomId:
     if (!touches) continue;
     const wind = portalWind(auth, frameId, portalId);
     if (wind === undefined) continue;
-    x += wind.x;
-    y += wind.y;
+    const signed = orientWindForRoom(airPortal.roomB?.id, roomId, wind);
+    x += signed.x;
+    y += signed.y;
     count += 1;
   }
   return count === 0 ? { x: 0, y: 0 } : { x: x / count, y: y / count };
+}
+
+function orientWindForRoom(roomBId: string | undefined, roomId: string, wind: Vec2): Vec2 {
+  if (roomBId === roomId) return { x: -wind.x, y: -wind.y };
+  return wind;
 }
 
 export function roomAirDensity(

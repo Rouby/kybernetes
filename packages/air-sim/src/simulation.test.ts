@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { GAMMA, GasType, MOLAR_MASS, R_GAS } from './constants';
 import { Portal, PortalType } from './portal';
 import { Room } from './room';
-import { AtmosphereSimulation } from './simulation';
+import { AtmosphereSimulation, analyticCrossing } from './simulation';
 
 function createRoom(
   id: string,
@@ -218,6 +218,38 @@ describe('AtmosphereSimulation transport', () => {
     }
   });
 
+  it('keeps portal velocity finite when opening into a 0-mole compartment', () => {
+    const source = createRoom('source', 100);
+    const vacuumRoom = createRoom('empty', 0);
+    const sim = createSimulation(source, vacuumRoom);
+    connect(sim, source, vacuumRoom, 1);
+    connect(sim, vacuumRoom, null, 1);
+    for (let i = 0; i < 40; i += 1) sim.step(0.025);
+    for (const portal of sim.portals) {
+      expect(Number.isFinite(portal.velocity)).toBe(true);
+      expect(portal.velocity).not.toBeNaN();
+    }
+    for (const room of [source, vacuumRoom]) {
+      expect(Number.isFinite(room.pressure)).toBe(true);
+      expect(Number.isFinite(room.totalMoles)).toBe(true);
+      for (const moles of Object.values(room.gas.moles)) {
+        expect(Number.isFinite(moles)).toBe(true);
+        expect(moles).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it('stays finite when a fully vented source faces vacuum', () => {
+    const vented = createRoom('vented', 0);
+    const full = createRoom('full', 100);
+    const sim = createSimulation(vented, full);
+    connect(sim, vented, full, 1);
+    connect(sim, vented, null, 1);
+    for (let i = 0; i < 20; i += 1) sim.step(0.025);
+    for (const portal of sim.portals) expect(Number.isFinite(portal.velocity)).toBe(true);
+    expect(Number.isFinite(vented.pressure)).toBe(true);
+  });
+
   it.each([0, 10])('mixes reverse flow into a target with %s mol', (targetMoles) => {
     const target = createRoom('target', targetMoles, 200, 1, GasType.CarbonDioxide);
     const source = createRoom('source', 100, 400, 1, GasType.Oxygen);
@@ -237,5 +269,66 @@ describe('AtmosphereSimulation transport', () => {
       10
     );
     expect(source.gas.temperatureK).toBeLessThan(400);
+  });
+});
+
+describe('crossingTransferCap analytic solver', () => {
+  function bisectionReference(
+    startMoles: number,
+    startContent: number,
+    targetContent: number,
+    stiffSource: number,
+    stiffTarget: number
+  ): number {
+    const startTemp = startContent / startMoles;
+    const gap = (moved: number): number => {
+      const fallen = Math.min(1, moved / startMoles);
+      const sourcePressure =
+        stiffSource * (startMoles - moved) * startTemp * (1 - fallen) ** (GAMMA - 1);
+      const targetPressure =
+        stiffTarget * (targetContent + startContent * (1 - (1 - fallen) ** GAMMA));
+      return sourcePressure - targetPressure;
+    };
+    if (gap(0) <= 0) return 0;
+    const ceiling = startMoles * (1 - 1e-9);
+    if (gap(ceiling) > 0) return ceiling;
+    let lo = 0;
+    let hi = ceiling;
+    for (let i = 0; i < 32; i += 1) {
+      const mid = (lo + hi) / 2;
+      if (gap(mid) > 0) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  it('matches the legacy 32-step bisection within 1e-9 mol', () => {
+    const cases: Array<[number, number, number, number, number]> = [
+      [100, 30000, 29700, 2478.951, 2478.951],
+      [50, 15000, 5000, 1000, 2000],
+      [200, 80000, 10000, 500, 1500],
+      [10, 2500, 2400, 800, 800],
+      [1000, 294150, 100000, 100, 300],
+    ];
+    for (const [moles, startC, targetC, stiffS, stiffT] of cases) {
+      const expected = bisectionReference(moles, startC, targetC, stiffS, stiffT);
+      const actual = analyticCrossing(moles, startC, targetC, stiffS, stiffT);
+      expect(Math.abs(actual - expected)).toBeLessThan(1e-6);
+    }
+  });
+
+  it('conserves gas below 0.001% error (single-pow analytic, 32 to 1)', () => {
+    const source = createRoom('source', 120, 350, 2);
+    const target = createRoom('target', 80, 280, 2);
+    const sim = createSimulation(source, target);
+    connect(sim, source, target, 0.05);
+    const before = source.totalMoles + target.totalMoles;
+    const beforeContent = source.totalMoles * 350 + target.totalMoles * 280;
+    for (let i = 0; i < 500; i += 1) sim.step(0.05);
+    const after = source.totalMoles + target.totalMoles;
+    const afterContent =
+      source.totalMoles * source.gas.temperatureK + target.totalMoles * target.gas.temperatureK;
+    expect(Math.abs(after - before) / before).toBeLessThan(1e-5);
+    expect(Math.abs(afterContent - beforeContent) / beforeContent).toBeLessThan(1e-5);
   });
 });

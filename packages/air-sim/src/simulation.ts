@@ -51,9 +51,14 @@ function moveStartMix(
  * Moles transferable before source and target pressures cross, accounting
  * for the thermal kick: the source cools along (1-F)^γ while the target
  * absorbs the same debit, so mole-only equalization overshoots once heat
- * is applied. Solved by bisection with the exact outflow-energy formulas
+ * is applied. Closed-form root of the exact outflow-energy formulas
  * settleOutflowEnergy applies, so the stability clamp and the transfer
  * agree by construction. Vacuum targets cannot overshoot and stay uncapped.
+ *
+ * The gap simplifies to K·u^γ − C with u = 1 − moved/startMoles,
+ * K = startContent·(stiffSource + stiffTarget), and
+ * C = stiffTarget·(targetContent + startContent): a single Math.pow
+ * replaces the legacy 32-step bisection (64 pows → 1, ≈98% fewer).
  */
 function crossingTransferCap(source: Room, target: Room | null): number {
   if (target === null || target.volume <= 0 || source.volume <= 0) {
@@ -61,30 +66,31 @@ function crossingTransferCap(source: Room, target: Room | null): number {
   }
   const startMoles = source.totalMoles;
   if (!(startMoles > 0)) return 0;
-  const startTemp = source.gas.temperatureK;
-  const startContent = startMoles * startTemp;
+  const startContent = startMoles * source.gas.temperatureK;
   const targetContent = target.totalMoles * target.gas.temperatureK;
   const stiffSource = R_GAS / source.volume;
   const stiffTarget = R_GAS / target.volume;
-  const gap = (moved: number): number => {
-    const fallen = Math.min(1, moved / startMoles);
-    const sourcePressure =
-      stiffSource * (startMoles - moved) * startTemp * (1 - fallen) ** (GAMMA - 1);
-    const targetPressure =
-      stiffTarget * (targetContent + startContent * (1 - (1 - fallen) ** GAMMA));
-    return sourcePressure - targetPressure;
-  };
-  if (gap(0) <= 0) return 0;
+  return analyticCrossing(startMoles, startContent, targetContent, stiffSource, stiffTarget);
+}
+
+/** Exported for unit-test equivalence against the legacy bisection reference. */
+export function analyticCrossing(
+  startMoles: number,
+  startContent: number,
+  targetContent: number,
+  stiffSource: number,
+  stiffTarget: number
+): number {
   const ceiling = startMoles * (1 - 1e-9);
-  if (gap(ceiling) > 0) return ceiling;
-  let lo = 0;
-  let hi = ceiling;
-  for (let i = 0; i < 32; i += 1) {
-    const mid = (lo + hi) / 2;
-    if (gap(mid) > 0) lo = mid;
-    else hi = mid;
-  }
-  return lo;
+  const stiffness = stiffSource + stiffTarget;
+  const k = startContent * stiffness;
+  const c = stiffTarget * (targetContent + startContent);
+  if (!(k > 0) || !Number.isFinite(k) || !Number.isFinite(c)) return 0;
+  if (k <= c) return 0;
+  if (c <= 0) return ceiling;
+  const uStar = (c / k) ** (1 / GAMMA);
+  if (!Number.isFinite(uStar)) return 0;
+  return Math.min(Math.max(startMoles * (1 - uStar), 0), ceiling);
 }
 
 function recordOutflow(
@@ -164,7 +170,10 @@ function molarFlowRate(
 // Update the momentum-tracked portal velocity. Velocity is signed relative
 // to the A→B axis; acceleration follows the pressure gradient direction.
 function settlePortalVelocity(portal: Portal, deltaP: number, source: Room, dt: number): void {
-  const density = (source.totalMoles * source.averageMolarMass) / source.volume;
+  const density = Math.max(
+    1e-6,
+    (source.totalMoles * source.averageMolarMass) / Math.max(0.001, source.volume)
+  );
   const effectiveDistance = Math.max(1, portal.distance);
   const accel = deltaP / (density * effectiveDistance);
   // Semi-implicit integration: solve  v' = v + (a - k·v'·|v'|)·dt  for v'.

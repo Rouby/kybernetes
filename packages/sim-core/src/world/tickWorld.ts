@@ -5,7 +5,12 @@
  * readings via the air authority.
  */
 
-import { type AirAuthorityState, refreshAtmos } from './airAuthority.js';
+import {
+  type AirAuthorityState,
+  refreshAtmos,
+  roomAirDensity,
+  sampleRoomWind,
+} from './airAuthority.js';
 import { tickBots } from './bots.js';
 import { tickImpacts, tickProjectiles, tickSpread } from './combat.js';
 import { stepCrossFrame } from './dockCrossing.js';
@@ -13,19 +18,21 @@ import { advanceFrameOrigin } from './frames.js';
 import { tickLiving } from './living.js';
 import { unionRooms, visibleRooms } from './los.js';
 import {
+  applyWindToTarget,
   carryByFrame,
   collidePawn,
   collidersForFrame,
   inputToAccel,
   integratePawnPosition,
   integratePawnVelocity,
+  pawnDragOffset,
   updateRoomHint,
 } from './movement.js';
 import { tickSchedule } from './schedule.js';
 import { speedMultiplierFor, tickCargo } from './ship/cargo.js';
 import { tickShipSystems } from './ship/systems.js';
 import { tickSurvival } from './survival.js';
-import { FIXED_DT, type PawnBody, type World } from './types.js';
+import { FIXED_DT, type PawnBody, type Vec2, type World } from './types.js';
 import { tickWatches } from './watch.js';
 
 export interface WorldInput {
@@ -45,7 +52,7 @@ export function tickWorld(
   const dt = normalizeDt(dtSeconds);
   if (dt === 0) return world;
   const botted = tickBots(world);
-  const moved = stepMovement(botted.world, dt, [...inputs, ...botted.inputs]);
+  const moved = stepMovement(botted.world, dt, [...inputs, ...botted.inputs], air);
   const carried = tickCargo(moved);
   const shipped = tickShipSystems(carried, dt);
   const crossed = stepCrossFrame(shipped);
@@ -67,11 +74,16 @@ function normalizeDt(dtSeconds: number): number {
   return Math.min(dtSeconds, FIXED_DT * 4);
 }
 
-function stepMovement(world: World, dt: number, inputs: readonly WorldInput[]): World {
+function stepMovement(
+  world: World,
+  dt: number,
+  inputs: readonly WorldInput[],
+  air?: AirAuthorityState
+): World {
   const latest = latestInputPerPawn(inputs);
   const pawns: Record<string, PawnBody> = {};
   for (const pawn of Object.values(world.pawns)) {
-    pawns[pawn.id] = stepPawn(world, pawn, latest.get(pawn.id), dt);
+    pawns[pawn.id] = stepPawn(world, pawn, latest.get(pawn.id), dt, air);
   }
   return stepMemory({ ...world, pawns });
 }
@@ -91,7 +103,8 @@ function stepPawn(
   world: World,
   pawn: PawnBody,
   input: WorldInput | undefined,
-  dt: number
+  dt: number,
+  air?: AirAuthorityState
 ): PawnBody {
   const mult = speedMultiplierFor(world.cargo, pawn.id);
   const accel = inputToAccel({
@@ -100,7 +113,8 @@ function stepPawn(
   });
   const vel = integratePawnVelocity(pawn, accel, dt);
   const target = integratePawnPosition({ ...pawn, vel }, vel, dt);
-  const collided = collidePawn(pawn, target, collidersForFrame(world, pawn.frameId));
+  const dragged = applyWindToTarget(target, dragOffsetForPawn(pawn, air, dt));
+  const collided = collidePawn(pawn, dragged, collidersForFrame(world, pawn.frameId));
   const pos = carryByFrame(world, pawn.frameId, collided, dt);
   return {
     ...pawn,
@@ -109,6 +123,33 @@ function stepPawn(
     facing: resolveFacing(pawn, input),
     roomHint: updateRoomHint(world, pawn, pos),
   };
+}
+
+function dragOffsetForPawn(pawn: PawnBody, air: AirAuthorityState | undefined, dt: number): Vec2 {
+  if (air === undefined || !(dt > 0)) return { x: 0, y: 0 };
+  const roomId = resolvePawnAirRoom(pawn, air);
+  if (roomId === undefined) return { x: 0, y: 0 };
+  return pawnWindOffset(air, pawn.frameId, roomId, dt);
+}
+
+function resolvePawnAirRoom(pawn: PawnBody, air: AirAuthorityState): string | undefined {
+  const rooms = air.sims.get(pawn.frameId)?.rooms;
+  if (rooms === undefined) return undefined;
+  if (rooms.has(pawn.roomHint)) return pawn.roomHint;
+  const bare = pawn.roomHint.includes('.')
+    ? pawn.roomHint.split('.').slice(1).join('.')
+    : pawn.roomHint;
+  if (rooms.has(bare)) return bare;
+  const namespaced = `${pawn.frameId}.${bare}`;
+  if (rooms.has(namespaced)) return namespaced;
+  return undefined;
+}
+
+function pawnWindOffset(air: AirAuthorityState, frameId: string, roomId: string, dt: number): Vec2 {
+  const wind = sampleRoomWind(air, frameId, roomId);
+  const density = roomAirDensity(air, frameId, roomId);
+  if (density === undefined) return { x: 0, y: 0 };
+  return pawnDragOffset(wind, density, dt);
 }
 
 function stepMemory(world: World): World {
