@@ -30,6 +30,35 @@ export function describeTarget(target: InteractTarget | null): string {
   return 'target:fixture';
 }
 
+export interface ActionHint {
+  readonly key: string;
+  readonly label: string;
+  readonly alert: boolean;
+}
+
+export interface HintsInput {
+  readonly carrying: boolean;
+  readonly nearShipCrates: boolean;
+  readonly aboardVessel: boolean;
+  readonly vacuum: boolean;
+}
+
+/**
+ * Contextual key hints for the HUD strip. [E] keeps its own prompt
+ * surface (combat footer + world prompt); the strip covers the hidden
+ * keys: dropping, stowing, hold inventory, and suit seal.
+ */
+export function actionHintsFor(input: HintsInput): ActionHint[] {
+  const hints: ActionHint[] = [];
+  if (input.carrying) hints.push({ key: '[G]', label: 'Drop crate', alert: false });
+  if (input.nearShipCrates) hints.push({ key: '[U]', label: 'Stow into hold', alert: false });
+  if (input.aboardVessel) hints.push({ key: '[C]', label: 'Hold inventory', alert: false });
+  if (input.aboardVessel || input.vacuum) {
+    hints.push({ key: '[T]', label: 'Seal suit', alert: input.vacuum });
+  }
+  return hints;
+}
+
 export function cargoLine(carryingId: string | null, securedCount: number): string {
   if (carryingId === null && securedCount === 0) return 'cargo:-';
   if (carryingId === null) return `cargo:secured=${securedCount}`;

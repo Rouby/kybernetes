@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  actionHintsFor,
   cargoLine,
   describeTarget,
   type HarborSocket,
@@ -117,6 +118,43 @@ describe('cargoLine', () => {
 
   it('names crate targets', () => {
     expect(describeTarget({ kind: 'crate', id: 'c1', dist: 10 })).toBe('target:crate:c1');
+  });
+});
+
+describe('actionHintsFor', () => {
+  it('stays empty with nothing contextual', () => {
+    expect(
+      actionHintsFor({ carrying: false, nearShipCrates: false, aboardVessel: false, vacuum: false })
+    ).toEqual([]);
+  });
+
+  it('offers drop while carrying', () => {
+    expect(
+      actionHintsFor({ carrying: true, nearShipCrates: false, aboardVessel: false, vacuum: false })
+    ).toEqual([{ key: '[G]', label: 'Drop crate', alert: false }]);
+  });
+
+  it('offers stow near ship-floor crates', () => {
+    expect(
+      actionHintsFor({ carrying: false, nearShipCrates: true, aboardVessel: true, vacuum: false })
+    ).toEqual([
+      { key: '[U]', label: 'Stow into hold', alert: false },
+      { key: '[C]', label: 'Hold inventory', alert: false },
+      { key: '[T]', label: 'Seal suit', alert: false },
+    ]);
+  });
+
+  it('flags the suit seal in vacuum', () => {
+    const hints = actionHintsFor({
+      carrying: true,
+      nearShipCrates: false,
+      aboardVessel: false,
+      vacuum: true,
+    });
+    expect(hints).toEqual([
+      { key: '[G]', label: 'Drop crate', alert: false },
+      { key: '[T]', label: 'Seal suit', alert: true },
+    ]);
   });
 });
 

@@ -94,7 +94,7 @@ function floorLabelFor(floor: readonly CargoFloorLine[], total: number): string 
 }
 
 function hintFor(handsFull: boolean, floorCount: number): string {
-  if (handsFull) return 'G set down - U unpacks ship-floor crates - C seals secured goods';
+  if (handsFull) return 'G set down - U stows crates into hold - C seals secured goods';
   if (floorCount > 0) return 'E picks up - C opens the hold panel';
   return 'Buy goods at a market stall (M5) - C opens the hold panel';
 }

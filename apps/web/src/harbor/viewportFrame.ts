@@ -23,7 +23,7 @@ import type {
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
 } from '@kybernetes/protocol';
-import { createInitialDoors, FIXED_DT, type World } from '@kybernetes/sim-core';
+import { createInitialDoors, FIXED_DT, PICKUP_RADIUS_PX, type World } from '@kybernetes/sim-core';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { PredictedPose } from '../client/stores/MovementController';
 import type { PackScreenModel } from '../pack/packModel';
@@ -117,6 +117,7 @@ import {
   ventedBareIds,
 } from './renderState';
 import type { ConsoleKind } from './sessionActions';
+import { actionHintsFor, type HintsInput } from './sessionHud';
 
 const VIEW_MIN_H = 480;
 const CAMERA_LERP = 0.12;
@@ -547,6 +548,42 @@ function targetRenderFields(
   };
 }
 
+function hintsInputFor(
+  snapshot: SnapshotBroadcast,
+  pawnId: string | null,
+  own: SnapshotPawn,
+  roomAtmos: Record<string, RoomAtmosphereSummary>,
+  statics: World,
+  at: { x: number; y: number }
+): HintsInput {
+  const crates = snapshot.crates ?? [];
+  return {
+    carrying: isOwnCrate(crates, pawnId, 'carriedBy'),
+    nearShipCrates: crates.some((crate) => isNearShipCrate(crate, own, at)),
+    aboardVessel: statics.vessels[own.frameId] !== undefined,
+    vacuum: (roomAtmos[own.roomHint]?.pressureKpa ?? 101) < 50,
+  };
+}
+
+function isOwnCrate(
+  crates: readonly NonNullable<SnapshotBroadcast['crates']>[number][],
+  pawnId: string | null,
+  where: string
+): boolean {
+  return (
+    pawnId !== null && crates.some((crate) => crate.where === where && crate.carrierId === pawnId)
+  );
+}
+
+function isNearShipCrate(
+  crate: NonNullable<SnapshotBroadcast['crates']>[number],
+  own: SnapshotPawn,
+  at: { x: number; y: number }
+): boolean {
+  if (crate.where !== 'shipFloor' || crate.frameId !== own.frameId) return false;
+  return Math.hypot(crate.x - at.x, crate.y - at.y) <= PICKUP_RADIUS_PX;
+}
+
 function vitalsRenderFields(
   view: HarborViewportProps,
   mappedVitals: PlayerVitals | undefined,
@@ -969,7 +1006,13 @@ function viewportRenderState(args: {
     now,
   } = args;
   const packScene = packSceneOf(view, args.canvas);
+  const overlay = glSessionOverlay(view, args.canvas, now / 1000);
+  const actionHints =
+    'uiOverlay' in overlay
+      ? []
+      : actionHintsFor(hintsInputFor(snapshot, view.pawnId, own, roomAtmos, view.statics, at));
   return {
+    actionHints,
     pawn: mapPawn(own, callsignFor(view.manifest, own.id), at, view.facingRef.current),
     remotePawns: mapRemotePawns(snapshot, view.pawnId, view.manifest, viewOrigins),
     ...vitalsRenderFields(view, mappedVitals, own),
@@ -997,7 +1040,7 @@ function viewportRenderState(args: {
       weaponType: 'kinetic_carbine' as const,
     })),
     inGameNotice: session.notice?.text,
-    ...glSessionOverlay(view, args.canvas, now / 1000),
+    ...overlay,
     ...chartSceneSection(view, args.canvas, now / 1000),
     timeMs: now,
     shipOffset: shipOffsetOf(viewOrigins),

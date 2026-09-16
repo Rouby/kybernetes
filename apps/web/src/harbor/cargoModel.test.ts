@@ -67,6 +67,12 @@ describe('cargoPanelModel (M4)', () => {
     expect(model.carryingLabel).toBe('Hands: empty');
   });
 
+  it('calls the hold action stow in hands-full hints', () => {
+    const model = cargoPanelModel(snapshot(), cargo(), 'pawn:u1');
+    expect(model.hint).toContain('U stows crates into hold');
+    expect(model.hint).not.toContain('unpack');
+  });
+
   it('lists unpackable ship-floor crates for the U shortcut', () => {
     expect(unpackableCrateIds(snapshot(), 'ship')).toEqual(['c1']);
     expect(unpackableCrateIds(snapshot(), 'station')).toEqual([]);

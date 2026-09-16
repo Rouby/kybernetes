@@ -1207,7 +1207,7 @@ function cargoButtonsFor(panel: UiRect, model: CargoScreenModel): readonly UiBut
     'close',
   ];
   const labels: Record<string, string> = {
-    unpackAll: 'UNPACK FLOOR',
+    unpackAll: 'STOW INTO HOLD',
     drop: 'SET DOWN [G]',
     packHold: 'PACK HOLD',
     close: 'CLOSE [C]',

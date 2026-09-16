@@ -169,7 +169,7 @@ describe('console intents', () => {
     expect(engineConsoleIntent('close', systems)).toBeNull();
   });
 
-  it('drops, unpacks, and seals cargo from the hold panel', () => {
+  it('drops, stows, and seals cargo from the hold panel', () => {
     const stock = { unpackIds: ['c1', 'c2'], seal: { scrap: 5 } };
     expect(cargoConsoleIntent('drop', stock)).toEqual({ type: 'CARGO_DROP', seq: 0 });
     expect(cargoConsoleIntent('unpackAll', stock)).toEqual({

@@ -11,6 +11,7 @@ import type {
 } from '@kybernetes/protocol';
 import type { Point2D } from '@kybernetes/sim-core';
 import { isPointInPolygon } from '@kybernetes/sim-core';
+import type { ActionHint } from '../../harbor/sessionHud.js';
 import type { ActiveInteraction } from '../../types';
 import { createProgram, createScreenMatrix } from '../glUtils';
 import {
@@ -40,6 +41,7 @@ import { AlertsWidget } from './widgets/AlertsWidget';
 import { ChecklistWidget } from './widgets/ChecklistWidget';
 import { CombatWidget } from './widgets/CombatWidget';
 import { HeaderWidget } from './widgets/HeaderWidget';
+import { HintsWidget } from './widgets/HintsWidget';
 import { VitalsWidget } from './widgets/VitalsWidget';
 
 export interface HudDrawState {
@@ -51,6 +53,8 @@ export interface HudDrawState {
   alertLevel?: 'nominal' | 'yellow' | 'red';
   nearestStation?: StationFixture | null;
   promptActionName?: string;
+  /** Contextual key hints for the bottom strip; absent hides it. */
+  actionHints?: readonly ActionHint[];
   livingSummary?: LivingSummary;
   mealBuffS?: number;
   activeInteraction?: ActiveInteraction | null;
@@ -166,6 +170,7 @@ export class HudRenderer implements WidgetHost {
   private readonly vitalsWidget = new VitalsWidget();
   private readonly combatWidget = new CombatWidget();
   private readonly checklistWidget = new ChecklistWidget();
+  private readonly hintsWidget = new HintsWidget();
   private readonly alertsWidget = new AlertsWidget();
   private visorProg: WebGLProgram;
   private vectorProg: WebGLProgram;
@@ -948,6 +953,7 @@ export class HudRenderer implements WidgetHost {
       this.vitalsWidget.renderLivingStrip(this, state, width, height);
       this.combatWidget.render(this, state, width, height);
       this.checklistWidget.render(this, state, width, height);
+      this.hintsWidget.render(this, state, width, height);
     }
     this.headerWidget.render(this, state, width, height);
     this.alertsWidget.render(this, state, width, height);
