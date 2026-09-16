@@ -29,7 +29,13 @@ import {
   type SellScreenModel,
   wrapRumor,
 } from '../../harbor/marketModel';
-import { formatFuel, type NavViewModel, navViewModel } from '../../harbor/navConsoleModel';
+import {
+  formatFuel,
+  hubLabel,
+  type NavViewModel,
+  navViewModel,
+} from '../../harbor/navConsoleModel';
+import { type AboardGood, cargoDemandFor } from '../../harbor/navTradeHints';
 import { engineViewModel, reactorViewModel } from '../../harbor/shipConsoleModel';
 import {
   GAME_OVER_BODY,
@@ -86,6 +92,8 @@ export interface CargoScreenModel {
 
 export interface UiScreenLayout {
   readonly panel: UiRect;
+  /** Optional second card (nav pre-flight checklist); painted with panel styling. */
+  readonly sidePanel?: UiRect;
   readonly texts: readonly UiText[];
   readonly buttons: readonly UiButton[];
   readonly swatches?: readonly UiSwatch[];
@@ -544,7 +552,8 @@ function navTextsFor(
   status: ShipStatusBroadcast | null,
   chart?: ChartStateBroadcast | null,
   transfer?: { label: string } | null,
-  course?: ChartPreview | null
+  course?: ChartPreview | null,
+  aboard?: readonly AboardGood[] | null
 ): readonly UiText[] {
   const vm = navViewModel(nav, systems, status, chart);
   const tx = panel.x + PAD;
@@ -594,9 +603,11 @@ function navTextsFor(
     )
   );
   line += 1;
+  const preview = course ?? null;
   line = pushManifestRows(rows, vm, tx, y0, innerW, line);
   line = pushTransferRow(rows, transfer ?? null, tx, y0, innerW, line);
-  line = pushPreviewRows(rows, course ?? null, tx, y0, innerW, line);
+  line = pushPreviewRows(rows, preview, tx, y0, innerW, line);
+  line = pushCargoDemandRows(rows, preview, aboard, tx, y0, innerW, line);
   const alerts: string[] = [];
   if (vm.fuelWarning !== null) alerts.push(uiEllipsize(vm.fuelWarning, BODY_SIZE, innerW));
   if (vm.heatWarning !== null) alerts.push(uiEllipsize(vm.heatWarning, BODY_SIZE, innerW));
@@ -694,7 +705,119 @@ function pushPreviewRows(
       course.fuelCells < course.fuelNeeded ? 'warning' : 'primary'
     )
   );
-  return line + 4;
+  rows.push(previewFoodText(course, tx, y0, innerW, line + 4));
+  rows.push(previewStoresText(course, tx, y0, innerW, line + 5));
+  return line + 6;
+}
+
+const PREVIEW_COST_FONT = 12;
+
+function previewFoodText(
+  course: ChartPreview,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): UiText {
+  const legs = course.stops.length;
+  return textAt(
+    uiEllipsize(`TRIP COST -${legs} RATION -${legs} WATER -${legs} O2`, PREVIEW_COST_FONT, innerW),
+    tx,
+    y0 + KICKER_SIZE + 8 + LINE_H * line,
+    PREVIEW_COST_FONT,
+    'muted'
+  );
+}
+
+function previewStoresText(
+  course: ChartPreview,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): UiText {
+  if (course.lowStoresWarning !== null) {
+    return textAt(
+      uiEllipsize(course.lowStoresWarning, PREVIEW_COST_FONT, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * line,
+      PREVIEW_COST_FONT,
+      'warning'
+    );
+  }
+  const left = course.projectedStores;
+  return textAt(
+    uiEllipsize(
+      `LEFT ${left.rations} RATION ${left.waterL} WATER ${left.o2Cells} O2`,
+      PREVIEW_COST_FONT,
+      innerW
+    ),
+    tx,
+    y0 + KICKER_SIZE + 8 + LINE_H * line,
+    PREVIEW_COST_FONT,
+    'muted'
+  );
+}
+
+const DEMAND_FONT = 12;
+const MAX_DEMAND_ROWS = 4;
+
+/** Target-port liquidation table for goods aboard (AGENTS.md text budget). */
+function pushCargoDemandRows(
+  rows: UiText[],
+  course: ChartPreview | null,
+  aboard: readonly AboardGood[] | null | undefined,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): number {
+  const target = course?.stops[course.stops.length - 1];
+  if (course === null || target === undefined) return line;
+  rows.push(
+    textAt(
+      uiEllipsize(`CARGO @ ${hubLabel(target)}`, KICKER_SIZE, innerW),
+      tx,
+      y0 + KICKER_SIZE + 8 + LINE_H * line,
+      KICKER_SIZE,
+      'dim'
+    )
+  );
+  const demand = cargoDemandFor(target, aboard ?? []);
+  if (demand.length === 0) {
+    rows.push(demandEmptyText(tx, y0, innerW, line + 1));
+    return line + 2;
+  }
+  demand.slice(0, MAX_DEMAND_ROWS).forEach((row, index) => {
+    rows.push(demandRowText(row, tx, y0, innerW, line + 1 + index));
+  });
+  return line + 1 + Math.min(demand.length, MAX_DEMAND_ROWS);
+}
+
+function demandEmptyText(tx: number, y0: number, innerW: number, line: number): UiText {
+  return textAt(
+    uiEllipsize('CARGO: None aboard', DEMAND_FONT, innerW),
+    tx,
+    y0 + KICKER_SIZE + 8 + LINE_H * line,
+    DEMAND_FONT,
+    'muted'
+  );
+}
+
+function demandRowText(
+  row: { goodId: string; qty: number; unitPrice: number; total: number },
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): UiText {
+  return textAt(
+    uiEllipsize(`${row.goodId} x${row.qty} ${row.unitPrice}cr ${row.total}cr`, DEMAND_FONT, innerW),
+    tx,
+    y0 + KICKER_SIZE + 8 + LINE_H * line,
+    DEMAND_FONT,
+    'good'
+  );
 }
 
 /** Clickable map-node chips plus the legend action column. */
@@ -749,6 +872,14 @@ function legendActionButtons(
 
 const STEP_H = 34;
 const DRAFT_LABELS = { confirm: 'CONFIRM', clear: 'CLEAR', close: 'CLOSE [E]' };
+const PREFLIGHT_LABELS = { loadFuel: 'LOAD FUEL', spool: 'SPOOL' };
+
+function preflightButtonIds(vm: NavViewModel): string[] {
+  const ids: string[] = [];
+  if (vm.canLoadFuelFromBridge) ids.push('loadFuel');
+  if (vm.canSpoolFromBridge) ids.push('spool');
+  return ids;
+}
 
 /** Draft controls: confirm, thrust stepper, clear, close stacked from the bottom. */
 function draftActionButtons(legend: UiRect): readonly UiButton[] {
@@ -824,7 +955,8 @@ export function layoutNavScreen(
   preview?: readonly string[] | null,
   thrustPct = 100,
   snapPrev?: FlightSnapshot | null,
-  clockIn?: ClockInput | null
+  clockIn?: ClockInput | null,
+  aboard?: readonly AboardGood[] | null
 ): UiScreenLayout {
   const draft = preview ?? null;
   const simSeconds = nav?.tick === undefined ? timeSec : nav.tick * FIXED_DT;
@@ -851,18 +983,139 @@ export function layoutNavScreen(
     thrustPct / 100,
     simSeconds
   );
+  const pre = preflightPanel(w, h, vm);
   const texts = [
-    ...navTextsFor(legend, nav, systems, status, chart, map.transfer, course),
+    ...(pre?.texts ?? []),
+    ...navTextsFor(legend, nav, systems, status, chart, map.transfer, course, aboard ?? null),
     ...nodeLabelTexts(map),
   ];
   return {
     panel: legend,
+    ...(pre === null ? {} : { sidePanel: pre.panel }),
     texts,
-    buttons: navButtonsFor(map, legend, vm, course),
+    buttons: [...(pre?.buttons ?? []), ...navButtonsFor(map, legend, vm, course)],
     bare: true,
     liveLeg: map.liveLeg,
     clock: map.clock,
   };
+}
+
+const PREFLIGHT_PANEL_W = 240;
+/** Roomier rhythm for the small card so rows and actions breathe. */
+const PREFLIGHT_LINE_H = 24;
+const PREFLIGHT_GAP = 16;
+
+/** Dedicated top-left pre-flight card; null unless docked. */
+function preflightPanel(
+  w: number,
+  h: number,
+  vm: NavViewModel
+): { panel: UiRect; texts: readonly UiText[]; buttons: readonly UiButton[] } | null {
+  if (vm.phase !== 'docked') return null;
+  const ids = preflightButtonIds(vm);
+  const panel = preflightPanelFor(w, h, ids.length);
+  return {
+    panel,
+    texts: preflightPanelTexts(panel, vm),
+    buttons: preflightPanelButtons(panel, ids),
+  };
+}
+
+function preflightPanelFor(w: number, h: number, buttons: number): UiRect {
+  const m = uiVisorMargins(w, h);
+  const btnH = buttons > 0 ? PREFLIGHT_GAP + buttons * BTN_H + (buttons - 1) * GAP : 0;
+  return {
+    x: m.marginX,
+    y: m.topClearance,
+    w: Math.max(200, Math.min(PREFLIGHT_PANEL_W, w - m.marginX * 2)),
+    h: PAD + KICKER_SIZE + 8 + 3 * PREFLIGHT_LINE_H + btnH + PAD,
+  };
+}
+
+function preflightPanelTexts(panel: UiRect, vm: NavViewModel): UiText[] {
+  const rows: UiText[] = [];
+  pushPreflightRows(rows, vm, panel.x + PAD, panel.y + PAD, panel.w - PAD * 2, 0);
+  return rows;
+}
+
+function preflightPanelButtons(panel: UiRect, ids: readonly string[]): readonly UiButton[] {
+  if (ids.length === 0) return [];
+  const top = panel.y + panel.h - PAD - (ids.length * BTN_H + (ids.length - 1) * GAP);
+  return columnFor(panel, top, ids, PREFLIGHT_LABELS, undefined);
+}
+
+/** Docked pre-flight readiness block (AGENTS.md text budget). Returns the next line. */
+function pushPreflightRows(
+  rows: UiText[],
+  vm: NavViewModel,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): number {
+  if (vm.phase !== 'docked') return line;
+  rows.push(
+    textAt('PRE-FLIGHT //', tx, y0 + KICKER_SIZE + 8 + PREFLIGHT_LINE_H * line, KICKER_SIZE, 'dim')
+  );
+  rows.push(preflightReactorText(vm, tx, y0, innerW, line + 1));
+  rows.push(preflightBunkerText(vm, tx, y0, innerW, line + 2));
+  rows.push(preflightEngineText(vm, tx, y0, innerW, line + 3));
+  return line + 4;
+}
+
+function preflightReactorText(
+  vm: NavViewModel,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): UiText {
+  const text = vm.reactorOnline ? '[✓] REACTOR: ONLINE' : '[!] REACTOR: OFFLINE';
+  return textAt(
+    uiEllipsize(text, BODY_SIZE, innerW),
+    tx,
+    y0 + KICKER_SIZE + 8 + PREFLIGHT_LINE_H * line,
+    BODY_SIZE,
+    vm.reactorOnline ? 'good' : 'danger'
+  );
+}
+
+function preflightBunkerText(
+  vm: NavViewModel,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): UiText {
+  const ready = vm.bunkerFuel >= vm.bunkerFuelNeeded;
+  return textAt(
+    uiEllipsize(
+      `BUNKER: ${formatFuel(vm.bunkerFuel)}/${formatFuel(vm.bunkerFuelNeeded)}`,
+      BODY_SIZE,
+      innerW
+    ),
+    tx,
+    y0 + KICKER_SIZE + 8 + PREFLIGHT_LINE_H * line,
+    BODY_SIZE,
+    ready ? 'primary' : 'warning'
+  );
+}
+
+function preflightEngineText(
+  vm: NavViewModel,
+  tx: number,
+  y0: number,
+  innerW: number,
+  line: number
+): UiText {
+  const text = vm.engineSpooled ? 'ENGINE: SPOOLED' : 'ENGINE: IDLE';
+  return textAt(
+    uiEllipsize(text, BODY_SIZE, innerW),
+    tx,
+    y0 + KICKER_SIZE + 8 + PREFLIGHT_LINE_H * line,
+    BODY_SIZE,
+    vm.engineSpooled ? 'good' : 'muted'
+  );
 }
 
 /** Docked manifest + chain lane rows (AGENTS.md text budget). Returns the next line. */
@@ -883,18 +1136,6 @@ function pushManifestRows(
         y0 + KICKER_SIZE + 8 + LINE_H * next,
         BODY_SIZE,
         'muted'
-      )
-    );
-    next += 1;
-  }
-  if (vm.haulRow !== null) {
-    rows.push(
-      textAt(
-        uiEllipsize(vm.haulRow, BODY_SIZE, innerW),
-        tx,
-        y0 + KICKER_SIZE + 8 + LINE_H * next,
-        BODY_SIZE,
-        'good'
       )
     );
     next += 1;
@@ -1310,7 +1551,7 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   intro: ['embark'],
   reactor: ['rodsDown', 'rodsUp', 'coolantDown', 'coolantUp', 'restart', 'close'],
   engine: ['spool', 'tuneDown', 'tuneUp', 'loadFuel', 'unloadFuel', 'close'],
-  nav: ['plot:hub_b', 'via:poi_kestrel', 'via:poi_vigil', 'close'],
+  nav: ['plot:hub_b', 'via:poi_kestrel', 'via:poi_vigil', 'loadFuel', 'spool', 'close'],
   cargo: ['unpackAll', 'drop', 'packHold', 'close'],
   market: ['buy', 'sell', 'close'],
   sell: ['sellAll', 'close'],

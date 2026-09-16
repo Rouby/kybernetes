@@ -109,6 +109,25 @@ describe('nav console intents', () => {
     return core.tuneShipEngine(world, 'ship', 1, 1);
   }
 
+  it('latches spool from the bridge but keeps tune in the engine room', async () => {
+    const world = await bridgeWorld();
+    const spooled = routeIntent(
+      world,
+      'pawn:nav',
+      { type: 'ENGINE_TUNE', seq: 5, spoolCmd: 1 },
+      []
+    );
+    expect(spooled.notice).toBe('ENGINE_ok');
+    expect(spooled.world.ships.ship?.engine.spoolCmd).toBe(1);
+    const tuned = routeIntent(
+      world,
+      'pawn:nav',
+      { type: 'ENGINE_TUNE', seq: 6, spoolCmd: 1, tuneSet: 0.8 },
+      []
+    );
+    expect(tuned.notice).toBe('ENGINE_too-far');
+  });
+
   it('plots and cancels a leg at the nav console', async () => {
     const world = await bridgeWorld();
     const plotted = routeIntent(

@@ -30,7 +30,7 @@ import {
   uiTextHex,
 } from '../ui/UiPass';
 import type { UiScreenLayout } from '../ui/UiScreens';
-import type { UiButtonDetail, UiField, UiSwatch } from '../ui/UiToolkit';
+import type { UiButtonDetail, UiField, UiRect, UiSwatch } from '../ui/UiToolkit';
 import { pickHoveredCrew, resolveCrewDossier } from './crewDossier';
 import { GLYPH_BAKE_PX, HudAtlas, type TextRenderOptions } from './HudAtlas';
 import { HudHitTester } from './HudHitTester';
@@ -845,17 +845,12 @@ export class HudRenderer implements WidgetHost {
   }
 
   private overlayPanel(layout: UiScreenLayout): void {
-    this.addCurvedPanel(
-      layout.panel.x,
-      layout.panel.y,
-      layout.panel.w,
-      layout.panel.h,
-      9,
-      0.05,
-      0.07,
-      0.1,
-      0.95
-    );
+    this.paintCard(layout.panel);
+    if (layout.sidePanel !== undefined) this.paintCard(layout.sidePanel);
+  }
+
+  private paintCard(rect: UiRect): void {
+    this.addCurvedPanel(rect.x, rect.y, rect.w, rect.h, 9, 0.05, 0.07, 0.1, 0.95);
   }
 
   private overlayTexts(layout: UiScreenLayout): void {

@@ -94,6 +94,19 @@ export interface ChartTransfer {
   readonly label: string;
 }
 
+export interface FlightFoodCost {
+  readonly rations: number;
+  readonly water: number;
+  readonly o2: number;
+}
+
+export interface ProjectedStores {
+  readonly rations: number;
+  readonly waterL: number;
+  readonly o2Cells: number;
+  readonly fuelCells: number;
+}
+
 export interface ChartPreview {
   readonly stops: readonly string[];
   readonly routeLabel: string;
@@ -103,6 +116,12 @@ export interface ChartPreview {
   readonly fuelCells: number;
   readonly heatRisk: boolean;
   readonly thrustPct: number;
+  /** One ration/water/o2 per leg (settleLegFood). */
+  readonly foodCost: FlightFoodCost;
+  /** Ship stores after the trip (floored at zero; secured cargo excluded). */
+  readonly projectedStores: ProjectedStores;
+  /** Set when any provision reaches zero on arrival. */
+  readonly lowStoresWarning: string | null;
 }
 
 /** Map a node button id to drafted stops (last = destination). Null when inert. */
@@ -160,6 +179,8 @@ export function previewCourse(
   if (!('plan' in planned)) return null;
   const known = knownIds(chart);
   const labels = [...selection].map((id) => (known.has(id) ? nodeShort(id) : '??'));
+  const foodCost = foodCostForLegs(selection.length);
+  const projectedStores = projectedStoresFor(status, selection.length);
   return {
     stops: [...selection],
     routeLabel: labels.join('>'),
@@ -168,7 +189,34 @@ export function previewCourse(
     fuelCells: status?.engineFuel ?? 0,
     heatRisk: planned.plan.heatRisk,
     thrustPct: Math.round(thrust01 * 100),
+    foodCost,
+    projectedStores,
+    lowStoresWarning: lowStoresWarningFor(projectedStores),
   };
+}
+
+function foodCostForLegs(legs: number): FlightFoodCost {
+  return { rations: legs, water: legs, o2: legs };
+}
+
+function projectedStoresFor(status: ShipStatusBroadcast | null, legs: number): ProjectedStores {
+  const stores = status?.stores;
+  if (stores === undefined) return { rations: 0, waterL: 0, o2Cells: 0, fuelCells: 0 };
+  return {
+    rations: Math.max(0, stores.rations - legs),
+    waterL: Math.max(0, stores.waterL - legs),
+    o2Cells: Math.max(0, stores.o2Cells - legs),
+    fuelCells: stores.fuelCells,
+  };
+}
+
+function lowStoresWarningFor(projected: ProjectedStores): string | null {
+  const empty: string[] = [];
+  if (projected.rations <= 0) empty.push('RATIONS');
+  if (projected.waterL <= 0) empty.push('WATER');
+  if (projected.o2Cells <= 0) empty.push('O2');
+  if (empty.length === 0) return null;
+  return `LOW STORES: ${empty.join('/')} EMPTY`;
 }
 
 function nodeShort(id: string): string {

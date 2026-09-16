@@ -153,8 +153,10 @@ export function marketConsoleIntent(id: string, stock: MarketConsoleStock): Clie
   return null;
 }
 
-/** Mirror of NavConsole plot/cancel/distress (ShipConsolePanel). Null = unknown id. */
+/** Mirror of NavConsole plot/cancel/distress plus bridge pre-flight. Null = unknown id. */
 export function navConsoleIntent(id: string, _nav: NavStateBroadcast | null): ClientIntent | null {
+  if (id === 'loadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'load' };
+  if (id === 'spool') return { type: 'ENGINE_TUNE', seq: 0, spoolCmd: 1 };
   if (id.startsWith(PLOT_BUTTON_PREFIX) || id.startsWith(DETOUR_BUTTON_PREFIX)) {
     return plotIntent(id);
   }

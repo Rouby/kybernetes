@@ -212,10 +212,10 @@ describe('navConsoleModel (M3 panel)', () => {
     };
   }
 
-  it('shows the docked manifest with rumor and best haul', () => {
+  it('shows the docked manifest with rumor and no haul hint', () => {
     const vm = navViewModel(nav(), systems(), status(), chart());
     expect(vm.chartRow).toBe('?? Distress echo.');
-    expect(vm.haulRow).toBe('HAUL SCRAP 9>13');
+    expect('haulRow' in vm).toBe(false);
     expect(vm.laneRow).toBeNull();
   });
 
@@ -238,7 +238,6 @@ describe('navConsoleModel (M3 panel)', () => {
     );
     expect(chain.laneRow).toBe('LANE ANCHORAGE>??>KEPLER');
     expect(chain.chartRow).toBeNull();
-    expect(chain.haulRow).toBeNull();
     const leg2 = navViewModel(
       nav({
         phase: 'in_transit',
@@ -257,7 +256,6 @@ describe('navConsoleModel (M3 panel)', () => {
     const vm = navViewModel(nav(), systems(), status());
     expect(vm.chartRow).toBeNull();
     expect(vm.laneRow).toBeNull();
-    expect(vm.haulRow).toBe('HAUL SCRAP 9>13');
   });
 
   it('arms hail and counts the drone while stranded', () => {
@@ -321,6 +319,65 @@ describe('navConsoleModel (M3 panel)', () => {
     );
     expect(flamed.flameout).toBe(true);
     expect(flamed.canDistress).toBe(true);
+  });
+
+  it('exposes pre-flight readiness on a fueled spooled ship', () => {
+    const vm = navViewModel(nav(), systems(), status());
+    expect(vm.reactorOnline).toBe(true);
+    expect(vm.bunkerFuel).toBe(1000);
+    expect(vm.bunkerFuelNeeded).toBe(vm.fuelNeeded);
+    expect(vm.storesFuelCells).toBe(1);
+    expect(vm.engineSpooled).toBe(true);
+    expect(vm.canLoadFuelFromBridge).toBe(true);
+    expect(vm.canSpoolFromBridge).toBe(false);
+  });
+
+  it('offers bridge load and spool on an empty idle ship', () => {
+    const vm = navViewModel(
+      nav(),
+      systems({ spool: 0, fuel: 0, fuelMax: 2000 }),
+      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 }, engineFuel: 0 })
+    );
+    expect(vm.reactorOnline).toBe(true);
+    expect(vm.engineSpooled).toBe(false);
+    expect(vm.canLoadFuelFromBridge).toBe(true);
+    expect(vm.canSpoolFromBridge).toBe(false);
+    const fueled = navViewModel(
+      nav(),
+      systems({ spool: 0, fuel: 1000, fuelMax: 2000 }),
+      status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 }, engineFuel: 1000 })
+    );
+    expect(fueled.canSpoolFromBridge).toBe(true);
+    expect(fueled.canLoadFuelFromBridge).toBe(true);
+  });
+
+  it('marks a cold unignited reactor offline despite healthy output', () => {
+    const vm = navViewModel(
+      nav(),
+      systems({ tempK: 300, fuel: 1000, fuelMax: 2000, spool: 0, outputMW: 31, demandMW: 8 }),
+      status()
+    );
+    expect(vm.reactorOnline).toBe(false);
+    expect(vm.canSpoolFromBridge).toBe(false);
+  });
+
+  it('blocks bridge actions underway, offline, or without room', () => {
+    const cruise = navViewModel(
+      nav({ phase: 'in_transit' }),
+      systems({ spool: 0, fuel: 0, fuelMax: 2000 }),
+      status()
+    );
+    expect(cruise.canLoadFuelFromBridge).toBe(false);
+    expect(cruise.canSpoolFromBridge).toBe(false);
+    const dark = navViewModel(
+      nav(),
+      systems({ spool: 0, fuel: 1000, fuelMax: 2000, scrammed: true, outputMW: 0, demandMW: 28 }),
+      status()
+    );
+    expect(dark.reactorOnline).toBe(false);
+    expect(dark.canSpoolFromBridge).toBe(false);
+    const full = navViewModel(nav(), systems({ spool: 0, fuel: 1500, fuelMax: 2000 }), status());
+    expect(full.canLoadFuelFromBridge).toBe(false);
   });
 
   it('degrades gracefully without snapshots', () => {

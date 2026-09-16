@@ -221,6 +221,8 @@ describe('console intents', () => {
       seq: 0,
     });
     expect(navConsoleIntent('hail', nav)).toEqual({ type: 'HAIL', seq: 0 });
+    expect(navConsoleIntent('loadFuel', nav)).toEqual({ type: 'ENGINE_FUEL', seq: 0, op: 'load' });
+    expect(navConsoleIntent('spool', nav)).toEqual({ type: 'ENGINE_TUNE', seq: 0, spoolCmd: 1 });
     expect(navConsoleIntent('close', nav)).toBeNull();
     expect(confirmPlotIntent(['poi_kestrel', 'hub_b'])).toEqual({
       type: 'NAV_PLOT',

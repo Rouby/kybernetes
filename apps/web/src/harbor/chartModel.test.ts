@@ -192,6 +192,21 @@ describe('previewCourse', () => {
     expect(preview).toMatchObject({ routeLabel: 'KEPLER', totalS: 33 });
   });
 
+  it('projects food costs and remaining stores per leg', () => {
+    const preview = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart());
+    expect(preview?.foodCost).toEqual({ rations: 2, water: 2, o2: 2 });
+    expect(preview?.projectedStores).toEqual({
+      rations: 0,
+      waterL: 2,
+      o2Cells: 0,
+      fuelCells: 2,
+    });
+    expect(preview?.lowStoresWarning).toContain('RATIONS');
+    const single = previewCourse(['hub_b'], nav(), status(), null, chart());
+    expect(single?.foodCost).toEqual({ rations: 1, water: 1, o2: 1 });
+    expect(single?.lowStoresWarning).toBeNull();
+  });
+
   it('rejects empty, underway, and unknown drafts', () => {
     expect(previewCourse([], nav(), status(), null, chart())).toBeNull();
     expect(previewCourse(['hub_b'], null, status(), null, chart())).toBeNull();

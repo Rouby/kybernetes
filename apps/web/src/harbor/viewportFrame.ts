@@ -73,6 +73,7 @@ import {
   targetPromptWithCarry,
 } from './interactTarget';
 import type { MarketScreenModel, SellScreenModel } from './marketModel';
+import type { AboardGood } from './navTradeHints';
 import type { PredictedShot } from './predictedShots';
 import { advanceShots, confirmShots } from './predictedShots';
 import type { FocusOrigin, FrameMotion, ImpactRenderModel } from './renderState';
@@ -192,6 +193,8 @@ export interface GlSessionWiring {
   readonly courseThrust: number;
   readonly onThrustPct: (pct: number) => void;
   readonly cargo: CargoWiring | null;
+  /** Goods aboard for the nav target-demand table; null when unknown. */
+  readonly navAboard: readonly AboardGood[] | null;
   readonly market: MarketWiring | null;
   readonly sell: SellWiring | null;
   readonly pack: PackWiring | null;
@@ -731,7 +734,8 @@ function shipConsoleLayoutFor(
     wiring.coursePreview,
     wiring.courseThrust,
     snapPrev,
-    clockIn ?? null
+    clockIn ?? null,
+    wiring.navAboard ?? null
   );
 }
 

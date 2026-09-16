@@ -19,6 +19,7 @@ import type {
 import { footprintFor } from '@kybernetes/sim-core';
 import { cargoScreenFor } from '../harbor/cargoModel';
 import { hubIdForFrame, marketScreenFor, sellScreenFor } from '../harbor/marketModel';
+import { aboardCargoFor } from '../harbor/navTradeHints';
 import type { ConsoleKind } from '../harbor/sessionActions';
 import type { GlSessionWiring } from '../harbor/viewportFrame';
 import type { PackStore } from '../pack/PackStore';
@@ -87,6 +88,7 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     courseThrust: args.consoles.thrustPct,
     onThrustPct: (pct) => args.consoles.setThrustPct(pct),
     cargo: cargoWiringOf(args.snapshot, args.pawnId, args.cargoState),
+    navAboard: aboardCargoFor(args.snapshot, args.pawnId, args.cargoState),
     market: marketWiringOf(args.marketStates, args.snapshot, args.pawnId, args.credits),
     sell: sellWiringOf(args.marketStates, args.snapshot, args.pawnId),
     pack: packWiringOf(

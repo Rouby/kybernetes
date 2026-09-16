@@ -18,6 +18,16 @@ function atEngine(host: SimHost, pawnId: string): void {
   });
 }
 
+function atNav(host: SimHost, pawnId: string): void {
+  const world = host.currentWorld;
+  const pawn = world.pawns[pawnId];
+  if (pawn === undefined) throw new Error('missing pawn');
+  host.debugSetWorld({
+    ...world,
+    pawns: { ...world.pawns, [pawnId]: { ...pawn, frameId: 'ship', pos: { x: 100, y: 65 } } },
+  });
+}
+
 describe('SimHost engine fuel (slotted bunker)', () => {
   it('loads a loose cell into the bunker at the engine console', () => {
     const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
@@ -29,6 +39,18 @@ describe('SimHost engine fuel (slotted bunker)', () => {
     expect(host.shipRecordFor('u1')?.stores.fuelCells).toBe(0);
     expect(host.shipRecordFor('u1')?.engineFuel).toBe(1000);
     expect(host.currentWorld.ships.ship?.engineFuel).toBe(1000);
+    host.stop();
+  });
+
+  it('loads a loose cell into the bunker from the bridge nav console', () => {
+    const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
+    const pawnId = spawn(host);
+    atNav(host, pawnId);
+    expect(host.shipRecordFor('u1')?.stores.fuelCells).toBe(1);
+    const loaded = host.handleIntent('c1', { type: 'ENGINE_FUEL', seq: 1, op: 'load' });
+    expect(loaded.notice).toBe('ENGINE_ok');
+    expect(host.shipRecordFor('u1')?.stores.fuelCells).toBe(0);
+    expect(host.shipRecordFor('u1')?.engineFuel).toBe(1000);
     host.stop();
   });
 

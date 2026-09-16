@@ -387,11 +387,23 @@ function routeEngineTune(
   intent: Extract<ClientIntent, { type: 'ENGINE_TUNE' }>,
   pending: readonly WorldInput[]
 ): RouteResult {
-  const gate = consoleGate(world, pawnId, 'engine_console', 'ENGINE', pending);
+  const gate = engineTuneGate(world, pawnId, intent, pending);
   if (!('vesselId' in gate)) return gate;
   const ensured = ensureShipSystems(world, gate.vesselId);
   const next = tuneShipEngine(ensured, gate.vesselId, intent.spoolCmd, intent.tuneSet);
   return { world: next, movement: pending, notice: 'ENGINE_ok' };
+}
+
+function engineTuneGate(
+  world: World,
+  pawnId: string,
+  intent: Extract<ClientIntent, { type: 'ENGINE_TUNE' }>,
+  pending: readonly WorldInput[]
+): { vesselId: string } | RouteResult {
+  const engine = consoleGate(world, pawnId, 'engine_console', 'ENGINE', pending);
+  if ('vesselId' in engine) return engine;
+  if (intent.tuneSet !== undefined) return engine;
+  return consoleGate(world, pawnId, 'nav_console', 'ENGINE', pending);
 }
 
 function routeNavPlot(

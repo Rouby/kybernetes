@@ -498,16 +498,32 @@ export class SimHost {
     if (this.world.vessels[pawn.frameId] === undefined) return { notice: 'ENGINE_too-far' };
     if (systems.nav.phase !== 'docked') return { notice: 'ENGINE_underway' };
     if (isCarrying(this.world.cargo, client.pawnId)) return { notice: 'ENGINE_hands-full' };
-    if (!this.engineConsoleNear(pawn.frameId, pawn.pos)) return { notice: 'ENGINE_too-far' };
+    if (!this.shipConsoleNear(pawn.frameId, pawn.pos)) return { notice: 'ENGINE_too-far' };
     const record = getSoloShip(this.ships, client.userId);
     if (record === undefined) return { notice: 'ENGINE_denied' };
     return { record, systems, frameId: pawn.frameId };
   }
 
+  private shipConsoleNear(frameId: string, pos: { x: number; y: number }): boolean {
+    return this.engineConsoleNear(frameId, pos) || this.navConsoleNear(frameId, pos);
+  }
+
   private engineConsoleNear(frameId: string, pos: { x: number; y: number }): boolean {
+    return this.consoleNear(frameId, pos, 'engine_console');
+  }
+
+  private navConsoleNear(frameId: string, pos: { x: number; y: number }): boolean {
+    return this.consoleNear(frameId, pos, 'nav_console');
+  }
+
+  private consoleNear(
+    frameId: string,
+    pos: { x: number; y: number },
+    kind: 'engine_console' | 'nav_console'
+  ): boolean {
     return Object.values(this.world.fixtures).some(
       (fix) =>
-        fix.kind === 'engine_console' &&
+        fix.kind === kind &&
         fix.roomId.startsWith(`${frameId}.`) &&
         Math.hypot(pos.x - fix.pos.x, pos.y - fix.pos.y) <= 150
     );

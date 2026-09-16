@@ -7,11 +7,11 @@ import type {
 import {
   chartNodeFor,
   type EngineTier,
+  FUEL_PER_CELL,
   legDurationSeconds,
   planVoyage,
   speedFactor,
 } from '@kybernetes/sim-core';
-import { haulRowFor } from './navTradeHints';
 
 export type NavPanelPhase = 'docked' | 'spooling' | 'in_transit' | 'docking' | 'unknown';
 
@@ -45,10 +45,22 @@ export interface NavViewModel {
   readonly hopProgress: string | null;
   /** Docked discovery hint (?? rumor) or survey count; null underway. */
   readonly chartRow: string | null;
-  /** Docked best haul from here (sell spread); null underway. */
-  readonly haulRow: string | null;
   /** Chain lane with ?? for unknown stops; null unless a chain flies. */
   readonly laneRow: string | null;
+  /** Reactor producing at least demand and not scrammed. */
+  readonly reactorOnline: boolean;
+  /** Flyable fuel-value in the engine bunker (mirrors fuel). */
+  readonly bunkerFuel: number;
+  /** Fuel-value needed for the single-hop plan (mirrors fuelNeeded). */
+  readonly bunkerFuelNeeded: number;
+  /** Loose cells in stores available to load (mirrors fuelCells). */
+  readonly storesFuelCells: number;
+  /** Engine spool above the 0.5 ready threshold. */
+  readonly engineSpooled: boolean;
+  /** Docked with a loose cell and room for a full cell in the bunker. */
+  readonly canLoadFuelFromBridge: boolean;
+  /** Docked, reactor online, bunker fueled, engine idle. */
+  readonly canSpoolFromBridge: boolean;
   readonly canHail: boolean;
   /** Rescue-drone countdown, ceiled; 0 when none outstanding. */
   readonly rescueS: number;
@@ -93,7 +105,6 @@ interface HopView {
 
 interface ManifestView {
   readonly chartRow: string | null;
-  readonly haulRow: string | null;
   readonly laneRow: string | null;
 }
 
@@ -116,6 +127,7 @@ export function navViewModel(
   const voyage = projectSingleHop(portHubId, other, status, systems);
   return {
     phase: navPhase(nav),
+    ...preflightViewModel(nav, systems, status, voyage.fuelNeeded),
     portLabel: hubLabel(portHubId),
     destLabel: nodeLabel(nav?.destHubId),
     ...hopViewModel(nav),
@@ -128,7 +140,7 @@ export function navViewModel(
     fuelNeeded: voyage.fuelNeeded,
     fuelWarning: lowFuelWarning(nav, fuel, voyage.fuelNeeded),
     heatWarning: heatWarningFor(nav, voyage.heatRisk),
-    ...manifestViewModel(nav, portHubId, other, chart ?? null),
+    ...manifestViewModel(nav, chart ?? null),
     ...strandedViewModel(nav),
     canPlot: nav?.phase === 'docked',
     canCancel: nav?.phase === 'spooling',
@@ -136,6 +148,72 @@ export function navViewModel(
     etaS: estimateEta(status, systems),
     flameout: nav?.flameout ?? false,
   };
+}
+
+interface PreflightView {
+  readonly reactorOnline: boolean;
+  readonly bunkerFuel: number;
+  readonly bunkerFuelNeeded: number;
+  readonly storesFuelCells: number;
+  readonly engineSpooled: boolean;
+  readonly canLoadFuelFromBridge: boolean;
+  readonly canSpoolFromBridge: boolean;
+}
+
+function preflightViewModel(
+  nav: NavStateBroadcast | null,
+  systems: ShipSystemsBroadcast | null,
+  status: ShipStatusBroadcast | null,
+  fuelNeeded: number
+): PreflightView {
+  const bunker = bunkerOf(systems, status);
+  const storesFuelCells = status === null ? 0 : status.stores.fuelCells;
+  const engineSpooled = systems !== null && systems.spool > 0.5;
+  const reactorOnline = isReactorOnline(systems);
+  return {
+    reactorOnline,
+    bunkerFuel: bunker.fuel,
+    bunkerFuelNeeded: fuelNeeded,
+    storesFuelCells,
+    engineSpooled,
+    canLoadFuelFromBridge: canLoadFromBridge(nav, storesFuelCells, bunker.fuel, bunker.max),
+    canSpoolFromBridge: canSpoolFromBridge(nav, reactorOnline, bunker.fuel, engineSpooled),
+  };
+}
+
+function bunkerOf(
+  systems: ShipSystemsBroadcast | null,
+  status: ShipStatusBroadcast | null
+): { fuel: number; max: number } {
+  if (systems !== null) return { fuel: systems.fuel, max: systems.fuelMax };
+  if (status !== null) return { fuel: status.engineFuel, max: 0 };
+  return { fuel: 0, max: 0 };
+}
+
+function isReactorOnline(systems: ShipSystemsBroadcast | null): boolean {
+  if (systems === null) return false;
+  return !systems.scrammed && systems.tempK >= systems.bandLo;
+}
+
+function canLoadFromBridge(
+  nav: NavStateBroadcast | null,
+  storesCells: number,
+  bunkerFuel: number,
+  fuelMax: number
+): boolean {
+  if (nav?.phase !== 'docked') return false;
+  if (!(storesCells >= 1)) return false;
+  return bunkerFuel + FUEL_PER_CELL <= fuelMax;
+}
+
+function canSpoolFromBridge(
+  nav: NavStateBroadcast | null,
+  reactorOnline: boolean,
+  bunkerFuel: number,
+  engineSpooled: boolean
+): boolean {
+  if (nav?.phase !== 'docked' || !reactorOnline || engineSpooled) return false;
+  return bunkerFuel > 0;
 }
 
 function hopViewModel(nav: NavStateBroadcast | null): HopView {
@@ -156,13 +234,10 @@ function hopProgressFor(stops: readonly string[], legIndex: number): string | nu
 
 function manifestViewModel(
   nav: NavStateBroadcast | null,
-  portHubId: string,
-  otherHubId: string,
   chart: ChartStateBroadcast | null
 ): ManifestView {
   return {
     chartRow: chartRowFor(nav, chart),
-    haulRow: haulRowFor(nav, portHubId, otherHubId),
     laneRow: laneRowFor(nav, chart),
   };
 }

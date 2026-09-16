@@ -281,12 +281,19 @@ describe('console screens', () => {
     const sys = makeSystems();
     const docked = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, makeStatus());
     expect(docked.buttons.map((b) => b.id)).toEqual([
+      'spool',
       'plot:hub_b',
       'via:poi_kestrel',
       'via:poi_vigil',
       'close',
     ]);
-    expect(docked.buttons.map((b) => b.label)).toEqual(['KEPLER', '??', '??', 'CLOSE [E]']);
+    expect(docked.buttons.map((b) => b.label)).toEqual([
+      'SPOOL',
+      'KEPLER',
+      '??',
+      '??',
+      'CLOSE [E]',
+    ]);
     const known = mockChart();
     const surveyedChart = {
       ...known,
@@ -304,11 +311,13 @@ describe('console screens', () => {
     const map = chartMapView(makeNav({ phase: 'docked' }), null, makeStatus(), W, H, 0);
     for (const button of docked.buttons) {
       const node = map.nodes.find((entry) => entry.buttonId === button.id);
-      if (node === undefined) {
-        expectContained(docked.panel, [button]);
-      } else {
+      if (node !== undefined) {
         expect(button.rect).toEqual(node.chip);
         expect(button.label).toBe(node.label);
+      } else if (button.id === 'loadFuel' || button.id === 'spool') {
+        expectContained(docked.sidePanel ?? docked.panel, [button]);
+      } else {
+        expectContained(docked.panel, [button]);
       }
     }
     const cruise = layoutNavScreen(W, H, makeNav({ phase: 'in_transit' }), sys, makeStatus());
@@ -358,10 +367,16 @@ describe('console screens', () => {
     );
     const texts = docked.texts.map((t) => t.text);
     expect(texts).toContain('?? Distress echo.');
-    expect(texts).toContain('HAUL SCRAP 9>13');
+    expect(texts.some((text) => text.startsWith('HAUL '))).toBe(false);
+    expect(texts).toContain('PRE-FLIGHT //');
+    expect(texts).toContain('[✓] REACTOR: ONLINE');
+    expect(texts.some((text) => text.startsWith('BUNKER: '))).toBe(true);
+    expect(texts).toContain('ENGINE: IDLE');
     for (const button of docked.buttons) {
       if (nodeButtons({ buttons: docked.buttons }).includes(button.id))
         expectInsideCanvas(button.rect);
+      else if (button.id === 'loadFuel' || button.id === 'spool')
+        expectContained(docked.sidePanel ?? docked.panel, [button]);
       else expectContained(docked.panel, [button]);
     }
     const chain = layoutNavScreen(
@@ -455,7 +470,10 @@ describe('console screens', () => {
     if (!('plan' in quoted)) throw new Error('quote should succeed');
     expect(texts).toContain(`TIME ${quoted.plan.totalS}S FUEL ${quoted.plan.fuelNeeded}/1500`);
     expect(texts).toContain('THRUST 100%');
+    expect(texts).toContain('TRIP COST -2 RATION -2 WATER -2 O2');
+    expect(texts.some((text) => text.startsWith('LOW STORES:'))).toBe(true);
     expect(layout.buttons.map((b) => b.id)).toEqual([
+      'spool',
       'plot:hub_b',
       'via:poi_kestrel',
       'via:poi_vigil',
@@ -533,6 +551,135 @@ describe('console screens', () => {
       layout.panel,
       layout.buttons.filter((b) => !b.id.includes(':'))
     );
+  });
+
+  it('nav offers bridge load and spool actions when docked and needy', () => {
+    const needy = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      makeSystems({ spool: 0, fuel: 0, fuelMax: 2000 }),
+      {
+        ...makeStatus(),
+        stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 },
+        engineFuel: 0,
+      }
+    );
+    expect(needy.buttons.map((b) => b.id)).toContain('loadFuel');
+    expect(needy.buttons.map((b) => b.id)).not.toContain('spool');
+    expect(needy.texts.map((t) => t.text)).toContain('[✓] REACTOR: ONLINE');
+    expect(needy.texts.map((t) => t.text)).toContain('ENGINE: IDLE');
+    expect(needy.sidePanel).toBeDefined();
+    expectContained(
+      needy.panel,
+      needy.buttons.filter((b) => b.id === 'close')
+    );
+    const preButtons = needy.buttons.filter((b) => b.id === 'loadFuel' || b.id === 'spool');
+    expectContained(needy.sidePanel ?? needy.panel, preButtons);
+    expectNoOverlap(preButtons);
+    const ready = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), makeSystems(), makeStatus());
+    expect(ready.buttons.map((b) => b.id)).not.toContain('loadFuel');
+    expect(ready.buttons.map((b) => b.id)).toContain('spool');
+    const spooled = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      makeSystems({ spool: 1 }),
+      makeStatus()
+    );
+    expect(spooled.texts.map((t) => t.text)).toContain('ENGINE: SPOOLED');
+    expect(spooled.buttons.map((b) => b.id)).not.toContain('spool');
+  });
+
+  it('nav docks the pre-flight checklist in a top-left side panel', () => {
+    const m = uiVisorMargins(W, H);
+    const docked = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), makeSystems(), makeStatus());
+    const side = docked.sidePanel;
+    if (side === undefined) throw new Error('missing side panel');
+    expect(side.x).toBe(m.marginX);
+    expect(side.y).toBe(m.topClearance);
+    expectInsideCanvas(side);
+  });
+
+  it('nav keeps checklist texts and actions inside the side panel', () => {
+    const docked = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), makeSystems(), makeStatus());
+    const side = docked.sidePanel;
+    if (side === undefined) throw new Error('missing side panel');
+    expect(docked.texts.map((t) => t.text)).toContain('PRE-FLIGHT //');
+    expectContained(
+      side,
+      docked.buttons.filter((b) => b.id === 'loadFuel' || b.id === 'spool')
+    );
+  });
+
+  it('nav hides the pre-flight panel while underway', () => {
+    const cruise = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'in_transit' }),
+      makeSystems(),
+      makeStatus()
+    );
+    expect(cruise.sidePanel).toBeUndefined();
+    expect(cruise.texts.map((t) => t.text)).not.toContain('PRE-FLIGHT //');
+  });
+
+  it('nav lists trip costs and leftover stores on the draft', () => {
+    const rich = {
+      ...makeStatus(),
+      stores: { rations: 5, waterL: 5, o2Cells: 5, fuelCells: 3 },
+    };
+    const layout = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      makeSystems(),
+      rich,
+      undefined,
+      0,
+      ['hub_b']
+    );
+    const texts = layout.texts.map((t) => t.text);
+    expect(texts).toContain('TRIP COST -1 RATION -1 WATER -1 O2');
+    expect(texts).toContain('LEFT 4 RATION 4 WATER 4 O2');
+  });
+
+  it('nav shows the target demand table for goods aboard the draft', () => {
+    const sys = makeSystems();
+    const layout = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      undefined,
+      0,
+      ['hub_b'],
+      100,
+      null,
+      null,
+      [{ goodId: 'scrap', qty: 2 }]
+    );
+    const texts = layout.texts.map((t) => t.text);
+    expect(texts).toContain('CARGO @ KEPLER YARD');
+    expect(texts).toContain('scrap x2 13cr 26cr');
+    const empty = layoutNavScreen(
+      W,
+      H,
+      makeNav({ phase: 'docked' }),
+      sys,
+      makeStatus(),
+      undefined,
+      0,
+      ['hub_b'],
+      100,
+      null,
+      null,
+      []
+    );
+    expect(empty.texts.map((t) => t.text)).toContain('CARGO: None aboard');
+    const plain = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, makeStatus());
+    expect(plain.texts.map((t) => t.text).some((text) => text.startsWith('CARGO'))).toBe(false);
   });
 });
 
@@ -708,7 +855,12 @@ describe('uiScreenButtonIds', () => {
   it('matches nav and settings ready layouts', () => {
     const sys = makeSystems();
     const nav = layoutNavScreen(W, H, makeNav(), sys, makeStatus());
-    expect(nav.buttons.map((b) => b.id)).toEqual([...uiScreenButtonIds('nav')]);
+    for (const id of nav.buttons.map((b) => b.id)) {
+      expect(uiScreenButtonIds('nav')).toContain(id);
+    }
+    expect(uiScreenButtonIds('nav')).toEqual(
+      expect.arrayContaining(['plot:hub_b', 'loadFuel', 'spool', 'close'])
+    );
     const audio = layoutSettingsScreen(W, H, 80, false, true);
     expect(audio.buttons.map((b) => b.id)).toEqual([...uiScreenButtonIds('settings')]);
   });
