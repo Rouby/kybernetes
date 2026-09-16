@@ -1,5 +1,16 @@
 # @kybernetes/sim-core
 
+## 0.5.1
+
+### Patch Changes
+
+- 22c521b: Slice 1 spatial physics, atmosphere and navigation: fix multi-hop vacuum BFS reachability, floor zero-density portal acceleration, fix destroyed-window flow area order, connect breach wind drag to pawn movement with room-B sign orientation, replace 32-step transfer-cap bisection with single-pow analytic root, and purge legacy spatial shipAtmosphere and navigation modules.
+- d11e69f: Slice 2 life support, crew AI, world loop and combat: clamp dead/incapacitated pawn and bot movement, release crates/fixtures/watch tasks on restartRun, strict vessel-to-station dock aperture guard, cross-frame bot pathfinding via walkable docks, per-tick collider caching with single cargo drop pass and player-only fog memory, living fixture grouping plus repackCargo decomposition, and limb/organ trauma with gait, arm-drop, bloom, and lung-strain effects.
+- Updated dependencies [22c521b]
+- Updated dependencies [20f7e01]
+  - @kybernetes/air-sim@0.3.2
+  - @kybernetes/protocol@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes

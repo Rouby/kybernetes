@@ -1,5 +1,17 @@
 # @kybernetes/web
 
+## 0.5.1
+
+### Patch Changes
+
+- aa0fb8c: Slice 4 WebGL2 rendering and tactical HUD: HudRenderer.dispose covering all GL objects and wired into WebGL2Renderer.dispose, visor-margin-stacked center alerts, two-line ammunition readout with condensed incap notice plus text-budget tests, clearance/credit header chips, pre-baked monochrome glyph atlas with zero gameplay texImage2D, pre-allocated HUD scratch buffers with bufferSubData uploads, single-draw instanced particle batching, five widget classes with zero complexity suppressions, and subsystem bars plus watch progress ring.
+- d5683c7: Slice 5 web audio, client architecture and harbor experience: AudioNode onended disconnects plus pooled spatial voices, client reconcile without aim snap, solo-ship prediction statics, bus attach on audio enable, dead sessionActions dispatch removal, exact fire-rate accumulator, viewport impact/footstep/gunshot foley hooks, crate-thunk attack ramp, and TelemetryAudioMapper/SpatialFoleyPool/navDetourModel/navTradeHints decomposition.
+- Updated dependencies [22c521b]
+- Updated dependencies [d11e69f]
+- Updated dependencies [20f7e01]
+  - @kybernetes/sim-core@0.5.1
+  - @kybernetes/protocol@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes
