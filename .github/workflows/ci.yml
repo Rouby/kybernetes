@@ -1,4 +1,4 @@
-name: 🛡️ Kybernetes Tactical Quality Gates
+name: 🛡️ CI
 
 on:
   push:
@@ -18,18 +18,18 @@ concurrency:
 
 jobs:
   quality-pipeline:
-    name: ⚡ 6-Gate Orbital Verification Protocol
+    name: ⚡ Quality Pipeline
     runs-on: ubuntu-latest
     # Skip CI for automated changeset versioning and release branches to conserve runner minutes
     if: "!startsWith(github.head_ref, 'changeset-release/') && !startsWith(github.head_ref, 'release/')"
 
     steps:
-      - name: 📡 Intercept Repository Signal (Checkout)
+      - name: 📡 Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: ⬡ Calibrate Node.js 24 Runtime
+      - name: ⬡ Setup Node.js 24
         uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -37,31 +37,31 @@ jobs:
       - name: 📦 Enable Corepack
         run: corepack enable
 
-      - name: 🔒 Provision Manifest Modules (Yarn Immutable)
+      - name: 🔒 Install dependencies (Yarn Immutable)
         run: yarn install --immutable
 
-      - name: 🧹 Gate 1 — Biome Tactical Lint & Format Check
+      - name: 🧹 Gate 1 — Biome Lint & Format Check
         run: yarn lint
 
-      - name: 🔬 Gate 2 — Fallow Structural Health & Anti-Decay Audit
+      - name: 🔬 Gate 2 — Fallow Structural Health Audit
         run: yarn quality
 
-      - name: 📐 Gate 3 — TypeScript 7 Strict Hull & Type Matrix
+      - name: 📐 Gate 3 — TypeScript Typecheck
         run: yarn typecheck
 
-      - name: 🧪 Gate 4 — Vitest Core Simulation & Vitals Suite
+      - name: 🧪 Gate 4 — Vitest Unit & Integration Tests
         run: yarn test
 
-      - name: 🏗️ Gate 5 — Turborepo Production Matrix Build
+      - name: 🏗️ Gate 5 — Turborepo Build
         run: yarn build
 
-      - name: 🎭 Provision Chromium Tactical Sensor Rig
+      - name: 🎭 Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
 
       - name: 🎮 Gate 6 — Playwright Smoke Suite (@smoke)
         run: yarn test:e2e:smoke
 
-      - name: 💾 Transmit Blackbox Diagnostics on Failure
+      - name: 💾 Upload Playwright test results on failure
         uses: actions/upload-artifact@v7
         if: failure()
         with:
