@@ -1,5 +1,14 @@
 # @kybernetes/server
 
+## 0.4.2
+
+### Patch Changes
+
+- 3e78fde: Economy starter pass: raise starter skiff capital to 50cr, add market stall trade rumors with panel budgeting, and allow direct handover sell of the carried crate at the market stall (prompt, sell console routing, and server liquidation).
+- ee6faa6: Nav bridge pass: pre-flight readiness checklist on a dedicated top-left side panel with LOAD FUEL / SPOOL bridge actions (server allows fuel handling at the nav console and pure spool latching from the bridge), star chart trip-cost and low-stores warnings on course preview, and target-port cargo demand table replacing the static haul hint.
+- Updated dependencies [3e78fde]
+  - @kybernetes/sim-core@0.5.2
+
 ## 0.4.1
 
 ### Patch Changes
