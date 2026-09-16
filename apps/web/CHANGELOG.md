@@ -1,5 +1,16 @@
 # @kybernetes/web
 
+## 0.5.2
+
+### Patch Changes
+
+- 3a8f452: Contextual controls: bottom-center key-hint strip (drop/stow/hold/suit seal with vacuum alert, hidden during overlays) and Stow-into-hold terminology in the cargo panel.
+- 3e78fde: Economy starter pass: raise starter skiff capital to 50cr, add market stall trade rumors with panel budgeting, and allow direct handover sell of the carried crate at the market stall (prompt, sell console routing, and server liquidation).
+- ee6faa6: Nav bridge pass: pre-flight readiness checklist on a dedicated top-left side panel with LOAD FUEL / SPOOL bridge actions (server allows fuel handling at the nav console and pure spool latching from the bridge), star chart trip-cost and low-stores warnings on course preview, and target-port cargo demand table replacing the static haul hint.
+- 48f84d3: Trade receipt: selling at a market stall captures the valued goods at click time and settles a TRADE TRANSACTION SETTLED card (goods, payout, balance) on the MARKET_sold notice with a cash-register cue; CONTINUE or [E] dismisses it.
+- Updated dependencies [3e78fde]
+  - @kybernetes/sim-core@0.5.2
+
 ## 0.5.1
 
 ### Patch Changes
