@@ -37,9 +37,25 @@ const HUB_PRICES: Readonly<Record<string, Readonly<Record<string, HubPrice>>>> =
     scrap: { buy: 15, sell: 13 },
     meds: { buy: 10, sell: 9 },
   },
+  hub_c: {
+    rations: { buy: 5, sell: 4 },
+    water: { buy: 4, sell: 3 },
+    o2_cells: { buy: 6, sell: 5 },
+    fuel_cells: { buy: 9, sell: 8 },
+    scrap: { buy: 12, sell: 10 },
+    meds: { buy: 14, sell: 12 },
+  },
+  hub_d: {
+    rations: { buy: 8, sell: 7 },
+    water: { buy: 5, sell: 4 },
+    o2_cells: { buy: 6, sell: 5 },
+    fuel_cells: { buy: 12, sell: 11 },
+    scrap: { buy: 10, sell: 9 },
+    meds: { buy: 15, sell: 13 },
+  },
 };
 
-export const MARKET_HUBS: readonly string[] = ['hub_a', 'hub_b'];
+export const MARKET_HUBS: readonly string[] = ['hub_a', 'hub_b', 'hub_c', 'hub_d'];
 export const MARKET_MAX_STOCK = 50;
 export const MARKET_RESTOCK_PER_MIN = 1;
 export const MARKET_RESTOCK_MS = 60_000;

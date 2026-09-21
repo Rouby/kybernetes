@@ -1,6 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { guideThrust, integrateLeg, planTripLeg, solveFlight, torchAccel } from './guidance.js';
-import { bodyPosAt, bodyVelAt, gravityAt, STAR_MU, SYSTEM_BODIES } from './system.js';
+import {
+  bodyPeriodS,
+  bodyPosAt,
+  bodyVelAt,
+  gravityAt,
+  STAR_MU,
+  SYSTEM_BODIES,
+  type SystemBody,
+} from './system.js';
+
+function checkMoonMotion(body: SystemBody): void {
+  if (body.moonOf === undefined) throw new Error('not a moon');
+  const host = SYSTEM_BODIES.find((other) => other.id === body.moonOf);
+  if (host === undefined) throw new Error(`moon host missing for ${body.id}`);
+  expect(bodyPeriodS(body)).toBeGreaterThan(0);
+  for (const t of [0, 7, 23]) {
+    const offset = {
+      x: bodyPosAt(body, t).x - bodyPosAt(host, t).x,
+      y: bodyPosAt(body, t).y - bodyPosAt(host, t).y,
+    };
+    expect(Math.hypot(offset.x, offset.y)).toBeCloseTo(body.radiusFrac, 8);
+    const rel = {
+      x: bodyVelAt(body, t).x - bodyVelAt(host, t).x,
+      y: bodyVelAt(body, t).y - bodyVelAt(host, t).y,
+    };
+    const speed = ((Math.PI * 2) / Math.max(1, bodyPeriodS(body))) * body.radiusFrac;
+    expect(Math.hypot(rel.x, rel.y)).toBeCloseTo(speed, 8);
+    expect(offset.x * rel.x + offset.y * rel.y).toBeCloseTo(0, 8);
+  }
+}
 
 describe('system', () => {
   it('fits hub_a to exactly 150s', () => {
@@ -13,6 +42,10 @@ describe('system', () => {
 
   it('keeps circular velocity consistent with positions', () => {
     for (const body of SYSTEM_BODIES) {
+      if (body.moonOf !== undefined) {
+        checkMoonMotion(body);
+        continue;
+      }
       const p0 = bodyPosAt(body, 0);
       const v0 = bodyVelAt(body, 0);
       const period = (2 * Math.PI * body.radiusFrac) / Math.hypot(v0.x, v0.y);

@@ -17,8 +17,8 @@ import {
   BODY_CLEAR_FRAC,
   bodyPeriodS,
   CHART_NODES,
+  clearFracFor,
   DOCKING_S,
-  distanceToSegment,
   FIXED_DT,
   type FlightSolution,
   HAIL_WAIT_S,
@@ -27,6 +27,7 @@ import {
   hopTo,
   planTripLeg,
   planVoyage,
+  segmentSegmentDistance,
   solveFlight,
   systemBodyOrDefault,
   torchAccel,
@@ -41,6 +42,7 @@ import {
   legVelAt,
   type SolvedLeg,
   solveLeg,
+  solveLegToState,
 } from './trajectoryModel';
 
 export type ChartNodeStatus = 'port' | 'dest' | 'hop' | 'unknown' | 'idle';
@@ -56,11 +58,25 @@ interface ChartMapOrbit {
 const CHART_MARKERS: Readonly<Record<string, number>> = {
   hub_a: 11,
   hub_b: 11,
+  hub_c: 11,
+  hub_d: 11,
   poi_kestrel: 8,
   poi_vigil: 8,
+  poi_lumen: 8,
+  poi_nadir: 8,
+  moon_wisp: 6,
+  moon_moth: 6,
+  moon_rill: 6,
+  moon_tarn: 6,
 };
 
 export type Rgb = readonly [number, number, number];
+
+export interface MoonOrbit {
+  readonly x: number;
+  readonly y: number;
+  readonly r: number;
+}
 
 export interface ChartMapNode {
   readonly id: string;
@@ -230,8 +246,10 @@ export interface ChartMapView {
   readonly legend: UiRect;
   readonly center: ChartMapPoint;
   readonly starR: number;
-  /** Orbit radii in px, one per charted orbit. */
+  /** Orbit radii in px, one per charted planet orbit (moons ride hosts). */
   readonly rings: readonly number[];
+  /** Moon orbit circles: host-centered ring per charted moon. */
+  readonly moonOrbits: readonly MoonOrbit[];
   readonly nodes: readonly ChartMapNode[];
   /** Sampled transfer arcs in stop order; empty while docked. */
   readonly route: readonly ChartMapPoint[];
@@ -396,7 +414,8 @@ export function chartMapView(
     legend,
     center,
     starR,
-    rings: CHART_NODES.map((node) => orbitOf(node.id).radius * halfMin),
+    rings: planetRings(halfMin),
+    moonOrbits: moonOrbitCircles(positions, halfMin),
     nodes,
     route: sampled.route,
     previewRoute: sampleTrajectories(ghost).route,
@@ -508,8 +527,29 @@ function orbitOf(id: string): ChartMapOrbit {
   };
 }
 
+/** Star-centered ring per planet; moons circle hosts instead. */
+function planetRings(halfMin: number): number[] {
+  return CHART_NODES.filter((node) => systemBodyOrDefault(node.id).moonOf === undefined).map(
+    (node) => orbitOf(node.id).radius * halfMin
+  );
+}
+
+function moonOrbitCircles(
+  positions: ReadonlyMap<string, ChartMapPoint>,
+  halfMin: number
+): MoonOrbit[] {
+  const circles: MoonOrbit[] = [];
+  for (const node of CHART_NODES) {
+    const body = systemBodyOrDefault(node.id);
+    if (body.moonOf === undefined) continue;
+    const host = positions.get(body.moonOf) ?? { x: 0, y: 0 };
+    circles.push({ x: host.x, y: host.y, r: body.radiusFrac * halfMin });
+  }
+  return circles;
+}
+
 function knownIds(chart: ChartStateBroadcast | null): ReadonlySet<string> {
-  if (chart === null) return new Set(['hub_a', 'hub_b']);
+  if (chart === null) return new Set(['hub_a', 'hub_b', 'hub_c', 'hub_d']);
   return new Set(chart.nodes.filter((node) => node.known).map((node) => node.id));
 }
 
@@ -529,9 +569,9 @@ function mapNode(
   timeSec: number
 ): ChartMapNode {
   const orbit = orbitOf(id);
-  const angle = nodeAngle(orbit, timeSec);
-  const x = center.x + Math.cos(angle) * orbit.radius * halfMin;
-  const y = center.y + Math.sin(angle) * orbit.radius * halfMin;
+  const at = nodePxAt(id, center, halfMin, timeSec);
+  const x = at.x;
+  const y = at.y;
   const status = nodeStatus(id, known, nav, portHubId);
   const label = known ? short : '??';
   const chipW = Math.round(uiTextWidth(label, CHIP_FONT) + 20);
@@ -578,15 +618,24 @@ function nodeButtonId(
   portHubId: string
 ): string | null {
   if (nav?.phase !== 'docked' || id === portHubId) return null;
-  if (id.startsWith('poi_')) return detourButtonId(id);
+  if (id.startsWith('poi_') || id.startsWith('moon_')) return detourButtonId(id);
   if (!known) return null;
   return plotButtonId(id);
 }
 
+/** Per-station hull tints so each dock reads distinct on the map. */
+const STATION_FILL: Readonly<Record<string, Rgb>> = {
+  hub_a: [0.1, 0.3, 0.5],
+  hub_b: [0.1, 0.4, 0.4],
+  hub_c: [0.5, 0.25, 0.15],
+  hub_d: [0.35, 0.25, 0.55],
+};
+
 function fillFor(id: string, known: boolean): Rgb {
   if (!known) return [0.16, 0.18, 0.22];
+  if (id.startsWith('moon_')) return [0.55, 0.6, 0.7];
   if (id.startsWith('poi_')) return [0.45, 0.3, 0.1];
-  return [0.1, 0.3, 0.5];
+  return STATION_FILL[id] ?? [0.1, 0.3, 0.5];
 }
 
 function ringFor(status: ChartNodeStatus): Rgb {
@@ -616,6 +665,8 @@ export interface FlightSnapshot {
   readonly totalS: number;
   readonly tSnap: number;
   readonly flipFrac: number;
+  /** Waypoint dodge when no single flip clears all wells; pieces fly flip 0.5. */
+  readonly via: { pos: ChartMapPoint; vel: ChartMapPoint; at: number } | null;
 }
 
 interface SolvedFlightLeg {
@@ -681,8 +732,144 @@ function bodyOrbitOf(id: string, halfMin: number): BodyOrbit {
 }
 
 function bodyVelNow(id: string, halfMin: number, timeSec: number): ChartMapPoint {
+  return nodeVelPxAt(id, halfMin, timeSec);
+}
+
+/** Screen position of any chart body: planets ride star rings, moons ride hosts. */
+function nodePxAt(
+  id: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  timeSec: number
+): ChartMapPoint {
+  const body = systemBodyOrDefault(id);
+  if (body.moonOf !== undefined) return toPx(astroPosAt(body, timeSec), center, halfMin);
+  const orbit = orbitOf(id);
+  const angle = nodeAngle(orbit, timeSec);
+  return {
+    x: center.x + Math.cos(angle) * orbit.radius * halfMin,
+    y: center.y + Math.sin(angle) * orbit.radius * halfMin,
+  };
+}
+
+function nodeVelPxAt(id: string, halfMin: number, timeSec: number): ChartMapPoint {
+  const body = systemBodyOrDefault(id);
+  if (body.moonOf !== undefined) {
+    const vel = astroVelAt(body, timeSec);
+    return { x: vel.x * halfMin, y: vel.y * halfMin };
+  }
   const vel = bodyVelAt(bodyOrbitOf(id, halfMin), timeSec);
   return { x: vel.x, y: vel.y };
+}
+
+/** Display rendezvous to any chart body, including host-riding moons. */
+function solveDisplayLeg(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  tAbs: number,
+  totalS: number,
+  flipFrac: number
+): SolvedLeg | null {
+  const end = displayEndState(toId, center, halfMin, tAbs + totalS);
+  const body = systemBodyOrDefault(toId);
+  if (body.moonOf === undefined) {
+    return solveLeg(r0, v0, bodyOrbitOf(toId, halfMin), center, tAbs, totalS, flipFrac);
+  }
+  return solveLegToState(r0, v0, end.pos, end.vel, totalS, flipFrac);
+}
+
+function displayEndState(
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  tEnd: number
+): { pos: ChartMapPoint; vel: ChartMapPoint } {
+  const body = systemBodyOrDefault(toId);
+  if (body.moonOf === undefined) {
+    const orbit = bodyOrbitOf(toId, halfMin);
+    return { pos: bodyPosAt(orbit, center, tEnd), vel: bodyVelAt(orbit, tEnd) };
+  }
+  return { pos: nodePxAt(toId, center, halfMin, tEnd), vel: nodeVelPxAt(toId, halfMin, tEnd) };
+}
+
+/** Solved pieces for a snapshot leg: single flip, or two halves via the dodge. */
+function snapPieces(
+  snap: FlightSnapshot,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number
+): { a: SolvedLeg; b: SolvedLeg | null } | null {
+  const via = snap.via;
+  if (via === null) {
+    const leg = solveDisplayLeg(
+      snap.r0,
+      snap.v0,
+      toId,
+      center,
+      halfMin,
+      snap.tSnap,
+      snap.totalS,
+      snap.flipFrac
+    );
+    if (leg === null) return null;
+    return { a: leg, b: null };
+  }
+  const end = displayEndState(toId, center, halfMin, snap.tSnap + snap.totalS);
+  const a = solveLegToState(snap.r0, snap.v0, via.pos, via.vel, via.at, 0.5);
+  const b = solveLegToState(via.pos, via.vel, end.pos, end.vel, snap.totalS - via.at, 0.5);
+  if (a === null || b === null) return null;
+  return { a, b };
+}
+
+function evalSnapLeg(
+  snap: FlightSnapshot,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  elapsed: number
+): { point: ChartMapPoint; vel: ChartMapPoint } | null {
+  const pieces = snapPieces(snap, toId, center, halfMin);
+  if (pieces === null) return null;
+  const via = snap.via;
+  if (via === null || pieces.b === null || elapsed <= via.at) {
+    const t = Math.min(Math.max(0, elapsed), pieces.a.totalT);
+    return {
+      point: legPointAt(pieces.a, snap.r0, snap.v0, t),
+      vel: legVelAt(pieces.a, snap.v0, t),
+    };
+  }
+  const s = elapsed - via.at;
+  return { point: legPointAt(pieces.b, via.pos, via.vel, s), vel: legVelAt(pieces.b, via.vel, s) };
+}
+
+function snapEnd(
+  snap: FlightSnapshot,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number
+): { point: ChartMapPoint; vel: ChartMapPoint } | null {
+  return evalSnapLeg(snap, toId, center, halfMin, snap.totalS);
+}
+
+function snapBurns(
+  snap: FlightSnapshot,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number
+): { u0: ChartMapPoint; uT: ChartMapPoint } | null {
+  const pieces = snapPieces(snap, toId, center, halfMin);
+  if (pieces === null) return null;
+  const last = pieces.b ?? pieces.a;
+  return { u0: { x: pieces.a.u1.x, y: pieces.a.u1.y }, uT: { x: last.u2.x, y: last.u2.y } };
+}
+
+function snapFlipTimes(snap: FlightSnapshot): number[] {
+  const via = snap.via;
+  if (via === null) return [snap.flipFrac * snap.totalS];
+  return [via.at * 0.5, via.at + (snap.totalS - via.at) * 0.5];
 }
 
 /** Departure snapshot for the live leg: state is retained, never reset. */
@@ -750,6 +937,7 @@ function freshSnapshot(
     totalS,
     tSnap: timeSec,
     flipFrac: searched.flipFrac,
+    via: searched.via,
   };
 }
 
@@ -788,18 +976,10 @@ function handoffSnapshot(
   timeSec: number,
   star: { x: number; y: number; r: number } | null
 ): FlightSnapshot | null {
-  const traj = solveLeg(
-    prev.r0,
-    prev.v0,
-    bodyOrbitOf(hop.fromId, halfMin),
-    center,
-    prev.tSnap,
-    prev.totalS,
-    prev.flipFrac
-  );
-  if (traj === null) return null;
-  const r0 = legPointAt(traj, prev.r0, prev.v0, prev.totalS);
-  const v0 = legVelAt(traj, prev.v0, prev.totalS);
+  const arrived = evalSnapLeg(prev, hop.fromId, center, halfMin, prev.totalS);
+  if (arrived === null) return null;
+  const r0 = arrived.point;
+  const v0 = arrived.vel;
   const searched = searchFlipFrac(
     r0,
     v0,
@@ -820,24 +1000,8 @@ function handoffSnapshot(
     totalS,
     tSnap: timeSec,
     flipFrac: searched.flipFrac,
+    via: searched.via,
   };
-}
-
-function trajectoryFor(
-  snap: FlightSnapshot,
-  toId: string,
-  center: ChartMapPoint,
-  halfMin: number
-): SolvedLeg | null {
-  return solveLeg(
-    snap.r0,
-    snap.v0,
-    bodyOrbitOf(toId, halfMin),
-    center,
-    snap.tSnap,
-    snap.totalS,
-    snap.flipFrac
-  );
 }
 
 /** Star exclusion plus hub gravity wells; POIs are too light to matter. */
@@ -848,7 +1012,9 @@ function gravityWells(
 ): GravityWell[] {
   const wells: GravityWell[] = [{ id: 'star', x: center.x, y: center.y, r: halfMin * 0.13 }];
   for (const [id, at] of positions) {
-    if (id === 'hub_a' || id === 'hub_b') wells.push({ id, x: at.x, y: at.y, r: 26 });
+    if (CHART_NODES.find((node) => node.id === id)?.kind === 'hub') {
+      wells.push({ id, x: at.x, y: at.y, r: 26 });
+    }
   }
   return wells;
 }
@@ -940,27 +1106,75 @@ function appendChainLeg(
     opts.star
   );
   if (solved === null) return state;
-  const samples: ChartMapPoint[] = [];
-  for (let i = 0; i < 16; i += 1) {
-    samples.push(legPointAt(solved.leg, state.r, state.v, (i / 15) * totalS));
-  }
-  const flipT = solved.flipFrac * totalS;
-  const flipPoint = legPointAt(solved.leg, state.r, state.v, flipT);
+  const snapLike: FlightSnapshot = {
+    legId: -1,
+    legIndex: -1,
+    r0: state.r,
+    v0: state.v,
+    totalS,
+    tSnap: state.tAbs,
+    flipFrac: solved.flipFrac,
+    via: solved.via,
+  };
+  const pieces = snapPieces(snapLike, ids.toId, opts.center, opts.halfMin);
+  if (pieces === null) return state;
+  const end = displayEndState(ids.toId, opts.center, opts.halfMin, state.tAbs + totalS);
+  const samples = sampleSnapLeg(snapLike, ids.toId, opts.center, opts.halfMin, 0, totalS);
+  const burns = snapBurns(snapLike, ids.toId, opts.center, opts.halfMin);
+  if (burns === null) return state;
+  const flipAt = firstFlipSample(snapLike, ids.toId, opts.center, opts.halfMin, samples, 0, totalS);
   legs.push({
     fromId: ids.fromId,
     toId: ids.toId,
     totalS,
     samples,
-    u0: { x: solved.leg.u1.x, y: solved.leg.u1.y },
-    uT: { x: solved.leg.u2.x, y: solved.leg.u2.y },
-    flipAt: pinFlipPoint(samples, flipPoint, solved.flipFrac),
+    u0: burns.u0,
+    uT: burns.uT,
+    flipAt,
     flipPassed: false,
   });
   return {
-    r: legPointAt(solved.leg, state.r, state.v, totalS),
-    v: legVelAt(solved.leg, state.v, totalS),
+    r: end.pos,
+    v: end.vel,
     tAbs: state.tAbs + totalS,
   };
+}
+
+/** Display samples of a snapshot leg over [from, to] elapsed seconds. */
+function sampleSnapLeg(
+  snap: FlightSnapshot,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  from: number,
+  to: number
+): ChartMapPoint[] {
+  const samples: ChartMapPoint[] = [];
+  for (let i = 0; i < LIVE_SAMPLES; i += 1) {
+    const at = to <= 0 ? snap.totalS : from + (i / (LIVE_SAMPLES - 1)) * (to - from);
+    const evaled = evalSnapLeg(snap, toId, center, halfMin, at);
+    samples.push(evaled?.point ?? snap.r0);
+  }
+  return samples;
+}
+
+/** First flip at or after elapsed, seated onto the samples. */
+function firstFlipSample(
+  snap: FlightSnapshot,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  samples: ChartMapPoint[],
+  elapsed: number,
+  remaining: number
+): number | null {
+  if (remaining <= 0) return null;
+  const upcoming = snapFlipTimes(snap).filter((flipT) => flipT > elapsed);
+  if (upcoming.length === 0) return 1 / Math.max(1, samples.length - 1);
+  const flipT = upcoming[0] ?? elapsed;
+  const evaled = evalSnapLeg(snap, toId, center, halfMin, flipT);
+  if (evaled === null) return null;
+  return pinFlipPoint(samples, evaled.point, (flipT - elapsed) / remaining);
 }
 
 /** Live leg: render the frozen departure snapshot, never a fresh replan. */
@@ -987,55 +1201,29 @@ function frozenLiveLeg(
   const snap = opts.snap;
   const raw = opts.liveRemainingRaw;
   if (snap === null || raw === null || snap.legIndex !== legIndex) return null;
-  const traj = trajectoryFor(snap, ids.toId, opts.center, opts.halfMin);
-  if (traj === null) return null;
+  const burns = snapBurns(snap, ids.toId, opts.center, opts.halfMin);
+  const end = snapEnd(snap, ids.toId, opts.center, opts.halfMin);
+  if (burns === null || end === null) return null;
   const elapsed = Math.min(Math.max(0, snap.totalS - raw), snap.totalS);
   const remaining = Math.max(0, snap.totalS - elapsed);
-  const samples = sampleFrozenLeg(traj, snap, elapsed, remaining);
-  const flipT = snap.flipFrac * snap.totalS;
+  const samples = sampleSnapLeg(snap, ids.toId, opts.center, opts.halfMin, elapsed, snap.totalS);
+  const flips = snapFlipTimes(snap);
+  const firstFlip = flips[0] ?? snap.totalS;
   legs.push({
     fromId: ids.fromId,
     toId: ids.toId,
     totalS: snap.totalS,
     samples,
-    u0: { x: traj.u1.x, y: traj.u1.y },
-    uT: { x: traj.u2.x, y: traj.u2.y },
-    flipAt: frozenFlipAt(traj, snap, samples, elapsed, remaining),
-    flipPassed: remaining > 0 && flipT <= elapsed,
+    u0: burns.u0,
+    uT: burns.uT,
+    flipAt: firstFlipSample(snap, ids.toId, opts.center, opts.halfMin, samples, elapsed, remaining),
+    flipPassed: remaining > 0 && firstFlip <= elapsed,
   });
   return {
-    r: legPointAt(traj, snap.r0, snap.v0, snap.totalS),
-    v: legVelAt(traj, snap.v0, snap.totalS),
+    r: end.point,
+    v: end.vel,
     tAbs: snap.tSnap + snap.totalS,
   };
-}
-
-function sampleFrozenLeg(
-  traj: SolvedLeg,
-  snap: FlightSnapshot,
-  elapsed: number,
-  remaining: number
-): ChartMapPoint[] {
-  const samples: ChartMapPoint[] = [];
-  for (let i = 0; i < LIVE_SAMPLES; i += 1) {
-    const at = remaining <= 0 ? snap.totalS : elapsed + (i / (LIVE_SAMPLES - 1)) * remaining;
-    samples.push(legPointAt(traj, snap.r0, snap.v0, at));
-  }
-  return samples;
-}
-
-function frozenFlipAt(
-  traj: SolvedLeg,
-  snap: FlightSnapshot,
-  samples: ChartMapPoint[],
-  elapsed: number,
-  remaining: number
-): number | null {
-  if (remaining <= 0) return null;
-  const flipT = snap.flipFrac * snap.totalS;
-  if (flipT <= elapsed) return 1 / (LIVE_SAMPLES - 1);
-  const flipPoint = legPointAt(traj, snap.r0, snap.v0, flipT);
-  return pinFlipPoint(samples, flipPoint, (flipT - elapsed) / remaining);
 }
 
 /** Seat the flip diamond on the exact flip point, not the nearest sample. */
@@ -1066,7 +1254,14 @@ function appendPlannedLeg(
     },
     { kp: 2.0, kd: 3.0, accelMax: Math.max(1e-6, accel) },
     800,
-    { epochS: state.tAbs, ignoreIds: [ids.fromId, ids.toId] }
+    {
+      epochS: state.tAbs,
+      ignoreIds: [ids.fromId, ids.toId],
+      depart: (t) => {
+        const body = systemBodyOrDefault(ids.fromId);
+        return { pos: astroPosAt(body, t), vel: astroVelAt(body, t) };
+      },
+    }
   );
   if (solved === null) {
     const totalS = hopScaledS(ids.fromId, ids.toId, tierOf(opts.status), opts.thrust01);
@@ -1155,8 +1350,8 @@ function flipSampleIndex(
   return Math.min(Math.max(idx, base), base + pushedCount - 1);
 }
 
-/** Flip candidates: mid-leg first, then asymmetric steers around the star. */
-const FLIP_CANDIDATES = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8, 0.12, 0.88];
+/** Flip candidates: mid-leg first, then asymmetric steers around wells. */
+const FLIP_CANDIDATES = [0.5, 0.4, 0.6, 0.3, 0.7, 0.25, 0.75, 0.2, 0.8, 0.35, 0.65, 0.12, 0.88];
 
 /** Display samples per leg; frozen live legs resample the same count. */
 const LIVE_SAMPLES = 16;
@@ -1213,12 +1408,15 @@ function searchFlipFrac(
   tAbs: number,
   totalS: number,
   star: { x: number; y: number; r: number } | null
-): { leg: SolvedLeg; flipFrac: number } | null {
+): {
+  leg: SolvedLeg;
+  flipFrac: number;
+  via: { pos: ChartMapPoint; vel: ChartMapPoint; at: number } | null;
+} | null {
   const starMargin = star === null ? 0 : star.r + 8;
-  const bodyMargin = BODY_CLEAR_FRAC * halfMin;
   let best: FlipScore | null = null;
   for (const flipFrac of FLIP_CANDIDATES) {
-    const leg = solveLeg(r0, v0, bodyOrbitOf(toId, halfMin), center, tAbs, totalS, flipFrac);
+    const leg = solveDisplayLeg(r0, v0, toId, center, halfMin, tAbs, totalS, flipFrac);
     if (leg === null) continue;
     const scored = scoreFlip(
       r0,
@@ -1232,13 +1430,195 @@ function searchFlipFrac(
       tAbs,
       totalS,
       star,
-      starMargin,
-      bodyMargin
+      starMargin
     );
     if (best === null || betterFlip(scored, best)) best = scored;
   }
   if (best === null) return null;
-  return { leg: best.leg, flipFrac: best.flipFrac };
+  if (best.clear) return { leg: best.leg, flipFrac: best.flipFrac, via: null };
+  const via = searchVia(
+    r0,
+    v0,
+    best.leg,
+    fromId,
+    toId,
+    center,
+    halfMin,
+    tAbs,
+    totalS,
+    star,
+    starMargin
+  );
+  if (via === null) return { leg: best.leg, flipFrac: best.flipFrac, via: null };
+  return { leg: via.leg, flipFrac: via.flipFrac, via: via.via };
+}
+
+/** Waypoint anchors tried around the hit leg, mid-course first. */
+const VIA_ANCHORS = [0.5, 0.3, 0.7, 0.15, 0.85] as const;
+
+/** Waypoint sidesteps tried around each anchor, smallest first. */
+const VIA_OFFSETS = [0.06, 0.1, 0.16] as const;
+
+function searchVia(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  best: SolvedLeg,
+  fromId: string,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  tAbs: number,
+  totalS: number,
+  star: { x: number; y: number; r: number } | null,
+  starMargin: number
+): {
+  leg: SolvedLeg;
+  flipFrac: number;
+  via: { pos: ChartMapPoint; vel: ChartMapPoint; at: number };
+} | null {
+  const end = displayEndState(toId, center, halfMin, tAbs + totalS);
+  for (const anchor of VIA_ANCHORS) {
+    const via = tryViaAnchor(
+      r0,
+      v0,
+      best,
+      end,
+      fromId,
+      toId,
+      center,
+      halfMin,
+      tAbs,
+      totalS,
+      anchor,
+      star,
+      starMargin
+    );
+    if (via !== null) return via;
+  }
+  return null;
+}
+
+function tryViaAnchor(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  best: SolvedLeg,
+  end: { pos: ChartMapPoint; vel: ChartMapPoint },
+  fromId: string,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  tAbs: number,
+  totalS: number,
+  anchor: number,
+  star: { x: number; y: number; r: number } | null,
+  starMargin: number
+): {
+  leg: SolvedLeg;
+  flipFrac: number;
+  via: { pos: ChartMapPoint; vel: ChartMapPoint; at: number };
+} | null {
+  const at = anchor * totalS;
+  const anchorPos = legPointAt(best, r0, v0, at);
+  const anchorVel = legVelAt(best, v0, at);
+  const vl = Math.max(1e-9, Math.hypot(anchorVel.x, anchorVel.y));
+  for (const off of VIA_OFFSETS) {
+    for (const side of [1, -1] as const) {
+      const gate = {
+        pos: {
+          x: anchorPos.x + (-anchorVel.y / vl) * off * halfMin * side,
+          y: anchorPos.y + (anchorVel.x / vl) * off * halfMin * side,
+        },
+        vel: { x: anchorVel.x, y: anchorVel.y },
+        at,
+      };
+      const won = tryViaGate(
+        r0,
+        v0,
+        gate,
+        end,
+        fromId,
+        toId,
+        center,
+        halfMin,
+        tAbs,
+        totalS,
+        star,
+        starMargin
+      );
+      if (won !== null) return won;
+    }
+  }
+  return null;
+}
+
+function tryViaGate(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  gate: { pos: ChartMapPoint; vel: ChartMapPoint; at: number },
+  end: { pos: ChartMapPoint; vel: ChartMapPoint },
+  fromId: string,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  tAbs: number,
+  totalS: number,
+  star: { x: number; y: number; r: number } | null,
+  starMargin: number
+): {
+  leg: SolvedLeg;
+  flipFrac: number;
+  via: { pos: ChartMapPoint; vel: ChartMapPoint; at: number };
+} | null {
+  const a = solveLegToState(r0, v0, gate.pos, gate.vel, gate.at, 0.5);
+  const b = solveLegToState(gate.pos, gate.vel, end.pos, end.vel, totalS - gate.at, 0.5);
+  if (a === null || b === null) return null;
+  if (!viaStarClear(r0, v0, gate, a, b, totalS, star, starMargin)) return null;
+  if (viaBodyMargin(r0, v0, gate, a, b, fromId, toId, center, halfMin, tAbs, totalS) <= 0)
+    return null;
+  return { leg: a, flipFrac: 0.5, via: gate };
+}
+
+function viaStarClear(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  gate: { pos: ChartMapPoint; vel: ChartMapPoint; at: number },
+  a: SolvedLeg,
+  b: SolvedLeg,
+  totalS: number,
+  star: { x: number; y: number; r: number } | null,
+  starMargin: number
+): boolean {
+  if (star === null) return true;
+  if (flipClearance(r0, v0, a, gate.at, star) <= starMargin) return false;
+  return flipClearance(gate.pos, gate.vel, b, totalS - gate.at, star) > starMargin;
+}
+
+function viaBodyMargin(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  gate: { pos: ChartMapPoint; vel: ChartMapPoint; at: number },
+  a: SolvedLeg,
+  b: SolvedLeg,
+  fromId: string,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  tAbs: number,
+  totalS: number
+): number {
+  const ids = thirdBodyIds(fromId, toId);
+  if (ids.length === 0) return Number.POSITIVE_INFINITY;
+  let min = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < 16; i += 1) {
+    const t = (i / 16) * totalS;
+    const u = ((i + 1) / 16) * totalS;
+    const p =
+      t <= gate.at ? legPointAt(a, r0, v0, t) : legPointAt(b, gate.pos, gate.vel, t - gate.at);
+    const q =
+      u <= gate.at ? legPointAt(a, r0, v0, u) : legPointAt(b, gate.pos, gate.vel, u - gate.at);
+    min = Math.min(min, segThirdMinPx(p, q, tAbs + t, tAbs + u, ids, center, halfMin));
+  }
+  return min;
 }
 
 function scoreFlip(
@@ -1253,19 +1633,19 @@ function scoreFlip(
   tAbs: number,
   totalS: number,
   star: { x: number; y: number; r: number } | null,
-  starMargin: number,
-  bodyMargin: number
+  starMargin: number
 ): FlipScore {
   const starMin = flipClearance(r0, v0, leg, totalS, star);
-  const bodyMin = flipBodyMinPx(r0, v0, leg, totalS, tAbs, fromId, toId, center, halfMin);
+  const bodyMargin = flipBodyMarginPx(r0, v0, leg, totalS, tAbs, fromId, toId, center, halfMin);
   const worst = Math.max(Math.hypot(leg.u1.x, leg.u1.y), Math.hypot(leg.u2.x, leg.u2.y));
-  const normMin = Math.min(starMin / Math.max(1, starMargin), bodyMin / Math.max(1e-9, bodyMargin));
-  const clear = starMin > starMargin && bodyMin > bodyMargin;
+  const refMargin = Math.max(1e-9, BODY_CLEAR_FRAC * halfMin);
+  const normMin = Math.min(starMin / Math.max(1, starMargin), bodyMargin / refMargin);
+  const clear = starMin > starMargin && bodyMargin > 0;
   return { leg, flipFrac, clear, worst, normMin };
 }
 
-/** Closest approach to any third-body marker along a display leg (px). */
-export function flipBodyMinPx(
+/** Smallest third-body well margin along a display leg (px): positive clears. */
+export function flipBodyMarginPx(
   r0: ChartMapPoint,
   v0: ChartMapPoint,
   leg: SolvedLeg,
@@ -1279,33 +1659,70 @@ export function flipBodyMinPx(
   const ids = thirdBodyIds(fromId, toId);
   if (ids.length === 0) return Number.POSITIVE_INFINITY;
   let min = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < 15; i += 1) {
-    const a = legPointAt(leg, r0, v0, (i / 15) * totalS);
-    const b = legPointAt(leg, r0, v0, ((i + 1) / 15) * totalS);
+  for (let i = 0; i < 16; i += 1) {
+    const t = (i / 16) * totalS;
+    const u = ((i + 1) / 16) * totalS;
+    const a = legPointAt(leg, r0, v0, t);
+    const b = legPointAt(leg, r0, v0, u);
+    min = Math.min(min, segThirdMinPx(a, b, tAbs + t, tAbs + u, ids, center, halfMin));
+  }
+  return min;
+}
+
+/** Smallest third-body well margin over a snapshot leg (px): positive clears. */
+export function snapshotBodyMarginPx(
+  snap: FlightSnapshot,
+  fromId: string,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number
+): number {
+  const ids = thirdBodyIds(fromId, toId);
+  if (ids.length === 0) return Number.POSITIVE_INFINITY;
+  let min = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < 16; i += 1) {
+    const t = (i / 16) * snap.totalS;
+    const u = ((i + 1) / 16) * snap.totalS;
+    const a = evalSnapLeg(snap, toId, center, halfMin, t);
+    const b = evalSnapLeg(snap, toId, center, halfMin, u);
+    if (a === null || b === null) continue;
     min = Math.min(
       min,
-      segThirdMinPx(a, b, tAbs + ((i + 0.5) / 15) * totalS, ids, center, halfMin)
+      segThirdMinPx(a.point, b.point, snap.tSnap + t, snap.tSnap + u, ids, center, halfMin)
     );
   }
   return min;
 }
 
 function thirdBodyIds(fromId: string, toId: string): readonly string[] {
-  return CHART_NODES.map((node) => node.id).filter((id) => id !== fromId && id !== toId);
+  return CHART_NODES.map((node) => node.id).filter((id) => {
+    if (id === fromId || id === toId) return false;
+    const host = systemBodyOrDefault(id).moonOf;
+    return host !== fromId && host !== toId;
+  });
 }
 
+/** Third-body well margin to a craft segment: bodies move inside long
+ * display segments, so each body is tested at the segment ends and middle. */
 function segThirdMinPx(
   a: ChartMapPoint,
   b: ChartMapPoint,
-  tAbs: number,
+  t0: number,
+  t1: number,
   ids: readonly string[],
   center: ChartMapPoint,
   halfMin: number
 ): number {
   let min = Number.POSITIVE_INFINITY;
   for (const id of ids) {
-    const at = bodyPosAt(bodyOrbitOf(id, halfMin), center, tAbs);
-    min = Math.min(min, distanceToSegment(at, a, b));
+    const clear = clearFracFor(systemBodyOrDefault(id)) * halfMin;
+    const d = segmentSegmentDistance(
+      a,
+      b,
+      nodePxAt(id, center, halfMin, t0),
+      nodePxAt(id, center, halfMin, t1)
+    );
+    min = Math.min(min, d - clear);
   }
   return min;
 }
@@ -1408,34 +1825,39 @@ function shipFromSnapshot(
 ): { point: ChartMapPoint; vel: ChartMapPoint } {
   const still = { point: port, vel: { x: 0, y: 0 } };
   if (hop === null || snap === null) return still;
-  const traj = trajectoryFor(snap, hop.toId, center, halfMin);
-  if (traj === null) return still;
+  const end = snapEnd(snap, hop.toId, center, halfMin);
+  if (end === null) return still;
   if (hop.docking) {
-    const end = legPointAt(traj, snap.r0, snap.v0, snap.totalS);
-    return { point: dockingPoint(hop.to, end, nav?.remainingS ?? 0), vel: { x: 0, y: 0 } };
+    return { point: dockingPoint(hop.to, end.point, nav?.remainingS ?? 0), vel: { x: 0, y: 0 } };
   }
   const elapsed = Math.min(
     Math.max(0, snap.totalS - (nav?.remainingS ?? snap.totalS)),
     snap.totalS
   );
-  return snapshotPoint(traj, snap, elapsed, driftFrac);
+  return snapshotPoint(snap, hop.toId, center, halfMin, elapsed, driftFrac);
 }
 
 function snapshotPoint(
-  traj: SolvedLeg,
   snap: FlightSnapshot,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
   elapsed: number,
   driftFrac: number
 ): { point: ChartMapPoint; vel: ChartMapPoint } {
-  const point = legPointAt(traj, snap.r0, snap.v0, elapsed);
-  const vel = legVelAt(traj, snap.v0, elapsed);
-  if (driftFrac <= 0) return { point, vel };
-  const end = legPointAt(traj, snap.r0, snap.v0, snap.totalS);
-  const span = Math.hypot(end.x - snap.r0.x, end.y - snap.r0.y);
-  const speed = Math.hypot(vel.x, vel.y);
-  if (speed < 1e-9 || span < 1e-9) return { point, vel };
+  const evaled = evalSnapLeg(snap, toId, center, halfMin, elapsed);
+  const end = snapEnd(snap, toId, center, halfMin);
+  if (evaled === null || end === null) return { point: snap.r0, vel: { x: 0, y: 0 } };
+  if (driftFrac <= 0) return evaled;
+  const span = Math.hypot(end.point.x - snap.r0.x, end.point.y - snap.r0.y);
+  const speed = Math.hypot(evaled.vel.x, evaled.vel.y);
+  if (speed < 1e-9 || span < 1e-9) return evaled;
   const k = (driftFrac * span) / speed;
-  return { point: { x: point.x + (vel.x / speed) * k, y: point.y + (vel.y / speed) * k }, vel };
+  const drifted = {
+    x: evaled.point.x + (evaled.vel.x / speed) * k,
+    y: evaled.point.y + (evaled.vel.y / speed) * k,
+  };
+  return { point: drifted, vel: evaled.vel };
 }
 
 /** Blend from the frozen arrival onto the live dock mouth over docking. */
@@ -1548,7 +1970,7 @@ function interceptPoints(
   const toId = nav.stops[nav.legIndex] ?? nav.destHubId;
   if (toId === undefined) return [];
   const totalS = Math.max(5, nav.remainingS);
-  const leg = solveLeg(ship, shipVel, bodyOrbitOf(toId, halfMin), center, timeSec, totalS);
+  const leg = solveDisplayLeg(ship, shipVel, toId, center, halfMin, timeSec, totalS, 0.5);
   if (leg === null) return [];
   const points: ChartMapPoint[] = [];
   for (let i = 0; i < 12; i += 1) {

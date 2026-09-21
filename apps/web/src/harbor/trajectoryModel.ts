@@ -73,8 +73,31 @@ export function solveLeg(
   if (!Number.isFinite(totalT) || totalT <= 0) return null;
   if (!Number.isFinite(flipFrac) || flipFrac <= 0 || flipFrac >= 1) return null;
   const tEnd = tNow + totalT;
-  const r2 = bodyPosAt(target, center, tEnd);
-  const v2 = bodyVelAt(target, tEnd);
+  return solveLegToState(
+    r0,
+    v0,
+    bodyPosAt(target, center, tEnd),
+    bodyVelAt(target, tEnd),
+    totalT,
+    flipFrac
+  );
+}
+
+/**
+ * Fixed-time rendezvous to an explicit end state. Moons ride their hosts,
+ * so chart legs flying moons meet a computed state instead of a static
+ * orbit. Planets keep using solveLeg; results are identical either way.
+ */
+export function solveLegToState(
+  r0: TrajVec,
+  v0: TrajVec,
+  r2: TrajVec,
+  v2: TrajVec,
+  totalT: number,
+  flipFrac = 0.5
+): SolvedLeg | null {
+  if (!Number.isFinite(totalT) || totalT <= 0) return null;
+  if (!Number.isFinite(flipFrac) || flipFrac <= 0 || flipFrac >= 1) return null;
   const flipT = totalT * flipFrac;
   const u1 = solveAxis(r0.x, v0.x, r2.x, v2.x, totalT, flipT);
   const u2 = solveAxis(r0.y, v0.y, r2.y, v2.y, totalT, flipT);

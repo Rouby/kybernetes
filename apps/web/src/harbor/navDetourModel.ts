@@ -14,6 +14,6 @@ export function detourButtonId(poiId: string): string {
 }
 
 export function detourLabel(poiId: string): string {
-  const short = poiId.startsWith('poi_') ? poiId.slice('poi_'.length) : poiId;
+  const short = CHART_NODES.find((node) => node.id === poiId)?.short ?? poiId.toUpperCase();
   return `VIA ${short.toUpperCase()}`;
 }

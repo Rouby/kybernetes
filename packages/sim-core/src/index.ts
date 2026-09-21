@@ -16,6 +16,7 @@ export * from './world/channels';
 export * from './world/combat';
 export * from './world/content/HesperiaV2.hull';
 export * from './world/content/StationHub.hull';
+export * from './world/content/StationVariants.hull';
 export * from './world/crew';
 export * from './world/death';
 export * from './world/debugStats';

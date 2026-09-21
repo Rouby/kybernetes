@@ -9,6 +9,7 @@ import { assembleWorld, spawnPawn } from './assemble.js';
 import { ensureBot } from './bots.js';
 import { HesperiaV2Spec } from './content/HesperiaV2.hull.js';
 import { StationHubSpec } from './content/StationHub.hull.js';
+import { stationHullFor } from './content/StationVariants.hull.js';
 import { ensureCaptain } from './crew.js';
 import { type DockLink, initialTransit, SHIP_ORIGIN } from './schedule.js';
 import { spawnCrate } from './ship/cargo.js';
@@ -71,27 +72,46 @@ export const HUB_B_STATION = 'hub_b';
 
 export const HUB_B_ORIGIN = { x: 0, y: 4000 };
 
+export const HUB_C_STATION = 'hub_c';
+
+export const HUB_C_ORIGIN = { x: 0, y: 8000 };
+
+export const HUB_D_STATION = 'hub_d';
+
+export const HUB_D_ORIGIN = { x: 0, y: 12000 };
+
+function hubDock(id: string, stationFrame: string, origin: { x: number; y: number }): DockLink {
+  return {
+    id,
+    stationFrame,
+    stationPortal: `${stationFrame}.korridor_ost_andock`,
+    tubePortal: `${stationFrame}.andock_tube_mund`,
+    tubeRoom: `${stationFrame}.andock_tube`,
+    vesselFrame: HARBOR_SHIP,
+    vesselPortal: 'ship.schiff_mund',
+    mouthWorld: {
+      x1: 1210 + origin.x,
+      y1: 240 + origin.y,
+      x2: 1210 + origin.x,
+      y2: 280 + origin.y,
+    },
+  };
+}
+
 /** Second trade-hub dock: same tube geometry, carried 4000px south. */
-export const HUB_B_DOCK: DockLink = {
-  id: 'hub_b_harbor',
-  stationFrame: HUB_B_STATION,
-  stationPortal: 'hub_b.korridor_ost_andock',
-  tubePortal: 'hub_b.andock_tube_mund',
-  tubeRoom: 'hub_b.andock_tube',
-  vesselFrame: HARBOR_SHIP,
-  vesselPortal: 'ship.schiff_mund',
-  mouthWorld: {
-    x1: 1210 + HUB_B_ORIGIN.x,
-    y1: 240 + HUB_B_ORIGIN.y,
-    x2: 1210 + HUB_B_ORIGIN.x,
-    y2: 280 + HUB_B_ORIGIN.y,
-  },
-};
+export const HUB_B_DOCK: DockLink = hubDock('hub_b_harbor', HUB_B_STATION, HUB_B_ORIGIN);
+
+/** Third and fourth trade-hub docks: same tube geometry, further south. */
+export const HUB_C_DOCK: DockLink = hubDock('hub_c_harbor', HUB_C_STATION, HUB_C_ORIGIN);
+
+export const HUB_D_DOCK: DockLink = hubDock('hub_d_harbor', HUB_D_STATION, HUB_D_ORIGIN);
 
 export function buildSoloShipWorld(): World {
   let world = assembleWorld([
     { frameId: HARBOR_STATION, hull: StationHubSpec },
-    { frameId: HUB_B_STATION, hull: StationHubSpec, origin: { ...HUB_B_ORIGIN } },
+    { frameId: HUB_B_STATION, hull: stationHullFor(HUB_B_STATION), origin: { ...HUB_B_ORIGIN } },
+    { frameId: HUB_C_STATION, hull: stationHullFor(HUB_C_STATION), origin: { ...HUB_C_ORIGIN } },
+    { frameId: HUB_D_STATION, hull: stationHullFor(HUB_D_STATION), origin: { ...HUB_D_ORIGIN } },
     {
       frameId: HARBOR_SHIP,
       hull: HesperiaV2Spec,
@@ -109,22 +129,36 @@ export function buildSoloShipWorld(): World {
   // ship never auto-departs. Transit returns in M3 as a player-plotted leg.
   world = {
     ...world,
-    docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK, [HUB_B_DOCK.id]: HUB_B_DOCK },
+    docks: {
+      ...world.docks,
+      [HARBOR_DOCK.id]: HARBOR_DOCK,
+      [HUB_B_DOCK.id]: HUB_B_DOCK,
+      [HUB_C_DOCK.id]: HUB_C_DOCK,
+      [HUB_D_DOCK.id]: HUB_D_DOCK,
+    },
   };
   world = ensureLivingFixtures(world);
   world = mirrorStationFixtures(world);
   return seedSoloBayCrates(world);
 }
 
-/** M5 trade needs: hub_b mirrors the home station fixtures (own market stall). */
+/** M5 trade needs: every hub mirrors the home station fixtures (own market stall). */
 function mirrorStationFixtures(world: World): World {
+  let next = world;
+  for (const frame of [HUB_B_STATION, HUB_C_STATION, HUB_D_STATION]) {
+    next = mirrorFixturesTo(next, frame);
+  }
+  return next;
+}
+
+function mirrorFixturesTo(world: World, frame: string): World {
   let next = world;
   for (const fix of Object.values(world.fixtures)) {
     if (!fix.id.startsWith('station.')) continue;
-    const twinId = `hub_b.${fix.id.slice('station.'.length)}`;
+    const twinId = `${frame}.${fix.id.slice('station.'.length)}`;
     if (next.fixtures[twinId] !== undefined) continue;
     const roomId = fix.roomId.startsWith('station.')
-      ? `hub_b.${fix.roomId.slice('station.'.length)}`
+      ? `${frame}.${fix.roomId.slice('station.'.length)}`
       : fix.roomId;
     if (next.rooms[roomId] === undefined) continue;
     next = {

@@ -4,7 +4,6 @@ import type {
   ShipStatusBroadcast,
 } from '@kybernetes/protocol';
 import {
-  BODY_CLEAR_FRAC,
   bodyPeriodS,
   DOCKING_S,
   planTripLeg,
@@ -16,10 +15,11 @@ import {
   appendDraft,
   chartLayoutRects,
   chartMapView,
-  flipBodyMinPx,
+  flipBodyMarginPx,
   previewCourse,
   previewStopsFor,
   smoothSimClock,
+  snapshotBodyMarginPx,
 } from './chartModel';
 import {
   bodyPosAt as displayPosAt,
@@ -63,7 +63,7 @@ function nav(over: Partial<NavStateBroadcast> = {}): NavStateBroadcast {
 }
 
 function chart(knownPois: readonly string[] = []): ChartStateBroadcast {
-  const known = new Set(['hub_a', 'hub_b', ...knownPois]);
+  const known = new Set(['hub_a', 'hub_b', 'hub_c', 'hub_d', ...knownPois]);
   const node = (
     id: string,
     kind: string,
@@ -85,10 +85,18 @@ function chart(knownPois: readonly string[] = []): ChartStateBroadcast {
     serverTimeMs: 1000,
     vesselId: 'ship',
     nodes: [
-      node('hub_a', 'hub', 'NEW ANCHORAGE', 'ANCHORAGE'),
-      node('hub_b', 'hub', 'KEPLER YARD', 'KEPLER'),
-      node('poi_kestrel', 'poi', 'DERELICT "KESTREL"', 'KESTREL', 'Distress echo.'),
-      node('poi_vigil', 'poi', 'BEACON "VIGIL"', 'VIGIL', 'Cache pings.'),
+      node('hub_a', 'hub', 'MERIDIAN GATE', 'MERIDIAN'),
+      node('hub_b', 'hub', 'SOLACE YARDS', 'SOLACE'),
+      node('hub_c', 'hub', 'CINDER DOCK', 'CINDER'),
+      node('hub_d', 'hub', 'VESPER PORT', 'VESPER'),
+      node('poi_kestrel', 'poi', 'DERELICT "TERN"', 'TERN', 'Distress echo.'),
+      node('poi_vigil', 'poi', 'BEACON "HALCYON"', 'HALCYON', 'Cache pings.'),
+      node('poi_lumen', 'poi', 'CRYSTAL "LUMEN"', 'LUMEN', 'Lightfall.'),
+      node('poi_nadir', 'poi', 'SILENT "NADIR"', 'NADIR', 'No answers.'),
+      node('moon_wisp', 'poi', 'WISP (TERN MOON)', 'WISP', 'Ice glint.'),
+      node('moon_moth', 'poi', 'MOTH (HALCYON MOON)', 'MOTH', 'Shadows.'),
+      node('moon_rill', 'poi', 'RILL (LUMEN MOON)', 'RILL', 'Runoff.'),
+      node('moon_tarn', 'poi', 'TARN (NADIR MOON)', 'TARN', 'Deep hold.'),
     ],
   };
 }
@@ -146,6 +154,21 @@ function rotated(
   };
 }
 
+/** Planets keep marker distance; moons hug hosts and cross rings in projection. */
+function checkNodePair(
+  a: { id: string; x: number; y: number; r: number },
+  b: { id: string; x: number; y: number; r: number }
+): void {
+  if (isMoonPair(a.id, b.id)) return;
+  if (a.id.startsWith('moon_') || b.id.startsWith('moon_')) return;
+  expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(a.r + b.r);
+}
+
+/** Moon/host pairs share crowded neighborhoods; separation applies otherwise. */
+function isMoonPair(a: string, b: string): boolean {
+  return systemBodyOrDefault(a).moonOf === b || systemBodyOrDefault(b).moonOf === a;
+}
+
 function expectRouteSteps(route: readonly { x: number; y: number }[]): void {
   // Segments render as chords; the guard catches torn joints (100px+), not
   // sparse sampling on fast chase legs.
@@ -184,9 +207,9 @@ describe('previewCourse', () => {
   it('projects time and fuel for a drafted detour', () => {
     const preview = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart());
     expect(preview).toMatchObject({
-      routeLabel: '??>KEPLER',
-      totalS: 53,
-      fuelNeeded: 345,
+      routeLabel: '??>SOLACE',
+      totalS: 58,
+      fuelNeeded: 378,
       fuelCells: 2000,
       heatRisk: false,
     });
@@ -195,14 +218,14 @@ describe('previewCourse', () => {
 
   it('scales time and fuel with draft throttle', () => {
     const slow = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart(), 0.5);
-    expect(slow).toMatchObject({ thrustPct: 50, totalS: 146, fuelNeeded: 759 });
+    expect(slow).toMatchObject({ thrustPct: 50, totalS: 177, fuelNeeded: 921 });
     const full = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart());
-    expect(full).toMatchObject({ thrustPct: 100, totalS: 53, fuelNeeded: 345 });
+    expect(full).toMatchObject({ thrustPct: 100, totalS: 58, fuelNeeded: 378 });
   });
 
   it('projects a direct hop without a via leg', () => {
     const preview = previewCourse(['hub_b'], nav(), status(), null, chart());
-    expect(preview).toMatchObject({ routeLabel: 'KEPLER', totalS: 33 });
+    expect(preview).toMatchObject({ routeLabel: 'SOLACE', totalS: 34 });
   });
 
   it('projects food costs and remaining stores per leg', () => {
@@ -253,8 +276,7 @@ describe('chartMapView', () => {
           const a = view.nodes[i];
           const b = view.nodes[j];
           if (a === undefined || b === undefined) throw new Error('node missing');
-          const dist = Math.hypot(a.x - b.x, a.y - b.y);
-          expect(dist).toBeGreaterThanOrEqual(a.r + b.r);
+          checkNodePair(a, b);
         }
       }
     }
@@ -262,15 +284,26 @@ describe('chartMapView', () => {
 
   it('marks port, unknown, and idle nodes while docked', () => {
     const view = chartMapView(nav(), chart(), status(), W, H, 0);
-    expect(view.nodes).toHaveLength(4);
+    expect(view.nodes).toHaveLength(12);
+    expect(view.rings).toHaveLength(8);
+    expect(view.moonOrbits).toHaveLength(4);
     const byId = new Map(view.nodes.map((node) => [node.id, node]));
-    expect(byId.get('hub_a')?.status).toBe('port');
-    expect(byId.get('hub_b')?.status).toBe('idle');
-    expect(byId.get('poi_kestrel')?.status).toBe('unknown');
-    expect(byId.get('poi_kestrel')?.label).toBe('??');
-    expect(byId.get('hub_b')?.label).toBe('KEPLER');
+    const node = (id: string) => {
+      const found = byId.get(id);
+      if (found === undefined) throw new Error(`node missing: ${id}`);
+      return found;
+    };
+    expect(node('hub_a').status).toBe('port');
+    expect(node('hub_b').status).toBe('idle');
+    expect(node('hub_c').status).toBe('idle');
+    expect(node('hub_d').status).toBe('idle');
+    expect(node('poi_kestrel').status).toBe('unknown');
+    expect(node('poi_kestrel').label).toBe('??');
+    expect(node('hub_b').label).toBe('SOLACE');
+    expect(node('moon_wisp').status).toBe('unknown');
+    expect(node('moon_wisp').label).toBe('??');
     expect(view.route).toEqual([]);
-    expect(view.ship).toEqual({ x: byId.get('hub_a')?.x, y: byId.get('hub_a')?.y });
+    expect(view.ship).toEqual({ x: node('hub_a').x, y: node('hub_a').y });
   });
 
   it('offers plot and detour buttons only while docked', () => {
@@ -958,17 +991,29 @@ describe('body avoidance', () => {
     const v0 = displayVelAt(displayOrbit('poi_kestrel', halfMin), 15);
     const leg = solveDisplayLeg(r0, v0, displayOrbit('poi_vigil', halfMin), center, 15, 30, 0.5);
     if (leg === null) throw new Error('solve failed');
-    const bodyMin = flipBodyMinPx(r0, v0, leg, 30, 15, 'poi_kestrel', 'poi_vigil', center, halfMin);
-    expect(bodyMin).toBeLessThan(BODY_CLEAR_FRAC * halfMin);
+    const margin = flipBodyMarginPx(
+      r0,
+      v0,
+      leg,
+      30,
+      15,
+      'poi_kestrel',
+      'poi_vigil',
+      center,
+      halfMin
+    );
+    expect(margin).toBeLessThan(0);
   });
 
   function expectLiveLegClear(from: string, to: string, t: number): void {
+    const planned = planTripLeg(from, to, torchAccel(0, 1), t);
+    const totalS = planned?.totalS ?? 60;
     const view = chartMapView(
       nav({
         phase: 'in_transit',
         destHubId: to,
-        remainingS: 60,
-        legTotalS: 60,
+        remainingS: totalS,
+        legTotalS: totalS,
         stops: [to],
         legIndex: 0,
         portHubId: from,
@@ -984,28 +1029,8 @@ describe('body avoidance', () => {
     const ring0 = view.rings[0];
     if (ring0 === undefined) throw new Error('rings missing');
     const halfMin = ring0 / systemBodyOrDefault('hub_a').radiusFrac;
-    const leg = solveDisplayLeg(
-      snap.r0,
-      snap.v0,
-      displayOrbit(to, halfMin),
-      view.center,
-      snap.tSnap,
-      snap.totalS,
-      snap.flipFrac
-    );
-    if (leg === null) throw new Error(`solve failed ${from}->${to} t=${t}`);
-    const bodyMin = flipBodyMinPx(
-      snap.r0,
-      snap.v0,
-      leg,
-      snap.totalS,
-      snap.tSnap,
-      from,
-      to,
-      view.center,
-      halfMin
-    );
-    expect(bodyMin).toBeGreaterThan(BODY_CLEAR_FRAC * halfMin);
+    const margin = snapshotBodyMarginPx(snap, from, to, view.center, halfMin);
+    expect(margin).toBeGreaterThan(0);
   }
 
   it('steers live legs around third-body markers', () => {

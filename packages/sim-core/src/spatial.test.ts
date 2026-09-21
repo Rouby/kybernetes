@@ -6,6 +6,7 @@ import {
   findNearestStation,
   resolvePawnMovement,
   resolveWallCollision,
+  segmentSegmentDistance,
 } from './spatial/collision';
 import {
   createDefaultDeck,
@@ -78,6 +79,18 @@ describe('Spatial Collision & Sliding Math', () => {
     const b = { x: 100, y: 0 };
     expect(distanceToSegment({ x: 50, y: 20 }, a, b)).toBeCloseTo(20);
     expect(distanceToSegment({ x: 120, y: 0 }, a, b)).toBeCloseTo(20);
+  });
+
+  it('measures segment motion, not snapshots', () => {
+    const craftA = { x: 0, y: 0 };
+    const craftB = { x: 100, y: 0 };
+    expect(segmentSegmentDistance(craftA, craftB, { x: 50, y: 30 }, { x: 50, y: 10 })).toBeCloseTo(
+      10
+    );
+    expect(segmentSegmentDistance(craftA, craftB, { x: 200, y: 0 }, { x: 300, y: 0 })).toBeCloseTo(
+      100
+    );
+    expect(segmentSegmentDistance(craftA, craftB, { x: 50, y: -10 }, { x: 50, y: 10 })).toBe(0);
   });
 
   it('resolves wall collision by projecting circle outward along normal', () => {

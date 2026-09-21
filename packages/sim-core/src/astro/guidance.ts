@@ -7,12 +7,12 @@
  * (fixed step): same inputs, same path.
  */
 
-import { distanceToSegment } from '../spatial/collision.js';
+import { segmentSegmentDistance } from '../spatial/collision.js';
 import {
   type AstroVec,
-  BODY_CLEAR_FRAC,
   bodyPosAt,
   bodyVelAt,
+  clearFracFor,
   gravityAt,
   SYSTEM_BODIES,
   systemBodyOrDefault,
@@ -126,11 +126,20 @@ export const BODY_GATE_FRAC = 0.08;
 export interface FlightAvoid {
   readonly epochS?: number;
   readonly ignoreIds?: readonly string[];
+  /** Departure body state at absolute time (enables delayed-departure fallback). */
+  readonly depart?: (tAbs: number) => { pos: AstroVec; vel: AstroVec };
+  /** Cap on departure delay seconds; defaults to 15 when depart is provided. */
+  readonly maxDelayS?: number;
 }
+
+/** Departure delays tried last, shortest first: waiting re-phases fast moons. */
+const DEPART_DELAYS = [3, 6, 10, 15] as const;
 
 export interface FlightSolution {
   readonly legs: readonly IntegratedLeg[];
   readonly totalS: number;
+  /** Departure wait folded into totalS (0 when absent): the legs fly from epoch + wait. */
+  readonly waitedS?: number;
 }
 
 /**
@@ -138,8 +147,11 @@ export interface FlightSolution {
  * star when the path dives inside stellar clearance, then route around
  * third-body wells (moving bodies at epoch time, departure/arrival
  * excluded). Gates are tangential sidesteps: energy preserved, no stops.
- * Time-free legs chain by arrival state, so totals are emergent sums.
- * Without avoidance context the legacy star-only behavior is preserved.
+ * When gates cannot clear a well (fast moon conjunctions the torch cannot
+ * out-turn), fall back to a delayed departure that re-phases the geometry;
+ * the wait is folded into the total. Time-free legs chain by arrival
+ * state, so totals are emergent sums. Without avoidance context the legacy
+ * star-only behavior is preserved.
  */
 export function solveFlight(
   r0: AstroVec,
@@ -153,10 +165,55 @@ export function solveFlight(
   if (direct === null) return null;
   const routed = routeAroundStar(direct, r0, v0, target, gains, timeoutS);
   const epoch = avoid?.epochS;
+  if (epoch === undefined || avoid === undefined) return routed;
+  if (flightBodiesClear(routed.legs, epoch, avoid.ignoreIds)) return routed;
+  const gated =
+    routeAroundBodies(routed, r0, v0, target, gains, timeoutS, epoch, avoid.ignoreIds) ?? routed;
+  if (flightBodiesClear(gated.legs, epoch, avoid.ignoreIds)) return gated;
+  return tryDepartDelays(target, gains, timeoutS, avoid, epoch) ?? gated;
+}
+
+function tryDepartDelays(
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number,
+  avoid: FlightAvoid,
+  epochS: number
+): FlightSolution | null {
+  const depart = avoid.depart;
+  if (depart === undefined) return null;
+  const cap = avoid.maxDelayS ?? 15;
+  for (const delay of DEPART_DELAYS) {
+    if (delay > cap || delay >= timeoutS) continue;
+    const at = depart(epochS + delay);
+    const solved = solveNoDelay(at.pos, at.vel, (t) => target(delay + t), gains, timeoutS - delay, {
+      epochS: epochS + delay,
+      ignoreIds: avoid.ignoreIds,
+    });
+    if (solved === null) continue;
+    if (!flightClear(solved.legs)) continue;
+    if (!flightBodiesClear(solved.legs, epochS + delay, avoid.ignoreIds)) continue;
+    return { legs: solved.legs, totalS: delay + solved.totalS, waitedS: delay };
+  }
+  return null;
+}
+
+function solveNoDelay(
+  r0: AstroVec,
+  v0: AstroVec,
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number,
+  avoid: FlightAvoid
+): FlightSolution | null {
+  const direct = integrateLeg(r0, v0, target, { timeoutS, gains });
+  if (direct === null) return null;
+  const routed = routeAroundStar(direct, r0, v0, target, gains, timeoutS);
+  const epoch = avoid.epochS;
   if (epoch === undefined) return routed;
-  if (flightBodiesClear(routed.legs, epoch, avoid?.ignoreIds)) return routed;
+  if (flightBodiesClear(routed.legs, epoch, avoid.ignoreIds)) return routed;
   return (
-    routeAroundBodies(routed, r0, v0, target, gains, timeoutS, epoch, avoid?.ignoreIds) ?? routed
+    routeAroundBodies(routed, r0, v0, target, gains, timeoutS, epoch, avoid.ignoreIds) ?? routed
   );
 }
 
@@ -205,7 +262,7 @@ function routeAroundBodies(
   const near = closestBodyApproach(candidate.legs, epochS, ignoreIds);
   if (near === null) return candidate;
   if (near.t < 2 || near.t > candidate.totalS - 2) return null;
-  return tryBodyGates(near, r0, v0, target, gains, timeoutS, epochS, ignoreIds);
+  return tryBodyGates(near, candidate, r0, v0, target, gains, timeoutS, epochS, ignoreIds);
 }
 
 /** Body-gate sidesteps tried first, smallest (least disruptive) first. */
@@ -217,8 +274,30 @@ const BODY_GATE_ARRIVALS = [
   { pos: 0.05, vel: 0.2 },
 ] as const;
 
+/** Gate anchor offsets around the hit time (seconds): on-time first. */
+const BODY_GATE_ANCHORS = [0, -4, 4, -8, 8] as const;
+
 function tryBodyGates(
   near: { pos: AstroVec; vel: AstroVec; t: number },
+  candidate: FlightSolution,
+  r0: AstroVec,
+  v0: AstroVec,
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number,
+  epochS: number,
+  ignoreIds: readonly string[] | undefined
+): FlightSolution | null {
+  for (const dtAnchor of BODY_GATE_ANCHORS) {
+    const anchor = sampleFlight(candidate.legs, near.t + dtAnchor) ?? near;
+    const gated = tryBodyAnchor(anchor, r0, v0, target, gains, timeoutS, epochS, ignoreIds);
+    if (gated !== null) return gated;
+  }
+  return null;
+}
+
+function tryBodyAnchor(
+  anchor: { pos: AstroVec; vel: AstroVec; t: number },
   r0: AstroVec,
   v0: AstroVec,
   target: (t: number) => { pos: AstroVec; vel: AstroVec },
@@ -230,7 +309,7 @@ function tryBodyGates(
   for (const off of BODY_GATE_OFFSETS) {
     for (const arrive of BODY_GATE_ARRIVALS) {
       for (const side of [1, -1] as const) {
-        const gated = tryBodyCombo(near, side, off, arrive, r0, v0, target, gains, timeoutS);
+        const gated = tryBodyCombo(anchor, side, off, arrive, r0, v0, target, gains, timeoutS);
         if (gated === null || !flightClear(gated.legs)) continue;
         if (!flightBodiesClear(gated.legs, epochS, ignoreIds)) continue;
         return gated;
@@ -238,6 +317,42 @@ function tryBodyGates(
     }
   }
   return null;
+}
+
+/** Flight state at cumulative time t (lerped between samples). */
+function sampleFlight(
+  legs: readonly IntegratedLeg[],
+  t: number
+): { pos: AstroVec; vel: AstroVec; t: number } | null {
+  let offset = 0;
+  for (const leg of legs) {
+    const local = t - offset;
+    if (local < 0 || local > leg.totalS) {
+      offset += leg.totalS;
+      continue;
+    }
+    return sampleLeg(leg, offset, local);
+  }
+  return null;
+}
+
+function sampleLeg(
+  leg: IntegratedLeg,
+  offsetS: number,
+  local: number
+): { pos: AstroVec; vel: AstroVec; t: number } | null {
+  const i = Math.floor(local / leg.dt);
+  const a = leg.points[i];
+  const b = leg.points[i + 1];
+  if (a === undefined || b === undefined) return null;
+  const f = Math.min(1, Math.max(0, (local - i * leg.dt) / leg.dt));
+  const va = leg.vels[i] ?? { x: 0, y: 0 };
+  const vb = leg.vels[i + 1] ?? va;
+  return {
+    pos: { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f },
+    vel: { x: va.x + (vb.x - va.x) * f, y: va.y + (vb.y - va.y) * f },
+    t: offsetS + local,
+  };
 }
 
 function tryBodyCombo(
@@ -338,6 +453,8 @@ export interface BodyApproach {
   readonly t: number;
   readonly bodyId: string;
   readonly dist: number;
+  /** Well penetration (clearance minus distance): positive means threading. */
+  readonly pen: number;
 }
 
 /** Deepest third-body well approach along a flight (null when clear). */
@@ -348,12 +465,12 @@ export function closestBodyApproach(
 ): BodyApproach | null {
   const ignored = new Set(ignoreIds ?? []);
   let best: BodyApproach | null = null;
-  let bestDist = BODY_CLEAR_FRAC;
+  let bestPen = 0;
   let offset = 0;
   for (const leg of legs) {
     const hit = legBodyApproach(leg, offset, epochS, ignored);
-    if (hit !== null && hit.dist < bestDist) {
-      bestDist = hit.dist;
+    if (hit !== null && hit.pen > bestPen) {
+      bestPen = hit.pen;
       best = hit;
     }
     offset += leg.totalS;
@@ -367,13 +484,13 @@ function legBodyApproach(
   epochS: number,
   ignored: ReadonlySet<string>
 ): BodyApproach | null {
-  let worst = BODY_CLEAR_FRAC;
+  let worstPen = 0;
   let found: BodyApproach | null = null;
   const pts = leg.points;
   for (let i = 2; i < pts.length - 2; i += 1) {
-    const segHit = segBodyHit(leg, pts, i, offsetS, epochS, ignored, worst);
+    const segHit = segBodyHit(leg, pts, i, offsetS, epochS, ignored, worstPen);
     if (segHit !== null) {
-      worst = segHit.dist;
+      worstPen = segHit.pen;
       found = segHit;
     }
   }
@@ -387,12 +504,19 @@ function segBodyHit(
   offsetS: number,
   epochS: number,
   ignored: ReadonlySet<string>,
-  worst: number
+  worstPen: number
 ): BodyApproach | null {
   const a = pts[i];
   const b = pts[i + 1];
   if (a === undefined || b === undefined) return null;
-  const near = nearestBodyToSeg(a, b, epochS + offsetS + (i + 0.5) * leg.dt, ignored, worst);
+  const near = nearestBodyToSeg(
+    a,
+    b,
+    epochS + offsetS + i * leg.dt,
+    epochS + offsetS + (i + 1) * leg.dt,
+    ignored,
+    worstPen
+  );
   if (near === null) return null;
   const v = leg.vels[i] ?? { x: 0, y: 0 };
   const t = offsetS + i * leg.dt;
@@ -402,24 +526,27 @@ function segBodyHit(
     t,
     bodyId: near.bodyId,
     dist: near.dist,
+    pen: near.pen,
   };
 }
 
 function nearestBodyToSeg(
   a: AstroVec,
   b: AstroVec,
-  tAbs: number,
+  t0: number,
+  t1: number,
   ignored: ReadonlySet<string>,
-  worst: number
-): { bodyId: string; dist: number } | null {
-  let best: { bodyId: string; dist: number } | null = null;
-  let bestDist = worst;
+  worstPen: number
+): { bodyId: string; dist: number; pen: number } | null {
+  let best: { bodyId: string; dist: number; pen: number } | null = null;
+  let bestPen = worstPen;
   for (const body of SYSTEM_BODIES) {
     if (ignored.has(body.id)) continue;
-    const d = distanceToSegment(bodyPosAt(body, tAbs), a, b);
-    if (d < bestDist) {
-      bestDist = d;
-      best = { bodyId: body.id, dist: d };
+    const d = segmentSegmentDistance(a, b, bodyPosAt(body, t0), bodyPosAt(body, t1));
+    const pen = clearFracFor(body) - d;
+    if (pen > bestPen) {
+      bestPen = pen;
+      best = { bodyId: body.id, dist: d, pen };
     }
   }
   return best;
@@ -445,7 +572,11 @@ export function planTripLeg(
     }),
     gains,
     timeoutS,
-    { epochS, ignoreIds: [fromId, toId] }
+    {
+      epochS,
+      ignoreIds: [fromId, toId],
+      depart: (t) => ({ pos: bodyPosAt(from, t), vel: bodyVelAt(from, t) }),
+    }
   );
   if (solved === null) return null;
   return { totalS: Math.max(1, Math.round(solved.totalS)) };

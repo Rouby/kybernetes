@@ -19,6 +19,7 @@ function view() {
     center: { x: 482, y: 394 },
     starR: 16,
     rings: [50, 130],
+    moonOrbits: [{ x: 400, y: 394, r: 24 }],
     route: [
       { x: 400, y: 394 },
       { x: 560, y: 300 },
@@ -78,8 +79,8 @@ describe('renderChartScene', () => {
     // star x2 + well disc x1 + tick x1 + node dots x2 + ship dot x1
     expect(circles.length).toBe(7);
     const segments = vi.mocked(ctx.addThickSegment).mock.calls.length;
-    // rings 2x48 + route 1 + node rings 2x32 + ship ring 24 + well rim 40
-    expect(segments).toBe(96 + 1 + 64 + 24 + 40);
+    // rings 2x48 + moon orbit 48 + route 1 + node rings 2x32 + ship ring 24 + well rim 40
+    expect(segments).toBe(96 + 48 + 1 + 64 + 24 + 40);
     const colors = vi.mocked(ctx.gl.uniform4f).mock.calls;
     expect(colors.some((args) => args[1] === 1 && args[2] === 0.88 && args[3] === 0.66)).toBe(true);
     expect(colors.some((args) => args[1] === 1 && args[2] === 0.72 && args[3] === 0.3)).toBe(true);
@@ -141,7 +142,7 @@ describe('renderChartScene', () => {
     expect(colors.some((args) => args[4] === 0.35)).toBe(true);
     // 8 ghost points draft 7 segments, dashed down to 4 draw calls.
     const before = vi.mocked(ctx.addThickSegment).mock.calls.length;
-    expect(before).toBe(96 + 64 + 24 + 40 + 4);
+    expect(before).toBe(96 + 48 + 64 + 24 + 40 + 4);
   });
 
   it('guards degenerate rects', () => {

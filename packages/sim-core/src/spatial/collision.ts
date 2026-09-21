@@ -150,6 +150,18 @@ export function findNearestStation(
   return nearest;
 }
 
+/** Closest distance between two segments (zero when they cross). Captures
+ * relative motion when both endpoints travel inside one sample step. */
+export function segmentSegmentDistance(p1: Point2D, p2: Point2D, q1: Point2D, q2: Point2D): number {
+  if (segmentsIntersect(p1, p2, q1, q2)) return 0;
+  return Math.min(
+    distanceToSegment(p1, q1, q2),
+    distanceToSegment(p2, q1, q2),
+    distanceToSegment(q1, p1, p2),
+    distanceToSegment(q2, p1, p2)
+  );
+}
+
 export function segmentsIntersect(p1: Point2D, p2: Point2D, q1: Point2D, q2: Point2D): boolean {
   const ccw = (a: Point2D, b: Point2D, c: Point2D) =>
     (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);

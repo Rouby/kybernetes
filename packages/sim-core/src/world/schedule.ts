@@ -13,7 +13,12 @@ export const DEPARTING_S = 3;
 export const TRANSIT_S = 20;
 export const INBOUND_S = 5;
 
-export const DESTINATIONS = ['New Anchorage', 'Kepler Yard', 'Vesta Dock'] as const;
+export const DESTINATIONS = [
+  'Meridian Gate',
+  'Solace Yards',
+  'Cinder Dock',
+  'Vesper Port',
+] as const;
 
 /**
  * Docked vessel origin (frame-local → world): the west mouth at local

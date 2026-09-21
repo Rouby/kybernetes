@@ -72,8 +72,10 @@ export interface NavViewModel {
 }
 
 const HUB_LABELS: Readonly<Record<string, string>> = {
-  hub_a: 'NEW ANCHORAGE',
-  hub_b: 'KEPLER YARD',
+  hub_a: 'MERIDIAN GATE',
+  hub_b: 'SOLACE YARDS',
+  hub_c: 'CINDER DOCK',
+  hub_d: 'VESPER PORT',
 };
 
 export function hubLabel(hubId: string | undefined): string {

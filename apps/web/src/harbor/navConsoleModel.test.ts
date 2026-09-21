@@ -84,8 +84,10 @@ function status(over: Partial<ShipStatusBroadcast> = {}): ShipStatusBroadcast {
 
 describe('navConsoleModel (M3 panel)', () => {
   it('labels hubs and mirrors the other side', () => {
-    expect(hubLabel('hub_a')).toBe('NEW ANCHORAGE');
-    expect(hubLabel('hub_b')).toBe('KEPLER YARD');
+    expect(hubLabel('hub_a')).toBe('MERIDIAN GATE');
+    expect(hubLabel('hub_b')).toBe('SOLACE YARDS');
+    expect(hubLabel('hub_c')).toBe('CINDER DOCK');
+    expect(hubLabel('hub_d')).toBe('VESPER PORT');
     expect(hubLabel(undefined)).toBe('—');
     expect(otherHub('hub_a')).toBe('hub_b');
     expect(otherHub('hub_b')).toBe('hub_a');
@@ -102,7 +104,7 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(vm.etaS).toBe(150);
     expect(vm.fuelCells).toBe(1);
     expect(vm.fuel).toBe(1000);
-    expect(vm.fuelNeeded).toBe(215);
+    expect(vm.fuelNeeded).toBe(221);
     expect(vm.fuelWarning).toBeNull();
     expect(vm.heatWarning).toBeNull();
   });
@@ -113,8 +115,8 @@ describe('navConsoleModel (M3 panel)', () => {
       systems({ fuel: 0, fuelMax: 2000 }),
       status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 0 }, engineFuel: 0 })
     );
-    expect(empty.fuelNeeded).toBe(215);
-    expect(empty.fuelWarning).toBe('LOW FUEL 215/0 LOAD CELLS');
+    expect(empty.fuelNeeded).toBe(221);
+    expect(empty.fuelWarning).toBe('LOW FUEL 221/0 LOAD CELLS');
     expect(empty.canPlot).toBe(true);
   });
 
@@ -124,8 +126,8 @@ describe('navConsoleModel (M3 panel)', () => {
       systems({ tune: 0.2, wear: 0, fuel: 0, fuelMax: 2000 }),
       status({ engineFuel: 0 })
     );
-    expect(cold.fuelNeeded).toBe(515);
-    expect(cold.fuelWarning).toBe('LOW FUEL 515/0 LOAD CELLS');
+    expect(cold.fuelNeeded).toBe(521);
+    expect(cold.fuelWarning).toBe('LOW FUEL 521/0 LOAD CELLS');
     expect(cold.heatWarning).toBe('HEAT RISK: TUNE LOW');
     expect(cold.canPlot).toBe(true);
   });
@@ -156,7 +158,7 @@ describe('navConsoleModel (M3 panel)', () => {
       status()
     );
     expect(first.hopToId).toBe('poi_kestrel');
-    expect(first.hopLabel).toBe('DERELICT "KESTREL"');
+    expect(first.hopLabel).toBe('DERELICT "TERN"');
     expect(first.hopProgress).toBe('1/2');
     const second = navViewModel(
       nav({
@@ -170,15 +172,25 @@ describe('navConsoleModel (M3 panel)', () => {
       status()
     );
     expect(second.hopToId).toBe('hub_b');
-    expect(second.hopLabel).toBe('KEPLER YARD');
+    expect(second.hopLabel).toBe('SOLACE YARDS');
     expect(second.hopProgress).toBe('2/2');
   });
 
   it('offers POI detours with stable button ids', () => {
-    expect(navDetourOptions()).toEqual(['poi_kestrel', 'poi_vigil']);
+    expect(navDetourOptions()).toEqual([
+      'poi_kestrel',
+      'poi_vigil',
+      'poi_lumen',
+      'poi_nadir',
+      'moon_wisp',
+      'moon_moth',
+      'moon_rill',
+      'moon_tarn',
+    ]);
     expect(detourButtonId('poi_kestrel')).toBe('via:poi_kestrel');
-    expect(detourLabel('poi_kestrel')).toBe('VIA KESTREL');
-    expect(detourLabel('poi_vigil')).toBe('VIA VIGIL');
+    expect(detourLabel('poi_kestrel')).toBe('VIA TERN');
+    expect(detourLabel('poi_vigil')).toBe('VIA HALCYON');
+    expect(detourLabel('moon_wisp')).toBe('VIA WISP');
   });
 
   function chart(over: Partial<ChartStateBroadcast> = {}): ChartStateBroadcast {
@@ -189,21 +201,21 @@ describe('navConsoleModel (M3 panel)', () => {
       serverTimeMs: 1000,
       vesselId: 'ship',
       nodes: [
-        { id: 'hub_a', kind: 'hub', label: 'NEW ANCHORAGE', short: 'ANCHORAGE', known: true },
-        { id: 'hub_b', kind: 'hub', label: 'KEPLER YARD', short: 'KEPLER', known: true },
+        { id: 'hub_a', kind: 'hub', label: 'MERIDIAN GATE', short: 'MERIDIAN', known: true },
+        { id: 'hub_b', kind: 'hub', label: 'SOLACE YARDS', short: 'SOLACE', known: true },
         {
           id: 'poi_kestrel',
           kind: 'poi',
-          label: 'DERELICT "KESTREL"',
-          short: 'KESTREL',
+          label: 'DERELICT "TERN"',
+          short: 'TERN',
           rumor: 'Distress echo.',
           known: false,
         },
         {
           id: 'poi_vigil',
           kind: 'poi',
-          label: 'BEACON "VIGIL"',
-          short: 'VIGIL',
+          label: 'BEACON "HALCYON"',
+          short: 'HALCYON',
           rumor: 'Cache pings.',
           known: false,
         },
@@ -236,7 +248,7 @@ describe('navConsoleModel (M3 panel)', () => {
       status(),
       chart()
     );
-    expect(chain.laneRow).toBe('LANE ANCHORAGE>??>KEPLER');
+    expect(chain.laneRow).toBe('LANE MERIDIAN>??>SOLACE');
     expect(chain.chartRow).toBeNull();
     const leg2 = navViewModel(
       nav({
@@ -249,7 +261,7 @@ describe('navConsoleModel (M3 panel)', () => {
       status(),
       surveyed
     );
-    expect(leg2.laneRow).toBe('LANE ANCHORAGE>KESTREL>KEPLER');
+    expect(leg2.laneRow).toBe('LANE MERIDIAN>TERN>SOLACE');
   });
 
   it('hides the manifest without a chart broadcast', () => {
@@ -304,7 +316,7 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(cruise.countdownS).toBe(88);
     expect(cruise.canPlot).toBe(false);
     expect(cruise.canDistress).toBe(true);
-    expect(cruise.destLabel).toBe('KEPLER YARD');
+    expect(cruise.destLabel).toBe('SOLACE YARDS');
     const spooling = navViewModel(
       nav({ phase: 'spooling', destHubId: 'hub_b', remainingS: 6 }),
       systems(),

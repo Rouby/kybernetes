@@ -20,9 +20,9 @@ import {
 } from './market.js';
 
 describe('market catalog (M5 mirror pair)', () => {
-  it('holds six fixed goods on two hubs', () => {
+  it('holds six fixed goods on four hubs', () => {
     expect(TRADE_GOODS).toHaveLength(6);
-    expect(MARKET_HUBS).toEqual(['hub_a', 'hub_b']);
+    expect(MARKET_HUBS).toEqual(['hub_a', 'hub_b', 'hub_c', 'hub_d']);
   });
 
   it('never profits on a same-hub flip', () => {
@@ -97,6 +97,11 @@ describe('market ledger', () => {
       reason: 'out-of-stock',
     });
     expect(tryBuy(ledger, 'hub_c', mixed, 10_000, 0)).toEqual({
+      ok: true,
+      ledger: expect.anything(),
+      cost: 34,
+    });
+    expect(tryBuy(ledger, 'hub_nowhere', mixed, 10_000, 0)).toEqual({
       ok: false,
       reason: 'unknown-hub',
     });
@@ -128,7 +133,9 @@ describe('market ledger', () => {
     const listings = listingsFor(ledger, 'hub_a', 5 * 60_000);
     expect(listings).toHaveLength(6);
     expect(listings[0]).toMatchObject({ buyPrice: expect.any(Number) });
-    expect(listingsFor(ledger, 'hub_c', 0)).toEqual([]);
+    expect(listingsFor(ledger, 'hub_c', 0)).toHaveLength(6);
+    expect(listingsFor(ledger, 'hub_c', 0)[0]).toMatchObject({ goodId: 'rations', buyPrice: 5 });
+    expect(listingsFor(ledger, 'hub_nowhere', 0)).toEqual([]);
     expect(ledger.lastRestockMs).toBe(0);
   });
 });

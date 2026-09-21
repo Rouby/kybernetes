@@ -80,7 +80,7 @@ function expectGraded(world: World): void {
 function expectRedocked(world: World): void {
   expect(world.vessels.ship?.schedule).toBe('docked');
   expect(world.transit.ship?.legIndex).toBe(1);
-  expect(world.transit.ship?.destination).toBe('Kepler Yard');
+  expect(world.transit.ship?.destination).toBe('Solace Yards');
   expect(world.portals['station.korridor_ost_andock']?.state).toBe('closed');
 }
 
@@ -91,7 +91,7 @@ describe('harbor loop', () => {
     expect(world.vessels.ship?.beacon).toBe(HARBOR_BEACON);
     expect(world.pawns[captainIdFor('ship')]?.frameId).toBe('ship');
     expect(world.crew[captainIdFor('ship')]?.role).toBe('captain');
-    expect(world.transit.ship?.destination).toBe('New Anchorage');
+    expect(world.transit.ship?.destination).toBe('Meridian Gate');
     expect(world.docks.harbor?.vesselFrame).toBe('ship');
   });
 

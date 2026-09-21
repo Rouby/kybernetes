@@ -16,14 +16,17 @@ function req(over: Record<string, unknown> = {}) {
 
 describe('voyage chart (slice 1a projection)', () => {
   it('names hubs and POIs with rumor hints on unknowns', () => {
-    expect(chartNodeFor('hub_a')?.label).toBe('NEW ANCHORAGE');
-    expect(chartNodeFor('hub_b')?.label).toBe('KEPLER YARD');
-    expect(chartNodeFor('poi_kestrel')?.rumor).toContain('Kestrel');
+    expect(chartNodeFor('hub_a')?.label).toBe('MERIDIAN GATE');
+    expect(chartNodeFor('hub_b')?.label).toBe('SOLACE YARDS');
+    expect(chartNodeFor('hub_c')?.label).toBe('CINDER DOCK');
+    expect(chartNodeFor('moon_wisp')?.label).toBe('WISP (TERN MOON)');
+    expect(chartNodeFor('poi_kestrel')?.rumor).toContain('Tern');
     expect(chartNodeFor('nowhere')).toBeUndefined();
     expect(isChartNodeId('poi_vigil')).toBe(true);
+    expect(isChartNodeId('moon_tarn')).toBe(true);
     expect(isChartNodeId('nowhere')).toBe(false);
     expect(isChartNodeId(42)).toBe(false);
-    expect(hubNodeIds()).toEqual(['hub_a', 'hub_b']);
+    expect(hubNodeIds()).toEqual(['hub_a', 'hub_b', 'hub_c', 'hub_d']);
   });
 
   it('projects a direct leg identically to the leg machine', () => {
@@ -31,9 +34,9 @@ describe('voyage chart (slice 1a projection)', () => {
     if (!('plan' in result)) throw new Error('direct plan should succeed');
     expect(result.plan.hops).toHaveLength(1);
     expect(result.plan.hops[0]).toMatchObject({ fromId: 'hub_a', toId: 'hub_b', known: true });
-    expect(result.plan.hops[0]?.legS).toBe(33);
-    expect(result.plan.totalS).toBe(33);
-    expect(result.plan.fuelNeeded).toBe(fuelCostForLeg(0, 1, 33));
+    expect(result.plan.hops[0]?.legS).toBe(34);
+    expect(result.plan.totalS).toBe(34);
+    expect(result.plan.fuelNeeded).toBe(fuelCostForLeg(0, 1, 34));
     expect(result.plan.unknowns).toEqual([]);
     expect(result.plan.heatRisk).toBe(false);
     expect(result.plan.destId).toBe('hub_b');
@@ -43,7 +46,7 @@ describe('voyage chart (slice 1a projection)', () => {
     const result = planVoyage(req({ stops: ['poi_kestrel', 'hub_b'] }));
     if (!('plan' in result)) throw new Error('detour plan should succeed');
     expect(result.plan.hops).toHaveLength(2);
-    expect(result.plan.totalS).toBe(53);
+    expect(result.plan.totalS).toBe(58);
     const expected = result.plan.hops.reduce((sum, hop) => sum + hop.fuel, 0);
     expect(result.plan.fuelNeeded).toBe(expected);
     expect(result.plan.fuelNeeded).toBeGreaterThan(fuelCostForLeg(0, 1, 33));
@@ -66,7 +69,7 @@ describe('voyage chart (slice 1a projection)', () => {
     const cold = planVoyage(req({ tune: 0.1 }));
     if (!('plan' in cold)) throw new Error('cold plan should succeed');
     expect(cold.plan.heatRisk).toBe(true);
-    expect(cold.plan.fuelNeeded).toBe(fuelCostForLeg(0, 1, 33) + HEAT_EXTRA_FUEL);
+    expect(cold.plan.fuelNeeded).toBe(fuelCostForLeg(0, 1, 34) + HEAT_EXTRA_FUEL);
   });
 
   it('burns vary with distance: detour legs cost realistic fuel, not flat cells', () => {

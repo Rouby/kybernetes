@@ -71,7 +71,7 @@ describe('marketScreenFor (M5)', () => {
 
   it('splits listings into two table columns with prices and stock', () => {
     const model = marketScreenFor(market(), snapshot(), 'pawn:u1', 25);
-    expect(model.hubLabel).toBe('NEW ANCHORAGE');
+    expect(model.hubLabel).toBe('MERIDIAN GATE');
     expect(model.creditsLabel).toBe('Credits: 25cr');
     expect(model.left).toEqual([{ name: 'scrap', stock: 50, buy: 10, sell: 9 }]);
     expect(model.right).toEqual([{ name: 'meds', stock: 0, buy: 15, sell: 13 }]);
@@ -89,14 +89,14 @@ describe('marketScreenFor (M5)', () => {
 });
 
 describe('marketRumorsFor', () => {
-  it('highlights Scrap demand at New Anchorage', () => {
+  it('highlights Scrap demand at Meridian Gate', () => {
     const rumors = marketRumorsFor('hub_a');
     expect(rumors.length).toBe(2);
     expect(rumors[0]).toContain('Scrap');
     expect(rumors.join(' ')).toContain('1000 fuel');
   });
 
-  it('highlights Meds demand at Kepler Yard', () => {
+  it('highlights Meds demand at Solace Yards', () => {
     const rumors = marketRumorsFor('hub_b');
     expect(rumors.length).toBe(2);
     expect(rumors[0]).toContain('Meds');
@@ -105,7 +105,12 @@ describe('marketRumorsFor', () => {
 
   it('returns no rumors off-market', () => {
     expect(marketRumorsFor(null)).toEqual([]);
-    expect(marketRumorsFor('hub_c')).toEqual([]);
+    expect(marketRumorsFor('hub_nowhere')).toEqual([]);
+  });
+
+  it('reports Cinder fuel surplus and Vesper ration demand', () => {
+    expect(marketRumorsFor('hub_c').join(' ')).toContain('fuel cells');
+    expect(marketRumorsFor('hub_d').join(' ')).toContain('Rations');
   });
 });
 
@@ -115,7 +120,7 @@ describe('wrapRumor', () => {
   });
 
   it('wraps long rumors within the char budget', () => {
-    const lines = wrapRumor('Kepler Yard structural shortage - paying premium on Scrap', 20);
+    const lines = wrapRumor('Solace Yards structural shortage - paying premium on Scrap', 20);
     expect(lines.length).toBeGreaterThan(1);
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(20);
   });
@@ -125,7 +130,7 @@ describe('sellCaptureFor', () => {
   it('aggregates goods and revenue for the sold crates', () => {
     const capture = sellCaptureFor(market(), snapshot(), ['c1']);
     expect(capture?.hubId).toBe('hub_a');
-    expect(capture?.hubLabel).toBe('NEW ANCHORAGE');
+    expect(capture?.hubLabel).toBe('MERIDIAN GATE');
     expect(capture?.goods).toEqual([{ goodId: 'scrap', qty: 2, revenue: 18 }]);
     expect(capture?.total).toBe(18);
   });

@@ -15,7 +15,7 @@ You are not a stick-and-rudder pilot. You are a **planner + caretaker**:
 
 ## 2. Today (what exists)
 
-- Two hubs only: `hub_a` (NEW ANCHORAGE) <-> `hub_b` (KEPLER YARD).
+- Four hubs: `hub_a` (MERIDIAN GATE) / `hub_b` (SOLACE YARDS) / `hub_c` (CINDER DOCK) / `hub_d` (VESPER PORT), plus four drift planets and four moons as POI stops.
 - Phases: `docked → spooling (SPOOL_S=0s, lights off the tick the drive is ready) → in_transit (guidance-predicted leg times) → docking (DOCKING_S=0s, instant on arrival) → docked`. No dead air around flights.
 - Departure gates on the full first-hop fuel cost but subtracts nothing; the bunker drains continuously in flight at `fuelRateForLeg(tier, thrust)` per real second. Mid-leg second half with `effectiveTune < LOW_TUNE_BURN (0.4)` burns a `HEAT_EXTRA_FUEL` lump or sets `flameout` when dry.
 - Transit speed scales with `speedFactor = 0.55 + 0.45 * effectiveTune`. Tune decays underway (`TUNE_DECAY_PER_S=0.004`), wear caps tune (`WEAR_TUNE_PENALTY=0.5`, `WEAR_PER_LEG=0.15`).

@@ -44,8 +44,10 @@ const MAX_SELL_IDS = 8;
 const MAX_SELL_ROWS = 5;
 
 const HUB_LABELS: Readonly<Record<string, string>> = {
-  hub_a: 'NEW ANCHORAGE',
-  hub_b: 'KEPLER YARD',
+  hub_a: 'MERIDIAN GATE',
+  hub_b: 'SOLACE YARDS',
+  hub_c: 'CINDER DOCK',
+  hub_d: 'VESPER PORT',
 };
 
 const FUEL_RUMOR = 'Engine bunkers burn 1000 fuel per transit leg. Ensure adequate fuel stores.';
@@ -54,15 +56,25 @@ const FUEL_RUMOR = 'Engine bunkers burn 1000 fuel per transit leg. Ensure adequa
 export function marketRumorsFor(hubId: string | null): readonly string[] {
   if (hubId === 'hub_a') return [scrapRumor(), FUEL_RUMOR];
   if (hubId === 'hub_b') return [medsRumor(), FUEL_RUMOR];
+  if (hubId === 'hub_c') return [fuelRumor(), FUEL_RUMOR];
+  if (hubId === 'hub_d') return [rationsRumor(), FUEL_RUMOR];
   return [];
 }
 
 function scrapRumor(): string {
-  return 'Kepler Yard structural shortage - paying premium on Scrap (+3cr/unit).';
+  return 'Solace Yards structural shortage - paying premium on Scrap (+3cr/unit).';
 }
 
 function medsRumor(): string {
-  return 'New Anchorage hospitals depleted - paying premium on Meds (+4cr/unit).';
+  return 'Meridian Gate hospitals depleted - paying premium on Meds (+4cr/unit).';
+}
+
+function fuelRumor(): string {
+  return 'Cinder Dock refinery surplus - fuel cells below manifest (9cr/unit).';
+}
+
+function rationsRumor(): string {
+  return 'Vesper Port habitats depleted - paying premium on Rations (+3cr/unit).';
 }
 
 /** Word-wrap a rumor to lines of at most maxChars (pure UI budgeting). */

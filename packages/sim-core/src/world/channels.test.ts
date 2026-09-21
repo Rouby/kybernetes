@@ -108,12 +108,15 @@ describe('channel coverage', () => {
     const ensured = ensureShipSystems(world, 'ship');
     const chart = buildChartState(ensured, 'ship', 1000);
     expect(chart?.type).toBe('CHART_STATE');
-    expect(chart?.nodes).toHaveLength(4);
+    expect(chart?.nodes).toHaveLength(12);
     expect(chart?.nodes.filter((node) => node.known).map((node) => node.id)).toEqual([
       'hub_a',
       'hub_b',
+      'hub_c',
+      'hub_d',
     ]);
-    expect(chart?.nodes.find((node) => node.id === 'poi_kestrel')?.short).toBe('KESTREL');
+    expect(chart?.nodes.find((node) => node.id === 'poi_kestrel')?.short).toBe('TERN');
+    expect(chart?.nodes.find((node) => node.id === 'moon_wisp')?.short).toBe('WISP');
     expect(buildChartState(ensured, 'void', 1000)).toBeUndefined();
   });
 

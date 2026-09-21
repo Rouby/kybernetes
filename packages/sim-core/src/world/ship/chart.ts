@@ -39,21 +39,65 @@ export interface ChartNode {
 }
 
 export const CHART_NODES: readonly ChartNode[] = [
-  { id: 'hub_a', kind: 'hub', label: 'NEW ANCHORAGE', short: 'ANCHORAGE' },
-  { id: 'hub_b', kind: 'hub', label: 'KEPLER YARD', short: 'KEPLER' },
+  { id: 'hub_a', kind: 'hub', label: 'MERIDIAN GATE', short: 'MERIDIAN' },
+  { id: 'hub_b', kind: 'hub', label: 'SOLACE YARDS', short: 'SOLACE' },
+  { id: 'hub_c', kind: 'hub', label: 'CINDER DOCK', short: 'CINDER' },
+  { id: 'hub_d', kind: 'hub', label: 'VESPER PORT', short: 'VESPER' },
   {
     id: POI_KESTREL,
     kind: 'poi',
-    label: 'DERELICT "KESTREL"',
-    short: 'KESTREL',
-    rumor: 'Distress echo near the Kestrel hulk.',
+    label: 'DERELICT "TERN"',
+    short: 'TERN',
+    rumor: 'Distress echo near the Tern hulk.',
   },
   {
     id: POI_VIGIL,
     kind: 'poi',
-    label: 'BEACON "VIGIL"',
-    short: 'VIGIL',
-    rumor: 'Survey cache pings from Vigil beacon.',
+    label: 'BEACON "HALCYON"',
+    short: 'HALCYON',
+    rumor: 'Survey cache pings from Halcyon beacon.',
+  },
+  {
+    id: 'poi_lumen',
+    kind: 'poi',
+    label: 'CRYSTAL "LUMEN"',
+    short: 'LUMEN',
+    rumor: 'Lightfall refraction over the Lumen spires.',
+  },
+  {
+    id: 'poi_nadir',
+    kind: 'poi',
+    label: 'SILENT "NADIR"',
+    short: 'NADIR',
+    rumor: 'No transponder answers from Nadir deep.',
+  },
+  {
+    id: 'moon_wisp',
+    kind: 'poi',
+    label: 'WISP (TERN MOON)',
+    short: 'WISP',
+    rumor: 'Ice glint tracks Wisp around Tern.',
+  },
+  {
+    id: 'moon_moth',
+    kind: 'poi',
+    label: 'MOTH (HALCYON MOON)',
+    short: 'MOTH',
+    rumor: 'Moth shadows the Halcyon beacon.',
+  },
+  {
+    id: 'moon_rill',
+    kind: 'poi',
+    label: 'RILL (LUMEN MOON)',
+    short: 'RILL',
+    rumor: 'Rill runoff feeds the Lumen spires.',
+  },
+  {
+    id: 'moon_tarn',
+    kind: 'poi',
+    label: 'TARN (NADIR MOON)',
+    short: 'TARN',
+    rumor: 'Tarn holds station over Nadir deep.',
   },
 ];
 

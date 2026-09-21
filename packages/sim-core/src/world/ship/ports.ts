@@ -8,8 +8,16 @@
 
 export const HUB_A = 'hub_a';
 export const HUB_B = 'hub_b';
+export const HUB_C = 'hub_c';
+export const HUB_D = 'hub_d';
 export const POI_KESTREL = 'poi_kestrel';
 export const POI_VIGIL = 'poi_vigil';
+export const POI_LUMEN = 'poi_lumen';
+export const POI_NADIR = 'poi_nadir';
+export const MOON_WISP = 'moon_wisp';
+export const MOON_MOTH = 'moon_moth';
+export const MOON_RILL = 'moon_rill';
+export const MOON_TARN = 'moon_tarn';
 
 export interface HubPort {
   readonly hubId: string;
@@ -20,6 +28,8 @@ export interface HubPort {
 export const HUB_PORTS: Readonly<Record<string, HubPort>> = {
   [HUB_A]: { hubId: HUB_A, stationFrame: 'station', dockId: 'harbor' },
   [HUB_B]: { hubId: HUB_B, stationFrame: 'hub_b', dockId: 'hub_b_harbor' },
+  [HUB_C]: { hubId: HUB_C, stationFrame: 'hub_c', dockId: 'hub_c_harbor' },
+  [HUB_D]: { hubId: HUB_D, stationFrame: 'hub_d', dockId: 'hub_d_harbor' },
 };
 
 export function isHubId(value: unknown): value is string {
@@ -40,11 +50,31 @@ export interface ChartLane {
  */
 export const CHART_LANES: readonly ChartLane[] = [
   { a: HUB_A, b: HUB_B, fraction: 1 },
+  { a: HUB_A, b: HUB_C, fraction: 0.9 },
+  { a: HUB_A, b: HUB_D, fraction: 1.1 },
+  { a: HUB_B, b: HUB_C, fraction: 1.2 },
+  { a: HUB_B, b: HUB_D, fraction: 0.9 },
+  { a: HUB_C, b: HUB_D, fraction: 1 },
   { a: HUB_A, b: POI_KESTREL, fraction: 0.4 },
   { a: POI_KESTREL, b: HUB_B, fraction: 0.8 },
   { a: HUB_A, b: POI_VIGIL, fraction: 0.5 },
   { a: POI_VIGIL, b: HUB_B, fraction: 0.7 },
   { a: POI_KESTREL, b: POI_VIGIL, fraction: 0.3 },
+  { a: HUB_C, b: POI_KESTREL, fraction: 0.3 },
+  { a: HUB_D, b: POI_KESTREL, fraction: 0.6 },
+  { a: HUB_C, b: POI_VIGIL, fraction: 0.8 },
+  { a: HUB_D, b: POI_VIGIL, fraction: 0.6 },
+  { a: HUB_C, b: POI_LUMEN, fraction: 0.9 },
+  { a: HUB_D, b: POI_LUMEN, fraction: 0.5 },
+  { a: HUB_B, b: POI_LUMEN, fraction: 0.4 },
+  { a: HUB_D, b: POI_NADIR, fraction: 0.8 },
+  { a: HUB_B, b: POI_NADIR, fraction: 1 },
+  { a: POI_KESTREL, b: MOON_WISP, fraction: 0.15 },
+  { a: POI_VIGIL, b: MOON_MOTH, fraction: 0.15 },
+  { a: POI_LUMEN, b: MOON_RILL, fraction: 0.15 },
+  { a: POI_NADIR, b: MOON_TARN, fraction: 0.15 },
+  { a: HUB_A, b: MOON_WISP, fraction: 0.5 },
+  { a: HUB_B, b: MOON_MOTH, fraction: 0.8 },
 ];
 
 /** Lane fraction either direction; undefined when the pair is uncharted. */

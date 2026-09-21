@@ -22,8 +22,10 @@ export interface ChartSceneView {
   readonly rect: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
   readonly center: { readonly x: number; readonly y: number };
   readonly starR: number;
-  /** Orbit radii in px, one per charted orbit. */
+  /** Orbit radii in px, one per charted planet orbit. */
   readonly rings: readonly number[];
+  /** Moon orbit circles around their hosts. */
+  readonly moonOrbits: readonly { readonly x: number; readonly y: number; readonly r: number }[];
   /** Sampled transfer arcs in stop order; empty while docked. */
   readonly route: readonly { readonly x: number; readonly y: number }[];
   /** Coast time-ticks along each leg. */
@@ -52,6 +54,7 @@ export function chartSceneViewOf(map: {
   readonly center: { readonly x: number; readonly y: number };
   readonly starR: number;
   readonly rings: readonly number[];
+  readonly moonOrbits: readonly { readonly x: number; readonly y: number; readonly r: number }[];
   readonly route: readonly { readonly x: number; readonly y: number }[];
   readonly ticks: readonly { readonly x: number; readonly y: number }[];
   readonly burns: readonly ChartBurn[];
@@ -75,6 +78,7 @@ export function chartSceneViewOf(map: {
     center: map.center,
     starR: map.starR,
     rings: [...map.rings],
+    moonOrbits: map.moonOrbits.map((orbit) => ({ ...orbit })),
     route: map.route.map((point) => ({ ...point })),
     ticks: map.ticks.map((point) => ({ ...point })),
     burns: map.burns.map((burn) => ({ ...burn })),
@@ -124,6 +128,7 @@ export function renderChartScene(ctx: RenderContext, scene: ChartSceneView): voi
   renderStar(ctx, scene);
   renderWells(ctx, scene);
   renderRings(ctx, scene);
+  renderMoonOrbits(ctx, scene);
   renderRoute(ctx, scene);
   renderPreviewRoute(ctx, scene);
   renderIntercept(ctx, scene);
@@ -229,6 +234,19 @@ function renderRings(ctx: RenderContext, scene: ChartSceneView): void {
   const verts: number[] = [];
   for (const r of scene.rings) {
     for (const [x1, y1, x2, y2] of circlePolyline(scene.center.x, scene.center.y, r)) {
+      ctx.addThickSegment(verts, x1, y1, x2, y2, 1);
+    }
+  }
+  if (verts.length > 0) ctx.bufferAndDraw(new Float32Array(verts));
+}
+
+/** Moon orbit circles: thin dim rings around each host planet. */
+function renderMoonOrbits(ctx: RenderContext, scene: ChartSceneView): void {
+  if (scene.moonOrbits.length === 0) return;
+  setColor(ctx, 0.45, 0.55, 0.7, 0.35);
+  const verts: number[] = [];
+  for (const orbit of scene.moonOrbits) {
+    for (const [x1, y1, x2, y2] of circlePolyline(orbit.x, orbit.y, orbit.r)) {
       ctx.addThickSegment(verts, x1, y1, x2, y2, 1);
     }
   }

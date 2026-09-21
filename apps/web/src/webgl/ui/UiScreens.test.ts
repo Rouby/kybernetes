@@ -272,7 +272,7 @@ describe('console screens', () => {
       legIndex: 0,
     });
     const layout = layoutNavScreen(W, H, chain, sys, makeStatus());
-    expect(layout.texts.map((t) => t.text)).toContain('HOP DERELICT "KESTREL" 1/2');
+    expect(layout.texts.map((t) => t.text)).toContain('HOP DERELICT "TERN" 1/2');
     expectContained(layout.panel, layout.buttons);
     const single = layoutNavScreen(W, H, makeNav({ phase: 'in_transit' }), sys, makeStatus());
     expect(single.texts.map((t) => t.text).some((text) => text.startsWith('HOP '))).toBe(false);
@@ -284,13 +284,29 @@ describe('console screens', () => {
     expect(docked.buttons.map((b) => b.id)).toEqual([
       'spool',
       'plot:hub_b',
+      'plot:hub_c',
+      'plot:hub_d',
       'via:poi_kestrel',
       'via:poi_vigil',
+      'via:poi_lumen',
+      'via:poi_nadir',
+      'via:moon_wisp',
+      'via:moon_moth',
+      'via:moon_rill',
+      'via:moon_tarn',
       'close',
     ]);
     expect(docked.buttons.map((b) => b.label)).toEqual([
       'SPOOL',
-      'KEPLER',
+      'SOLACE',
+      'CINDER',
+      'VESPER',
+      '??',
+      '??',
+      '??',
+      '??',
+      '??',
+      '??',
       '??',
       '??',
       'CLOSE [E]',
@@ -308,8 +324,15 @@ describe('console screens', () => {
       makeStatus(),
       surveyedChart
     );
-    expect(surveyed.buttons.map((b) => b.label)).toContain('KESTREL');
-    const map = chartMapView(makeNav({ phase: 'docked' }), null, makeStatus(), W, H, 0);
+    expect(surveyed.buttons.map((b) => b.label)).toContain('TERN');
+    const map = chartMapView(
+      makeNav({ phase: 'docked' }),
+      null,
+      makeStatus(),
+      W,
+      H,
+      makeNav({ phase: 'docked' }).tick * FIXED_DT
+    );
     for (const button of docked.buttons) {
       const node = map.nodes.find((entry) => entry.buttonId === button.id);
       if (node !== undefined) {
@@ -334,21 +357,21 @@ describe('console screens', () => {
       serverTimeMs: 1000,
       vesselId: 'skiff-1',
       nodes: [
-        { id: 'hub_a', kind: 'hub', label: 'NEW ANCHORAGE', short: 'ANCHORAGE', known: true },
-        { id: 'hub_b', kind: 'hub', label: 'KEPLER YARD', short: 'KEPLER', known: true },
+        { id: 'hub_a', kind: 'hub', label: 'MERIDIAN GATE', short: 'MERIDIAN', known: true },
+        { id: 'hub_b', kind: 'hub', label: 'SOLACE YARDS', short: 'SOLACE', known: true },
         {
           id: 'poi_kestrel',
           kind: 'poi',
-          label: 'DERELICT "KESTREL"',
-          short: 'KESTREL',
+          label: 'DERELICT "TERN"',
+          short: 'TERN',
           rumor: 'Distress echo.',
           known: false,
         },
         {
           id: 'poi_vigil',
           kind: 'poi',
-          label: 'BEACON "VIGIL"',
-          short: 'VIGIL',
+          label: 'BEACON "HALCYON"',
+          short: 'HALCYON',
           rumor: 'Cache pings.',
           known: false,
         },
@@ -393,7 +416,7 @@ describe('console screens', () => {
       makeStatus(),
       mockChart()
     );
-    expect(chain.texts.map((t) => t.text)).toContain('LANE ANCHORAGE>??>KEPLER');
+    expect(chain.texts.map((t) => t.text)).toContain('LANE MERIDIAN>??>SOLACE');
     expect(chain.texts.map((t) => t.text).some((text) => /^BURN \d+S RETRO \d+S$/.test(text))).toBe(
       true
     );
@@ -458,7 +481,7 @@ describe('console screens', () => {
       draft
     );
     const texts = layout.texts.map((t) => t.text);
-    expect(texts).toContain('PLAN ??>KEPLER');
+    expect(texts).toContain('PLAN ??>SOLACE');
     const quoted = planVoyage({
       fromId: 'hub_a',
       stops: [...draft],
@@ -478,6 +501,12 @@ describe('console screens', () => {
       'plot:hub_b',
       'via:poi_kestrel',
       'via:poi_vigil',
+      'via:poi_lumen',
+      'via:poi_nadir',
+      'via:moon_wisp',
+      'via:moon_moth',
+      'via:moon_rill',
+      'via:moon_tarn',
       'confirm',
       'thrustDown',
       'thrustUp',
@@ -662,7 +691,7 @@ describe('console screens', () => {
       [{ goodId: 'scrap', qty: 2 }]
     );
     const texts = layout.texts.map((t) => t.text);
-    expect(texts).toContain('CARGO @ KEPLER YARD');
+    expect(texts).toContain('CARGO @ SOLACE YARDS');
     expect(texts).toContain('scrap x2 13cr 26cr');
     const empty = layoutNavScreen(
       W,
@@ -761,11 +790,11 @@ describe('uiScreenButtonIds', () => {
     const m = uiVisorMargins(W, H);
     const layout = layoutMarketScreen(W, H, {
       hubId: 'hub_a',
-      hubLabel: 'NEW ANCHORAGE',
+      hubLabel: 'MERIDIAN GATE',
       creditsLabel: 'Credits: 25cr',
       left: [{ name: 'scrap', stock: 50, buy: 10, sell: 9 }],
       right: [{ name: 'meds', stock: 0, buy: 15, sell: 13 }],
-      rumors: ['Kepler Yard structural shortage - paying premium on Scrap (+3cr/unit).'],
+      rumors: ['Solace Yards structural shortage - paying premium on Scrap (+3cr/unit).'],
     });
     expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
     expect(layout.buttons.map((b) => b.id)).toEqual(['buy', 'sell', 'close']);
@@ -783,7 +812,7 @@ describe('uiScreenButtonIds', () => {
   it('market rumors respect panel bounds and wrap within width', () => {
     const layout = layoutMarketScreen(W, H, {
       hubId: 'hub_a',
-      hubLabel: 'NEW ANCHORAGE',
+      hubLabel: 'MERIDIAN GATE',
       creditsLabel: 'Credits: 25cr',
       left: [{ name: 'scrap', stock: 50, buy: 10, sell: 9 }],
       right: [{ name: 'meds', stock: 0, buy: 15, sell: 13 }],
@@ -807,7 +836,7 @@ describe('uiScreenButtonIds', () => {
     const m = uiVisorMargins(W, H);
     const layout = layoutSellScreen(W, H, {
       hubId: 'hub_a',
-      hubLabel: 'NEW ANCHORAGE',
+      hubLabel: 'MERIDIAN GATE',
       rows: [{ crateId: 'c1', label: 'scrap x2', value: 18, buttonId: 'sell:c1' }],
       totalLabel: 'Bay total +18cr',
       sellIds: ['c1'],
@@ -825,7 +854,7 @@ describe('uiScreenButtonIds', () => {
   it('receipt settles the sale with goods, total, and balance', () => {
     const layout = layoutTradeReceiptScreen(W, H, {
       hubId: 'hub_b',
-      hubLabel: 'KEPLER YARD',
+      hubLabel: 'SOLACE YARDS',
       itemsSold: [{ goodId: 'scrap', qty: 2, revenue: 26 }],
       totalRevenue: 26,
       newBalance: 65,
@@ -833,7 +862,7 @@ describe('uiScreenButtonIds', () => {
     });
     const texts = layout.texts.map((t) => t.text);
     expect(texts).toContain('TRADE TRANSACTION SETTLED');
-    expect(texts).toContain('PORT: KEPLER YARD');
+    expect(texts).toContain('PORT: SOLACE YARDS');
     expect(texts).toContain('2x SCRAP');
     expect(texts).toContain('+26cr');
     expect(texts).toContain('TOTAL');
