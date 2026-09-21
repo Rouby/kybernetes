@@ -14,9 +14,11 @@ import type {
 import {
   bodyPosAt as astroPosAt,
   bodyVelAt as astroVelAt,
+  BODY_CLEAR_FRAC,
   bodyPeriodS,
   CHART_NODES,
   DOCKING_S,
+  distanceToSegment,
   FIXED_DT,
   type FlightSolution,
   HAIL_WAIT_S,
@@ -728,7 +730,17 @@ function freshSnapshot(
   if (at === undefined) return null;
   const r0 = { x: at.x, y: at.y };
   const v0 = bodyVelNow(hop.fromId, halfMin, timeSec);
-  const searched = searchFlipFrac(r0, v0, hop.toId, center, halfMin, timeSec, totalS, star);
+  const searched = searchFlipFrac(
+    r0,
+    v0,
+    hop.fromId,
+    hop.toId,
+    center,
+    halfMin,
+    timeSec,
+    totalS,
+    star
+  );
   if (searched === null) return null;
   return {
     legId: cursor.legId,
@@ -788,7 +800,17 @@ function handoffSnapshot(
   if (traj === null) return null;
   const r0 = legPointAt(traj, prev.r0, prev.v0, prev.totalS);
   const v0 = legVelAt(traj, prev.v0, prev.totalS);
-  const searched = searchFlipFrac(r0, v0, hop.toId, center, halfMin, timeSec, totalS, star);
+  const searched = searchFlipFrac(
+    r0,
+    v0,
+    hop.fromId,
+    hop.toId,
+    center,
+    halfMin,
+    timeSec,
+    totalS,
+    star
+  );
   if (searched === null) return null;
   return {
     legId: cursor.legId,
@@ -909,6 +931,7 @@ function appendChainLeg(
   const solved = searchFlipFrac(
     state.r,
     state.v,
+    ids.fromId,
     ids.toId,
     opts.center,
     opts.halfMin,
@@ -1042,7 +1065,8 @@ function appendPlannedLeg(
       return { pos: astroPosAt(body, state.tAbs + t), vel: astroVelAt(body, state.tAbs + t) };
     },
     { kp: 2.0, kd: 3.0, accelMax: Math.max(1e-6, accel) },
-    800
+    800,
+    { epochS: state.tAbs, ignoreIds: [ids.fromId, ids.toId] }
   );
   if (solved === null) {
     const totalS = hopScaledS(ids.fromId, ids.toId, tierOf(opts.status), opts.thrust01);
@@ -1142,7 +1166,7 @@ interface FlipScore {
   readonly flipFrac: number;
   readonly clear: boolean;
   readonly worst: number;
-  readonly minD: number;
+  readonly normMin: number;
 }
 
 /** Closest stellar approach over route-density samples. */
@@ -1166,7 +1190,7 @@ function flipClearance(
  * Core-clear beats anything; among clear legs prefer the smallest worst
  * burn (Epstein constant-thrust profile: no parking spikes, no sprints),
  * with a central-flip tie-break for per-frame stability; among unclear
- * legs prefer deeper clearance.
+ * legs prefer deeper normalized clearance (star and body wells alike).
  */
 function betterFlip(a: FlipScore, b: FlipScore): boolean {
   if (a.clear !== b.clear) return a.clear;
@@ -1175,12 +1199,14 @@ function betterFlip(a: FlipScore, b: FlipScore): boolean {
     if (biggest > 0 && Math.abs(a.worst - b.worst) > 0.05 * biggest) return a.worst < b.worst;
     return Math.abs(a.flipFrac - 0.5) < Math.abs(b.flipFrac - 0.5);
   }
-  return a.minD > b.minD;
+  if (a.normMin !== b.normMin) return a.normMin > b.normMin;
+  return Math.abs(a.flipFrac - 0.5) < Math.abs(b.flipFrac - 0.5);
 }
 
 function searchFlipFrac(
   r0: ChartMapPoint,
   v0: ChartMapPoint,
+  fromId: string,
   toId: string,
   center: ChartMapPoint,
   halfMin: number,
@@ -1188,18 +1214,100 @@ function searchFlipFrac(
   totalS: number,
   star: { x: number; y: number; r: number } | null
 ): { leg: SolvedLeg; flipFrac: number } | null {
-  const margin = star === null ? 0 : star.r + 8;
+  const starMargin = star === null ? 0 : star.r + 8;
+  const bodyMargin = BODY_CLEAR_FRAC * halfMin;
   let best: FlipScore | null = null;
   for (const flipFrac of FLIP_CANDIDATES) {
     const leg = solveLeg(r0, v0, bodyOrbitOf(toId, halfMin), center, tAbs, totalS, flipFrac);
     if (leg === null) continue;
-    const minD = flipClearance(r0, v0, leg, totalS, star);
-    const worst = Math.max(Math.hypot(leg.u1.x, leg.u1.y), Math.hypot(leg.u2.x, leg.u2.y));
-    const scored: FlipScore = { leg, flipFrac, clear: minD > margin, worst, minD };
+    const scored = scoreFlip(
+      r0,
+      v0,
+      leg,
+      flipFrac,
+      fromId,
+      toId,
+      center,
+      halfMin,
+      tAbs,
+      totalS,
+      star,
+      starMargin,
+      bodyMargin
+    );
     if (best === null || betterFlip(scored, best)) best = scored;
   }
   if (best === null) return null;
   return { leg: best.leg, flipFrac: best.flipFrac };
+}
+
+function scoreFlip(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  leg: SolvedLeg,
+  flipFrac: number,
+  fromId: string,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number,
+  tAbs: number,
+  totalS: number,
+  star: { x: number; y: number; r: number } | null,
+  starMargin: number,
+  bodyMargin: number
+): FlipScore {
+  const starMin = flipClearance(r0, v0, leg, totalS, star);
+  const bodyMin = flipBodyMinPx(r0, v0, leg, totalS, tAbs, fromId, toId, center, halfMin);
+  const worst = Math.max(Math.hypot(leg.u1.x, leg.u1.y), Math.hypot(leg.u2.x, leg.u2.y));
+  const normMin = Math.min(starMin / Math.max(1, starMargin), bodyMin / Math.max(1e-9, bodyMargin));
+  const clear = starMin > starMargin && bodyMin > bodyMargin;
+  return { leg, flipFrac, clear, worst, normMin };
+}
+
+/** Closest approach to any third-body marker along a display leg (px). */
+export function flipBodyMinPx(
+  r0: ChartMapPoint,
+  v0: ChartMapPoint,
+  leg: SolvedLeg,
+  totalS: number,
+  tAbs: number,
+  fromId: string,
+  toId: string,
+  center: ChartMapPoint,
+  halfMin: number
+): number {
+  const ids = thirdBodyIds(fromId, toId);
+  if (ids.length === 0) return Number.POSITIVE_INFINITY;
+  let min = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < 15; i += 1) {
+    const a = legPointAt(leg, r0, v0, (i / 15) * totalS);
+    const b = legPointAt(leg, r0, v0, ((i + 1) / 15) * totalS);
+    min = Math.min(
+      min,
+      segThirdMinPx(a, b, tAbs + ((i + 0.5) / 15) * totalS, ids, center, halfMin)
+    );
+  }
+  return min;
+}
+
+function thirdBodyIds(fromId: string, toId: string): readonly string[] {
+  return CHART_NODES.map((node) => node.id).filter((id) => id !== fromId && id !== toId);
+}
+
+function segThirdMinPx(
+  a: ChartMapPoint,
+  b: ChartMapPoint,
+  tAbs: number,
+  ids: readonly string[],
+  center: ChartMapPoint,
+  halfMin: number
+): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (const id of ids) {
+    const at = bodyPosAt(bodyOrbitOf(id, halfMin), center, tAbs);
+    min = Math.min(min, distanceToSegment(at, a, b));
+  }
+  return min;
 }
 
 function routeTicks(display: readonly SolvedFlightLeg[]): ChartMapPoint[] {

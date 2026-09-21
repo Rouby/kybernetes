@@ -20,6 +20,10 @@ export interface SystemBody {
 /** Gravitational parameter fit so hub_a period is exactly 150s. */
 export const STAR_MU: number = (4 * Math.PI * Math.PI * 0.42 ** 3) / (150 * 150);
 
+/** Body exclusion radius for transit routing (fractions). Wells, not surfaces:
+ * keeps torch arcs off third-body markers instead of threading them. */
+export const BODY_CLEAR_FRAC = 0.035;
+
 export const SYSTEM_BODIES: readonly SystemBody[] = [
   { id: 'hub_a', radiusFrac: 0.42, phase0: 0.6 },
   { id: 'hub_b', radiusFrac: 0.62, phase0: 2.8 },

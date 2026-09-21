@@ -7,7 +7,16 @@
  * (fixed step): same inputs, same path.
  */
 
-import { type AstroVec, bodyPosAt, bodyVelAt, gravityAt, systemBodyOrDefault } from './system.js';
+import { distanceToSegment } from '../spatial/collision.js';
+import {
+  type AstroVec,
+  BODY_CLEAR_FRAC,
+  bodyPosAt,
+  bodyVelAt,
+  gravityAt,
+  SYSTEM_BODIES,
+  systemBodyOrDefault,
+} from './system.js';
 
 export interface IntegratedLeg {
   readonly points: readonly AstroVec[];
@@ -110,50 +119,165 @@ export const STAR_CLEAR_FRAC = 0.075;
 /** Gate radius for slingshot waypoints (fractions). */
 export const GATE_FRAC = 0.12;
 
+/** Lateral sidestep past a body well (fractions). Clears body wells plus arrival slack. */
+export const BODY_GATE_FRAC = 0.08;
+
+/** Body-avoidance context for flight routing. Omitted for star-only legacy behavior. */
+export interface FlightAvoid {
+  readonly epochS?: number;
+  readonly ignoreIds?: readonly string[];
+}
+
 export interface FlightSolution {
   readonly legs: readonly IntegratedLeg[];
   readonly totalS: number;
 }
 
 /**
- * Planned flight with slingshot gates: integrate direct, and if the path
- * dives inside stellar clearance, route through a tangential gate at the
- * dip (periapsis-style, energy preserved, no stops). Time-free legs chain
- * by arrival state, so totals are emergent sums.
+ * Planned flight with slingshot gates: integrate direct, route around the
+ * star when the path dives inside stellar clearance, then route around
+ * third-body wells (moving bodies at epoch time, departure/arrival
+ * excluded). Gates are tangential sidesteps: energy preserved, no stops.
+ * Time-free legs chain by arrival state, so totals are emergent sums.
+ * Without avoidance context the legacy star-only behavior is preserved.
  */
 export function solveFlight(
   r0: AstroVec,
   v0: AstroVec,
   target: (t: number) => { pos: AstroVec; vel: AstroVec },
   gains: GuidanceGains,
-  timeoutS: number
+  timeoutS: number,
+  avoid?: FlightAvoid
 ): FlightSolution | null {
   const direct = integrateLeg(r0, v0, target, { timeoutS, gains });
   if (direct === null) return null;
+  const routed = routeAroundStar(direct, r0, v0, target, gains, timeoutS);
+  const epoch = avoid?.epochS;
+  if (epoch === undefined) return routed;
+  if (flightBodiesClear(routed.legs, epoch, avoid?.ignoreIds)) return routed;
+  return (
+    routeAroundBodies(routed, r0, v0, target, gains, timeoutS, epoch, avoid?.ignoreIds) ?? routed
+  );
+}
+
+function routeAroundStar(
+  direct: IntegratedLeg,
+  r0: AstroVec,
+  v0: AstroVec,
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number
+): FlightSolution {
   const dip = deepestDip(direct.points, direct.vels, direct.dt);
   if (dip === null) return { legs: [direct], totalS: direct.totalS };
   if (dip.t < 2 || dip.t > direct.totalS - 2) return { legs: [direct], totalS: direct.totalS };
+  return (
+    tryStarGates(dip, r0, v0, target, gains, timeoutS) ?? { legs: [direct], totalS: direct.totalS }
+  );
+}
+
+function tryStarGates(
+  dip: { pos: AstroVec; vel: AstroVec; t: number },
+  r0: AstroVec,
+  v0: AstroVec,
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number
+): FlightSolution | null {
   for (const side of [1, -1] as const) {
     const gate = gateState(dip, side);
-    const gateTarget = { pos: gate.pos, vel: gate.vel };
-    const first = integrateLeg(r0, v0, () => gateTarget, {
-      timeoutS,
-      gains,
-      dt: 0.25,
-      arrivePos: 0.03,
-      arriveVel: 0.08,
-    });
-    if (first === null) continue;
-    const ar = first.points[first.points.length - 1];
-    const av = first.vels[first.vels.length - 1];
-    if (ar === undefined || av === undefined) continue;
-    const second = integrateLeg(ar, av, (t) => target(first.totalS + t), { timeoutS, gains });
-    if (second === null) continue;
-    if (flightClear([first, second])) {
-      return { legs: [first, second], totalS: first.totalS + second.totalS };
+    const gated = chainThroughGate(r0, v0, gate, target, gains, timeoutS);
+    if (gated !== null && flightClear(gated.legs)) return gated;
+  }
+  return null;
+}
+
+function routeAroundBodies(
+  candidate: FlightSolution,
+  r0: AstroVec,
+  v0: AstroVec,
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number,
+  epochS: number,
+  ignoreIds: readonly string[] | undefined
+): FlightSolution | null {
+  const near = closestBodyApproach(candidate.legs, epochS, ignoreIds);
+  if (near === null) return candidate;
+  if (near.t < 2 || near.t > candidate.totalS - 2) return null;
+  return tryBodyGates(near, r0, v0, target, gains, timeoutS, epochS, ignoreIds);
+}
+
+/** Body-gate sidesteps tried first, smallest (least disruptive) first. */
+const BODY_GATE_OFFSETS = [0.05, BODY_GATE_FRAC, GATE_FRAC] as const;
+
+/** Gate arrival slacks tried first: tight (energy-preserving) then relaxed. */
+const BODY_GATE_ARRIVALS = [
+  { pos: 0.03, vel: 0.08 },
+  { pos: 0.05, vel: 0.2 },
+] as const;
+
+function tryBodyGates(
+  near: { pos: AstroVec; vel: AstroVec; t: number },
+  r0: AstroVec,
+  v0: AstroVec,
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number,
+  epochS: number,
+  ignoreIds: readonly string[] | undefined
+): FlightSolution | null {
+  for (const off of BODY_GATE_OFFSETS) {
+    for (const arrive of BODY_GATE_ARRIVALS) {
+      for (const side of [1, -1] as const) {
+        const gated = tryBodyCombo(near, side, off, arrive, r0, v0, target, gains, timeoutS);
+        if (gated === null || !flightClear(gated.legs)) continue;
+        if (!flightBodiesClear(gated.legs, epochS, ignoreIds)) continue;
+        return gated;
+      }
     }
   }
-  return { legs: [direct], totalS: direct.totalS };
+  return null;
+}
+
+function tryBodyCombo(
+  near: { pos: AstroVec; vel: AstroVec; t: number },
+  side: 1 | -1,
+  off: number,
+  arrive: { pos: number; vel: number },
+  r0: AstroVec,
+  v0: AstroVec,
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number
+): FlightSolution | null {
+  return chainThroughGate(r0, v0, gateState(near, side, off), target, gains, timeoutS, arrive);
+}
+
+function chainThroughGate(
+  r0: AstroVec,
+  v0: AstroVec,
+  gate: { pos: AstroVec; vel: AstroVec },
+  target: (t: number) => { pos: AstroVec; vel: AstroVec },
+  gains: GuidanceGains,
+  timeoutS: number,
+  arrive = { pos: 0.03, vel: 0.08 }
+): FlightSolution | null {
+  const gateTarget = { pos: gate.pos, vel: gate.vel };
+  const first = integrateLeg(r0, v0, () => gateTarget, {
+    timeoutS,
+    gains,
+    dt: 0.25,
+    arrivePos: arrive.pos,
+    arriveVel: arrive.vel,
+  });
+  if (first === null) return null;
+  const ar = first.points[first.points.length - 1];
+  const av = first.vels[first.vels.length - 1];
+  if (ar === undefined || av === undefined) return null;
+  const second = integrateLeg(ar, av, (t) => target(first.totalS + t), { timeoutS, gains });
+  if (second === null) return null;
+  return { legs: [first, second], totalS: first.totalS + second.totalS };
 }
 
 function deepestDip(
@@ -179,10 +303,10 @@ function deepestDip(
 /** Lateral sidestep gate past the dip: offset perpendicular to dive motion. */
 function gateState(
   dip: { pos: AstroVec; vel: AstroVec; t: number },
-  side: 1 | -1
+  side: 1 | -1,
+  off = GATE_FRAC
 ): { pos: AstroVec; vel: AstroVec } {
   const vl = Math.max(1e-9, Math.hypot(dip.vel.x, dip.vel.y));
-  const off = 0.12;
   const pos = {
     x: dip.pos.x + (-dip.vel.y / vl) * off * side,
     y: dip.pos.y + (dip.vel.x / vl) * off * side,
@@ -197,6 +321,108 @@ function flightClear(legs: readonly IntegratedLeg[]): boolean {
     }
   }
   return true;
+}
+
+/** True when no leg segment threads a third-body well at epoch time. */
+export function flightBodiesClear(
+  legs: readonly IntegratedLeg[],
+  epochS: number,
+  ignoreIds?: readonly string[]
+): boolean {
+  return closestBodyApproach(legs, epochS, ignoreIds) === null;
+}
+
+export interface BodyApproach {
+  readonly pos: AstroVec;
+  readonly vel: AstroVec;
+  readonly t: number;
+  readonly bodyId: string;
+  readonly dist: number;
+}
+
+/** Deepest third-body well approach along a flight (null when clear). */
+export function closestBodyApproach(
+  legs: readonly IntegratedLeg[],
+  epochS: number,
+  ignoreIds?: readonly string[]
+): BodyApproach | null {
+  const ignored = new Set(ignoreIds ?? []);
+  let best: BodyApproach | null = null;
+  let bestDist = BODY_CLEAR_FRAC;
+  let offset = 0;
+  for (const leg of legs) {
+    const hit = legBodyApproach(leg, offset, epochS, ignored);
+    if (hit !== null && hit.dist < bestDist) {
+      bestDist = hit.dist;
+      best = hit;
+    }
+    offset += leg.totalS;
+  }
+  return best;
+}
+
+function legBodyApproach(
+  leg: IntegratedLeg,
+  offsetS: number,
+  epochS: number,
+  ignored: ReadonlySet<string>
+): BodyApproach | null {
+  let worst = BODY_CLEAR_FRAC;
+  let found: BodyApproach | null = null;
+  const pts = leg.points;
+  for (let i = 2; i < pts.length - 2; i += 1) {
+    const segHit = segBodyHit(leg, pts, i, offsetS, epochS, ignored, worst);
+    if (segHit !== null) {
+      worst = segHit.dist;
+      found = segHit;
+    }
+  }
+  return found;
+}
+
+function segBodyHit(
+  leg: IntegratedLeg,
+  pts: readonly AstroVec[],
+  i: number,
+  offsetS: number,
+  epochS: number,
+  ignored: ReadonlySet<string>,
+  worst: number
+): BodyApproach | null {
+  const a = pts[i];
+  const b = pts[i + 1];
+  if (a === undefined || b === undefined) return null;
+  const near = nearestBodyToSeg(a, b, epochS + offsetS + (i + 0.5) * leg.dt, ignored, worst);
+  if (near === null) return null;
+  const v = leg.vels[i] ?? { x: 0, y: 0 };
+  const t = offsetS + i * leg.dt;
+  return {
+    pos: { x: a.x, y: a.y },
+    vel: { x: v.x, y: v.y },
+    t,
+    bodyId: near.bodyId,
+    dist: near.dist,
+  };
+}
+
+function nearestBodyToSeg(
+  a: AstroVec,
+  b: AstroVec,
+  tAbs: number,
+  ignored: ReadonlySet<string>,
+  worst: number
+): { bodyId: string; dist: number } | null {
+  let best: { bodyId: string; dist: number } | null = null;
+  let bestDist = worst;
+  for (const body of SYSTEM_BODIES) {
+    if (ignored.has(body.id)) continue;
+    const d = distanceToSegment(bodyPosAt(body, tAbs), a, b);
+    if (d < bestDist) {
+      bestDist = d;
+      best = { bodyId: body.id, dist: d };
+    }
+  }
+  return best;
 }
 
 /** Predict a leg duration by flying it. Null when guidance cannot arrive. */
@@ -218,7 +444,8 @@ export function planTripLeg(
       vel: bodyVelAt(to, epochS + t),
     }),
     gains,
-    timeoutS
+    timeoutS,
+    { epochS, ignoreIds: [fromId, toId] }
   );
   if (solved === null) return null;
   return { totalS: Math.max(1, Math.round(solved.totalS)) };

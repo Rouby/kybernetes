@@ -3,16 +3,29 @@ import type {
   NavStateBroadcast,
   ShipStatusBroadcast,
 } from '@kybernetes/protocol';
-import { bodyPeriodS, planTripLeg, systemBodyOrDefault, torchAccel } from '@kybernetes/sim-core';
+import {
+  BODY_CLEAR_FRAC,
+  bodyPeriodS,
+  DOCKING_S,
+  planTripLeg,
+  systemBodyOrDefault,
+  torchAccel,
+} from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
 import {
   appendDraft,
   chartLayoutRects,
   chartMapView,
+  flipBodyMinPx,
   previewCourse,
   previewStopsFor,
   smoothSimClock,
 } from './chartModel';
+import {
+  bodyPosAt as displayPosAt,
+  bodyVelAt as displayVelAt,
+  solveLeg as solveDisplayLeg,
+} from './trajectoryModel';
 
 const W = 1280;
 const H = 720;
@@ -377,10 +390,13 @@ describe('chartMapView', () => {
     const byId = new Map(dockingAt(0).nodes.map((node) => [node.id, node]));
     const mouth = byId.get('poi_kestrel');
     if (mouth === undefined) throw new Error('dest node missing');
-    // Instant dock: the ship sits on the live dock mouth at any countdown.
+    // Approach blend: frozen arrival at the window start, live mouth at zero.
+    const start = dockingAt(DOCKING_S).ship;
     expect(dockingAt(0).ship).toEqual({ x: mouth.x, y: mouth.y });
-    expect(dockingAt(10).ship).toEqual({ x: mouth.x, y: mouth.y });
-    expect(dockingAt(5).ship).toEqual({ x: mouth.x, y: mouth.y });
+    expect(dockingAt(DOCKING_S + 5).ship).toEqual(start);
+    const mid = dockingAt(DOCKING_S / 2).ship;
+    expect(mid.x).toBeCloseTo((start.x + mouth.x) / 2, 5);
+    expect(mid.y).toBeCloseTo((start.y + mouth.y) / 2, 5);
   });
 
   it('hands off onto the previous arrival, not the naive joint', () => {
@@ -918,6 +934,89 @@ describe('chartMapView', () => {
       expect(node.chip.y).toBeGreaterThanOrEqual(0);
       expect(node.chip.x + node.chip.w).toBeLessThanOrEqual(W);
       expect(node.chip.y + node.chip.h).toBeLessThanOrEqual(H);
+    }
+  });
+});
+
+describe('body avoidance', () => {
+  function displayOrbit(
+    id: string,
+    halfMin: number
+  ): {
+    radius: number;
+    periodS: number;
+    phase: number;
+  } {
+    const body = systemBodyOrDefault(id);
+    return { radius: body.radiusFrac * halfMin, periodS: bodyPeriodS(body), phase: body.phase0 };
+  }
+
+  it('detects a third-body fly-through on an unsteered flip', () => {
+    const halfMin = 400;
+    const center = { x: 0, y: 0 };
+    const r0 = displayPosAt(displayOrbit('poi_kestrel', halfMin), center, 15);
+    const v0 = displayVelAt(displayOrbit('poi_kestrel', halfMin), 15);
+    const leg = solveDisplayLeg(r0, v0, displayOrbit('poi_vigil', halfMin), center, 15, 30, 0.5);
+    if (leg === null) throw new Error('solve failed');
+    const bodyMin = flipBodyMinPx(r0, v0, leg, 30, 15, 'poi_kestrel', 'poi_vigil', center, halfMin);
+    expect(bodyMin).toBeLessThan(BODY_CLEAR_FRAC * halfMin);
+  });
+
+  function expectLiveLegClear(from: string, to: string, t: number): void {
+    const view = chartMapView(
+      nav({
+        phase: 'in_transit',
+        destHubId: to,
+        remainingS: 60,
+        legTotalS: 60,
+        stops: [to],
+        legIndex: 0,
+        portHubId: from,
+      }),
+      chart(['poi_kestrel', 'poi_vigil']),
+      status(),
+      W,
+      H,
+      t
+    );
+    const snap = view.liveLeg;
+    if (snap === null) throw new Error(`live leg missing ${from}->${to} t=${t}`);
+    const ring0 = view.rings[0];
+    if (ring0 === undefined) throw new Error('rings missing');
+    const halfMin = ring0 / systemBodyOrDefault('hub_a').radiusFrac;
+    const leg = solveDisplayLeg(
+      snap.r0,
+      snap.v0,
+      displayOrbit(to, halfMin),
+      view.center,
+      snap.tSnap,
+      snap.totalS,
+      snap.flipFrac
+    );
+    if (leg === null) throw new Error(`solve failed ${from}->${to} t=${t}`);
+    const bodyMin = flipBodyMinPx(
+      snap.r0,
+      snap.v0,
+      leg,
+      snap.totalS,
+      snap.tSnap,
+      from,
+      to,
+      view.center,
+      halfMin
+    );
+    expect(bodyMin).toBeGreaterThan(BODY_CLEAR_FRAC * halfMin);
+  }
+
+  it('steers live legs around third-body markers', () => {
+    const lanes = [
+      ['hub_a', 'hub_b'],
+      ['hub_a', 'poi_vigil'],
+      ['poi_kestrel', 'hub_b'],
+      ['poi_kestrel', 'poi_vigil'],
+    ] as const;
+    for (const t of [0, 15, 30, 60, 90, 135, 200, 270]) {
+      for (const [from, to] of lanes) expectLiveLegClear(from, to, t);
     }
   });
 });
