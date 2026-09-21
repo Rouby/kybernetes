@@ -17,6 +17,23 @@ describe('dock gate door discipline', () => {
     );
   });
 
+  it('refuses dock leaf toggles while underway', () => {
+    const world = buildHarborWorld();
+    const vessel = world.vessels.ship;
+    if (vessel === undefined) throw new Error('missing ship');
+    const underway = {
+      ...world,
+      vessels: { ...world.vessels, ship: { ...vessel, schedule: 'in_transit' as const } },
+    };
+    const refused = routeIntent(
+      underway,
+      'pawn:u1',
+      { type: 'DOOR', seq: 1, portalId: 'ship.schiff_mund', wantOpen: true },
+      []
+    );
+    expect(refused.notice).toBe('DOOR_dock-cycle');
+  });
+
   it('still toggles ordinary doors while docked', () => {
     const world = buildHarborWorld();
     const result = routeIntent(

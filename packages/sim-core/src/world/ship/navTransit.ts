@@ -46,8 +46,10 @@ export interface NavState {
   readonly legTotalS?: number;
 }
 
-export const SPOOL_S = 0;
-export const DOCKING_S = 0;
+/** Spool-up hold at the dock: visible departure burn before the ship pulls away. */
+export const SPOOL_S = 3;
+/** Docking approach: the hull eases into the destination mate before unsealing. */
+export const DOCKING_S = 5;
 /** A hailed rescue drone answers after a little over a minute adrift. */
 export const HAIL_WAIT_S = 75;
 export const SPOOL_READY = 0.8;

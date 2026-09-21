@@ -555,19 +555,29 @@ export class HarborDaemon {
     this.sendToObservers(this.buildStats(world, nowMs));
   }
 
+  private dockStatuses(world: World, nowMs: number): DockStatusBroadcast[] {
+    const statuses: DockStatusBroadcast[] = [];
+    for (const dockId of Object.keys(world.docks)) {
+      const dock = dockStatusOf(world, dockId, nowMs);
+      if (dock !== undefined) statuses.push(dock);
+    }
+    return statuses;
+  }
+
   private sendDockTo(ws: WebSocket, world: World, nowMs: number): void {
-    const dock = dockStatusOf(world, 'harbor', nowMs);
-    if (dock !== undefined) this.send(ws, dock);
+    for (const dock of this.dockStatuses(world, nowMs)) this.send(ws, dock);
   }
 
   private maybeSendDock(world: World, nowMs: number): void {
-    const dock = dockStatusOf(world, 'harbor', nowMs);
-    if (dock === undefined) return;
-    const key = `${dock.phase}:${dock.walkable}:${dock.secondsToSeal}`;
+    const statuses = this.dockStatuses(world, nowMs);
+    if (statuses.length === 0) return;
+    const key = statuses
+      .map((dock) => `${dock.dockId}:${dock.phase}:${dock.walkable}:${dock.secondsToSeal}`)
+      .join('|');
     if (key === this.lastDockKey && nowMs - this.lastDockMs < 1000) return;
     this.lastDockKey = key;
     this.lastDockMs = nowMs;
-    this.sendAll(dock as DockStatusBroadcast);
+    for (const dock of statuses) this.sendAll(dock);
   }
 
   private firstVesselId(world: World): string | undefined {

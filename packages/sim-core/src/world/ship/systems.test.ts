@@ -235,6 +235,39 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(arrived.ships.ship?.surveyed).toEqual(['poi_kestrel']);
   });
 
+  it('eases away on departure instead of teleporting', { timeout: 30000 }, () => {
+    let world = plotToHubB(hotBoat());
+    let guard = 0;
+    while (world.ships.ship?.nav.phase !== 'in_transit' && guard < 60) {
+      world = driveAttentive(world, 1);
+      guard += 1;
+    }
+    expect(world.ships.ship?.nav.phase).toBe('in_transit');
+    world = driveAttentive(world, 1);
+    expect(world.vessels.ship?.schedule).toBe('in_transit');
+    const origin = world.vessels.ship?.origin ?? { x: 0, y: 0 };
+    expect(origin.x).toBeGreaterThan(SHIP_ORIGIN.x);
+    expect(origin.x).toBeLessThan(SHIP_FAR_ORIGIN.x);
+    expect(dockWalkable(world, 'harbor')).toBe(false);
+  });
+
+  it('glides into the destination mate before unsealing', { timeout: 30000 }, () => {
+    let world = plotToHubB(hotBoat());
+    let guard = 0;
+    while (world.ships.ship?.nav.phase !== 'docked' && guard < 300) {
+      world = driveAttentive(world, 1);
+      guard += 1;
+    }
+    expect(world.ships.ship?.nav.phase).toBe('docked');
+    expect(world.ships.ship?.nav.portHubId).toBe('hub_b');
+    expect(dockWalkable(world, 'hub_b_harbor')).toBe(false);
+    const enRoute = world.vessels.ship?.origin ?? { x: 0, y: 0 };
+    expect(Math.hypot(enRoute.x - 1210, enRoute.y - 3920)).toBeGreaterThan(1);
+    world = driveAttentive(world, 20);
+    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: 3920 });
+    expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
+  });
+
   it('flies a full leg: seal, depart far, dock at hub_b', () => {
     let world = driveAttentive(plotToHubB(hotBoat()), 12);
     expect(world.ships.ship?.nav.phase).toBe('in_transit');

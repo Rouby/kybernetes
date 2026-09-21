@@ -21,6 +21,7 @@ import {
   applyDockGates,
   DECAL_COOL_TICKS,
   dockChipText,
+  dockGateIdsFor,
   dockVesselSchedule,
   FRAME_VEL_MAX,
   formatPawnLink,
@@ -214,6 +215,37 @@ describe('walkable dock overlays and frame motion', () => {
     const open = applyDockGates(doors, true);
     expect(open.find((door) => door.id === 'station.korridor_ost_andock')?.isOpen).toBe(true);
     expect(open.find((door) => door.id === 'station.habitat_korridor')?.isOpen).toBe(false);
+  });
+
+  it('paints adopted-dock gates instead of harbor-only leaves', () => {
+    const hubB = {
+      ...dockedStatus(),
+      dockId: 'hub_b_harbor',
+      stationGate: 'hub_b.korridor_ost_andock',
+      tubeGate: 'hub_b.andock_tube_mund',
+      tubeRoom: 'hub_b.andock_tube',
+    };
+    expect(dockGateIdsFor(hubB)).toEqual([
+      'hub_b.korridor_ost_andock',
+      'hub_b.andock_tube_mund',
+      'ship.schiff_mund',
+    ]);
+    const door = (id: string): DoorState => ({
+      id,
+      name: id,
+      x1: 0,
+      y1: 0,
+      x2: 1,
+      y2: 1,
+      isOpen: false,
+      isAirlock: true,
+      roomA: 'hub_b.korridor_ost',
+      roomB: 'vacuum',
+    });
+    const doors = [door('hub_b.korridor_ost_andock'), door('station.korridor_ost_andock')];
+    const open = applyDockGates(doors, true, dockGateIdsFor(hubB));
+    expect(open.find((entry) => entry.id === 'hub_b.korridor_ost_andock')?.isOpen).toBe(true);
+    expect(open.find((entry) => entry.id === 'station.korridor_ost_andock')?.isOpen).toBe(false);
   });
 
   it('maps dock phases onto prediction vessel schedules', () => {

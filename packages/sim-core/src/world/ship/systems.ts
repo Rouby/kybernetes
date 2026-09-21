@@ -6,8 +6,8 @@
  */
 
 import { sealPortal, unsealPortal } from '../doors.js';
-import { SHIP_FAR_ORIGIN, SHIP_ORIGIN } from '../schedule.js';
-import { FIXED_DT, type VesselSchedulePhase, type World } from '../types.js';
+import { type DockLink, SHIP_FAR_ORIGIN, SHIP_ORIGIN, VESSEL_CRUISE_PX_S } from '../schedule.js';
+import { FIXED_DT, type Vec2, type VesselSchedulePhase, type World } from '../types.js';
 import { chartNodeFor, plotChartCourse } from './chart.js';
 import type { EngineState } from './engine.js';
 import {
@@ -257,7 +257,7 @@ export function tickShipSystems(world: World, dtSeconds: number): World {
     next = applyVoyage(next, systems.nav, ticked, systems.vesselId);
     next = surveyReachedStop(next, systems.nav, ticked);
   }
-  return next;
+  return tickNavVesselMotion(next, dtSeconds);
 }
 
 function tickOneVessel(systems: ShipSystems, dtSeconds: number, tick: number): ShipSystems {
@@ -302,9 +302,10 @@ function applyScramDamage(
 }
 
 /**
- * Voyage side effects on phase edges: departure seals the dock and throws
- * the vessel far; arrival re-docks at the destination mouth, unseals it,
- * and logs leg wear (dockside service runs at the next departure).
+ * Voyage side effects on phase edges: departure seals the dock and the hull
+ * eases away (see tickNavVesselMotion, no teleport); arrival glides into the
+ * destination mate before the dock unseals, and logs leg wear (dockside
+ * service runs at the next departure).
  */
 function applyVoyage(world: World, prev: NavState, next: ShipSystems, vesselId: string): World {
   if (prev.phase === next.nav.phase) return world;
@@ -322,24 +323,98 @@ function applyVoyage(world: World, prev: NavState, next: ShipSystems, vesselId: 
 
 function departVoyage(world: World, vesselId: string, next: ShipSystems): World {
   const sealed = sealDock(world, next.nav.portHubId, false);
-  const moved = setVesselFrame(sealed, vesselId, 'in_transit', SHIP_FAR_ORIGIN);
+  const sailing = setVesselFrame(sealed, vesselId, 'in_transit', undefined);
   const serviced = { ...next, engine: serviceEngine(next.engine) };
-  return { ...moved, ships: { ...moved.ships, [vesselId]: serviced } };
+  return { ...sailing, ships: { ...sailing.ships, [vesselId]: serviced } };
 }
 
 function arriveVoyage(world: World, vesselId: string, next: ShipSystems): World {
-  const port = HUB_PORTS[next.nav.portHubId];
-  const station = port === undefined ? undefined : world.stations[port.stationFrame];
-  const vessel = world.vessels[vesselId];
-  const home = vessel?.origin ?? { x: 0, y: 0 };
-  const origin =
-    station === undefined
-      ? { ...home }
-      : { x: station.origin.x + SHIP_ORIGIN.x, y: station.origin.y + SHIP_ORIGIN.y };
-  let moved = setVesselFrame(world, vesselId, 'docked', origin);
-  moved = sealDock(moved, next.nav.portHubId, true);
+  const moved = setVesselFrame(world, vesselId, 'docked', undefined);
   const worn = { ...next, engine: wearEngine(next.engine, 1) };
   return { ...moved, ships: { ...moved.ships, [vesselId]: worn } };
+}
+
+/** Destination mate in world space for a hub; undefined for POIs and nowhere. */
+function mateOriginFor(world: World, hubId: string): Vec2 | undefined {
+  const port = HUB_PORTS[hubId];
+  const station = port === undefined ? undefined : world.stations[port.stationFrame];
+  if (station === undefined) return undefined;
+  return { x: station.origin.x + SHIP_ORIGIN.x, y: station.origin.y + SHIP_ORIGIN.y };
+}
+
+function currentOrigin(world: World, vesselId: string): Vec2 {
+  return { ...(world.vessels[vesselId]?.origin ?? SHIP_ORIGIN) };
+}
+
+/**
+ * Station-keeping target for nav-driven vessels: the origin mate while
+ * docked/spooling, far holding in transit, and the destination mate on
+ * the docking approach. POI stops have no dock, so the hull holds.
+ */
+function navOriginTarget(world: World, vesselId: string, nav: NavState): Vec2 {
+  if (nav.phase === 'in_transit') return { ...SHIP_FAR_ORIGIN };
+  const hubId = nav.phase === 'docking' ? (nav.destHubId ?? nav.portHubId) : nav.portHubId;
+  return mateOriginFor(world, hubId) ?? currentOrigin(world, vesselId);
+}
+
+function stepToward(from: Vec2, to: Vec2, maxStep: number): Vec2 {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist <= Math.max(maxStep, 1)) return { ...to };
+  return { x: from.x + (dx / dist) * maxStep, y: from.y + (dy / dist) * maxStep };
+}
+
+function setVesselOrigin(world: World, vesselId: string, origin: Vec2): World {
+  const vessel = world.vessels[vesselId];
+  if (vessel === undefined) return world;
+  if (vessel.origin.x === origin.x && vessel.origin.y === origin.y) return world;
+  return {
+    ...world,
+    vessels: { ...world.vessels, [vesselId]: { ...vessel, origin: { ...origin } } },
+  };
+}
+
+function dockSealed(world: World, dock: DockLink): boolean {
+  const leaves = [dock.stationPortal, dock.tubePortal, dock.vesselPortal];
+  return leaves.some((id) => world.portals[id]?.state === 'sealed');
+}
+
+/** Unseal the current-port dock once the hull sits in the mate. */
+function unsealMatedDock(world: World, vesselId: string): World {
+  const systems = world.ships[vesselId];
+  if (systems === undefined) return world;
+  const port = HUB_PORTS[systems.nav.portHubId];
+  const dock = port === undefined ? undefined : world.docks[port.dockId];
+  if (dock === undefined || !dockSealed(world, dock)) return world;
+  return sealDock(world, systems.nav.portHubId, true);
+}
+
+function easeNavVessel(world: World, vesselId: string, dtSeconds: number): World {
+  if (world.transit[vesselId] !== undefined) return world;
+  const systems = world.ships[vesselId];
+  const vessel = world.vessels[vesselId];
+  if (systems === undefined || vessel === undefined) return world;
+  const target = navOriginTarget(world, vesselId, systems.nav);
+  const stepped = stepToward(vessel.origin, target, VESSEL_CRUISE_PX_S * dtSeconds);
+  let next = setVesselOrigin(world, vesselId, stepped);
+  const mated = stepped.x === target.x && stepped.y === target.y;
+  if (mated && vessel.schedule === 'docked') next = unsealMatedDock(next, vesselId);
+  return next;
+}
+
+/**
+ * Fly nav-driven boats: ease each solo vessel toward station-keeping so
+ * departures pull away and arrivals swing into the mate instead of
+ * teleporting. Hire-loop vessels (transit record) keep schedule motion.
+ */
+export function tickNavVesselMotion(world: World, dtSeconds: number): World {
+  if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return world;
+  let next = world;
+  for (const systems of Object.values(world.ships)) {
+    next = easeNavVessel(next, systems.vesselId, dtSeconds);
+  }
+  return next;
 }
 
 /** DISTRESS tow: the vessel reappears docked at the given hub, bay open. */

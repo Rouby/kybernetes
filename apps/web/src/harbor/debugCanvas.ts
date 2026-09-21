@@ -11,7 +11,7 @@ import type {
   SnapshotBroadcast,
   TelemetryBroadcast,
 } from '@kybernetes/protocol';
-import { HARBOR_DOCK, type World } from '@kybernetes/sim-core';
+import type { World } from '@kybernetes/sim-core';
 import {
   type Camera,
   cameraFor,
@@ -42,10 +42,18 @@ export function nextOverlay(mode: DebugOverlayMode): DebugOverlayMode {
   return DEBUG_OVERLAY_ORDER[(index + 1) % DEBUG_OVERLAY_ORDER.length] ?? 'pressure';
 }
 
+export interface DockMouthLine {
+  readonly x1: number;
+  readonly y1: number;
+  readonly x2: number;
+  readonly y2: number;
+}
+
 export interface DebugModels {
   readonly rooms: readonly DebugRoom[];
   readonly portals: readonly DebugPortal[];
   readonly pawns: readonly DebugPawn[];
+  readonly docks: readonly DockMouthLine[];
 }
 
 export function buildDebugModels(
@@ -57,6 +65,7 @@ export function buildDebugModels(
     rooms: buildDebugRooms(staticWorld, snapshot, telemetry),
     portals: buildDebugPortals(staticWorld, snapshot, telemetry),
     pawns: buildDebugPawns(snapshot, null),
+    docks: Object.values(staticWorld.docks).map((dock) => ({ ...dock.mouthWorld })),
   };
 }
 
@@ -91,7 +100,7 @@ export function paintDebugScene(
   paintWind(ctx, canvas, camera, scene.portals);
   paintImpacts(ctx, canvas, camera, scene.snapshot);
   paintDecals(ctx, canvas, camera, scene.snapshot);
-  paintDockLink(ctx, canvas, camera, scene.snapshot);
+  paintDockLink(ctx, canvas, camera, scene.docks);
   paintPawns(ctx, canvas, camera, scene.pawns, scene.followId);
   paintShipMarker(ctx, canvas, scene.rooms, scene.followId);
 }
@@ -172,15 +181,22 @@ function paintArrow(
   ctx.fill();
 }
 
-/** Solid seamless tube: station tube mouth to ship mouth in world space. */
+/** Solid seamless tubes: every station tube mouth to its ship mouth in world space. */
 function paintDockLink(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
   camera: Camera,
-  snapshot: SnapshotBroadcast | null
+  docks: readonly DockMouthLine[]
 ): void {
-  if (snapshot === null) return;
-  const mouth = HARBOR_DOCK.mouthWorld;
+  for (const mouth of docks) paintDockMouth(ctx, canvas, camera, mouth);
+}
+
+function paintDockMouth(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  camera: Camera,
+  mouth: DockMouthLine
+): void {
   const a = toScreen(canvas, camera, mouth.x1, mouth.y1);
   const b = toScreen(canvas, camera, mouth.x2, mouth.y2);
   ctx.save();

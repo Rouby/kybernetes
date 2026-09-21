@@ -90,6 +90,7 @@ import {
   bareId,
   breachCountsByRoom,
   callsignFor,
+  dockGateIdsFor,
   frameOrigins,
   interpolateFocusOrigin,
   mapAtmos,
@@ -351,7 +352,11 @@ function frameDoors(
   view: HarborViewportProps,
   snapshot: SnapshotBroadcast
 ): void {
-  session.doors = applyDockGates(syncDoors(session.doors, snapshot), view.dock?.walkable === true);
+  session.doors = applyDockGates(
+    syncDoors(session.doors, snapshot),
+    view.dock?.walkable === true,
+    view.dock === null || view.dock === undefined ? undefined : dockGateIdsFor(view.dock)
+  );
 }
 
 export function renderViewport(

@@ -102,7 +102,8 @@ describe('thrust throttle', () => {
       TWO_CELLS,
       DT
     );
-    expect(first.nav.phase).toBe('in_transit');
+    expect(first.nav.phase).toBe('spooling');
+    expect(first.nav.remainingS).toBeCloseTo(SPOOL_S - DT, 5);
     expect(first.engineFuel).toBe(TWO_CELLS);
     const flown = tickMany(plottedHalf.nav, SPOOL_S + 2, { spool: 1, tune: 1 }, TWO_CELLS);
     expect(flown.nav.phase).toBe('in_transit');

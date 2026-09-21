@@ -62,6 +62,17 @@ function driver(host: SimHost): (seconds: number) => void {
   };
 }
 
+/** Walk the tube and board: hires from the station concourse are held. */
+function walkAboard(host: SimHost): void {
+  const drive = driver(host);
+  const pushEast = eastStepper(host, drive);
+  for (let i = 0; i < 400; i += 1) {
+    if (host.currentWorld.pawns['pawn:u1']?.frameId === 'ship') break;
+    pushEast();
+  }
+  expect(host.currentWorld.pawns['pawn:u1']?.frameId).toBe('ship');
+}
+
 describe('host loop sessions', () => {
   it('spawns fresh crew at the station and resumes them by userId', () => {
     const host = riggedHost();
@@ -149,6 +160,7 @@ describe('host loop sessions', () => {
     const host = riggedHost();
     host.handleIntent('c1', { type: 'HELLO', callsign: 'Rook', color: '#fff', clientVersion: 2 });
     host.handleIntent('c1', { type: 'JOIN_BEACON', beacon: HARBOR_BEACON, seq: 0, userId: 'u1' });
+    walkAboard(host);
     const talk = host.handleIntent('c1', { type: 'TALK', seq: 1, npcId: 'captain:ship' });
     expect(talk.offer?.jobs).toEqual(['engineer', 'deckhand']);
     if (talk.offer === undefined) throw new Error('no offer');

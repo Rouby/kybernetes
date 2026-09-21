@@ -287,14 +287,25 @@ export function dockGateIds(): readonly string[] {
   return [HARBOR_DOCK.stationPortal, HARBOR_DOCK.tubePortal, HARBOR_DOCK.vesselPortal];
 }
 
+/** Gate leaves for one dock broadcast (any hub, not just harbor). */
+export function dockGateIdsFor(
+  dock: Pick<DockStatusBroadcast, 'stationGate' | 'tubeGate' | 'vesselGate'>
+): readonly string[] {
+  return [dock.stationGate, dock.tubeGate, dock.vesselGate];
+}
+
 /**
  * Paint dock gates open while the cycle holds them walkable. Snapshots keep
  * the sealed-safe states for the air graph; feet, eyes, and prediction
  * read the overlaid doors.
  */
-export function applyDockGates(doors: DoorState[], walkable: boolean): DoorState[] {
+export function applyDockGates(
+  doors: DoorState[],
+  walkable: boolean,
+  gateIds: readonly string[] = dockGateIds()
+): DoorState[] {
   if (!walkable) return doors;
-  const gates = new Set(dockGateIds());
+  const gates = new Set(gateIds);
   let changed = false;
   const next = doors.map((door) => {
     if (!gates.has(door.id) || door.isOpen) return door;
@@ -356,15 +367,16 @@ export function stepFrameMotion(
 export function withDockWalkable(world: World, dock: DockStatusBroadcast | null): World {
   const schedule = dockVesselSchedule(dock);
   let next = world;
-  const vessel = next.vessels[HARBOR_DOCK.vesselFrame];
+  const vesselId = dock?.vesselId ?? HARBOR_DOCK.vesselFrame;
+  const vessel = next.vessels[vesselId];
   if (vessel !== undefined && vessel.schedule !== schedule) {
     next = {
       ...next,
-      vessels: { ...next.vessels, [HARBOR_DOCK.vesselFrame]: { ...vessel, schedule } },
+      vessels: { ...next.vessels, [vesselId]: { ...vessel, schedule } },
     };
   }
   if (dock?.walkable !== true) return next;
-  const gates = new Set(dockGateIds());
+  const gates = new Set(dockGateIdsFor(dock));
   let changed = false;
   const portals = { ...next.portals };
   for (const id of gates) {

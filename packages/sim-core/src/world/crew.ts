@@ -7,7 +7,9 @@
 import type { Role } from '@kybernetes/protocol';
 import { spawnPawn } from './assemble.js';
 import { ensureBot } from './bots.js';
-import { departVessel, roomAt } from './schedule.js';
+import { tubeOccupancy } from './dockCrossing.js';
+import { currentPortOf, type DockLink, departVessel, roomAt } from './schedule.js';
+import { hubPortForStation } from './ship/ports.js';
 import type { World } from './types.js';
 
 export interface CrewRecord {
@@ -118,17 +120,36 @@ function pickTwoJobs(rng01: () => number): readonly [Role, Role] {
   return [first, second];
 }
 
+/** Why a hire was held without consuming the offer: board first, or wait for the tube. */
+export type HireHold = 'aboard-first' | 'tube-busy';
+
+/** The vessel's dock at its current port, if any. */
+function dockForVesselPort(world: World, vesselId: string): DockLink | undefined {
+  const portHubId = currentPortOf(world, vesselId);
+  for (const dock of Object.values(world.docks)) {
+    if (dock.vesselFrame !== vesselId) continue;
+    const hub = hubPortForStation(dock.stationFrame);
+    if (hub === undefined || hub.hubId === portHubId) return dock;
+  }
+  return undefined;
+}
+
 export function hireAboard(
   world: World,
   vesselId: string,
   pawnId: string,
   job: Role,
   offerId: string
-): { world: World; hired: boolean } {
+): { world: World; hired: boolean; hold?: HireHold } {
   const offer = world.offers[offerId];
   const pawn = world.pawns[pawnId];
   if (offer === undefined || pawn === undefined) return { world, hired: false };
   if (offer.vesselId !== vesselId || !offer.jobs.includes(job)) return { world, hired: false };
+  if (pawn.frameId !== vesselId) return { world, hired: false, hold: 'aboard-first' };
+  const dock = dockForVesselPort(world, vesselId);
+  if (dock !== undefined && tubeOccupancy(world, dock.id)) {
+    return { world, hired: false, hold: 'tube-busy' };
+  }
   const prior = world.crew[pawnId];
   const offers = { ...world.offers };
   delete offers[offerId];

@@ -14,6 +14,7 @@ import type {
 import { PROTOCOL_VERSION } from '@kybernetes/protocol';
 import { harborWsUrl } from '../../harbor/harborEndpoint';
 import {
+  adoptDock,
   createHarborCaches,
   type HarborCaches,
   handleMessage,
@@ -78,7 +79,7 @@ export function createObserverStore(
       setPawnId: () => undefined,
       setNotices: () => undefined,
       setStats: (stats) => patch({ stats }),
-      setDock: (dock) => patch({ dock }),
+      setDock: (dock) => patch({ dock: adoptDock(state.dock, dock) }),
     };
   }
 

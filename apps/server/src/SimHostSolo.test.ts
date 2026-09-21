@@ -230,6 +230,39 @@ describe('SimHost solo spawn (M1)', () => {
     host.stop();
   });
 
+  it('warns the crew once on flameout', () => {
+    const host = new SimHost(buildSoloShipWorld(), DEFAULT_CLOCKS, null);
+    host.spawnAboardOwnShip('c1', 'Rook', '#fff', 'u1');
+    const systems = host.currentWorld.ships.ship;
+    if (systems === undefined) throw new Error('missing ship systems');
+    host.debugSetWorld({
+      ...host.currentWorld,
+      ships: {
+        ...host.currentWorld.ships,
+        ship: {
+          ...systems,
+          nav: {
+            phase: 'in_transit',
+            destHubId: 'hub_b',
+            remainingS: 60,
+            legId: 1,
+            portHubId: 'hub_a',
+            flameout: true,
+            extraBurned: true,
+            stops: ['hub_b'],
+            legIndex: 0,
+          },
+        },
+      },
+    });
+    const first = host.drainShipNotices();
+    expect(first.some((notice) => notice.title === 'Adrift — flameout')).toBe(true);
+    expect(host.drainShipNotices().some((notice) => notice.title === 'Adrift — flameout')).toBe(
+      false
+    );
+    host.stop();
+  });
+
   it('routes SPAWN_ABOARD intents without notices', () => {
     const host = new SimHost(buildHarborWorld(), DEFAULT_CLOCKS, null);
     const result = host.handleIntent('c9', { type: 'SPAWN_ABOARD', seq: 1, userId: 'u9' });

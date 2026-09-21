@@ -286,6 +286,21 @@ function emptySnapshot(delta: SnapshotDeltaBroadcast): SnapshotBroadcast {
   };
 }
 
+/**
+ * Adopt rule for multi-dock streams: walkable docks win (arrival), updates
+ * for the adopted dock always apply, and the last non-walkable state sticks
+ * so mid-transit broadcasts never flap between far docks.
+ */
+export function adoptDock(
+  prev: DockStatusBroadcast | null,
+  next: DockStatusBroadcast
+): DockStatusBroadcast {
+  if (prev === null) return next;
+  if (next.walkable) return next;
+  if (next.dockId === prev.dockId) return next;
+  return prev;
+}
+
 export function handleMessage(data: string, caches: HarborCaches, setters: SnapshotSetters): void {
   let msg: Record<string, unknown>;
   try {

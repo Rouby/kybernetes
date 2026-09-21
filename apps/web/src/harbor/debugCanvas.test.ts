@@ -1,6 +1,8 @@
 /** @vitest-environment node */
+import { buildSoloShipWorld } from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
 import {
+  buildDebugModels,
   DEBUG_OVERLAY_ORDER,
   debugAirLine,
   debugDockLine,
@@ -55,6 +57,12 @@ describe('debug status lines', () => {
       'rooms:2 vents:1 winds:1 overlay:o2 overview'
     );
     expect(debugAirLine(rooms, portals, 'temp', 'p1')).toContain('follow:p1');
+  });
+
+  it('collects every dock mouth line for the overlay', () => {
+    const models = buildDebugModels(buildSoloShipWorld(), null, null);
+    expect(models.docks).toHaveLength(2);
+    expect(models.docks[0]).toMatchObject({ x1: 1210, y1: 240, x2: 1210, y2: 280 });
   });
 
   it('lists pawn links and server stats', () => {

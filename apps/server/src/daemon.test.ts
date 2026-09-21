@@ -144,6 +144,26 @@ function vitalsDead(message: WireMessage): boolean {
   return (message.vitals as { dead?: boolean } | undefined)?.dead === true;
 }
 
+async function walkAboardShip(ws: WebSocket, pawnId: string): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  let seq = 0;
+  for (;;) {
+    const snapshot = await waitForSnapshot(ws);
+    const pawns = snapshot.pawns as { id: string; frameId: string }[] | undefined;
+    if (pawns?.find((pawn) => pawn.id === pawnId)?.frameId === 'ship') return;
+    if (Date.now() > deadline) throw new Error('pawn never boarded');
+    seq += 1;
+    send(ws, {
+      type: 'INPUT',
+      seq,
+      moveVec: { x: 1, y: 0 },
+      facing: 0,
+      sprint: false,
+      sealed: false,
+    });
+  }
+}
+
 async function stepEast(killer: WebSocket): Promise<void> {
   send(killer, {
     type: 'INPUT',
@@ -312,15 +332,22 @@ describe('HarborDaemon v2 transport', () => {
     const { port } = await startDaemon(0, buildHarborWorld);
     const ws = await connectAndJoin(port, 'Sable', 'e2e-2');
     sockets.push(ws);
-    send(ws, { type: 'TALK', seq: 1, npcId: 'captain:ship' });
+    // Hires from the station concourse are held: walk the tube and board first.
+    await walkAboardShip(ws, 'pawn:e2e-2');
+    send(ws, { type: 'TALK', seq: 1001, npcId: 'captain:ship' });
     const offer = await waitForType(ws, 'HIRE_OFFER');
     const jobs = offer.jobs as string[];
     expect(jobs).toHaveLength(2);
-    send(ws, { type: 'HIRE', seq: 2, offerId: offer.offerId as string, job: jobs[0] as string });
+    send(ws, {
+      type: 'HIRE',
+      seq: 1002,
+      offerId: offer.offerId as string,
+      job: jobs[0] as string,
+    });
     const manifest = await waitForType(ws, 'MANIFEST');
     const crew = manifest.crew as { callsign: string; role: string }[];
     expect(crew.find((entry) => entry.callsign === 'Sable')?.role).toBe(jobs[0]);
-  }, 15_000);
+  }, 90_000);
 
   it('moves pawns on input and drops malformed packets safely', async () => {
     const { daemon, port } = await startDaemon();

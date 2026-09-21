@@ -1,7 +1,7 @@
 /**
  * Trade-hub ports (TRANSFORM M3). The solo loop sails between fixed hubs;
  * each hub names its station frame and dock link. Station frames are static
- * world geometry; the vessel teleports between dock mouths on arrival
+ * world geometry; the hull eases between dock mouths and far holding
  * (abstract transit, no flyable ship). Dependency-free on purpose: schedule,
  * dockStatus, and systems all read this table without import cycles.
  */

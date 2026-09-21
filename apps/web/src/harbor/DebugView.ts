@@ -32,7 +32,7 @@ const MONO = '"Courier New", Courier, monospace';
 export class DebugView {
   private overlay: DebugOverlayMode = 'pressure';
   private followId: string | null = null;
-  private models: DebugModels = { rooms: [], portals: [], pawns: [] };
+  private models: DebugModels = { rooms: [], portals: [], pawns: [], docks: [] };
   private lastState: ObserverState | null = null;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D | null;

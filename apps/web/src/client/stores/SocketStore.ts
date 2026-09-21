@@ -29,6 +29,7 @@ import type {
 import { PROTOCOL_VERSION, shouldResumeAfterClose } from '@kybernetes/protocol';
 import { harborWsUrl } from '../../harbor/harborEndpoint';
 import {
+  adoptDock,
   createHarborCaches,
   type HarborCaches,
   type HarborIdentity,
@@ -178,7 +179,7 @@ export function createSocketStore(identity: HarborIdentity, factory?: SocketFact
         patch({ notices: next });
       },
       setStats: (stats) => patch({ stats }),
-      setDock: (dock) => patch({ dock }),
+      setDock: (dock) => patch({ dock: adoptDock(state.dock, dock) }),
       setDeath: (death) => patch({ death }),
       setShipSystems: (shipSystems) => patch({ shipSystems }),
       setShipStatus: (shipStatus) => patch({ shipStatus }),

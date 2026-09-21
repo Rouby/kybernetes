@@ -1,5 +1,6 @@
 import type {
   ChartStateBroadcast,
+  DockStatusBroadcast,
   ManifestBroadcast,
   NavStateBroadcast,
   ShipLostBroadcast,
@@ -11,7 +12,7 @@ import type {
   WatchBroadcast,
 } from '@kybernetes/protocol';
 import { describe, expect, it, vi } from 'vitest';
-import { createHarborCaches, type HarborCaches, handleMessage } from './socketCore';
+import { adoptDock, createHarborCaches, type HarborCaches, handleMessage } from './socketCore';
 
 function setters() {
   return {
@@ -381,6 +382,47 @@ describe('harbor socket merge guards', () => {
     handleMessage(JSON.stringify({ ...watch, tick: 32, remainingS: 19 }), caches, wire(store));
     expect(store.calls.watch).toBe(2);
     expect(store.watch?.remainingS).toBe(19);
+  });
+
+  it('adopts walkable docks without flapping mid-transit', () => {
+    const dock = (over: Partial<DockStatusBroadcast>): DockStatusBroadcast => ({
+      type: 'DOCK_STATUS',
+      v: 2,
+      tick: 1,
+      serverTimeMs: 1,
+      vesselId: 'ship',
+      dockId: 'harbor',
+      phase: 'docked',
+      walkable: true,
+      secondsToSeal: 0,
+      stationGate: 'station.korridor_ost_andock',
+      tubeGate: 'station.andock_tube_mund',
+      vesselGate: 'ship.schiff_mund',
+      tubeRoom: 'station.andock_tube',
+      mouthWorld: { x1: 1210, y1: 240, x2: 1210, y2: 280 },
+      ...over,
+    });
+    const harbor = dock({});
+    expect(adoptDock(null, harbor)).toBe(harbor);
+    const departed = dock({ phase: 'in_transit', walkable: false });
+    expect(adoptDock(harbor, departed)).toBe(departed);
+    const farHub = dock({
+      dockId: 'hub_b_harbor',
+      phase: 'in_transit',
+      walkable: false,
+      stationGate: 'hub_b.korridor_ost_andock',
+      tubeGate: 'hub_b.andock_tube_mund',
+      tubeRoom: 'hub_b.andock_tube',
+    });
+    expect(adoptDock(departed, farHub)).toBe(departed);
+    const arrived = dock({
+      dockId: 'hub_b_harbor',
+      walkable: true,
+      stationGate: 'hub_b.korridor_ost_andock',
+      tubeGate: 'hub_b.andock_tube_mund',
+      tubeRoom: 'hub_b.andock_tube',
+    });
+    expect(adoptDock(departed, arrived)).toBe(arrived);
   });
 
   it('drops malformed JSON without calling setters', () => {
