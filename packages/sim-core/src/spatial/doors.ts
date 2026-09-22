@@ -9,6 +9,7 @@ import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
 import { StationHubSpec } from '../world/content/StationHub.hull.js';
 import { compileHull } from '../world/hullCompiler.js';
+import { stationOriginFor } from '../world/ship/ports.js';
 import type { PortalEdge } from '../world/types.js';
 import { closestPointOnSegment, resolvePawnMovement } from './collision';
 import {
@@ -16,6 +17,7 @@ import {
   getShipFrameWalls,
   getStationFrameWalls,
   isAboardShip,
+  isShipSideRoom,
 } from './deck';
 
 interface CompiledDoorSeed {
@@ -106,13 +108,12 @@ export function isGauntletDoorId(doorId: string): boolean {
 }
 
 export function isStationSideDoor(door: DoorState): boolean {
-  const stationSide = (roomId: string): boolean => roomId.startsWith('station.');
-  return stationSide(door.roomA) && stationSide(door.roomB);
+  return !isShipSideRoom(door.roomA) && !isShipSideRoom(door.roomB);
 }
 
 export function getWorldDoors(doors: DoorState[], offset: DockFrameOffset): DoorState[] {
   return doors.map((d) => {
-    if (isStationSideDoor(d)) return d;
+    if (isStationSideDoor(d)) return offsetStationDoor(d);
     return {
       ...d,
       x1: d.x1 + offset.x,
@@ -121,6 +122,20 @@ export function getWorldDoors(doors: DoorState[], offset: DockFrameOffset): Door
       y2: d.y2 + offset.y,
     };
   });
+}
+
+/** Station doors ride their frame origin (home passes through untouched). */
+function offsetStationDoor(door: DoorState): DoorState {
+  const cut = door.roomA.indexOf('.');
+  const origin = stationOriginFor(cut < 0 ? '' : door.roomA.slice(0, cut));
+  if (origin.x === 0 && origin.y === 0) return door;
+  return {
+    ...door,
+    x1: door.x1 + origin.x,
+    y1: door.y1 + origin.y,
+    x2: door.x2 + origin.x,
+    y2: door.y2 + origin.y,
+  };
 }
 
 function closedDoorSegments(doors: DoorState[], stationSide: boolean): WallSegment[] {

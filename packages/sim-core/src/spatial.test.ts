@@ -10,6 +10,7 @@ import {
 } from './spatial/collision';
 import {
   createDefaultDeck,
+  getBreachLocation,
   HESPERIA_LIGHTS,
   HESPERIA_ROOMS,
   HESPERIA_SPAWNS,
@@ -32,7 +33,7 @@ describe('Deck Layout & Geometry', () => {
     expect(deck.height).toBe(800);
     expect(deck.walls.length).toBeGreaterThan(15);
     expect(deck.stations.length).toBe(16);
-    expect(HESPERIA_ROOMS.length).toBe(17);
+    expect(HESPERIA_ROOMS.length).toBe(56);
   });
 
   it('defines valid spawn points for all 5 starting roles', () => {
@@ -79,6 +80,23 @@ describe('Spatial Collision & Sliding Math', () => {
     const b = { x: 100, y: 0 };
     expect(distanceToSegment({ x: 50, y: 20 }, a, b)).toBeCloseTo(20);
     expect(distanceToSegment({ x: 120, y: 0 }, a, b)).toBeCloseTo(20);
+  });
+
+  it('renders every station frame at world coords', () => {
+    const cinder = HESPERIA_ROOMS.find((room) => room.id === 'hub_c.frachthalle');
+    expect(cinder).toMatchObject({ x: 300, y: 8280, width: 220, height: 200 });
+    expect(HESPERIA_ROOMS.some((room) => room.id === 'hub_b.hangar')).toBe(true);
+    expect(HESPERIA_ROOMS.some((room) => room.id === 'hub_c.labor')).toBe(true);
+    expect(HESPERIA_ROOMS.some((room) => room.id === 'hub_d.observatorium')).toBe(true);
+    const cinderWalls = HESPERIA_WALLS.filter((wall) => wall.id.startsWith('hub_c.frachthalle.'));
+    expect(cinderWalls.length).toBeGreaterThan(0);
+    for (const wall of cinderWalls) {
+      expect(wall.y1).toBeGreaterThanOrEqual(8280);
+      expect(wall.y2).toBeGreaterThanOrEqual(8280);
+    }
+    const cinderLamp = HESPERIA_LIGHTS.find((light) => light.id === 'light_hub_c.frachthalle');
+    expect(cinderLamp?.room).toBe('hub_c.frachthalle');
+    expect(getBreachLocation('hub_c.frachthalle')?.x).toBeCloseTo(410, 0);
   });
 
   it('measures segment motion, not snapshots', () => {

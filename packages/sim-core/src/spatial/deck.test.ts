@@ -36,7 +36,17 @@ describe('station hub fixtures', () => {
 
   it('glazes the habitat with a sight-passing window wall', () => {
     const wins = HESPERIA_WALLS.filter((w) => w.isWindow);
-    expect(wins.map((w) => w.id).sort()).toEqual(['portal.habitat_window', 'portal.sued_window']);
+    expect(wins.map((w) => w.id).sort()).toEqual([
+      'portal.habitat_window',
+      'portal.habitat_window',
+      'portal.habitat_window',
+      'portal.habitat_window',
+      'portal.observatorium_window',
+      'portal.sued_window',
+      'portal.sued_window',
+      'portal.sued_window',
+      'portal.sued_window',
+    ]);
     for (const w of wins) {
       expect(w.isOpaque).toBe(false);
       expect(w.isTraversable).toBe(false);

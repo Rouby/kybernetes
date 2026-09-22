@@ -20,8 +20,10 @@ import type {
 } from '@kybernetes/protocol';
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
 import { StationHubSpec } from '../world/content/StationHub.hull.js';
+import { stationHullFor } from '../world/content/StationVariants.hull.js';
 import { compileHull, toLegacyWalls } from '../world/hullCompiler.js';
 import { SHIP_ORIGIN } from '../world/schedule.js';
+import { HUB_PORTS, stationOriginFor } from '../world/ship/ports.js';
 
 export interface RoomDefinition {
   id: string;
@@ -51,6 +53,9 @@ const ROOM_NAMES: Record<string, string> = {
   kommando: 'Command Bridge',
   hydroponik: 'Hydroponics',
   frachthalle: 'Freight Hall',
+  labor: 'Laboratory',
+  hangar: 'Hangar Bay',
+  observatorium: 'Observatory',
   reaktorraum: 'Reactor Room',
   sicherheit_sued: 'Security South',
   korridor_ost: 'East Dock Spine',
@@ -100,15 +105,101 @@ const SHIP_WALLS_LOCAL: WallSegment[] = toLegacyWalls(shipHull);
 
 const SHIP_WALL_IDS = new Set(SHIP_WALLS_LOCAL.map((wall) => wall.id));
 
-export const HESPERIA_ROOMS: RoomDefinition[] = LOCAL_ROOMS.map((room) => ({
-  id: room.id,
-  name: room.name,
-  x: room.x,
-  y: room.y,
-  width: room.width,
-  height: room.height,
-  tag: room.frame,
-}));
+/** Compiled per-hub geometry (local coords) for every non-home station frame. */
+interface HubFrameTable {
+  readonly frame: string;
+  readonly originX: number;
+  readonly originY: number;
+  readonly rooms: readonly { id: string; rect: { x: number; y: number; w: number; h: number } }[];
+  readonly walls: readonly WallSegment[];
+}
+
+function hubFrameTables(): HubFrameTable[] {
+  const tables: HubFrameTable[] = [];
+  for (const port of Object.values(HUB_PORTS)) {
+    if (port.stationFrame === 'station') continue;
+    const compiled = compileHull({ ...stationHullFor(port.hubId), frameId: port.stationFrame });
+    const origin = stationOriginFor(port.stationFrame);
+    tables.push({
+      frame: port.stationFrame,
+      originX: origin.x,
+      originY: origin.y,
+      rooms: compiled.rooms.map((room) => ({ id: room.id, rect: { ...room.rect } })),
+      walls: toLegacyWalls(compiled),
+    });
+  }
+  return tables;
+}
+
+const HUB_TABLES = hubFrameTables();
+
+function hubRoomEntries(): RoomDefinition[] {
+  const entries: RoomDefinition[] = [];
+  for (const table of HUB_TABLES) {
+    for (const room of table.rooms) {
+      entries.push({
+        id: `${table.frame}.${room.id}`,
+        name: titleize(room.id),
+        x: room.rect.x + table.originX,
+        y: room.rect.y + table.originY,
+        width: room.rect.w,
+        height: room.rect.h,
+        tag: 'station',
+      });
+    }
+  }
+  return entries;
+}
+
+function hubWallEntries(): WallSegment[] {
+  const entries: WallSegment[] = [];
+  for (const table of HUB_TABLES) {
+    for (const wall of table.walls) {
+      entries.push({
+        ...wall,
+        x1: wall.x1 + table.originX,
+        y1: wall.y1 + table.originY,
+        x2: wall.x2 + table.originX,
+        y2: wall.y2 + table.originY,
+      });
+    }
+  }
+  return entries;
+}
+
+function hubLightEntries(): LightDefinition[] {
+  const entries: LightDefinition[] = [];
+  for (const table of HUB_TABLES) {
+    for (const room of table.rooms) {
+      const id = `${table.frame}.${room.id}`;
+      entries.push({
+        id: `light_${id}`,
+        name: `${titleize(room.id)} Lamp`,
+        x: room.rect.x + table.originX + room.rect.w / 2,
+        y: room.rect.y + table.originY + room.rect.h / 2,
+        radius: Math.min(Math.max(room.rect.w, room.rect.h) * 0.8, 220),
+        intensity: 1.05,
+        color: [1.0, 0.88, 0.72],
+        room: id,
+        ...(room.id === 'reaktorraum' ? { flickerSpeed: 7, flickerAmount: 0.12 } : {}),
+      });
+    }
+  }
+  return entries;
+}
+
+export const HESPERIA_ROOMS: RoomDefinition[] = [
+  ...LOCAL_ROOMS.map((room) => ({
+    id: room.id,
+    name: room.name,
+    x: room.x,
+    y: room.y,
+    width: room.width,
+    height: room.height,
+    tag: room.frame,
+  })),
+  ...hubRoomEntries(),
+];
 
 export const STATION_BAY_SPAWN = { x: 410, y: 380 };
 
@@ -117,7 +208,11 @@ export const STATION_BAY_SPAWN = { x: 410, y: 380 };
  * visibility, framed movement) adds the ship offset itself. World-baking here
  * would double the offset. Station walls sit at the origin either way.
  */
-export const HESPERIA_WALLS: WallSegment[] = [...STATION_WALLS, ...SHIP_WALLS_LOCAL];
+export const HESPERIA_WALLS: WallSegment[] = [
+  ...STATION_WALLS,
+  ...SHIP_WALLS_LOCAL,
+  ...hubWallEntries(),
+];
 
 /**
  * Fixtures compiled from harbor rooms (frame-LOCAL like walls/doors; the
@@ -322,19 +417,28 @@ export interface LightDefinition {
   flickerAmount?: number;
 }
 
-export const HESPERIA_LIGHTS: LightDefinition[] = LOCAL_ROOMS.map((room) => ({
-  id: `light_${room.id}`,
-  name: `${room.name} Lamp`,
-  x: room.x + room.width / 2,
-  y: room.y + room.height / 2,
-  radius: Math.min(Math.max(room.width, room.height) * 0.8, 220),
-  intensity: 1.05,
-  color: [1.0, 0.88, 0.72],
-  room: room.id,
-  ...(room.id === 'reaktor_antrieb' || room.id === 'reaktorraum'
-    ? { flickerSpeed: 7, flickerAmount: 0.12 }
-    : {}),
-}));
+export const HESPERIA_LIGHTS: LightDefinition[] = [
+  ...LOCAL_ROOMS.map((room) => ({
+    id: `light_${room.id}`,
+    name: `${room.name} Lamp`,
+    x: room.x + room.width / 2,
+    y: room.y + room.height / 2,
+    radius: Math.min(Math.max(room.width, room.height) * 0.8, 220),
+    intensity: 1.05,
+    color: [1.0, 0.88, 0.72] as [number, number, number],
+    room: room.id,
+    ...(room.id === 'reaktor_antrieb' || room.id === 'reaktorraum'
+      ? { flickerSpeed: 7, flickerAmount: 0.12 }
+      : {}),
+  })),
+  ...hubLightEntries(),
+];
+
+/** Ambient tint for a room, frame-prefixed ids included. */
+export function roomAmbientFor(roomId: string): readonly [number, number, number] {
+  const bare = roomId.includes('.') ? (roomId.split('.').pop() ?? roomId) : roomId;
+  return ROOM_AMBIENTS[bare] ?? [0.2, 0.2, 0.2];
+}
 
 export const ROOM_AMBIENTS: Record<string, [number, number, number]> = {
   korridor_mitte: [0.06, 0.07, 0.1],
@@ -453,6 +557,8 @@ function punctureLocation(breachId: string, x: number, y: number): BreachLocatio
 
 export function getBreachLocation(breachId: string): BreachLocation | null {
   if (!breachId) return null;
+  const direct = HESPERIA_BREACH_LOCATIONS[breachId];
+  if (direct !== undefined) return direct;
   const bare = bareBreachId(breachId);
   if (bare.startsWith('puncture_')) {
     const coords = punctureCoords(bare);
@@ -466,27 +572,57 @@ function roomTopAnchor(room: LocalRoom): { x: number; y: number } {
   return { x: room.x + room.width / 2, y: room.y };
 }
 
-export const HESPERIA_BREACH_LOCATIONS: Record<string, BreachLocation> = Object.fromEntries(
-  LOCAL_ROOMS.map((room) => {
-    const anchor = roomTopAnchor(room);
-    const wall = nearestWall(anchor.x, anchor.y);
-    const normal =
-      wall === undefined
-        ? { normalX: 0, normalY: -1 }
-        : wallNormal(wall, anchor.x, anchor.y + room.height / 2);
-    return [
-      room.id,
-      {
-        roomId: room.id,
+export const HESPERIA_BREACH_LOCATIONS: Record<string, BreachLocation> = {
+  ...Object.fromEntries(
+    LOCAL_ROOMS.map((room) => {
+      const anchor = roomTopAnchor(room);
+      const wall = nearestWall(anchor.x, anchor.y);
+      const normal =
+        wall === undefined
+          ? { normalX: 0, normalY: -1 }
+          : wallNormal(wall, anchor.x, anchor.y + room.height / 2);
+      return [
+        room.id,
+        {
+          roomId: room.id,
+          wallId: wall?.id ?? 'hull_top_l',
+          x: anchor.x,
+          y: anchor.y,
+          normalX: normal.normalX,
+          normalY: normal.normalY,
+        },
+      ];
+    })
+  ),
+  ...hubBreachLocations(),
+};
+
+function hubBreachLocations(): Record<string, BreachLocation> {
+  const entries: Record<string, BreachLocation> = {};
+  for (const table of HUB_TABLES) {
+    for (const room of table.rooms) {
+      const id = `${table.frame}.${room.id}`;
+      const anchor = {
+        x: room.rect.x + table.originX + room.rect.w / 2,
+        y: room.rect.y + table.originY,
+      };
+      const wall = nearestWall(anchor.x, anchor.y);
+      const normal =
+        wall === undefined
+          ? { normalX: 0, normalY: -1 }
+          : wallNormal(wall, anchor.x, anchor.y + room.rect.h / 2);
+      entries[id] = {
+        roomId: id,
         wallId: wall?.id ?? 'hull_top_l',
         x: anchor.x,
         y: anchor.y,
         normalX: normal.normalX,
         normalY: normal.normalY,
-      },
-    ];
-  })
-);
+      };
+    }
+  }
+  return entries;
+}
 
 export function carveBreachedWallSegments(
   walls: WallSegment[],
@@ -666,6 +802,9 @@ export const STATION_ROOM_IDS = new Set<string>([
   'kommando',
   'hydroponik',
   'frachthalle',
+  'labor',
+  'hangar',
+  'observatorium',
   'reaktorraum',
   'sicherheit_sued',
   'korridor_ost',

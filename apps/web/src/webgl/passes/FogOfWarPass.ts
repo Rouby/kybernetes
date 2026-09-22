@@ -4,7 +4,7 @@ import {
   type ExplorationGrid,
   getWorldRooms,
   type Point2D,
-  ROOM_AMBIENTS,
+  roomAmbientFor,
 } from '@kybernetes/sim-core';
 import { createProgram } from '../glUtils';
 import { FOW_AMBIENT_FS, FOW_AMBIENT_VS, FOW_STAMP_FS, FOW_STAMP_VS } from '../shaders';
@@ -165,7 +165,7 @@ export class FogOfWarPass {
     gl.uniform1i(gl.getUniformLocation(this.fowAmbientProg, 'u_fowTexture'), 0);
 
     for (const room of getWorldRooms({ x: shipDx, y: shipDy })) {
-      const amb = ROOM_AMBIENTS[room.id] ?? [0.2, 0.2, 0.2];
+      const amb = roomAmbientFor(room.id);
       gl.uniform3f(
         gl.getUniformLocation(this.fowAmbientProg, 'u_roomAmbient'),
         amb[0],

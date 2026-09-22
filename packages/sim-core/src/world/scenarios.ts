@@ -13,6 +13,7 @@ import { stationHullFor } from './content/StationVariants.hull.js';
 import { ensureCaptain } from './crew.js';
 import { type DockLink, initialTransit, SHIP_ORIGIN } from './schedule.js';
 import { spawnCrate } from './ship/cargo.js';
+import { stationOriginFor } from './ship/ports.js';
 import type { World } from './types.js';
 
 export const HARBOR_STATION = 'station';
@@ -70,15 +71,15 @@ export function buildHarborWorld(): World {
  */
 export const HUB_B_STATION = 'hub_b';
 
-export const HUB_B_ORIGIN = { x: 0, y: 4000 };
+export const HUB_B_ORIGIN = stationOriginFor('hub_b');
 
 export const HUB_C_STATION = 'hub_c';
 
-export const HUB_C_ORIGIN = { x: 0, y: 8000 };
+export const HUB_C_ORIGIN = stationOriginFor('hub_c');
 
 export const HUB_D_STATION = 'hub_d';
 
-export const HUB_D_ORIGIN = { x: 0, y: 12000 };
+export const HUB_D_ORIGIN = stationOriginFor('hub_d');
 
 function hubDock(id: string, stationFrame: string, origin: { x: number; y: number }): DockLink {
   return {

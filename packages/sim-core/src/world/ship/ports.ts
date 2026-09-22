@@ -36,6 +36,24 @@ export function isHubId(value: unknown): value is string {
   return typeof value === 'string' && HUB_PORTS[value] !== undefined;
 }
 
+export interface StationOrigin {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Station-frame origins in world px; render tables bake these in. */
+export const STATION_ORIGINS: Readonly<Record<string, StationOrigin>> = {
+  station: { x: 0, y: 0 },
+  hub_b: { x: 0, y: 4000 },
+  hub_c: { x: 0, y: 8000 },
+  hub_d: { x: 0, y: 12000 },
+};
+
+/** Origin for a station frame; unknown frames sit at the origin. */
+export function stationOriginFor(frameId: string): StationOrigin {
+  return STATION_ORIGINS[frameId] ?? { x: 0, y: 0 };
+}
+
 export interface ChartLane {
   readonly a: string;
   readonly b: string;
