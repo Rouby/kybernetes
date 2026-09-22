@@ -1,6 +1,7 @@
 import type {
   AirFlow,
   BoardingTacticsTelemetry,
+  DockMouthWorld,
   DoorState,
   PawnState,
   ProjectileState,
@@ -131,6 +132,7 @@ export interface DockRenderState {
   readonly walkable: boolean;
   readonly phase: string;
   readonly secondsToSeal: number;
+  readonly mouthWorld?: DockMouthWorld;
 }
 
 /** Welder arcs feeding the light and emissive passes (live state or arc list). */
@@ -1326,7 +1328,13 @@ export class WebGL2Renderer {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       return;
     }
-    this.deckPass.renderOuterHull(this.flatProg, this.flatVAO, matrix, timeSec);
+    this.deckPass.renderOuterHull(
+      this.flatProg,
+      this.flatVAO,
+      matrix,
+      timeSec,
+      state.visibleFrames
+    );
     this.renderEngineGlow(matrix, state, timeSec);
     this.deckPass.renderDeckFloors(
       matrix,

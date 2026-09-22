@@ -993,12 +993,13 @@ function dispatchDeathAction(wiring: GlSessionWiring, id: string): void {
   else if (id === 'quit') wiring.onQuit();
 }
 
-function dockRenderView(dock: HarborViewportProps['dock']): WebGLRenderState['dock'] {
-  if (dock === null) return undefined;
+export function dockRenderView(dock: HarborViewportProps['dock']): WebGLRenderState['dock'] {
+  if (dock === null || dock === undefined) return undefined;
   return {
     walkable: dock.walkable,
     phase: dock.phase,
     secondsToSeal: dock.secondsToSeal,
+    mouthWorld: dock.mouthWorld,
   };
 }
 

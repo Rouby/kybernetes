@@ -1,4 +1,4 @@
-import type { DoorState } from '@kybernetes/protocol';
+import type { DockMouthWorld, DoorState } from '@kybernetes/protocol';
 import {
   applyShipOffsetToWalls,
   BREACH_GLOW_S,
@@ -10,6 +10,7 @@ import {
   isShipSideRoom,
   isStationSideDoor,
   keepLoaded,
+  STATION_ORIGINS,
   stationFrameOf,
   TICKS_PER_S,
 } from '@kybernetes/sim-core';
@@ -146,6 +147,151 @@ function renderHullGreebles(
   drawQuad(gl, buf, 230, 585, 10, 4);
   drawQuad(gl, buf, -20, 656, 10, 4);
   drawQuad(gl, buf, 230, 656, 10, 4);
+}
+
+export interface TubeOrigin {
+  readonly x: number;
+  readonly y: number;
+}
+
+export function tubeOrigin(mouth?: Pick<DockMouthWorld, 'x1' | 'y1'>): TubeOrigin {
+  if (mouth === undefined) return { x: 0, y: 0 };
+  return { x: mouth.x1 - 1210, y: mouth.y1 - 240 };
+}
+
+export interface StationPlateOrigin {
+  readonly frame: string;
+  readonly origin: { x: number; y: number };
+}
+
+export function visibleStationOrigins(
+  visibleFrames?: ReadonlySet<string>
+): readonly StationPlateOrigin[] {
+  const result: StationPlateOrigin[] = [];
+  for (const [frame, origin] of Object.entries(STATION_ORIGINS)) {
+    if (!keepLoaded(visibleFrames, frame)) continue;
+    result.push({ frame, origin });
+  }
+  return result;
+}
+
+function renderWalkableTube(
+  gl: WebGL2RenderingContext,
+  buf: WebGLBuffer,
+  prog: WebGLProgram,
+  origin: TubeOrigin
+): void {
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.16, 0.19, 0.26, 1.0);
+  drawQuad(gl, buf, 1140 + origin.x, 244 + origin.y, 70, 32);
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.0, 0.9, 1.0, 0.85);
+  const guides: number[] = [];
+  addThickSegment(guides, 1140 + origin.x, 244 + origin.y, 1210 + origin.x, 244 + origin.y, 2);
+  addThickSegment(guides, 1140 + origin.x, 276 + origin.y, 1210 + origin.x, 276 + origin.y, 2);
+  addThickSegment(guides, 1140 + origin.x, 236 + origin.y, 1140 + origin.x, 284 + origin.y, 2.4);
+  addThickSegment(guides, 1210 + origin.x, 240 + origin.y, 1210 + origin.x, 280 + origin.y, 2.4);
+  bufferAndDraw(gl, buf, new Float32Array(guides));
+}
+
+function renderStationSeals(
+  gl: WebGL2RenderingContext,
+  buf: WebGLBuffer,
+  prog: WebGLProgram,
+  origin: TubeOrigin,
+  timeSec: number
+): void {
+  const blink = 0.5 + 0.5 * Math.sin(timeSec * 6);
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
+  const seals: number[] = [];
+  addThickSegment(seals, 1140 + origin.x, 230 + origin.y, 1140 + origin.x, 290 + origin.y, 4);
+  bufferAndDraw(gl, buf, new Float32Array(seals));
+}
+
+function renderShipSeals(
+  gl: WebGL2RenderingContext,
+  buf: WebGLBuffer,
+  prog: WebGLProgram,
+  timeSec: number
+): void {
+  const blink = 0.5 + 0.5 * Math.sin(timeSec * 6);
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
+  const shipSeals: number[] = [];
+  addThickSegment(shipSeals, 0, 320, 0, 360, 4);
+  bufferAndDraw(gl, buf, new Float32Array(shipSeals));
+}
+
+function renderStationPlates(
+  gl: WebGL2RenderingContext,
+  buf: WebGLBuffer,
+  prog: WebGLProgram,
+  visibleFrames?: ReadonlySet<string>
+): void {
+  for (const { origin } of visibleStationOrigins(visibleFrames)) {
+    gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.09, 0.11, 0.16, 1.0);
+    drawQuad(gl, buf, -24 + origin.x, -24 + origin.y, 1188, 528);
+    gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.22, 0.28, 0.38, 1.0);
+    const stationLines: number[] = [];
+    addThickSegment(
+      stationLines,
+      -24 + origin.x,
+      -24 + origin.y,
+      1164 + origin.x,
+      -24 + origin.y,
+      4
+    );
+    addThickSegment(
+      stationLines,
+      1164 + origin.x,
+      -24 + origin.y,
+      1164 + origin.x,
+      504 + origin.y,
+      4
+    );
+    addThickSegment(
+      stationLines,
+      1164 + origin.x,
+      504 + origin.y,
+      -24 + origin.x,
+      504 + origin.y,
+      4
+    );
+    addThickSegment(
+      stationLines,
+      -24 + origin.x,
+      504 + origin.y,
+      -24 + origin.x,
+      -24 + origin.y,
+      4
+    );
+    bufferAndDraw(gl, buf, new Float32Array(stationLines));
+  }
+}
+
+function renderShipOuterHull(
+  gl: WebGL2RenderingContext,
+  buf: WebGLBuffer,
+  prog: WebGLProgram
+): void {
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.07, 0.09, 0.13, 1.0);
+  drawQuad(gl, buf, HULL_PLATE.x, HULL_PLATE.y, HULL_PLATE.w, HULL_PLATE.h);
+  renderHullNoseCap(gl, buf);
+  renderHullEngineHousing(gl, buf, prog);
+
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.1, 0.12, 0.17, 1.0);
+  const armorBand: number[] = [];
+  addHullLoop(armorBand, 18);
+  bufferAndDraw(gl, buf, new Float32Array(armorBand));
+
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.28, 0.34, 0.45, 1.0);
+  const hullLines: number[] = [];
+  addHullLoop(hullLines, 3);
+  bufferAndDraw(gl, buf, new Float32Array(hullLines));
+
+  renderHullGreebles(gl, buf, prog);
+
+  gl.uniform4f(gl.getUniformLocation(prog, 'u_color'), 0.14, 0.17, 0.24, 1.0);
+  drawQuad(gl, buf, 60, 706, 20, 14);
+  drawQuad(gl, buf, 110, 706, 20, 14);
+  drawQuad(gl, buf, 160, 706, 20, 14);
 }
 
 function drawDoorBrackets(
@@ -700,43 +846,35 @@ export class DeckPass {
 
   /**
    * Andockschleuse dock tube: while the docked origin holds the corridor
-   * mouth at world (1210, 260), a 70px umbilical spans the airlock east
-   * face (1140) to the mouth. Sealed otherwise: red ticks on both leaves.
+   * mouth at world (1210, 260 + origin.y), a 70px umbilical spans the airlock east
+   * face to the mouth. Sealed otherwise: red ticks on both leaves.
    */
   public renderDockTube(
     flatProg: WebGLProgram,
     flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
-    dock: { walkable: boolean; phase: string; secondsToSeal: number } | undefined,
+    dock:
+      | {
+          walkable: boolean;
+          phase: string;
+          secondsToSeal: number;
+          mouthWorld?: Pick<DockMouthWorld, 'x1' | 'y1'>;
+        }
+      | undefined,
     timeSec: number
   ): void {
     const gl = this.bindFlat(flatProg, flatVAO, matrix);
-    const walkable = dock?.walkable === true;
-    if (walkable) {
-      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.16, 0.19, 0.26, 1.0);
-      drawQuad(gl, this.dynamicBuffer, 1140, 244, 70, 32);
-      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.0, 0.9, 1.0, 0.85);
-      const guides: number[] = [];
-      addThickSegment(guides, 1140, 244, 1210, 244, 2);
-      addThickSegment(guides, 1140, 276, 1210, 276, 2);
-      addThickSegment(guides, 1140, 236, 1140, 284, 2.4);
-      addThickSegment(guides, 1210, 240, 1210, 280, 2.4);
-      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(guides));
+    const origin = tubeOrigin(dock?.mouthWorld);
+    if (dock?.walkable === true) {
+      renderWalkableTube(gl, this.dynamicBuffer, flatProg, origin);
     } else {
-      const blink = 0.5 + 0.5 * Math.sin(timeSec * 6);
-      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
-      const seals: number[] = [];
-      addThickSegment(seals, 1140, 230, 1140, 290, 4);
-      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(seals));
+      renderStationSeals(gl, this.dynamicBuffer, flatProg, origin, timeSec);
       this.bindFlat(
         flatProg,
         flatVAO,
         translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
       );
-      gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.95, 0.25, 0.2, 0.5 + 0.4 * blink);
-      const shipSeals: number[] = [];
-      addThickSegment(shipSeals, 0, 320, 0, 360, 4);
-      bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(shipSeals));
+      renderShipSeals(gl, this.dynamicBuffer, flatProg, timeSec);
     }
     gl.bindVertexArray(null);
   }
@@ -745,53 +883,13 @@ export class DeckPass {
     flatProg: WebGLProgram,
     flatVAO: WebGLVertexArrayObject,
     matrix: Float32Array,
-    _time: number
+    _time: number,
+    visibleFrames?: ReadonlySet<string>
   ): void {
     const gl = this.bindFlat(flatProg, flatVAO, matrix);
-
-    // Station block hull plate backing the live hub footprint
-    // (habitat/medizin/sicherheit_nord, corridors, south band, Andock A).
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.09, 0.11, 0.16, 1.0);
-    drawQuad(gl, this.dynamicBuffer, -24, -24, 1188, 528);
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.22, 0.28, 0.38, 1.0);
-    const stationLines: number[] = [];
-    addThickSegment(stationLines, -24, -24, 1164, -24, 4);
-    addThickSegment(stationLines, 1164, -24, 1164, 504, 4);
-    addThickSegment(stationLines, 1164, 504, -24, 504, 4);
-    addThickSegment(stationLines, -24, 504, -24, -24, 4);
-    bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(stationLines));
-
+    renderStationPlates(gl, this.dynamicBuffer, flatProg, visibleFrames);
     this.bindFlat(flatProg, flatVAO, translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y));
-
-    // Dark armor hull base hugging the vertical room block (x0-220, y0-700)
-    // with even margins; the south strip is the engine mount for the bells.
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.07, 0.09, 0.13, 1.0);
-    drawQuad(gl, this.dynamicBuffer, HULL_PLATE.x, HULL_PLATE.y, HULL_PLATE.w, HULL_PLATE.h);
-    renderHullNoseCap(gl, this.dynamicBuffer);
-    renderHullEngineHousing(gl, this.dynamicBuffer, flatProg);
-
-    // Tapered armor band following HULL_SILHOUETTE (reference-ship read).
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.1, 0.12, 0.17, 1.0);
-    const armorBand: number[] = [];
-    addHullLoop(armorBand, 18);
-    bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(armorBand));
-
-    // Outer edge highlight tracing the same silhouette loop.
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.28, 0.34, 0.45, 1.0);
-    const hullLines: number[] = [];
-    addHullLoop(hullLines, 3);
-    bufferAndDraw(gl, this.dynamicBuffer, new Float32Array(hullLines));
-
-    renderHullGreebles(gl, this.dynamicBuffer, flatProg);
-
-    // Thruster bell housings mounted on the drive face (south edge).
-    // Plumes are live exhaust particles (see emitTorchPlume), not quads,
-    // so docked ships idle instead of burning at full scale.
-    gl.uniform4f(gl.getUniformLocation(flatProg, 'u_color'), 0.14, 0.17, 0.24, 1.0);
-    drawQuad(gl, this.dynamicBuffer, 60, 706, 20, 14);
-    drawQuad(gl, this.dynamicBuffer, 110, 706, 20, 14);
-    drawQuad(gl, this.dynamicBuffer, 160, 706, 20, 14);
-
+    renderShipOuterHull(gl, this.dynamicBuffer, flatProg);
     gl.bindVertexArray(null);
   }
 
