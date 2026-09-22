@@ -16,6 +16,7 @@ import {
   FOCUS_SNAP_DIST,
   focusFrameId,
   focusOriginOf,
+  frameLockedPrediction,
   frameOrigins,
   interpolateFocusOrigin,
   mapAtmos,
@@ -168,6 +169,21 @@ describe('render-state mapping', () => {
     expect(origins.get('station')).toEqual({ x: 0, y: 0 });
     expect(origins.get('ship')).toEqual({ x: 1400, y: 0 });
     expect(origins.get('void')).toBeUndefined();
+  });
+
+  it('holds one auth frame across dock crossings', () => {
+    const pose = { x: -3, y: 340, facing: 0 };
+    expect(frameLockedPrediction(null, 'ship', pose)).toEqual({ predicted: pose, frame: 'ship' });
+    expect(frameLockedPrediction('ship', 'ship', pose)).toEqual({ predicted: pose, frame: 'ship' });
+    expect(frameLockedPrediction('ship', 'hub_b', pose)).toEqual({
+      predicted: null,
+      frame: 'hub_b',
+    });
+    expect(frameLockedPrediction('hub_b', 'hub_b', pose)).toEqual({
+      predicted: pose,
+      frame: 'hub_b',
+    });
+    expect(frameLockedPrediction(null, 'hub_b', null)).toEqual({ predicted: null, frame: 'hub_b' });
   });
 
   it('places pawns in world space preferring predictions', () => {

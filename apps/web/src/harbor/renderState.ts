@@ -180,6 +180,21 @@ export function pawnWorld(
   return { x: pawn.x + origin.x, y: pawn.y + origin.y };
 }
 
+/**
+ * Prediction is frame-local: on a dock crossing the stored pose still
+ * belongs to the old frame, so rendering it under the new frame's origin
+ * flashes the pawn a full frame-width away for a frame. Hold one auth
+ * frame on every crossing instead; the sim keeps world position seamless.
+ */
+export function frameLockedPrediction(
+  lastFrame: string | null,
+  frameId: string,
+  predicted: PredictedPose | null
+): { predicted: PredictedPose | null; frame: string } {
+  if (lastFrame !== null && lastFrame !== frameId) return { predicted: null, frame: frameId };
+  return { predicted, frame: frameId };
+}
+
 export function mapPawn(
   pawn: SnapshotPawn,
   callsign: string,

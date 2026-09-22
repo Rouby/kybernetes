@@ -97,6 +97,7 @@ import {
   breachCountsByRoom,
   callsignFor,
   dockGateIdsFor,
+  frameLockedPrediction,
   frameOrigins,
   interpolateFocusOrigin,
   mapAtmos,
@@ -295,6 +296,7 @@ export interface ViewportSession {
   frameMotion: FrameMotion | null;
   shipInterp: FocusOrigin | null;
   starScroll: { x: number; y: number };
+  lastPawnFrame: string | null;
   doors: DoorState[];
   seenImpacts: Set<string>;
   seenShots: Set<string>;
@@ -339,6 +341,7 @@ export function createViewportSession(): ViewportSession {
     frameMotion: null,
     shipInterp: null,
     starScroll: { x: 0, y: 0 },
+    lastPawnFrame: null,
     doors: createInitialDoors(),
     seenImpacts: new Set<string>(),
     seenShots: new Set<string>(),
@@ -391,7 +394,9 @@ export function renderViewport(
   // transposes the world smoothly instead of stair-stepping each delta.
   session.shipInterp = interpolateFocusOrigin(session.shipInterp, shipOffsetOf(origins), now);
   const viewOrigins = smoothedOrigins(origins, session.shipInterp);
-  const at = pawnWorld(own, viewOrigins, view.predicted);
+  const locked = frameLockedPrediction(session.lastPawnFrame, own.frameId, view.predicted);
+  session.lastPawnFrame = locked.frame;
+  const at = pawnWorld(own, viewOrigins, locked.predicted);
   stampSnapshotArrival(session, snapshot, now);
   const cursorWorld = cursorWorldOf(session, canvas, now);
   const { livingViews, cargoViews, target } = targetFrameState(
@@ -400,7 +405,7 @@ export function renderViewport(
     viewOrigins,
     own,
     view.facingRef.current,
-    view.predicted,
+    locked.predicted,
     cursorWorld
   );
   view.targetRef.current = target;

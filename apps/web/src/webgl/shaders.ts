@@ -534,8 +534,11 @@ uniform vec3 u_roomAmbient;
 out vec4 fragColor;
 
 void main() {
-  vec2 uv = clamp((v_worldPos - u_worldOrigin) / u_worldBounds, 0.0, 1.0);
-  float explored = texture(u_fowTexture, uv).r;
+  vec2 fowUv = (v_worldPos - u_worldOrigin) / u_worldBounds;
+  float explored =
+    (fowUv.x < 0.0 || fowUv.x > 1.0 || fowUv.y < 0.0 || fowUv.y > 1.0)
+      ? 1.0
+      : texture(u_fowTexture, fowUv).r;
   vec3 amb = u_roomAmbient * clamp(explored, 0.0, 1.0);
   fragColor = vec4(amb, 0.0);
 }
