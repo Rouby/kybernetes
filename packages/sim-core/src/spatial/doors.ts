@@ -8,8 +8,9 @@
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
 import { StationHubSpec } from '../world/content/StationHub.hull.js';
+import { stationHullFor } from '../world/content/StationVariants.hull.js';
 import { compileHull } from '../world/hullCompiler.js';
-import { stationOriginFor } from '../world/ship/ports.js';
+import { HUB_PORTS, stationOriginFor } from '../world/ship/ports.js';
 import type { PortalEdge } from '../world/types.js';
 import { closestPointOnSegment, resolvePawnMovement } from './collision';
 import {
@@ -26,21 +27,21 @@ interface CompiledDoorSeed {
   roomB: string;
   kind: string;
   segment: { x1: number; y1: number; x2: number; y2: number };
-  frame: 'station' | 'ship';
+  frame: string;
 }
 
 function isDoorPortal(portal: Pick<PortalEdge, 'kind'>): boolean {
   return portal.kind === 'door' || portal.kind === 'airlock';
 }
 
-function frameRoomId(frame: 'station' | 'ship', room: string): string {
+function frameRoomId(frame: string, room: string): string {
   if (room === 'space' || room === 'vacuum') return 'vacuum';
   return `${frame}.${room}`;
 }
 
 function collectFrameSeeds(
   portals: readonly PortalEdge[],
-  frame: 'station' | 'ship',
+  frame: string,
   seeds: CompiledDoorSeed[]
 ): void {
   for (const portal of portals) {
@@ -62,6 +63,14 @@ function collectDoorSeeds(): CompiledDoorSeed[] {
   const ship = compileHull({ ...HesperiaV2Spec, frameId: 'ship' });
   collectFrameSeeds(station.portals, 'station', seeds);
   collectFrameSeeds(ship.portals, 'ship', seeds);
+  for (const port of Object.values(HUB_PORTS)) {
+    if (port.stationFrame === 'station') continue;
+    const variant = compileHull({
+      ...stationHullFor(port.hubId),
+      frameId: port.stationFrame,
+    });
+    collectFrameSeeds(variant.portals, port.stationFrame, seeds);
+  }
   return seeds;
 }
 

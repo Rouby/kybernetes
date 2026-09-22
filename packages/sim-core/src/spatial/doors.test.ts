@@ -1,6 +1,6 @@
 import type { DoorState } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
-import { getWorldDoors, isStationSideDoor } from './doors.js';
+import { createInitialDoors, getWorldDoors, isStationSideDoor } from './doors.js';
 
 function door(over: Partial<DoorState>): DoorState {
   return {
@@ -45,5 +45,17 @@ describe('framed doors', () => {
     });
     const ship = door({ roomA: 'ship.bruecke', roomB: 'ship.korridor_schiff' });
     expect(getWorldDoors([ship], { x: 9, y: 9 })[0]).toMatchObject({ x1: 109, y1: 209 });
+  });
+
+  it('seeds doors for every hub frame', () => {
+    const doors = createInitialDoors();
+    const vesperMouth = doors.find((door) => door.id === 'hub_d.andock_tube_mund');
+    expect(vesperMouth).toMatchObject({ roomA: 'hub_d.andock_tube', roomB: 'vacuum' });
+    const vesperObs = doors.find((door) => door.id === 'hub_d.observatorium_kommando');
+    expect(vesperObs).toMatchObject({ roomA: 'hub_d.observatorium', roomB: 'hub_d.kommando' });
+    const cinderLab = doors.find((door) => door.id === 'hub_c.labor_korridor');
+    expect(cinderLab).toMatchObject({ roomA: 'hub_c.labor', roomB: 'hub_c.korridor_mitte' });
+    const ids = doors.map((door) => door.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
