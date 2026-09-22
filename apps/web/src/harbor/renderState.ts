@@ -430,7 +430,7 @@ function roomCenterFor(
   roomA: string,
   fallback: { x: number; y: number }
 ): { x: number; y: number } {
-  const room = HESPERIA_ROOMS.find((entry) => entry.id === bareId(roomA));
+  const room = HESPERIA_ROOMS.find((entry) => entry.id === roomA || entry.id === bareId(roomA));
   if (room === undefined) return fallback;
   return { x: room.x + room.width / 2, y: room.y + room.height / 2 };
 }
@@ -548,7 +548,7 @@ export function mapAtmos(
   const rooms: Record<string, RoomAtmosphereSummary> = {};
   for (const room of telemetry?.atmos ?? []) {
     const id = bareId(room.roomId);
-    rooms[id] = {
+    const summary: RoomAtmosphereSummary = {
       roomId: id,
       pressureKpa: room.pressureKpa,
       o2Percent: room.o2Percent,
@@ -558,10 +558,14 @@ export function mapAtmos(
       isVenting: room.pressureKpa < 20,
       isRepressurizing: room.repressurizing,
       activeFires: 0,
-      activeBreaches: breachCounts[id] ?? 0,
-      windX: winds[id]?.x ?? 0,
-      windY: winds[id]?.y ?? 0,
+      activeBreaches: breachCounts[room.roomId] ?? breachCounts[id] ?? 0,
+      windX: winds[room.roomId]?.x ?? winds[id]?.x ?? 0,
+      windY: winds[room.roomId]?.y ?? winds[id]?.y ?? 0,
     };
+    rooms[id] = summary;
+    if (room.roomId !== id) {
+      rooms[room.roomId] = { ...summary, roomId: room.roomId };
+    }
   }
   return rooms;
 }
@@ -863,7 +867,10 @@ export function ventedBareIds(telemetry: TelemetryBroadcast | null): string[] {
 }
 
 export function roomO2(rooms: Record<string, RoomAtmosphereSummary>): Record<string, number> {
-  return Object.fromEntries(Object.values(rooms).map((room) => [room.roomId, room.o2Percent]));
+  const entries = Object.entries(rooms);
+  const bareEntries = entries.filter(([k]) => !k.includes('.'));
+  const target = bareEntries.length > 0 ? bareEntries : entries;
+  return Object.fromEntries(target.map(([, room]) => [bareId(room.roomId), room.o2Percent]));
 }
 
 export function mapVitals(vitals: VitalsBroadcast | null): PlayerVitals | undefined {

@@ -5,7 +5,9 @@ import {
   getWorldStations,
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
+  isShipSideRoom,
   isShipSideWall,
+  isStationRoom,
   keepLoaded,
   partitionFrameWalls,
   stationFrameOf,
@@ -176,5 +178,24 @@ describe('carved ship walls stay ship-side', () => {
       const inWorld = world.find((w) => w.id === piece.id);
       expect(inWorld).toBeDefined();
     }
+  });
+
+  describe('room frame identification', () => {
+    it('identifies all station rooms and hub variants including andock_tube', () => {
+      expect(isStationRoom('andock_tube')).toBe(true);
+      expect(isStationRoom('station.andock_tube')).toBe(true);
+      expect(isStationRoom('hub_d.andock_tube')).toBe(true);
+      expect(isStationRoom('hub_d.observatorium')).toBe(true);
+      expect(isStationRoom('hub_b.hangar')).toBe(true);
+      expect(isStationRoom('hub_c.labor')).toBe(true);
+      expect(isStationRoom('unknown_void')).toBe(false);
+    });
+
+    it('identifies ship rooms with or without prefix', () => {
+      expect(isShipSideRoom('bruecke')).toBe(true);
+      expect(isShipSideRoom('ship.bruecke')).toBe(true);
+      expect(isShipSideRoom('ship.korridor_schiff')).toBe(true);
+      expect(isShipSideRoom('observatorium')).toBe(false);
+    });
   });
 });

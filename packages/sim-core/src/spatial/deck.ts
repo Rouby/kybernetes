@@ -845,6 +845,7 @@ export const STATION_ROOM_IDS = new Set<string>([
   'sicherheit_sued',
   'korridor_ost',
   'andock_a',
+  'andock_tube',
 ]);
 
 export function isStationRoom(roomId: string): boolean {

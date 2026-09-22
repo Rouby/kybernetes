@@ -597,7 +597,7 @@ function hintsInputFor(
     carrying: isOwnCrate(crates, pawnId, 'carriedBy'),
     nearShipCrates: crates.some((crate) => isNearShipCrate(crate, own, at)),
     aboardVessel: statics.vessels[own.frameId] !== undefined,
-    vacuum: (roomAtmos[own.roomHint]?.pressureKpa ?? 101) < 50,
+    vacuum: ((roomAtmos[own.roomHint] ?? roomAtmos[bareId(own.roomHint)])?.pressureKpa ?? 101) < 50,
   };
 }
 

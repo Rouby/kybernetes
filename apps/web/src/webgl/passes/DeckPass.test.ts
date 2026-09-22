@@ -1,6 +1,7 @@
+import type { DoorState } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
 import { dockRenderView } from '../../harbor/viewportFrame';
-import { tubeOrigin, visibleStationOrigins } from './DeckPass';
+import { filterDoorsForFrame, tubeOrigin, visibleStationOrigins } from './DeckPass';
 
 describe('DeckPass helpers', () => {
   describe('tubeOrigin', () => {
@@ -67,6 +68,61 @@ describe('DeckPass helpers', () => {
       });
       expect(view?.walkable).toBe(true);
       expect(view?.mouthWorld).toEqual(mouthWorld);
+    });
+  });
+
+  describe('filterDoorsForFrame', () => {
+    const sampleDoors: DoorState[] = [
+      {
+        id: 'ship.cockpit_gang',
+        name: 'Cockpit Door',
+        x1: 10,
+        y1: 10,
+        x2: 20,
+        y2: 10,
+        isOpen: false,
+        isAirlock: false,
+        roomA: 'ship.bruecke',
+        roomB: 'ship.korridor_schiff',
+      },
+      {
+        id: 'station.habitat_korridor',
+        name: 'Habitat Door',
+        x1: 100,
+        y1: 100,
+        x2: 120,
+        y2: 100,
+        isOpen: false,
+        isAirlock: false,
+        roomA: 'station.habitat',
+        roomB: 'station.korridor_mitte',
+      },
+      {
+        id: 'hub_d.observatorium_andock_tube',
+        name: 'Observatory Door',
+        x1: 50,
+        y1: 50,
+        x2: 70,
+        y2: 50,
+        isOpen: false,
+        isAirlock: false,
+        roomA: 'hub_d.observatorium',
+        roomB: 'hub_d.andock_tube',
+      },
+    ];
+
+    it('filters doors strictly by frame', () => {
+      const shipDoors = filterDoorsForFrame(sampleDoors, 'ship');
+      expect(shipDoors.map((d) => d.id)).toEqual(['ship.cockpit_gang']);
+
+      const stationDoors = filterDoorsForFrame(sampleDoors, 'station');
+      expect(stationDoors.map((d) => d.id)).toEqual(['station.habitat_korridor']);
+
+      const hubDDoors = filterDoorsForFrame(sampleDoors, 'hub_d');
+      expect(hubDDoors.map((d) => d.id)).toEqual(['hub_d.observatorium_andock_tube']);
+
+      const emptyDoors = filterDoorsForFrame(sampleDoors, 'hub_b');
+      expect(emptyDoors).toEqual([]);
     });
   });
 });

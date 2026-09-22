@@ -222,6 +222,17 @@ export function visibleDirectionalHits(
     }));
 }
 
+function resolveRoomAtmos(
+  atmospheres: Record<string, RoomAtmosphereSummary> | undefined,
+  roomId: string | undefined
+): RoomAtmosphereSummary | undefined {
+  if (!atmospheres || !roomId) return undefined;
+  const direct = atmospheres[roomId];
+  if (direct !== undefined) return direct;
+  const cut = roomId.indexOf('.');
+  return cut >= 0 ? atmospheres[roomId.slice(cut + 1)] : undefined;
+}
+
 export function getPlayerAtmosphere(state: WebGLRenderState) {
   const atmospheres = state.telemetry?.roomAtmospheres;
   if (!atmospheres) return undefined;
@@ -229,7 +240,10 @@ export function getPlayerAtmosphere(state: WebGLRenderState) {
   const offset = state.shipOffset ?? { x: 0, y: 0 };
   const roomId = findWorldRoom(state.pawn.x, state.pawn.y, offset);
   if (!roomId) return undefined;
-  if (roomId !== 'korridor_schiff') return atmospheres[roomId];
+  const bare = roomId.includes('.') ? (roomId.split('.').pop() ?? roomId) : roomId;
+  if (roomId !== 'korridor_schiff' && bare !== 'korridor_schiff') {
+    return resolveRoomAtmos(atmospheres, roomId);
+  }
   if (state.pawn.x <= 440) return atmospheres.corridor_fwd ?? atmospheres.corridor;
   if (state.pawn.x < 760) return atmospheres.corridor_mid ?? atmospheres.corridor;
   return atmospheres.corridor_aft ?? atmospheres.corridor;
@@ -966,8 +980,7 @@ export class WebGL2Renderer {
   }
 
   private applyAmbientWind(state: WebGLRenderState): void {
-    const roomId = state.currentRoomId;
-    const wind = roomId === undefined ? undefined : state.telemetry?.roomAtmospheres?.[roomId];
+    const wind = resolveRoomAtmos(state.telemetry?.roomAtmospheres, state.currentRoomId);
     this.particleSystem.setAmbientWind(wind?.windX ?? 0, wind?.windY ?? 0);
   }
 
@@ -1354,7 +1367,15 @@ export class WebGL2Renderer {
       state.visibleFrames
     );
     this.deckPass.renderDockTube(this.flatProg, this.flatVAO, matrix, state.dock, timeSec);
-    this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
+    this.deckPass.renderDoors(
+      this.flatProg,
+      this.flatVAO,
+      matrix,
+      doors,
+      dt,
+      state.nearestDoorId,
+      state.visibleFrames
+    );
     this.deckPass.renderCorridorLampFixtures(this.flatProg, this.flatVAO, matrix, timeSec);
     this.renderStations(
       matrix,

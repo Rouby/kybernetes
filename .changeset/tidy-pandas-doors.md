@@ -1,5 +1,6 @@
 ---
 "@kybernetes/sim-core": patch
+"@kybernetes/web": patch
 ---
 
-Seed client doors for every hub frame so foreign stations render, block, and toggle their doors like home does.
+Render doors at foreign station origins, cull non-visible station doors, and recognize nominal and live atmosphere across visited trade hub frames.

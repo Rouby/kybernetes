@@ -175,6 +175,13 @@ export function visibleStationOrigins(
   return result;
 }
 
+export function filterDoorsForFrame(doors: readonly DoorState[], frame: string): DoorState[] {
+  if (frame === 'ship') {
+    return doors.filter((door) => !isStationSideDoor(door));
+  }
+  return doors.filter((door) => isStationSideDoor(door) && stationFrameOf(door.id) === frame);
+}
+
 function renderWalkableTube(
   gl: WebGL2RenderingContext,
   buf: WebGLBuffer,
@@ -1132,26 +1139,38 @@ export class DeckPass {
     matrix: Float32Array,
     doors: DoorState[],
     dt: number,
+    nearestDoorId?: string,
+    visibleFrames?: ReadonlySet<string>
+  ): void {
+    if (keepLoaded(visibleFrames, 'ship')) {
+      const glShip = this.bindFlat(
+        flatProg,
+        flatVAO,
+        translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
+      );
+      this.drawDoorList(glShip, flatProg, filterDoorsForFrame(doors, 'ship'), dt, nearestDoorId);
+    }
+    for (const { frame, origin } of visibleStationOrigins(visibleFrames)) {
+      const glStation = this.bindFlat(
+        flatProg,
+        flatVAO,
+        translateMatrix(matrix, origin.x, origin.y)
+      );
+      this.drawDoorList(glStation, flatProg, filterDoorsForFrame(doors, frame), dt, nearestDoorId);
+    }
+    this.gl.bindVertexArray(null);
+  }
+
+  private drawDoorList(
+    gl: WebGL2RenderingContext,
+    flatProg: WebGLProgram,
+    doors: readonly DoorState[],
+    dt: number,
     nearestDoorId?: string
   ): void {
-    // Ship doors rendered with GPU translated model matrix
-    const glShip = this.bindFlat(
-      flatProg,
-      flatVAO,
-      translateMatrix(matrix, this.shipOffset.x, this.shipOffset.y)
-    );
     for (const door of doors) {
-      if (isStationSideDoor(door)) continue;
-      this.drawSingleDoor(glShip, flatProg, door, dt, nearestDoorId === door.id);
+      this.drawSingleDoor(gl, flatProg, door, dt, nearestDoorId === door.id);
     }
-
-    // Station doors rendered with static base matrix
-    const glStation = this.bindFlat(flatProg, flatVAO, matrix);
-    for (const door of doors) {
-      if (!isStationSideDoor(door)) continue;
-      this.drawSingleDoor(glStation, flatProg, door, dt, nearestDoorId === door.id);
-    }
-    glStation.bindVertexArray(null);
   }
 
   // fallow-ignore-next-line complexity

@@ -13,7 +13,13 @@ export interface SubsystemGauges {
 export function subsystemGauges(
   rooms: Record<string, RoomAtmosphereSummary> | undefined
 ): SubsystemGauges {
-  const list = rooms === undefined ? [] : Object.values(rooms);
+  if (!rooms) return { roomCount: 0, breachCount: 0, breachPct: 0, atmosPct: 100 };
+  const entries = Object.entries(rooms);
+  if (entries.length === 0) return { roomCount: 0, breachCount: 0, breachPct: 0, atmosPct: 100 };
+  const hasPrefixed = entries.some(([k]) => k.includes('.'));
+  const list = hasPrefixed
+    ? entries.filter(([k]) => k.includes('.')).map(([, r]) => r)
+    : entries.map(([, r]) => r);
   if (list.length === 0) return { roomCount: 0, breachCount: 0, breachPct: 0, atmosPct: 100 };
   const breached = list.filter((room) => room.activeBreaches > 0 || room.isVenting).length;
   const meanKpa = list.reduce((sum, room) => sum + room.pressureKpa, 0) / list.length;

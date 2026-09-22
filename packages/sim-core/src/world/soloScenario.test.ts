@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { createAirAuthority } from './airAuthority.js';
 import { pawnWorldPos } from './dockCrossing.js';
 import { dockWalkable } from './dockStatus.js';
 import {
+  bindWorldAir,
   buildSoloShipWorld,
   HARBOR_BEACON,
   HARBOR_SHIP,
@@ -11,6 +13,7 @@ import {
   HUB_B_STATION,
 } from './scenarios.js';
 import { SHIP_ORIGIN, tickSchedule } from './schedule.js';
+import { tickWorld } from './tickWorld.js';
 
 describe('buildSoloShipWorld (M1 solo start)', () => {
   it('assembles station plus docked vessel with fixtures', () => {
@@ -67,5 +70,17 @@ describe('buildSoloShipWorld (M1 solo start)', () => {
     expect(world.vessels[HARBOR_SHIP]?.schedule).toBe('docked');
     expect(world.vessels[HARBOR_SHIP]?.origin).toEqual({ ...SHIP_ORIGIN });
     expect(dockWalkable(world, 'harbor')).toBe(true);
+  });
+
+  it('binds and simulates air across all trade hub frames', () => {
+    const world = buildSoloShipWorld();
+    const auth = createAirAuthority();
+    bindWorldAir(auth, world);
+    const ticked = tickWorld(world, 0.05, [], auth);
+    expect(ticked.atmos['station.habitat']?.pressureKpa).toBeCloseTo(101.3, 1);
+    expect(ticked.atmos['hub_b.habitat']?.pressureKpa).toBeCloseTo(101.3, 1);
+    expect(ticked.atmos['hub_c.labor']?.pressureKpa).toBeCloseTo(101.3, 1);
+    expect(ticked.atmos['hub_d.observatorium']?.pressureKpa).toBeCloseTo(101.3, 1);
+    expect(ticked.atmos['hub_d.andock_tube']?.pressureKpa).toBeCloseTo(101.3, 1);
   });
 });

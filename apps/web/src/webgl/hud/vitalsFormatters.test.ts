@@ -5,6 +5,7 @@ import {
   formatAtmosphereStatus,
   formatIncapacitatedNotice,
   formatSuitStatus,
+  resolveRoomAtmosSummary,
   STATION_ATMOS_SUMMARY,
   VACUUM_ATMOS_SUMMARY,
 } from './vitalsFormatters';
@@ -218,5 +219,35 @@ describe('formatIncapacitatedNotice', () => {
       { isIncapacitated: true, cause: 'vacuum', bleedoutSecondsRemaining: 12.4 }
     );
     expect(formatIncapacitatedNotice(vitals)).toBe('CRIT: INCAP (VACUUM) \u2022 BLEED 12s');
+  });
+});
+
+describe('resolveRoomAtmosSummary', () => {
+  it('resolves live telemetry by full or bare room id', () => {
+    const vesperAtmos = makeAtmos({ roomId: 'hub_d.observatorium', pressureKpa: 98 });
+    const telemetry = { 'hub_d.observatorium': vesperAtmos };
+    expect(resolveRoomAtmosSummary(telemetry, 'hub_d.observatorium')).toEqual(vesperAtmos);
+    expect(resolveRoomAtmosSummary(telemetry, 'observatorium')).toEqual(vesperAtmos);
+  });
+
+  it('provides nominal station atmosphere for andock_tube and hub variants without telemetry', () => {
+    expect(resolveRoomAtmosSummary(undefined, 'andock_tube')).toEqual(STATION_ATMOS_SUMMARY);
+    expect(resolveRoomAtmosSummary(undefined, 'hub_d.andock_tube')).toEqual(STATION_ATMOS_SUMMARY);
+    expect(resolveRoomAtmosSummary(undefined, 'hub_d.observatorium')).toEqual(
+      STATION_ATMOS_SUMMARY
+    );
+    expect(resolveRoomAtmosSummary(undefined, 'hub_b.hangar')).toEqual(STATION_ATMOS_SUMMARY);
+    expect(resolveRoomAtmosSummary(undefined, 'hub_c.labor')).toEqual(STATION_ATMOS_SUMMARY);
+  });
+
+  it('provides nominal ship atmosphere for ship rooms without telemetry', () => {
+    const res = resolveRoomAtmosSummary(undefined, 'ship.bruecke');
+    expect(res.pressureKpa).toBe(101.3);
+    expect(res.o2Percent).toBe(20.9);
+  });
+
+  it('returns vacuum for undefined room or void space', () => {
+    expect(resolveRoomAtmosSummary(undefined, undefined)).toEqual(VACUUM_ATMOS_SUMMARY);
+    expect(resolveRoomAtmosSummary(undefined, 'space')).toEqual(VACUUM_ATMOS_SUMMARY);
   });
 });

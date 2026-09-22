@@ -135,29 +135,44 @@ export function formatIncapacitatedNotice(vitals: PlayerVitals): string | null {
   return `CRIT: INCAP (${incapTag(vitals.incapacitated.cause)}) \u2022 BLEED ${rem}s`;
 }
 
+const NOMINAL_SHIP_ATMOS: Omit<RoomAtmosphereSummary, 'roomId'> = {
+  pressureKpa: 101.3,
+  o2Percent: 20.9,
+  co2Ppm: 400,
+  tempCelsius: 21.0,
+  toxicSmokePercent: 0,
+  isVenting: false,
+  isRepressurizing: false,
+  activeFires: 0,
+  activeBreaches: 0,
+};
+
+function findAtmos(
+  roomAtmospheres: Record<string, RoomAtmosphereSummary> | undefined,
+  id: string,
+  bare: string
+): RoomAtmosphereSummary | undefined {
+  if (!roomAtmospheres) return undefined;
+  if (roomAtmospheres[id] !== undefined) return roomAtmospheres[id];
+  if (roomAtmospheres[bare] !== undefined) return roomAtmospheres[bare];
+  const suffix = `.${bare}`;
+  for (const [key, value] of Object.entries(roomAtmospheres)) {
+    if (key.endsWith(suffix)) return value;
+  }
+  return undefined;
+}
+
 export function resolveRoomAtmosSummary(
   roomAtmospheres?: Record<string, RoomAtmosphereSummary>,
   currentRoomId?: string
 ): RoomAtmosphereSummary {
   if (!currentRoomId) return VACUUM_ATMOS_SUMMARY;
-  if (isStationRoom(currentRoomId)) {
-    return roomAtmospheres?.[currentRoomId] ?? STATION_ATMOS_SUMMARY;
-  }
-  if (isShipSideRoom(currentRoomId)) {
-    return (
-      roomAtmospheres?.[currentRoomId] ?? {
-        roomId: currentRoomId,
-        pressureKpa: 101.3,
-        o2Percent: 20.9,
-        co2Ppm: 400,
-        tempCelsius: 21.0,
-        toxicSmokePercent: 0,
-        isVenting: false,
-        isRepressurizing: false,
-        activeFires: 0,
-        activeBreaches: 0,
-      }
-    );
-  }
+  const bare = currentRoomId.includes('.')
+    ? (currentRoomId.split('.').pop() ?? currentRoomId)
+    : currentRoomId;
+  const direct = findAtmos(roomAtmospheres, currentRoomId, bare);
+  if (direct !== undefined) return direct;
+  if (isStationRoom(currentRoomId)) return STATION_ATMOS_SUMMARY;
+  if (isShipSideRoom(currentRoomId)) return { ...NOMINAL_SHIP_ATMOS, roomId: currentRoomId };
   return VACUUM_ATMOS_SUMMARY;
 }
