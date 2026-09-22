@@ -388,7 +388,7 @@ export function renderViewport(
   if (renderer === null || snapshot === null) return;
   const own = snapshot.pawns.find((pawn) => pawn.id === view.pawnId);
   if (own === undefined) return;
-  const origins = frameOrigins(snapshot);
+  const origins = frameOrigins(snapshot, view.statics.stations);
   const now = performance.now();
   // Glide the 10Hz ship origin to render rate; the camera follow then
   // transposes the world smoothly instead of stair-stepping each delta.

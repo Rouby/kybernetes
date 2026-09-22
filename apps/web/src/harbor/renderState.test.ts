@@ -171,6 +171,22 @@ describe('render-state mapping', () => {
     expect(origins.get('void')).toBeUndefined();
   });
 
+  it('seeds static station origins so far hubs render in place', () => {
+    const stations = {
+      hub_b: { origin: { x: 0, y: 4000 } },
+      hub_c: { origin: { x: 0, y: 8000 } },
+    };
+    const origins = frameOrigins(snapshot(), stations);
+    expect(origins.get('hub_b')).toEqual({ x: 0, y: 4000 });
+    expect(origins.get('hub_c')).toEqual({ x: 0, y: 8000 });
+    expect(origins.get('station')).toEqual({ x: 0, y: 0 });
+    expect(origins.get('ship')).toEqual({ x: 1400, y: 0 });
+    expect(pawnWorld(pawn({ frameId: 'hub_b', x: 1207, y: 260 }), origins, null)).toEqual({
+      x: 1207,
+      y: 4260,
+    });
+  });
+
   it('holds one auth frame across dock crossings', () => {
     const pose = { x: -3, y: 340, facing: 0 };
     expect(frameLockedPrediction(null, 'ship', pose)).toEqual({ predicted: pose, frame: 'ship' });

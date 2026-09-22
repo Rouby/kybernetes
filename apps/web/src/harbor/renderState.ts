@@ -53,9 +53,17 @@ export function bareId(id: string): string {
   return dot < 0 ? id : id.slice(dot + 1);
 }
 
-export function frameOrigins(snapshot: SnapshotBroadcast): Map<string, { x: number; y: number }> {
+export function frameOrigins(
+  snapshot: SnapshotBroadcast,
+  stations?: Readonly<Record<string, { origin: { x: number; y: number } }>> | null
+): Map<string, { x: number; y: number }> {
   const origins = new Map<string, { x: number; y: number }>();
   origins.set('station', { x: 0, y: 0 });
+  if (stations !== null && stations !== undefined) {
+    for (const [id, station] of Object.entries(stations)) {
+      origins.set(id, { x: station.origin.x, y: station.origin.y });
+    }
+  }
   origins.set('ship', { ...SHIP_ORIGIN });
   for (const frame of snapshot.frames) {
     origins.set(frame.id, { x: frame.originX, y: frame.originY });
