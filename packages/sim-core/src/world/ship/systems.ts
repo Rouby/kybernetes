@@ -22,7 +22,7 @@ import { HUB_PORTS, isHubId } from './ports.js';
 import type { ReactorState } from './reactor.js';
 import { coldReactor, restartReactor, tickReactor } from './reactor.js';
 import type { EngineTier, ReactorTier } from './shipRecord.js';
-import { easeNavVessel, sealDock, setVesselFrame } from './vesselMotion.js';
+import { easeNavVessel, openDock, sealDock, setVesselFrame } from './vesselMotion.js';
 
 export const SCRAM_DAMAGE_GRACE_S = 30;
 export const SCRAM_DAMAGE_PER_S = 2;
@@ -300,7 +300,7 @@ export function resetVoyageTo(world: World, vesselId: string, hubId: string): Wo
   if (station === undefined || vessel === undefined) return world;
   const origin = { x: station.origin.x + SHIP_ORIGIN.x, y: station.origin.y + SHIP_ORIGIN.y };
   let next = setVesselFrame(world, vesselId, 'docked', origin);
-  next = sealDock(next, hubId, true);
+  next = openDock(next, hubId);
   const nav = resetLegTo(current.nav, hubId);
   return { ...next, ships: { ...next.ships, [vesselId]: { ...current, nav } } };
 }

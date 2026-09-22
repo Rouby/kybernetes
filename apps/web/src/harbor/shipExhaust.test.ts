@@ -161,6 +161,10 @@ describe('mapShipExhaust', () => {
     const rate = scrollVectorFor(leg, { velX: 340, velY: 0 }, 680);
     expect(rate?.x).toBeCloseTo(480.8, 0);
     expect(rate?.y).toBe(0);
+    const brake = nav({ phase: 'in_transit', remainingS: 25, legTotalS: 100 });
+    const retro = scrollVectorFor(brake, { velX: 340, velY: 0 }, 680);
+    expect(retro?.x).toBeCloseTo(-480.8, 0);
+    expect(retro?.y).toBeCloseTo(0, 6);
     expect(scrollVectorFor(nav({ phase: 'docked' }), { velX: 340, velY: 0 }, 680)).toBeNull();
     expect(scrollVectorFor(leg, { velX: 1, velY: 0 }, 680)).toBeNull();
     expect(scrollVectorFor(leg, null, 680)).toBeNull();

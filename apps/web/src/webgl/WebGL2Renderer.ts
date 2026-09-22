@@ -64,9 +64,6 @@ const RETRO_NOZZLES: ReadonlyArray<{ x: number; y: number; dx: number; dy: numbe
   { x: 150, y: -20, dx: 0.25, dy: -1 },
 ];
 
-/** Brake-burn throat: bow mirror of the stern lip so the flipped drive reads. */
-const BOW_PLUME_NOZZLE = { x: 110, y: -24 };
-
 import {
   isRcsPhase,
   nozzleForVector,
@@ -995,18 +992,14 @@ export class WebGL2Renderer {
       alpha: exhaust.params.alpha,
       sourceWidth: ENGINE_LIP_RECT.w,
     };
-    const braking = exhaust.braking && !exhaust.flameout;
-    const root = braking ? BOW_PLUME_NOZZLE : SINGLE_PLUME_NOZZLE;
-    const dirX = 0;
-    const dirY = braking ? -1 : 1;
     while (this.exhaustAcc >= 1) {
       this.exhaustAcc -= 1;
       if (Math.random() > 0.38) continue;
       this.particleSystem.emitMainPlume(
-        root.x + offset.x,
-        root.y + offset.y,
-        dirX,
-        dirY,
+        SINGLE_PLUME_NOZZLE.x + offset.x,
+        SINGLE_PLUME_NOZZLE.y + offset.y,
+        0,
+        1,
         plume,
         tint,
         1

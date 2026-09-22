@@ -41,7 +41,11 @@ export function flightSpeed01(progress: number | null): number {
   return Math.sin(Math.PI * progress);
 }
 
-/** World-space scroll rate px/s for the cruise starfield; null when parked. */
+/**
+ * World-space scroll rate px/s for the cruise starfield; null when parked.
+ * Past the flip the drive end swaps: the scroll inverts so the braking
+ * read comes from the starfield, never from moving the engine plume.
+ */
 export function scrollVectorFor(
   nav: NavStateBroadcast | null | undefined,
   motion: { velX: number; velY: number } | null | undefined,
@@ -51,7 +55,8 @@ export function scrollVectorFor(
   if (!(speed01 > 0) || motion === null || motion === undefined) return null;
   const mag = Math.hypot(motion.velX, motion.velY);
   if (!(mag > COAST_PX_S)) return null;
-  const speed = maxPxS * speed01;
+  const flip = brakingFor(nav) ? -1 : 1;
+  const speed = flip * maxPxS * speed01;
   return { x: (motion.velX / mag) * speed, y: (motion.velY / mag) * speed };
 }
 
