@@ -56,9 +56,8 @@ yarn --cwd apps/web playwright test harbor-scenes.spec.ts # screenshots
 Screenshots land in `apps/web/test-results/` (gitignored); failure videos are retained automatically (see `playwright.config.ts`).
 
 ### Step 7: Changeset
-For features and fixes affecting any packages/apps, run `yarn changeset`. This will prompt you for the type of change (patch, minor, major, or no change) and ask for a human-readable summary of what changed. This summary will be used to automatically generate version numbers and release notes when you run `yarn release`.
 
-If a related changeset already exists to the work you are doing, prefer updating the changeset instead of adding another one fixing a bug.
+When commiting a change consider writing or updating a changeset. Keep changes in seperate changesets if they affect different packages differently.
 
 ```bash
 yarn changeset
@@ -73,6 +72,7 @@ yarn changeset
 - Never leave orphan Node processes bound to port 3001. Trapping `SIGINT` and `SIGTERM` in `apps/server/src/index.ts` is required.
 
 ### Fallow Quality Constraints
+
 - `fallow` scans for:
   1. **Unused class members and exports**: Do not add dead methods to classes.
   2. **High cyclomatic / cognitive complexity**: Keep methods under 20 lines and break complex control flows into helper functions.
@@ -81,10 +81,12 @@ yarn changeset
 Do not adjust fallow configurations or add ignore statements without consulting a human first.
 
 ### Biome Conventions
+
 - Use `node:path`, `node:fs`, `node:crypto` prefix for all Node built-in imports.
 - Run `yarn lint:fix` to auto-sort imports and format before running checks.
 
 ### HUD & Visor Layout Invariants
+
 - **Dynamic Visor Margins**: Never place HUD cards or modal overlays at fixed vertical coordinates (e.g. `y = 80`). Always offset from calculated screen margins (`marginY = Math.max(38, Math.round(height * 0.055))`) and account for top visor height (`marginY + 68` for a 14px gap below the 54px header).
 - **Monospace Text Budgeting**: For 2D canvas/WebGL monospace text, budget $\approx 7.2\text{px}$ per character at 12px font size. Always ensure `string.length * charWidth <= panelWidth - 2 * padding` or truncate/wrap dynamically to prevent text overflowing card boundaries.
 - **HUD Renderer Modularization**: To comply with Fallow cognitive complexity limits, never inline complex role/status formatting or geometric hit-testing inside `HudRenderer` methods; isolate them in pure helper modules.
