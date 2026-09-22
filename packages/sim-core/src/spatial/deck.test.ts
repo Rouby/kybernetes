@@ -6,7 +6,10 @@ import {
   HESPERIA_STATIONS,
   HESPERIA_WALLS,
   isShipSideWall,
+  keepLoaded,
   partitionFrameWalls,
+  stationFrameOf,
+  visibleStationFrames,
 } from './deck';
 import { carveWallsByFrame, getWorldOpaqueWalls } from './visibility.js';
 
@@ -37,14 +40,14 @@ describe('station hub fixtures', () => {
   it('glazes the habitat with a sight-passing window wall', () => {
     const wins = HESPERIA_WALLS.filter((w) => w.isWindow);
     expect(wins.map((w) => w.id).sort()).toEqual([
+      'hub_b.portal.habitat_window',
+      'hub_b.portal.sued_window',
+      'hub_c.portal.habitat_window',
+      'hub_c.portal.sued_window',
+      'hub_d.portal.habitat_window',
+      'hub_d.portal.observatorium_window',
+      'hub_d.portal.sued_window',
       'portal.habitat_window',
-      'portal.habitat_window',
-      'portal.habitat_window',
-      'portal.habitat_window',
-      'portal.observatorium_window',
-      'portal.sued_window',
-      'portal.sued_window',
-      'portal.sued_window',
       'portal.sued_window',
     ]);
     for (const w of wins) {
@@ -59,6 +62,57 @@ describe('station hub fixtures', () => {
   it('keeps station ids unique', () => {
     const ids = HESPERIA_STATIONS.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('station loading by ship state', () => {
+  it('routes ids to their render frame', () => {
+    expect(stationFrameOf('ship.bruecke')).toBe('ship');
+    expect(stationFrameOf('habitat')).toBe('station');
+    expect(stationFrameOf('station.habitat')).toBe('station');
+    expect(stationFrameOf('hub_c.frachthalle')).toBe('hub_c');
+    expect(stationFrameOf('hub_d.portal.observatorium_window')).toBe('hub_d');
+    expect(keepLoaded(undefined, 'hub_c')).toBe(true);
+    expect(keepLoaded(new Set(['ship']), 'hub_c')).toBe(false);
+  });
+
+  it('keeps the ship loaded and swaps stations with the leg', () => {
+    expect(visibleStationFrames(null)).toEqual(new Set(['ship', 'station']));
+    expect(visibleStationFrames({ phase: 'docked', portHubId: 'hub_c' })).toEqual(
+      new Set(['ship', 'hub_c'])
+    );
+    expect(
+      visibleStationFrames({ phase: 'docking', portHubId: 'hub_a', destHubId: 'hub_b' })
+    ).toEqual(new Set(['ship', 'hub_b']));
+    const departed = visibleStationFrames({
+      phase: 'in_transit',
+      portHubId: 'hub_a',
+      destHubId: 'hub_b',
+      remainingS: 33,
+      legTotalS: 34,
+    });
+    expect(departed).toEqual(new Set(['ship', 'station']));
+    const mid = visibleStationFrames({
+      phase: 'in_transit',
+      portHubId: 'hub_a',
+      destHubId: 'hub_b',
+      remainingS: 20,
+      legTotalS: 34,
+    });
+    expect(mid).toEqual(new Set(['ship']));
+    const arrival = visibleStationFrames({
+      phase: 'in_transit',
+      portHubId: 'hub_a',
+      destHubId: 'hub_b',
+      remainingS: 10,
+      legTotalS: 34,
+    });
+    expect(arrival).toEqual(new Set(['ship', 'hub_b']));
+    const poi = visibleStationFrames({
+      phase: 'docked',
+      portHubId: 'poi_kestrel',
+    });
+    expect(poi).toEqual(new Set(['ship']));
   });
 });
 

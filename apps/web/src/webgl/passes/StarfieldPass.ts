@@ -25,6 +25,7 @@ export class StarfieldPass {
     width: number,
     height: number,
     camera: { x: number; y: number },
+    scroll: { x: number; y: number } | null,
     time: number
   ): void {
     const gl = this.gl;
@@ -33,6 +34,7 @@ export class StarfieldPass {
 
     gl.uniform2f(gl.getUniformLocation(this.starProg, 'u_resolution'), width, height);
     gl.uniform2f(gl.getUniformLocation(this.starProg, 'u_camera'), camera.x, camera.y);
+    gl.uniform2f(gl.getUniformLocation(this.starProg, 'u_scroll'), scroll?.x ?? 0, scroll?.y ?? 0);
     gl.uniform1f(gl.getUniformLocation(this.starProg, 'u_time'), time);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);

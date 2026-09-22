@@ -157,6 +157,7 @@ function hubWallEntries(): WallSegment[] {
     for (const wall of table.walls) {
       entries.push({
         ...wall,
+        id: wall.isWindow === true ? `${table.frame}.${wall.id}` : wall.id,
         x1: wall.x1 + table.originX,
         y1: wall.y1 + table.originY,
         x2: wall.x2 + table.originX,
@@ -857,9 +858,89 @@ function baseWallId(id: string): string {
 }
 
 export function isShipSideWall(wall: WallSegment): boolean {
-  if (SHIP_WALL_IDS.has(wall.id)) return true;
-  if (SHIP_WALL_IDS.has(baseWallId(wall.id))) return true;
-  return wall.id === 'ship' || wall.id.startsWith('ship.');
+  return isShipSideId(wall.id);
+}
+
+/** Ship-side by id prefix, compiled wall set, or room membership. */
+export function isShipSideId(id: string): boolean {
+  if (SHIP_WALL_IDS.has(id)) return true;
+  if (SHIP_WALL_IDS.has(baseWallId(id))) return true;
+  if (id === 'ship' || id.startsWith('ship.')) return true;
+  return isShipSideRoom(id);
+}
+
+/** Render frame owning an id: ship interiors, hub stations, else home. */
+export function stationFrameOf(id: string): string {
+  if (isShipSideId(id)) return 'ship';
+  const cut = id.indexOf('.');
+  if (cut > 0) {
+    const frame = id.slice(0, cut);
+    if (frame === 'station' || frame.startsWith('hub_')) return frame;
+  }
+  return 'station';
+}
+
+/** True when the frame stays loaded (undefined set keeps everything). */
+export function keepLoaded(visible: ReadonlySet<string> | undefined, frame: string): boolean {
+  return visible === undefined || visible.has(frame);
+}
+
+export interface NavFrameCursor {
+  readonly phase: string;
+  readonly portHubId: string;
+  readonly destHubId?: string | undefined;
+  readonly remainingS?: number | undefined;
+  readonly legTotalS?: number | undefined;
+}
+
+/** Departure tail that keeps the origin dock loaded after light-off. */
+export const DEPARTURE_TAIL_S = 5;
+/** Arrival window that preloads the destination dock before touchdown. */
+export const ARRIVAL_APPROACH_S = 15;
+
+function hubFrameOf(hubId: string | undefined): string | undefined {
+  if (hubId === undefined || hubId === '') return undefined;
+  return HUB_PORTS[hubId]?.stationFrame;
+}
+
+function addHubFrame(frames: Set<string>, hubId: string | undefined): void {
+  const frame = hubFrameOf(hubId);
+  if (frame !== undefined) frames.add(frame);
+}
+
+function transitFrames(frames: Set<string>, nav: NavFrameCursor): void {
+  const total = nav.legTotalS ?? 0;
+  const remaining = nav.remainingS ?? total;
+  const elapsed = total > 0 ? Math.min(total, Math.max(0, total - Math.max(0, remaining))) : 0;
+  if (elapsed < DEPARTURE_TAIL_S) addHubFrame(frames, nav.portHubId);
+  if (remaining <= ARRIVAL_APPROACH_S) addHubFrame(frames, nav.destHubId);
+}
+
+/**
+ * Station frames to keep in the world scene: the ship always, the port
+ * while docked, both ends across short legs, and the destination on
+ * final approach. POI stops have no geometry and never load.
+ */
+export function visibleStationFrames(nav: NavFrameCursor | null | undefined): ReadonlySet<string> {
+  const frames = new Set<string>(['ship']);
+  if (nav === null || nav === undefined) {
+    frames.add('station');
+    return frames;
+  }
+  if (nav.phase === 'docked') {
+    addHubFrame(frames, nav.portHubId);
+    return frames;
+  }
+  if (nav.phase === 'docking') {
+    addHubFrame(frames, nav.destHubId ?? nav.portHubId);
+    return frames;
+  }
+  if (nav.phase === 'in_transit') {
+    transitFrames(frames, nav);
+    return frames;
+  }
+  addHubFrame(frames, nav.portHubId);
+  return frames;
 }
 
 export function getShipFrameWalls(): WallSegment[] {

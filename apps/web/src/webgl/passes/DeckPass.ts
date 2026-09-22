@@ -9,6 +9,8 @@ import {
   HESPERIA_WALLS,
   isShipSideRoom,
   isStationSideDoor,
+  keepLoaded,
+  stationFrameOf,
   TICKS_PER_S,
 } from '@kybernetes/sim-core';
 import { deckFloorStyle } from '../DeckFloorStyle';
@@ -531,7 +533,8 @@ export class DeckPass {
     matrix: Float32Array,
     time: number,
     currentLights: Float32Array,
-    currentLightColors: Float32Array
+    currentLightColors: Float32Array,
+    visible?: ReadonlySet<string>
   ): void {
     const gl = this.gl;
     gl.useProgram(this.deckProg);
@@ -544,6 +547,7 @@ export class DeckPass {
     gl.uniform2f(this.uShipOffsetLoc, this.shipOffset.x, this.shipOffset.y);
 
     for (const room of getWorldRooms(this.shipOffset)) {
+      if (!keepLoaded(visible, stationFrameOf(room.id))) continue;
       const style = deckFloorStyle(room.id);
       gl.uniform1i(this.uIsShipRoomLoc, isShipSideRoom(room.id) ? 1 : 0);
       gl.uniform1i(this.uRoomTypeLoc, style.type);
@@ -561,7 +565,8 @@ export class DeckPass {
     matrix: Float32Array,
     breaches: readonly BreachRenderModel[] = [],
     timeSec = 0,
-    decals: readonly PremiumDecal[] = []
+    decals: readonly PremiumDecal[] = [],
+    visible?: ReadonlySet<string>
   ): void {
     const gl = this.gl;
     gl.useProgram(flatProg);
@@ -574,7 +579,7 @@ export class DeckPass {
     const walls = applyShipOffsetToWalls(
       gaps.length > 0 ? carveWallsByFrame(HESPERIA_WALLS, gaps) : HESPERIA_WALLS,
       this.shipOffset
-    );
+    ).filter((wall) => keepLoaded(visible, stationFrameOf(wall.id)));
 
     const solids = walls.filter((w) => !w.isWindow);
     const glass = walls.filter((w) => w.isWindow);

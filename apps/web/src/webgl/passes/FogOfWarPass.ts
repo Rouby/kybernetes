@@ -3,8 +3,10 @@ import {
   CELL_UNEXPLORED,
   type ExplorationGrid,
   getWorldRooms,
+  keepLoaded,
   type Point2D,
   roomAmbientFor,
+  stationFrameOf,
 } from '@kybernetes/sim-core';
 import { createProgram } from '../glUtils';
 import { FOW_AMBIENT_FS, FOW_AMBIENT_VS, FOW_STAMP_FS, FOW_STAMP_VS } from '../shaders';
@@ -141,7 +143,8 @@ export class FogOfWarPass {
     fboManager: FramebufferManager,
     matrix: Float32Array,
     shipDx = 0,
-    shipDy = 0
+    shipDy = 0,
+    visible?: ReadonlySet<string>
   ): void {
     const gl = this.gl;
     fboManager.ensureFowFBO();
@@ -165,6 +168,7 @@ export class FogOfWarPass {
     gl.uniform1i(gl.getUniformLocation(this.fowAmbientProg, 'u_fowTexture'), 0);
 
     for (const room of getWorldRooms({ x: shipDx, y: shipDy })) {
+      if (!keepLoaded(visible, stationFrameOf(room.id))) continue;
       const amb = roomAmbientFor(room.id);
       gl.uniform3f(
         gl.getUniformLocation(this.fowAmbientProg, 'u_roomAmbient'),

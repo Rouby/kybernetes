@@ -49,6 +49,7 @@ precision highp float;
 in vec2 v_uv;
 uniform vec2 u_resolution;
 uniform vec2 u_camera;
+uniform vec2 u_scroll;
 uniform float u_time;
 out vec4 fragColor;
 
@@ -59,7 +60,7 @@ float hash(vec2 p) {
 }
 
 void main() {
-  vec2 worldCoord = (v_uv * u_resolution + u_camera * 0.25);
+  vec2 worldCoord = (v_uv * u_resolution + (u_camera + u_scroll) * 0.25);
   vec3 bg = vec3(0.015, 0.02, 0.04);
 
   // Subtle nebula clouds

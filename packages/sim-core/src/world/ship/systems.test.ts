@@ -243,6 +243,15 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
   });
 
+  it('tracks hull velocity while easing and zeroes it at rest', () => {
+    const world = driveAttentive(plotToHubB(hotBoat()), 1);
+    const vel = world.vessels.ship?.vel ?? { x: 0, y: 0 };
+    expect(Math.hypot(vel.x, vel.y)).toBeCloseTo(340, 0);
+    expect(vel.x).toBeGreaterThan(0);
+    const parked = tickShipSystems(ensureShipSystems(vesselWorld(), 'ship'), DT);
+    expect(parked.vessels.ship?.vel).toEqual({ x: 0, y: 0 });
+  });
+
   it('meets the far hub_d mate with the leg', { timeout: 30000 }, () => {
     const fueled = syncEngineFuel(hotBoat(), 'ship', 2 * FUEL_PER_CELL);
     const plotted = plotVoyage(fueled, 'ship', 'hub_d', {

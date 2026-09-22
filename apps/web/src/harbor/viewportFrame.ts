@@ -23,7 +23,13 @@ import type {
   TelemetryDeltaBroadcast,
   VitalsBroadcast,
 } from '@kybernetes/protocol';
-import { createInitialDoors, FIXED_DT, PICKUP_RADIUS_PX, type World } from '@kybernetes/sim-core';
+import {
+  createInitialDoors,
+  FIXED_DT,
+  PICKUP_RADIUS_PX,
+  visibleStationFrames,
+  type World,
+} from '@kybernetes/sim-core';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 import type { PredictedPose } from '../client/stores/MovementController';
 import type { PackScreenModel } from '../pack/packModel';
@@ -119,10 +125,17 @@ import {
 } from './renderState';
 import type { ConsoleKind } from './sessionActions';
 import { actionHintsFor, type HintsInput } from './sessionHud';
-import type { ShipExhaustView } from './shipExhaust.js';
+import {
+  directExhaustFor,
+  type ShipExhaustView,
+  scrollVectorFor,
+  stepStarScroll,
+} from './shipExhaust.js';
 
 const VIEW_MIN_H = 480;
 const CAMERA_LERP = 0.12;
+/** Peak starfield scroll px/s at the mid-leg flip (tune the cruise feel here). */
+const STAR_SCROLL_MAX_PX_S = 680;
 const VIEW_ZOOM = 1.3;
 const LOOKAHEAD_PX = 120;
 
@@ -280,6 +293,7 @@ export interface ViewportSession {
   camera: { x: number; y: number };
   frameMotion: FrameMotion | null;
   shipInterp: FocusOrigin | null;
+  starScroll: { x: number; y: number };
   doors: DoorState[];
   seenImpacts: Set<string>;
   seenShots: Set<string>;
@@ -323,6 +337,7 @@ export function createViewportSession(): ViewportSession {
     camera: { x: 650, y: 200 },
     frameMotion: null,
     shipInterp: null,
+    starScroll: { x: 0, y: 0 },
     doors: createInitialDoors(),
     seenImpacts: new Set<string>(),
     seenShots: new Set<string>(),
@@ -396,8 +411,14 @@ export function renderViewport(
     now
   );
   session.frameMotion = motion;
+  const scrollRate = scrollVectorFor(
+    view.glOverlay?.navState ?? null,
+    motion,
+    STAR_SCROLL_MAX_PX_S
+  );
+  session.starScroll = stepStarScroll(session.starScroll, scrollRate, now - session.lastFrameMs);
   const look = leadLookTarget(at, aim, motion, own.frameId);
-  stepCamera(session, look);
+  stepCamera(session, look, view.shipExhaust?.phase === 'in_transit');
   trackShots(session, view, at, now);
   stepShots(session, view, snapshot, now, viewOrigins);
   session.lastFrameMs = now;
@@ -1051,7 +1072,9 @@ function viewportRenderState(args: {
     timeMs: now,
     shipOffset: shipOffsetOf(viewOrigins),
     shipUnderway: view.shipUnderway,
-    shipExhaust: view.shipExhaust,
+    shipExhaust: directExhaustFor(view.shipExhaust, session.frameMotion),
+    starScroll: { ...session.starScroll },
+    visibleFrames: visibleStationFrames(view.glOverlay?.navState ?? null),
     screenWidth: args.canvas.clientWidth,
     screenHeight: args.canvas.clientHeight,
   };
@@ -1227,7 +1250,16 @@ function leadLookTarget(
   return { x: look.x + motion.velX * 0.15, y: look.y + motion.velY * 0.15 };
 }
 
-function stepCamera(session: ViewportSession, look: { x: number; y: number }): void {
+function stepCamera(
+  session: ViewportSession,
+  look: { x: number; y: number },
+  locked = false
+): void {
+  if (locked) {
+    session.camera.x = look.x;
+    session.camera.y = look.y;
+    return;
+  }
   const dist = Math.hypot(look.x - session.camera.x, look.y - session.camera.y);
   const rate = dist > 200 ? CAMERA_LERP : 0.25;
   session.camera.x += (look.x - session.camera.x) * rate;

@@ -19,8 +19,10 @@ import {
   HESPERIA_WALLS,
   isImpactVisible,
   isPointInPolygon,
+  keepLoaded,
   type Point2D,
   resetExplorationGrid,
+  stationFrameOf,
   throatFlowToPx,
   updateExplorationGrid,
 } from '@kybernetes/sim-core';
@@ -34,6 +36,19 @@ import { type LivingView, renderLivingFixtures } from './LivingFixtures';
 import { renderPackScene, screenOrthoMatrix } from './PackScene';
 import { renderRaiderIntruder, renderSentryTurret, renderTacticalPawn } from './PawnModels';
 import { DeckPass, ENGINE_LIP_RECT, SINGLE_PLUME_NOZZLE, THRUSTER_BELLS } from './passes/DeckPass';
+
+/** Vector-directed lane: thrust-opposing nozzle while translating, else time lane. */
+function directedLane(
+  vec: { x: number; y: number } | null | undefined,
+  nozzles: ReadonlyArray<{ dx: number; dy: number }>,
+  timeSec: number
+): number {
+  if (vec !== null && vec !== undefined) {
+    const directed = nozzleForVector(vec, nozzles);
+    if (directed >= 0) return directed;
+  }
+  return rcsLane(timeSec, nozzles.length);
+}
 
 /** Lateral maneuver nozzles in ship-local coords (bow/mid/stern pairs). */
 const RCS_NOZZLES: ReadonlyArray<{ x: number; y: number; dx: number; dy: number }> = [
@@ -49,8 +64,12 @@ const RETRO_NOZZLES: ReadonlyArray<{ x: number; y: number; dx: number; dy: numbe
   { x: 150, y: -20, dx: 0.25, dy: -1 },
 ];
 
+/** Brake-burn throat: bow mirror of the stern lip so the flipped drive reads. */
+const BOW_PLUME_NOZZLE = { x: 110, y: -24 };
+
 import {
   isRcsPhase,
+  nozzleForVector,
   RCS_PULSE_PERIOD_S,
   rcsLane,
   rcsPulseOn,
@@ -128,6 +147,10 @@ type WelderArcSet = Array<{
 
 export interface WebGLRenderState extends HudDrawState {
   shipOffset?: { x: number; y: number };
+  /** Cruise starfield scroll offset in world px; zeroed while parked. */
+  starScroll?: { x: number; y: number };
+  /** Station frames loaded in the world scene; undefined keeps everything. */
+  visibleFrames?: ReadonlySet<string>;
   /** True while the vessel is underway (in transit); exhaust burns full. */
   shipUnderway?: boolean;
   /** Authoritative torch state; when present it drives the plume. */
@@ -510,20 +533,23 @@ export class WebGL2Renderer {
     living: readonly LivingView[] = [],
     nearestLivingId?: string | null,
     cargo: readonly CargoCrateView[] = [],
-    nearestCargoId?: string | null
+    nearestCargoId?: string | null,
+    visible?: ReadonlySet<string>
   ): void {
     this.bindFlatProgram(matrix);
     const ctx = this.getRenderContext();
 
     renderClutter(
       ctx,
-      getWorldRooms(shipOffset).map((room) => ({
-        id: room.id,
-        x: room.x,
-        y: room.y,
-        w: room.width,
-        h: room.height,
-      })),
+      getWorldRooms(shipOffset)
+        .filter((room) => keepLoaded(visible, stationFrameOf(room.id)))
+        .map((room) => ({
+          id: room.id,
+          x: room.x,
+          y: room.y,
+          w: room.width,
+          h: room.height,
+        })),
       timeSec
     );
 
@@ -969,20 +995,24 @@ export class WebGL2Renderer {
       alpha: exhaust.params.alpha,
       sourceWidth: ENGINE_LIP_RECT.w,
     };
+    const braking = exhaust.braking && !exhaust.flameout;
+    const root = braking ? BOW_PLUME_NOZZLE : SINGLE_PLUME_NOZZLE;
+    const dirX = 0;
+    const dirY = braking ? -1 : 1;
     while (this.exhaustAcc >= 1) {
       this.exhaustAcc -= 1;
       if (Math.random() > 0.38) continue;
       this.particleSystem.emitMainPlume(
-        SINGLE_PLUME_NOZZLE.x + offset.x,
-        SINGLE_PLUME_NOZZLE.y + offset.y,
-        0,
-        1,
+        root.x + offset.x,
+        root.y + offset.y,
+        dirX,
+        dirY,
         plume,
         tint,
         1
       );
     }
-    if (isRcsPhase(exhaust.phase)) this.emitDockingRcs(offset, tint, timeSec);
+    if (isRcsPhase(exhaust.phase)) this.emitDockingRcs(offset, tint, timeSec, exhaust);
   }
 
   private emitLegacyExhaust(offset: { x: number; y: number }, underway: boolean, dt: number): void {
@@ -1005,10 +1035,11 @@ export class WebGL2Renderer {
   private emitDockingRcs(
     offset: { x: number; y: number },
     tint: { r: number; g: number; b: number },
-    timeSec: number
+    timeSec: number,
+    exhaust?: ShipExhaustView
   ): void {
     if (!rcsPulseOn(timeSec, 0)) return;
-    const nozzle = RCS_NOZZLES[rcsLane(timeSec, RCS_NOZZLES.length)];
+    const nozzle = RCS_NOZZLES[directedLane(exhaust?.thrustVec, RCS_NOZZLES, timeSec)];
     if (nozzle === undefined) return;
     this.particleSystem.emitRcsPuff(
       nozzle.x + offset.x,
@@ -1018,16 +1049,17 @@ export class WebGL2Renderer {
       0.7,
       tint
     );
-    this.emitRetroPuff(offset, tint, timeSec);
+    this.emitRetroPuff(offset, tint, timeSec, exhaust);
   }
 
   private emitRetroPuff(
     offset: { x: number; y: number },
     tint: { r: number; g: number; b: number },
-    timeSec: number
+    timeSec: number,
+    exhaust?: ShipExhaustView
   ): void {
     if (!rcsPulseOn(timeSec, RCS_PULSE_PERIOD_S / 2)) return;
-    const retro = RETRO_NOZZLES[rcsLane(timeSec, RETRO_NOZZLES.length)];
+    const retro = RETRO_NOZZLES[directedLane(exhaust?.thrustVec, RETRO_NOZZLES, timeSec)];
     if (retro === undefined) return;
     this.particleSystem.emitRcsPuff(
       retro.x + offset.x,
@@ -1223,7 +1255,12 @@ export class WebGL2Renderer {
     height: number
   ): { playerLoSPoly: Point2D[]; welders: WelderArcSet } {
     const carveBreaches = (state.breaches ?? []).filter((breach) => breach.sizeClass === 'breach');
-    const opaqueWalls = getWorldOpaqueWalls(HESPERIA_WALLS, doors, carveBreaches, frameOffset);
+    const opaqueWalls = getWorldOpaqueWalls(
+      HESPERIA_WALLS.filter((wall) => keepLoaded(state.visibleFrames, stationFrameOf(wall.id))),
+      doors,
+      carveBreaches,
+      frameOffset
+    );
     const doorsHash = (state.boarding?.doors || [])
       .map((d) => `${d.id}:${d.isOpen ? '1' : '0'}`)
       .join('|');
@@ -1244,7 +1281,8 @@ export class WebGL2Renderer {
       this.framebufferManager,
       this.fogOfWarPass,
       frameOffset.x,
-      frameOffset.y
+      frameOffset.y,
+      state.visibleFrames
     );
 
     this.trackFowExploration(state.pawn, playerLoSPoly);
@@ -1289,7 +1327,7 @@ export class WebGL2Renderer {
     gl.clearColor(0.015, 0.02, 0.04, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    this.starfieldPass.render(width, height, state.camera, timeSec);
+    this.starfieldPass.render(width, height, state.camera, state.starScroll ?? null, timeSec);
     if (state.chartOpen === true) {
       // Chart screen owns the frame: deep-space backdrop only, no ship interior.
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -1301,7 +1339,8 @@ export class WebGL2Renderer {
       matrix,
       timeSec,
       this.lightingPass.currentLights,
-      this.lightingPass.currentLightColors
+      this.lightingPass.currentLightColors,
+      state.visibleFrames
     );
     this.deckPass.renderFurniture(this.flatProg, this.flatVAO, matrix, timeSec);
     this.deckPass.renderBulkheads(
@@ -1310,7 +1349,8 @@ export class WebGL2Renderer {
       matrix,
       state.breaches ?? [],
       timeSec,
-      layers.decals
+      layers.decals,
+      state.visibleFrames
     );
     this.deckPass.renderDockTube(this.flatProg, this.flatVAO, matrix, state.dock, timeSec);
     this.deckPass.renderDoors(this.flatProg, this.flatVAO, matrix, doors, dt, state.nearestDoorId);
@@ -1323,7 +1363,8 @@ export class WebGL2Renderer {
       layers.livingFixtures,
       layers.nearestLivingId,
       layers.cargoCrates,
-      layers.nearestCargoId
+      layers.nearestCargoId,
+      state.visibleFrames
     );
 
     this.renderPawn(matrix, state.pawn, state.equippedWeapon, timeSec);

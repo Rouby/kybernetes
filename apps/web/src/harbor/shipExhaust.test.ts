@@ -1,12 +1,20 @@
 import type { NavStateBroadcast, ShipSystemsBroadcast } from '@kybernetes/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  brakingFor,
+  COAST_PX_S,
+  directExhaustFor,
+  flightSpeed01,
   isRcsPhase,
+  legProgressFor,
   mapShipExhaust,
   normalizeExhaustPhase,
+  nozzleForVector,
   RCS_PULSE_WIDTH_S,
   rcsLane,
   rcsPulseOn,
+  scrollVectorFor,
+  stepStarScroll,
 } from './shipExhaust.js';
 
 function nav(over: Partial<NavStateBroadcast> = {}): NavStateBroadcast {
@@ -92,6 +100,71 @@ describe('mapShipExhaust', () => {
   it('lets a committed nav phase win over the harbor phase', () => {
     const view = mapShipExhaust(nav({ phase: 'in_transit' }), sys(), 'cyan', 0, 'departing');
     expect(view.phase).toBe('in_transit');
+  });
+
+  it('directs the burn along hull motion and coasts at rest', () => {
+    const base = mapShipExhaust(null, null, undefined);
+    expect(base.coast).toBe(true);
+    expect(base.thrustVec).toBeNull();
+    const still = directExhaustFor(base, { velX: 1, velY: 1 });
+    expect(still?.coast).toBe(true);
+    expect(still?.thrustVec).toBeNull();
+    expect(still).toBe(base);
+    const moving = directExhaustFor(base, { velX: 0, velY: COAST_PX_S + 100 });
+    expect(moving?.coast).toBe(false);
+    expect(moving?.thrustVec).toMatchObject({ x: 0, y: 1 });
+    expect(moving?.thrustSpeed).toBeCloseTo(COAST_PX_S + 100, 6);
+    expect(directExhaustFor(null, { velX: 300, velY: 0 })).toBeNull();
+    expect(directExhaustFor(undefined, { velX: 300, velY: 0 })).toBeUndefined();
+  });
+
+  it('flags braking past the mid-leg flip', () => {
+    expect(brakingFor(null)).toBe(false);
+    expect(brakingFor(nav({ phase: 'docked' }))).toBe(false);
+    expect(brakingFor(nav({ phase: 'in_transit', remainingS: 80, legTotalS: 100 }))).toBe(false);
+    expect(brakingFor(nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 }))).toBe(true);
+    expect(brakingFor(nav({ phase: 'in_transit', remainingS: 5, legTotalS: 100 }))).toBe(true);
+    expect(brakingFor(nav({ phase: 'in_transit', remainingS: 5 }))).toBe(false);
+    expect(
+      mapShipExhaust(nav({ phase: 'in_transit', remainingS: 5, legTotalS: 100 }), null, undefined)
+        .braking
+    ).toBe(true);
+  });
+
+  it('picks thrust-opposing nozzles for a motion vector', () => {
+    const nozzles = [
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+      { dx: 0, dy: 1 },
+    ];
+    expect(nozzleForVector({ x: 1, y: 0 }, nozzles)).toBe(0);
+    expect(nozzleForVector({ x: -1, y: 0 }, nozzles)).toBe(1);
+    expect(nozzleForVector({ x: 0, y: -1 }, nozzles)).toBe(2);
+    expect(nozzleForVector(null, nozzles)).toBe(-1);
+    expect(nozzleForVector({ x: 0, y: 0 }, nozzles)).toBe(-1);
+    expect(nozzleForVector({ x: 1, y: 0 }, [])).toBe(-1);
+  });
+
+  it('ramps cruise scroll speed to the flip and holds it parked', () => {
+    expect(legProgressFor(null)).toBeNull();
+    expect(legProgressFor(nav({ phase: 'docked' }))).toBeNull();
+    expect(legProgressFor(nav({ phase: 'in_transit', remainingS: 100, legTotalS: 100 }))).toBe(0);
+    expect(legProgressFor(nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 }))).toBe(0.5);
+    expect(legProgressFor(nav({ phase: 'in_transit', remainingS: 0, legTotalS: 100 }))).toBe(1);
+    expect(flightSpeed01(null)).toBe(0);
+    expect(flightSpeed01(0)).toBe(0);
+    expect(flightSpeed01(0.5)).toBeCloseTo(1, 6);
+    expect(flightSpeed01(1)).toBeCloseTo(0, 6);
+    expect(flightSpeed01(0.25)).toBeGreaterThan(flightSpeed01(0.1));
+    const leg = nav({ phase: 'in_transit', remainingS: 75, legTotalS: 100 });
+    const rate = scrollVectorFor(leg, { velX: 340, velY: 0 }, 680);
+    expect(rate?.x).toBeCloseTo(480.8, 0);
+    expect(rate?.y).toBe(0);
+    expect(scrollVectorFor(nav({ phase: 'docked' }), { velX: 340, velY: 0 }, 680)).toBeNull();
+    expect(scrollVectorFor(leg, { velX: 1, velY: 0 }, 680)).toBeNull();
+    expect(scrollVectorFor(leg, null, 680)).toBeNull();
+    expect(stepStarScroll({ x: 1, y: 2 }, { x: 100, y: 0 }, 50)).toEqual({ x: 6, y: 2 });
+    expect(stepStarScroll({ x: 1, y: 2 }, null, 50)).toEqual({ x: 1, y: 2 });
   });
 
   it('parks unknown phases as docked', () => {
