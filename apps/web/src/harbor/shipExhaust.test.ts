@@ -6,6 +6,7 @@ import {
   directExhaustFor,
   flightSpeed01,
   isRcsPhase,
+  isTranslatingPhase,
   legProgressFor,
   mapShipExhaust,
   normalizeExhaustPhase,
@@ -165,6 +166,14 @@ describe('mapShipExhaust', () => {
     expect(scrollVectorFor(leg, null, 680)).toBeNull();
     expect(stepStarScroll({ x: 1, y: 2 }, { x: 100, y: 0 }, 50)).toEqual({ x: 6, y: 2 });
     expect(stepStarScroll({ x: 1, y: 2 }, null, 50)).toEqual({ x: 1, y: 2 });
+  });
+
+  it('binds camera and scroll to translating hulls only', () => {
+    expect(isTranslatingPhase('in_transit')).toBe(true);
+    expect(isTranslatingPhase('docking')).toBe(true);
+    expect(isTranslatingPhase('docked')).toBe(false);
+    expect(isTranslatingPhase(null)).toBe(false);
+    expect(isTranslatingPhase(undefined)).toBe(false);
   });
 
   it('parks unknown phases as docked', () => {

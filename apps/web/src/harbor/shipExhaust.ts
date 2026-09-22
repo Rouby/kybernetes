@@ -66,6 +66,11 @@ export function stepStarScroll(
   return { x: prev.x + rate.x * dtS, y: prev.y + rate.y * dtS };
 }
 
+/** Hull translating under power: camera and scroll bind to the vessel. */
+export function isTranslatingPhase(phase: NavStateBroadcast['phase'] | null | undefined): boolean {
+  return phase === 'in_transit' || phase === 'docking';
+}
+
 /** Past the mid-leg flip the torch brakes: burn leads, drive end flips. */
 export function brakingFor(nav: NavStateBroadcast | null | undefined): boolean {
   if (nav?.phase !== 'in_transit') return false;

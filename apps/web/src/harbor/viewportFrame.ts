@@ -127,6 +127,7 @@ import type { ConsoleKind } from './sessionActions';
 import { actionHintsFor, type HintsInput } from './sessionHud';
 import {
   directExhaustFor,
+  isTranslatingPhase,
   type ShipExhaustView,
   scrollVectorFor,
   stepStarScroll,
@@ -417,8 +418,9 @@ export function renderViewport(
     STAR_SCROLL_MAX_PX_S
   );
   session.starScroll = stepStarScroll(session.starScroll, scrollRate, now - session.lastFrameMs);
-  const look = leadLookTarget(at, aim, motion, own.frameId);
-  stepCamera(session, look, view.shipExhaust?.phase === 'in_transit');
+  const translating = isTranslatingPhase(view.shipExhaust?.phase);
+  const look = translating ? at : leadLookTarget(at, aim, motion, own.frameId);
+  stepCamera(session, look, translating);
   trackShots(session, view, at, now);
   stepShots(session, view, snapshot, now, viewOrigins);
   session.lastFrameMs = now;
