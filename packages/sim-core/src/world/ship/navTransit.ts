@@ -140,10 +140,10 @@ export function plotCourse(
   if (!isHubId(destHubId)) return { reject: 'unknown-hub' };
   if (destHubId === nav.portHubId) return { reject: 'same-hub' };
   if (!checks.hot || !checks.powered) return { reject: 'no-power' };
-  const fuel = checksEngineFuel(checks);
-  const need = fuelCostForLeg(engineTier, 1, hopScaledS(nav.portHubId, destHubId, engineTier, 1));
-  if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
   const legS = legWindowS(nav.portHubId, destHubId, engineTier, 1, nowS);
+  const fuel = checksEngineFuel(checks);
+  const need = fuelCostForLeg(engineTier, 1, legS);
+  if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
   return {
     nav: {
       phase: 'in_transit',

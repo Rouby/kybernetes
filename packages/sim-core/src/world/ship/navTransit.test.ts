@@ -119,6 +119,17 @@ describe('nav legs (plot straight to dock)', () => {
     expect(second.nav.legId).toBe(first.legId + 1);
   });
 
+  it('gates fuel on the flown leg window, not the nominal table', () => {
+    const checks = (engineFuel: number) => ({ hot: true, powered: true, engineFuel });
+    const clocked = plotCourse(DOCKED_NAV, 'hub_b', checks(500), 0, 0);
+    expect('nav' in clocked).toBe(true);
+    if (!('nav' in clocked)) throw new Error('clocked plot should succeed');
+    expect(clocked.nav.phase).toBe('in_transit');
+    expect(clocked.nav.remainingS).toBeLessThan(150);
+    expect(plotCourse(DOCKED_NAV, 'hub_b', checks(100), 0, 0)).toEqual({ reject: 'no-fuel' });
+    expect(plotCourse(DOCKED_NAV, 'hub_b', checks(500))).toEqual({ reject: 'no-fuel' });
+  });
+
   it('commits straight into transit and burns fuel underway', () => {
     const departed = tickMany(plotted(), 1, ONE_CELL);
     expect(departed.nav.phase).toBe('in_transit');

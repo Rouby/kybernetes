@@ -14,7 +14,6 @@ import {
   checksEngineFuel,
   clampThrust01,
   DOCKED_NAV,
-  hopScaledS,
   legDurationSeconds,
   legWindowS,
   type NavState,
@@ -246,14 +245,10 @@ export function plotChartCourse(
   const first = stops[0] ?? last;
   const thrust = clampThrust01(thrust01);
   if (!checks.hot || !checks.powered) return { reject: 'no-power' };
-  const fuel = checksEngineFuel(checks);
-  const need = fuelCostForLeg(
-    engineTier,
-    thrust,
-    hopScaledS(nav.portHubId, first, engineTier, thrust)
-  );
-  if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
   const legS = legWindowS(nav.portHubId, first, engineTier, thrust, nowS);
+  const fuel = checksEngineFuel(checks);
+  const need = fuelCostForLeg(engineTier, thrust, legS);
+  if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
   return {
     nav: {
       ...DOCKED_NAV,
