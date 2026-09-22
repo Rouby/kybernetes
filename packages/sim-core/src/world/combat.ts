@@ -10,7 +10,7 @@ import { closestPointOnSegment, segmentsIntersect } from '../spatial/collision.j
 import { roomContainingPoint } from './crew.js';
 import { addDecal, decalRadiusFor, makeDecalId, shouldDecal } from './decals.js';
 import { destroyPortal } from './doors.js';
-import { carryByFrame, collidersForFrame } from './movement.js';
+import { collidersForFrame } from './movement.js';
 import { dropAllForPawn } from './ship/cargo.js';
 import { ensureVitals, startBleeding } from './survival.js';
 import type {
@@ -193,12 +193,11 @@ function stepProjectile(
     prev = point;
   }
   const end = { x: shot.pos.x + travel.x, y: shot.pos.y + travel.y };
-  const carried = carryByFrame(aged, shot.frameId, end, dt);
   const live = aged.projectiles[id];
   if (live === undefined) return aged;
   return {
     ...aged,
-    projectiles: { ...aged.projectiles, [id]: { ...live, pos: carried } },
+    projectiles: { ...aged.projectiles, [id]: { ...live, pos: end } },
   };
 }
 

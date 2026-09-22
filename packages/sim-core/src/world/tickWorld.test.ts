@@ -174,7 +174,7 @@ describe('tickWorld doors and cooldown', () => {
 });
 
 describe('tickWorld frame carry', () => {
-  it('carries pawns with a moving vessel without drift', () => {
+  it('keeps aboard pawns frame-local while the vessel moves', () => {
     const world = shipWorld();
     const vessel = world.vessels.ship;
     if (vessel === undefined) throw new Error('missing vessel');
@@ -183,13 +183,11 @@ describe('tickWorld frame carry', () => {
       vessels: { ...world.vessels, ship: { ...vessel, vel: { x: 50, y: 0 } } },
     };
     const before = moving.pawns.p1;
+    if (before === undefined) throw new Error('missing pawn');
     const after = tickWorld(moving, 1 / 20, []);
-    const afterVessel = after.vessels.ship;
-    if (before === undefined || afterVessel === undefined)
-      throw new Error('missing pawn or vessel');
-    const pawnDx = (after.pawns.p1?.pos.x ?? 0) - before.pos.x;
-    const frameDx = afterVessel.origin.x - vessel.origin.x;
-    expect(pawnDx).toBe(frameDx);
-    expect(pawnDx).toBeCloseTo(2.5, 5);
+    // Local pos untouched: the renderer adds the frame origin, so any
+    // carried drift here would double-count vessel motion on screen.
+    expect(after.pawns.p1?.pos.x).toBe(before.pos.x);
+    expect(after.pawns.p1?.pos.y).toBe(before.pos.y);
   });
 });

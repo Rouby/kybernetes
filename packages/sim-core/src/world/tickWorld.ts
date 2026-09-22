@@ -1,8 +1,9 @@
 /**
  * tickWorld: the only tick. Small delegates, no god function.
  * Movement slice with server-side collision, world-space dock crossing,
- * frame-velocity carry, room-hint tracking, explored-memory, and air
- * readings via the air authority.
+ * room-hint tracking, explored-memory, and air readings via the air
+ * authority. Pawn and shot positions stay frame-local; the renderer adds
+ * the frame origin, so vessel motion never touches them here.
  */
 
 import {
@@ -14,12 +15,10 @@ import {
 import { tickBots } from './bots.js';
 import { tickImpacts, tickProjectiles, tickSpread } from './combat.js';
 import { stepCrossFrame } from './dockCrossing.js';
-import { advanceFrameOrigin } from './frames.js';
 import { tickLiving } from './living.js';
 import { unionRooms, visibleRooms } from './los.js';
 import {
   applyWindToTarget,
-  carryByFrame,
   collidePawn,
   collidersForFrame,
   inputToAccel,
@@ -63,8 +62,7 @@ export function tickWorld(
   const lived = tickLiving(dropped, dt);
   const shot = tickProjectiles(lived, dt);
   const cooled = tickSpread(tickImpacts(shot), dt);
-  const framed = stepFrames(cooled, dt);
-  const ticked = { ...framed, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };
+  const ticked = { ...cooled, tick: world.tick + 1, timeMs: world.timeMs + dt * 1000 };
   if (air === undefined) return ticked;
   return { ...ticked, atmos: refreshAtmos(air, ticked, dt) };
 }
@@ -126,7 +124,7 @@ function stepPawn(
   const target = integratePawnPosition({ ...pawn, vel: drive.vel }, drive.vel, dt);
   const dragged = applyWindToTarget(target, dragOffsetForPawn(pawn, air, dt));
   const collided = collidePawn(pawn, dragged, collidersForFrame(world, pawn.frameId));
-  const pos = carryByFrame(world, pawn.frameId, collided, dt);
+  const pos = collided;
   return {
     ...pawn,
     pos,
@@ -180,17 +178,4 @@ function stepMemory(world: World): World {
  */
 function isMemoryPawn(pawn: PawnBody): boolean {
   return !pawn.id.startsWith('npc:');
-}
-
-function stepFrames(world: World, dt: number): World {
-  const vesselIds = Object.keys(world.vessels);
-  if (vesselIds.length === 0) return world;
-  const vessels = { ...world.vessels };
-  for (const id of vesselIds) {
-    const frame = vessels[id];
-    if (frame === undefined) continue;
-    const next = advanceFrameOrigin(frame, dt);
-    vessels[id] = { ...frame, origin: next.origin, angle: next.angle };
-  }
-  return { ...world, vessels };
 }

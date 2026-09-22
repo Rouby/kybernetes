@@ -34,17 +34,3 @@ export function composePawnVelocity(
     y: frameVel.y + pawnLocalVel.y + angVel * r.x,
   };
 }
-
-export function advanceFrameOrigin(
-  frame: VesselFrame,
-  dtSeconds: number
-): Pick<VesselFrame, 'origin' | 'angle'> {
-  if (!(dtSeconds > 0)) return { origin: frame.origin, angle: frame.angle };
-  return {
-    origin: {
-      x: frame.origin.x + frame.vel.x * dtSeconds,
-      y: frame.origin.y + frame.vel.y * dtSeconds,
-    },
-    angle: frame.angle + frame.angVel * dtSeconds,
-  };
-}

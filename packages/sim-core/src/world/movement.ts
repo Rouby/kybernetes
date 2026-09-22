@@ -234,10 +234,3 @@ export function applyWindToTarget(target: Vec2, offset: Vec2): Vec2 {
   if (offset.x === 0 && offset.y === 0) return target;
   return { x: target.x + offset.x, y: target.y + offset.y };
 }
-
-/** Pawns aboard a moving vessel inherit its frame velocity (no offset-hack). */
-export function carryByFrame(world: World, frameId: string, pos: Vec2, dtSeconds: number): Vec2 {
-  const frame = world.vessels[frameId];
-  if (frame === undefined || !(dtSeconds > 0)) return pos;
-  return { x: pos.x + frame.vel.x * dtSeconds, y: pos.y + frame.vel.y * dtSeconds };
-}
