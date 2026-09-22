@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   coldReactor,
+  DEFAULT_COOLANT,
+  DEFAULT_RODS,
   type ReactorState,
   reactorBandFor,
   reactorOutputMw,
   reactorSpecFor,
   restartReactor,
+  SCRAM_CRITICAL_MARGIN_K,
   tickReactor,
-  tuneReactor,
 } from './reactor.js';
 
 const DT = 0.05;
@@ -25,16 +27,7 @@ function tickMany(state: ReactorState, seconds: number, tickBase = 0): ReactorSt
   return current;
 }
 
-/** Scripted operator: nudge trims back toward band center once per second. */
-function balancePolicy(state: ReactorState, tick: number): ReactorState {
-  if (tick % 20 !== 0) return state;
-  const band = reactorBandFor(0);
-  if (state.tempK > band.hi - 10) return tuneReactor(state, 0.1, 0.1);
-  if (state.tempK < band.lo + 10) return tuneReactor(state, -0.1, -0.1);
-  return state;
-}
-
-describe('reactor (M2 two-dial balance)', () => {
+describe('reactor (M2 self-trimming)', () => {
   it('widens the nominal band per tier', () => {
     const t0 = reactorBandFor(0);
     const t2 = reactorBandFor(2);
@@ -53,29 +46,27 @@ describe('reactor (M2 two-dial balance)', () => {
     expect(lit.tempK).toBeLessThanOrEqual(band.hi);
   });
 
-  it('clamps console trims to 0-1 and ignores garbage', () => {
-    const tuned = tuneReactor(hotTier0(), 5, -5);
-    expect(tuned.rods).toBe(1);
-    expect(tuned.coolant).toBe(0);
-    expect(tuneReactor(tuned, Number.NaN, 0)).toBe(tuned);
+  it('relaxes disturbed trims back to the balanced defaults', () => {
+    const disturbed: ReactorState = { ...hotTier0(), rods: 0.9, coolant: 0.9 };
+    const settled = tickMany(disturbed, 30);
+    expect(settled.rods).toBeCloseTo(DEFAULT_RODS, 1);
+    expect(settled.coolant).toBeCloseTo(DEFAULT_COOLANT, 1);
   });
 
-  it('drifts out of band unattended within a leg', () => {
-    let current = hotTier0();
-    let warnedAt = -1;
-    for (let i = 0; i < Math.round(150 / DT); i += 1) {
-      current = tickReactor(current, 0, DT, i);
-      if (current.warned && warnedAt < 0) warnedAt = i * DT;
-      if (current.scrammed) break;
+  it('rides out flux drift hands-off across seeds', () => {
+    for (const seed of [1, 7, 42, 99]) {
+      let current = hotTier0(seed);
+      for (let i = 0; i < Math.round(400 / DT); i += 1) {
+        current = tickReactor(current, 0, DT, i);
+        expect(current.scrammed).toBe(false);
+        expect(Number.isFinite(current.tempK)).toBe(true);
+      }
     }
-    expect(warnedAt).toBeGreaterThanOrEqual(0);
-    expect(warnedAt).toBeLessThanOrEqual(150);
   });
 
-  it('holds the band for a full leg under a simple policy', () => {
+  it('holds the band for a full leg on auto-trim alone', () => {
     let current = hotTier0();
     for (let i = 0; i < Math.round(300 / DT); i += 1) {
-      current = balancePolicy(current, i);
       current = tickReactor(current, 0, DT, i);
       expect(current.scrammed).toBe(false);
     }
@@ -85,7 +76,8 @@ describe('reactor (M2 two-dial balance)', () => {
   });
 
   it('scrams past the critical line and restarts clean', () => {
-    let current = tuneReactor(hotTier0(), -1, -1);
+    const band0 = reactorBandFor(0);
+    let current: ReactorState = { ...hotTier0(), rods: 0, coolant: 0, tempK: band0.hi + 55 };
     let guard = 0;
     while (!current.scrammed && guard < Math.round(120 / DT)) {
       current = tickReactor(current, 0, DT, guard);
@@ -101,11 +93,12 @@ describe('reactor (M2 two-dial balance)', () => {
     expect(back.tempK).toBeLessThanOrEqual(band.hi);
   });
 
-  it('scrams on sustained overheat below the critical line', () => {
+  it('recovers a hot plant below the critical line without scramming', () => {
     const band = reactorBandFor(0);
-    const simmering: ReactorState = { ...tuneReactor(hotTier0(), -1, 0), tempK: band.hi + 1 };
-    const done = tickMany(simmering, 16);
-    expect(done.scrammed).toBe(true);
+    const hot: ReactorState = { ...hotTier0(), rods: 0, flux: 0.8, tempK: band.hi + 30 };
+    const done = tickMany(hot, 30);
+    expect(done.scrammed).toBe(false);
+    expect(done.tempK).toBeLessThan(band.hi + SCRAM_CRITICAL_MARGIN_K);
   });
 
   it('ignores zero and invalid dt without NaN', () => {

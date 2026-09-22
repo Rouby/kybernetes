@@ -448,7 +448,7 @@ function reactorTextsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly
   const kick = uiEllipsize(`REACTOR // ${vm.status.toUpperCase()}`, KICKER_SIZE, innerW);
   const temp = uiEllipsize(`TEMP ${vm.tempK} K`, BODY_SIZE, innerW);
   const band = uiEllipsize(`BAND ${vm.bandLo}-${vm.bandHi}`, BODY_SIZE, innerW);
-  const load = uiEllipsize(`OUT ${vm.outputMW} MW / LOAD ${vm.demandMW} MW`, BODY_SIZE, innerW);
+  const load = uiEllipsize(`OUT ${vm.outputMW} MW`, BODY_SIZE, innerW);
   const y0 = panel.y + PAD;
   return [
     textAt(kick, tx, y0, KICKER_SIZE, 'dim'),
@@ -460,16 +460,12 @@ function reactorTextsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly
 
 function reactorButtonsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly UiButton[] {
   const vm = reactorViewModel(systems);
-  const top = panel.y + panel.h - PAD - (6 * BTN_H + 5 * GAP);
+  const top = panel.y + panel.h - PAD - (2 * BTN_H + GAP);
   const labels = {
-    rodsDown: 'RODS -',
-    rodsUp: 'RODS +',
-    coolantDown: 'COOL -',
-    coolantUp: 'COOL +',
     restart: vm.restartLabel,
     close: 'CLOSE [E]',
   };
-  const ids = ['rodsDown', 'rodsUp', 'coolantDown', 'coolantUp', 'restart', 'close'];
+  const ids = ['restart', 'close'];
   return columnFor(panel, top, ids, labels, 'restart');
 }
 
@@ -494,44 +490,29 @@ function engineTextsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly 
   const vm = engineViewModel(systems);
   const tx = panel.x + PAD;
   const innerW = panel.w - PAD * 2;
-  const kick = uiEllipsize(`ENGINE // ${vm.spoolLabel}`, KICKER_SIZE, innerW);
+  const kick = uiEllipsize('ENGINE // TORCH', KICKER_SIZE, innerW);
   const y0 = panel.y + PAD;
-  const rows = [
+  return [
     textAt(kick, tx, y0, KICKER_SIZE, 'dim'),
-    textAt(`SPOOL ${vm.spoolPct}%`, tx, y0 + KICKER_SIZE + 8, BODY_SIZE, 'primary'),
-    textAt(`TUNE ${vm.tunePct}%`, tx, y0 + KICKER_SIZE + 8 + LINE_H, BODY_SIZE, 'primary'),
-    textAt(`WEAR ${vm.wearPct}%`, tx, y0 + KICKER_SIZE + 8 + LINE_H * 2, BODY_SIZE, 'muted'),
     textAt(
       uiEllipsize(vm.fuelLabel, BODY_SIZE, innerW),
       tx,
-      y0 + KICKER_SIZE + 8 + LINE_H * 3,
+      y0 + KICKER_SIZE + 8,
       BODY_SIZE,
       'primary'
     ),
   ];
-  if (vm.brownout)
-    rows.push(textAt('BROWNOUT', tx, y0 + KICKER_SIZE + 8 + LINE_H * 3, BODY_SIZE, 'danger'));
-  return rows;
 }
 
 function engineButtonsFor(panel: UiRect, systems: ShipSystemsBroadcast): readonly UiButton[] {
-  const vm = engineViewModel(systems);
-  const top = panel.y + panel.h - PAD - (6 * BTN_H + 5 * GAP);
+  void systems;
+  const top = panel.y + panel.h - PAD - (3 * BTN_H + 2 * GAP);
   const labels = {
-    spool: vm.spoolLabel,
-    tuneDown: 'TUNE -',
-    tuneUp: 'TUNE +',
     loadFuel: 'LOAD CELL',
     unloadFuel: 'UNLOAD',
     close: 'CLOSE [E]',
   };
-  return columnFor(
-    panel,
-    top,
-    ['spool', 'tuneDown', 'tuneUp', 'loadFuel', 'unloadFuel', 'close'],
-    labels,
-    'spool'
-  );
+  return columnFor(panel, top, ['loadFuel', 'unloadFuel', 'close'], labels, 'loadFuel');
 }
 
 export function layoutEngineScreen(
@@ -612,7 +593,6 @@ function navTextsFor(
   line = pushCargoDemandRows(rows, preview, aboard, tx, y0, innerW, line);
   const alerts: string[] = [];
   if (vm.fuelWarning !== null) alerts.push(uiEllipsize(vm.fuelWarning, BODY_SIZE, innerW));
-  if (vm.heatWarning !== null) alerts.push(uiEllipsize(vm.heatWarning, BODY_SIZE, innerW));
   alerts.forEach((alert, index) => {
     rows.push(
       textAt(alert, tx, y0 + KICKER_SIZE + 8 + LINE_H * (line + index), BODY_SIZE, 'warning')
@@ -853,14 +833,6 @@ function legendActionButtons(
     const labels = { hail: 'HAIL RESCUE', distress: 'DISTRESS', close: 'CLOSE [E]' };
     return legendColumn(legend, ['hail', 'distress', 'close'], labels, 'hail');
   }
-  if (vm.phase === 'spooling') {
-    return legendColumn(
-      legend,
-      ['cancel', 'close'],
-      { cancel: 'CANCEL', close: 'CLOSE [E]' },
-      undefined
-    );
-  }
   if (vm.phase === 'in_transit' || vm.phase === 'docking') {
     return legendColumn(
       legend,
@@ -874,12 +846,11 @@ function legendActionButtons(
 
 const STEP_H = 34;
 const DRAFT_LABELS = { confirm: 'CONFIRM', clear: 'CLEAR', close: 'CLOSE [E]' };
-const PREFLIGHT_LABELS = { loadFuel: 'LOAD FUEL', spool: 'SPOOL' };
+const PREFLIGHT_LABELS = { loadFuel: 'LOAD FUEL' };
 
 function preflightButtonIds(vm: NavViewModel): string[] {
   const ids: string[] = [];
   if (vm.canLoadFuelFromBridge) ids.push('loadFuel');
-  if (vm.canSpoolFromBridge) ids.push('spool');
   return ids;
 }
 
@@ -976,15 +947,7 @@ export function layoutNavScreen(
   );
   const legend = map.legend;
   const vm = navViewModel(nav, systems, status, chart ?? null);
-  const course = previewCourse(
-    draft,
-    nav,
-    status,
-    systems,
-    chart ?? null,
-    thrustPct / 100,
-    simSeconds
-  );
+  const course = previewCourse(draft, nav, status, chart ?? null, thrustPct / 100, simSeconds);
   const pre = preflightPanel(w, h, vm);
   const texts = [
     ...(pre?.texts ?? []),
@@ -1110,13 +1073,14 @@ function preflightEngineText(
   innerW: number,
   line: number
 ): UiText {
-  const text = vm.engineSpooled ? 'ENGINE: SPOOLED' : 'ENGINE: IDLE';
+  void vm;
+  const text = 'ENGINE: TORCH READY';
   return textAt(
     uiEllipsize(text, BODY_SIZE, innerW),
     tx,
     y0 + KICKER_SIZE + 8 + PREFLIGHT_LINE_H * line,
     BODY_SIZE,
-    vm.engineSpooled ? 'good' : 'muted'
+    'good'
   );
 }
 
@@ -1686,8 +1650,8 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   menu: ['embark', 'customize', 'voldn', 'volup', 'mute'],
   customize: ['back', 'embark'],
   intro: ['embark'],
-  reactor: ['rodsDown', 'rodsUp', 'coolantDown', 'coolantUp', 'restart', 'close'],
-  engine: ['spool', 'tuneDown', 'tuneUp', 'loadFuel', 'unloadFuel', 'close'],
+  reactor: ['restart', 'close'],
+  engine: ['loadFuel', 'unloadFuel', 'close'],
   nav: [
     'plot:hub_b',
     'plot:hub_c',
@@ -1701,7 +1665,6 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
     'via:moon_rill',
     'via:moon_tarn',
     'loadFuel',
-    'spool',
     'close',
   ],
   cargo: ['unpackAll', 'drop', 'packHold', 'close'],

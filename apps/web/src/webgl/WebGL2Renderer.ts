@@ -959,8 +959,7 @@ export class WebGL2Renderer {
     }
     const rate = exhaust.params.ratePerSecPerBell * THRUSTER_BELLS.length;
     if (rate <= 0.5) return;
-    const flicker = exhaust.brownout ? 0.6 + 0.4 * Math.abs(Math.sin(timeSec * 23)) : 1;
-    this.exhaustAcc += dt * rate * flicker;
+    this.exhaustAcc += dt * rate;
     const tint: PlumeTint = { r: exhaust.tint[0], g: exhaust.tint[1], b: exhaust.tint[2] };
     const plume: MainPlumeParams = {
       speedMin: exhaust.params.speedMin,

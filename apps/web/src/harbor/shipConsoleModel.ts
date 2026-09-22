@@ -18,18 +18,11 @@ export interface ReactorViewModel {
   readonly rodsPct: number;
   readonly coolantPct: number;
   readonly outputMW: number;
-  readonly demandMW: number;
-  readonly powerOk: boolean;
   readonly restartLabel: string;
   readonly restartEnabled: boolean;
 }
 
 export interface EngineViewModel {
-  readonly spoolPct: number;
-  readonly tunePct: number;
-  readonly wearPct: number;
-  readonly brownout: boolean;
-  readonly spoolLabel: string;
   readonly fuel: number;
   readonly fuelMax: number;
   readonly fuelSlots: number;
@@ -50,8 +43,6 @@ export function reactorViewModel(systems: ShipSystemsBroadcast): ReactorViewMode
     rodsPct: Math.round(systems.rods * 100),
     coolantPct: Math.round(systems.coolant * 100),
     outputMW: systems.outputMW,
-    demandMW: systems.demandMW,
-    powerOk: systems.outputMW >= systems.demandMW,
     restartLabel: systems.scrammed ? 'RESTART REACTOR' : 'IGNITE REACTOR',
     restartEnabled: systems.scrammed || status === 'cold',
   };
@@ -62,11 +53,6 @@ export function engineViewModel(systems: ShipSystemsBroadcast): EngineViewModel 
   const fuelMax = Math.max(1, Math.floor(systems.fuelMax ?? 2000));
   const fuelSlots = Math.max(1, Math.floor(systems.fuelSlots ?? 2));
   return {
-    spoolPct: Math.round(systems.spool * 100),
-    tunePct: Math.round(systems.tune * 100),
-    wearPct: Math.round(systems.wear * 100),
-    brownout: systems.brownout,
-    spoolLabel: systems.spool > 0.5 ? 'SPOOL OFF' : 'SPOOL ON',
     fuel,
     fuelMax,
     fuelSlots,

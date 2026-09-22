@@ -10,10 +10,9 @@ import {
   FUEL_PER_CELL,
   legDurationSeconds,
   planVoyage,
-  speedFactor,
 } from '@kybernetes/sim-core';
 
-export type NavPanelPhase = 'docked' | 'spooling' | 'in_transit' | 'docking' | 'unknown';
+export type NavPanelPhase = 'docked' | 'in_transit' | 'docking' | 'unknown';
 
 /** Bunker fuel-value display: integer units (1 cell = 1000 fuel). */
 export function formatFuel(fuel: number): string {
@@ -36,8 +35,6 @@ export interface NavViewModel {
   readonly fuelNeeded: number;
   /** Soft planning aid; null when sufficient or not plottable. Never blocks plot. */
   readonly fuelWarning: string | null;
-  /** Soft planning aid for cold tunes; null when nominal or not plottable. */
-  readonly heatWarning: string | null;
   /** Live hop target (stops[legIndex], else final dest). */
   readonly hopToId: string | undefined;
   readonly hopLabel: string;
@@ -55,17 +52,12 @@ export interface NavViewModel {
   readonly bunkerFuelNeeded: number;
   /** Loose cells in stores available to load (mirrors fuelCells). */
   readonly storesFuelCells: number;
-  /** Engine spool above the 0.5 ready threshold. */
-  readonly engineSpooled: boolean;
   /** Docked with a loose cell and room for a full cell in the bunker. */
   readonly canLoadFuelFromBridge: boolean;
-  /** Docked, reactor online, bunker fueled, engine idle. */
-  readonly canSpoolFromBridge: boolean;
   readonly canHail: boolean;
   /** Rescue-drone countdown, ceiled; 0 when none outstanding. */
   readonly rescueS: number;
   readonly canPlot: boolean;
-  readonly canCancel: boolean;
   readonly canDistress: boolean;
   readonly etaS: number;
   readonly flameout: boolean;
@@ -126,7 +118,7 @@ export function navViewModel(
   const fuelCells = status?.stores.fuelCells ?? 0;
   const fuel = systems?.fuel ?? status?.engineFuel ?? 0;
   const fuelMax = systems?.fuelMax ?? 0;
-  const voyage = projectSingleHop(portHubId, other, status, systems);
+  const voyage = projectSingleHop(portHubId, other, status);
   return {
     phase: navPhase(nav),
     ...preflightViewModel(nav, systems, status, voyage.fuelNeeded),
@@ -141,11 +133,9 @@ export function navViewModel(
     fuelMax,
     fuelNeeded: voyage.fuelNeeded,
     fuelWarning: lowFuelWarning(nav, fuel, voyage.fuelNeeded),
-    heatWarning: heatWarningFor(nav, voyage.heatRisk),
     ...manifestViewModel(nav, chart ?? null),
     ...strandedViewModel(nav),
     canPlot: nav?.phase === 'docked',
-    canCancel: nav?.phase === 'spooling',
     canDistress: nav?.phase === 'in_transit',
     etaS: estimateEta(status, systems),
     flameout: nav?.flameout ?? false,
@@ -157,9 +147,7 @@ interface PreflightView {
   readonly bunkerFuel: number;
   readonly bunkerFuelNeeded: number;
   readonly storesFuelCells: number;
-  readonly engineSpooled: boolean;
   readonly canLoadFuelFromBridge: boolean;
-  readonly canSpoolFromBridge: boolean;
 }
 
 function preflightViewModel(
@@ -170,16 +158,13 @@ function preflightViewModel(
 ): PreflightView {
   const bunker = bunkerOf(systems, status);
   const storesFuelCells = status === null ? 0 : status.stores.fuelCells;
-  const engineSpooled = systems !== null && systems.spool > 0.5;
   const reactorOnline = isReactorOnline(systems);
   return {
     reactorOnline,
     bunkerFuel: bunker.fuel,
     bunkerFuelNeeded: fuelNeeded,
     storesFuelCells,
-    engineSpooled,
     canLoadFuelFromBridge: canLoadFromBridge(nav, storesFuelCells, bunker.fuel, bunker.max),
-    canSpoolFromBridge: canSpoolFromBridge(nav, reactorOnline, bunker.fuel, engineSpooled),
   };
 }
 
@@ -206,16 +191,6 @@ function canLoadFromBridge(
   if (nav?.phase !== 'docked') return false;
   if (!(storesCells >= 1)) return false;
   return bunkerFuel + FUEL_PER_CELL <= fuelMax;
-}
-
-function canSpoolFromBridge(
-  nav: NavStateBroadcast | null,
-  reactorOnline: boolean,
-  bunkerFuel: number,
-  engineSpooled: boolean
-): boolean {
-  if (nav?.phase !== 'docked' || !reactorOnline || engineSpooled) return false;
-  return bunkerFuel > 0;
 }
 
 function hopViewModel(nav: NavStateBroadcast | null): HopView {
@@ -263,8 +238,9 @@ function countdownFor(nav: NavStateBroadcast | null): number {
 
 function navPhase(nav: NavStateBroadcast | null): NavPanelPhase {
   if (nav === null) return 'unknown';
-  if (nav.phase === 'docked' || nav.phase === 'spooling') return nav.phase;
-  if (nav.phase === 'in_transit' || nav.phase === 'docking') return nav.phase;
+  if (nav.phase === 'docked' || nav.phase === 'in_transit' || nav.phase === 'docking') {
+    return nav.phase;
+  }
   return 'unknown';
 }
 
@@ -277,18 +253,11 @@ function tierFor(status: ShipStatusBroadcast | null): EngineTier {
 function projectSingleHop(
   fromId: string,
   toId: string,
-  status: ShipStatusBroadcast | null,
-  systems: ShipSystemsBroadcast | null
-): { fuelNeeded: number; heatRisk: boolean } {
-  const result = planVoyage({
-    fromId,
-    stops: [toId],
-    tier: tierFor(status),
-    tune: systems?.tune ?? 1,
-    wear: systems?.wear ?? 0,
-  });
-  if (!('plan' in result)) return { fuelNeeded: 1000, heatRisk: false };
-  return { fuelNeeded: result.plan.fuelNeeded, heatRisk: result.plan.heatRisk };
+  status: ShipStatusBroadcast | null
+): { fuelNeeded: number } {
+  const result = planVoyage({ fromId, stops: [toId], tier: tierFor(status) });
+  if (!('plan' in result)) return { fuelNeeded: 1000 };
+  return { fuelNeeded: result.plan.fuelNeeded };
 }
 
 function chartRowFor(
@@ -306,7 +275,7 @@ function laneRowFor(
   nav: NavStateBroadcast | null,
   chart: ChartStateBroadcast | null
 ): string | null {
-  if (nav === null || (nav.phase !== 'spooling' && nav.phase !== 'in_transit')) return null;
+  if (nav === null || nav.phase !== 'in_transit') return null;
   if (nav.stops.length < 2 || chart === null) return null;
   const ids = [nav.portHubId, ...nav.stops];
   return `LANE ${ids.map((id) => laneSegment(id, chart)).join('>')}`;
@@ -321,11 +290,6 @@ function laneSegment(id: string, chart: ChartStateBroadcast): string {
 function nodeLabel(id: string | undefined): string {
   if (id === undefined) return '—';
   return chartNodeFor(id)?.label ?? hubLabel(id);
-}
-
-function heatWarningFor(nav: NavStateBroadcast | null, heatRisk: boolean): string | null {
-  if (nav?.phase !== 'docked' || !heatRisk) return null;
-  return 'HEAT RISK: TUNE LOW';
 }
 
 function lowFuelWarning(
@@ -344,7 +308,5 @@ function estimateEta(
 ): number {
   if (status === null || systems === null) return 0;
   const tier = status.engineTier === 1 ? 1 : status.engineTier === 2 ? 2 : 0;
-  const factor = speedFactor({ tune: systems.tune, wear: systems.wear });
-  if (!(factor > 0)) return 0;
-  return Math.round(legDurationSeconds(tier) / factor);
+  return legDurationSeconds(tier);
 }

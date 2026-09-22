@@ -9,21 +9,10 @@ import { sealPortal, unsealPortal } from '../doors.js';
 import { type DockLink, SHIP_FAR_ORIGIN, SHIP_ORIGIN, VESSEL_CRUISE_PX_S } from '../schedule.js';
 import { FIXED_DT, type Vec2, type VesselSchedulePhase, type World } from '../types.js';
 import { chartNodeFor, plotChartCourse } from './chart.js';
-import type { EngineState } from './engine.js';
+import { FUEL_PER_CELL, fuelMaxForTier } from './engine.js';
 import {
-  coldEngine,
-  effectiveTune,
-  FUEL_PER_CELL,
-  fuelMaxForTier,
-  serviceEngine,
-  tickEngine,
-  wearEngine,
-} from './engine.js';
-import {
-  cancelLeg,
   DOCKED_NAV,
   hailForRescue,
-  isUnderway,
   type NavState,
   type PlotChecks,
   type PlotReject,
@@ -32,13 +21,7 @@ import {
 } from './navTransit.js';
 import { HUB_PORTS, isHubId } from './ports.js';
 import type { ReactorState } from './reactor.js';
-import {
-  coldReactor,
-  reactorOutputMw,
-  restartReactor,
-  tickReactor,
-  tuneReactor,
-} from './reactor.js';
+import { coldReactor, restartReactor, tickReactor } from './reactor.js';
 import type { EngineTier, ReactorTier } from './shipRecord.js';
 
 export const SCRAM_DAMAGE_GRACE_S = 30;
@@ -50,7 +33,6 @@ export interface ShipSystems {
   readonly reactorTier: ReactorTier;
   readonly engineTier: EngineTier;
   readonly reactor: ReactorState;
-  readonly engine: EngineState;
   readonly nav: NavState;
   /** Hull condition 0-100; the host mirrors it into the ShipRecord. */
   readonly condition: number;
@@ -68,7 +50,6 @@ export function defaultShipSystems(vesselId: string): ShipSystems {
     reactorTier: 0,
     engineTier: 0,
     reactor: coldReactor(hashSeed(vesselId)),
-    engine: coldEngine(),
     nav: { ...DOCKED_NAV },
     condition: FULL_CONDITION,
     engineFuel: 0,
@@ -166,14 +147,21 @@ export function plotChartVoyage(
   const ensured = ensureShipSystems(world, vesselId);
   const current = ensured.ships[vesselId];
   if (current === undefined) return { world: ensured };
-  const plotted = plotChartCourse(current.nav, stops, checks, thrust01, current.engineTier);
+  const plotted = plotChartCourse(
+    current.nav,
+    stops,
+    checks,
+    thrust01,
+    current.engineTier,
+    ensured.tick * FIXED_DT
+  );
   if (!('nav' in plotted)) return { world: ensured, reject: plotted.reject };
-  return {
-    world: {
-      ...ensured,
-      ships: { ...ensured.ships, [vesselId]: { ...current, nav: plotted.nav } },
-    },
+  const sailed = { ...current, nav: plotted.nav };
+  const committed = {
+    ...ensured,
+    ships: { ...ensured.ships, [vesselId]: sailed },
   };
+  return { world: departVoyage(committed, vesselId, sailed) };
 }
 
 export function plotVoyage(
@@ -190,10 +178,6 @@ export function plotVoyage(
   return charted;
 }
 
-export function cancelVoyage(world: World, vesselId: string): World {
-  return updateSystems(world, vesselId, (systems) => ({ ...systems, nav: cancelLeg(systems.nav) }));
-}
-
 /** HAIL rescue: start the drone countdown on a flamed-out leg (no-op otherwise). */
 export function hailRescueVoyage(world: World, vesselId: string): World {
   return updateSystems(world, vesselId, (systems) => ({
@@ -202,39 +186,10 @@ export function hailRescueVoyage(world: World, vesselId: string): World {
   }));
 }
 
-export function tuneShipReactor(
-  world: World,
-  vesselId: string,
-  rodsDelta: number,
-  coolantDelta: number
-): World {
-  return updateSystems(world, vesselId, (systems) => ({
-    ...systems,
-    reactor: tuneReactor(systems.reactor, rodsDelta, coolantDelta),
-  }));
-}
-
 export function restartShipReactor(world: World, vesselId: string): World {
   return updateSystems(world, vesselId, (systems) => ({
     ...systems,
     reactor: restartReactor(systems.reactor, systems.reactorTier),
-  }));
-}
-
-export function tuneShipEngine(
-  world: World,
-  vesselId: string,
-  spoolCmd: 0 | 1,
-  tuneSet?: number
-): World {
-  if (spoolCmd !== 0 && spoolCmd !== 1) return world;
-  return updateSystems(world, vesselId, (systems) => ({
-    ...systems,
-    engine: {
-      ...systems.engine,
-      spoolCmd,
-      tune: tuneSet === undefined ? systems.engine.tune : clamp01(tuneSet),
-    },
   }));
 }
 
@@ -262,76 +217,63 @@ export function tickShipSystems(world: World, dtSeconds: number): World {
 
 function tickOneVessel(systems: ShipSystems, dtSeconds: number, tick: number): ShipSystems {
   const reactor = tickReactor(systems.reactor, systems.reactorTier, dtSeconds, tick);
-  const output = systems.reactor.scrammed ? 0 : reactorOutputMw(reactor, systems.reactorTier);
-  const engine = tickEngine(systems.engine, output, isUnderway(systems.nav), dtSeconds, {
-    spoolCmd: systems.engine.spoolCmd,
-  });
   const leg = tickNavLeg(
     systems.nav,
-    engine,
     { hot: reactor.hot, scrammed: reactor.scrammed },
     systems.engineTier,
     systems.engineFuel,
     dtSeconds,
     tick * FIXED_DT
   );
-  const condition = applyScramDamage(systems.condition, leg.nav, reactor, engine, dtSeconds);
+  const condition = applyScramDamage(systems.condition, leg.nav, reactor, dtSeconds);
   if (
     reactor === systems.reactor &&
-    engine === systems.engine &&
     leg.nav === systems.nav &&
     leg.engineFuel === systems.engineFuel &&
     condition === systems.condition
   ) {
     return systems;
   }
-  return { ...systems, reactor, engine, nav: leg.nav, engineFuel: leg.engineFuel, condition };
+  return { ...systems, reactor, nav: leg.nav, engineFuel: leg.engineFuel, condition };
 }
 
 function applyScramDamage(
   condition: number,
   nav: NavState,
   reactor: ReactorState,
-  engine: EngineState,
   dtSeconds: number
 ): number {
   if (!reactor.scrammed || nav.phase !== 'in_transit') return condition;
   if (reactor.scramS <= SCRAM_DAMAGE_GRACE_S) return condition;
-  const doubling = effectiveTune(engine) <= 0.05 ? 2 : 1;
-  return Math.max(0, condition - SCRAM_DAMAGE_PER_S * doubling * dtSeconds);
+  return Math.max(0, condition - SCRAM_DAMAGE_PER_S * dtSeconds);
 }
 
 /**
  * Voyage side effects on phase edges: departure seals the dock and the hull
  * eases away (see tickNavVesselMotion, no teleport); arrival glides into the
- * destination mate before the dock unseals, and logs leg wear (dockside
- * service runs at the next departure).
+ * destination mate before the dock unseals.
  */
 function applyVoyage(world: World, prev: NavState, next: ShipSystems, vesselId: string): World {
   if (prev.phase === next.nav.phase) return world;
-  if (prev.phase === 'spooling' && next.nav.phase === 'in_transit') {
+  if (prev.phase === 'docked' && next.nav.phase === 'in_transit') {
     return departVoyage(world, vesselId, next);
   }
   if (prev.phase === 'in_transit' && next.nav.phase === 'docking') {
     return setVesselFrame(world, vesselId, 'inbound', undefined);
   }
   if (prev.phase === 'docking' && next.nav.phase === 'docked') {
-    return arriveVoyage(world, vesselId, next);
+    return arriveVoyage(world, vesselId);
   }
   return world;
 }
 
 function departVoyage(world: World, vesselId: string, next: ShipSystems): World {
   const sealed = sealDock(world, next.nav.portHubId, false);
-  const sailing = setVesselFrame(sealed, vesselId, 'in_transit', undefined);
-  const serviced = { ...next, engine: serviceEngine(next.engine) };
-  return { ...sailing, ships: { ...sailing.ships, [vesselId]: serviced } };
+  return setVesselFrame(sealed, vesselId, 'in_transit', undefined);
 }
 
-function arriveVoyage(world: World, vesselId: string, next: ShipSystems): World {
-  const moved = setVesselFrame(world, vesselId, 'docked', undefined);
-  const worn = { ...next, engine: wearEngine(next.engine, 1) };
-  return { ...moved, ships: { ...moved.ships, [vesselId]: worn } };
+function arriveVoyage(world: World, vesselId: string): World {
+  return setVesselFrame(world, vesselId, 'docked', undefined);
 }
 
 /** Destination mate in world space for a hub; undefined for POIs and nowhere. */
@@ -500,13 +442,6 @@ function updateSystems(
   const current = world.ships[vesselId];
   if (current === undefined) return world;
   return { ...world, ships: { ...world.ships, [vesselId]: update(current) } };
-}
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
 }
 
 function hashSeed(value: string): number {

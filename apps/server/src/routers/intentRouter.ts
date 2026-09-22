@@ -6,12 +6,10 @@
 import type { ClientIntent } from '@kybernetes/protocol';
 import {
   applyConsume,
-  cancelVoyage,
   carriedCrateOf,
   claimFixture,
   dockLinkForPortal,
   dropCrate,
-  engineDemandMw,
   ensureShipSystems,
   fireWeapon,
   fixtureOnline,
@@ -31,8 +29,6 @@ import {
   startCook,
   startReload,
   tryToggleDoor,
-  tuneShipEngine,
-  tuneShipReactor,
   unpackCrates,
   type World,
   type WorldInput,
@@ -110,16 +106,10 @@ function routeShipIntent(
   pending: readonly WorldInput[]
 ): RouteResult | undefined {
   switch (intent.type) {
-    case 'REACTOR_TUNE':
-      return routeReactorTune(world, pawnId, intent, pending);
     case 'REACTOR_RESTART':
       return routeReactorRestart(world, pawnId, pending);
-    case 'ENGINE_TUNE':
-      return routeEngineTune(world, pawnId, intent, pending);
     case 'NAV_PLOT':
       return routeNavPlot(world, pawnId, intent, pending);
-    case 'NAV_CANCEL':
-      return routeNavCancel(world, pawnId, pending);
     case 'HAIL':
       return routeHail(world, pawnId, pending);
     default:
@@ -353,19 +343,6 @@ function consoleGate(
   return { vesselId: pawn.frameId };
 }
 
-function routeReactorTune(
-  world: World,
-  pawnId: string,
-  intent: Extract<ClientIntent, { type: 'REACTOR_TUNE' }>,
-  pending: readonly WorldInput[]
-): RouteResult {
-  const gate = consoleGate(world, pawnId, 'reactor_console', 'REACTOR', pending);
-  if (!('vesselId' in gate)) return gate;
-  const ensured = ensureShipSystems(world, gate.vesselId);
-  const next = tuneShipReactor(ensured, gate.vesselId, intent.rodsDelta, intent.coolantDelta);
-  return { world: next, movement: pending, notice: 'REACTOR_ok' };
-}
-
 function routeReactorRestart(
   world: World,
   pawnId: string,
@@ -379,31 +356,6 @@ function routeReactorRestart(
     movement: pending,
     notice: 'REACTOR_ok',
   };
-}
-
-function routeEngineTune(
-  world: World,
-  pawnId: string,
-  intent: Extract<ClientIntent, { type: 'ENGINE_TUNE' }>,
-  pending: readonly WorldInput[]
-): RouteResult {
-  const gate = engineTuneGate(world, pawnId, intent, pending);
-  if (!('vesselId' in gate)) return gate;
-  const ensured = ensureShipSystems(world, gate.vesselId);
-  const next = tuneShipEngine(ensured, gate.vesselId, intent.spoolCmd, intent.tuneSet);
-  return { world: next, movement: pending, notice: 'ENGINE_ok' };
-}
-
-function engineTuneGate(
-  world: World,
-  pawnId: string,
-  intent: Extract<ClientIntent, { type: 'ENGINE_TUNE' }>,
-  pending: readonly WorldInput[]
-): { vesselId: string } | RouteResult {
-  const engine = consoleGate(world, pawnId, 'engine_console', 'ENGINE', pending);
-  if ('vesselId' in engine) return engine;
-  if (intent.tuneSet !== undefined) return engine;
-  return consoleGate(world, pawnId, 'nav_console', 'ENGINE', pending);
 }
 
 function routeNavPlot(
@@ -422,7 +374,7 @@ function routeNavPlot(
     : reactorOutputMw(systems.reactor, systems.reactorTier);
   const checks = {
     hot: systems.reactor.hot && !systems.reactor.scrammed,
-    powered: output >= engineDemandMw(systems.engine.spool),
+    powered: output > 0,
     engineFuel: systems.engineFuel,
   };
   const thrust = intent.thrust01 ?? 1;
@@ -454,19 +406,6 @@ function routeHail(world: World, pawnId: string, pending: readonly WorldInput[])
     return { world: next, movement: pending, notice: 'HAIL_denied' };
   }
   return { world: next, movement: pending, notice: 'HAIL_ok' };
-}
-
-function routeNavCancel(world: World, pawnId: string, pending: readonly WorldInput[]): RouteResult {
-  const gate = consoleGate(world, pawnId, 'nav_console', 'NAV', pending);
-  if (!('vesselId' in gate)) return gate;
-  const ensured = ensureShipSystems(world, gate.vesselId);
-  const before = ensured.ships[gate.vesselId]?.nav.phase;
-  const next = cancelVoyage(ensured, gate.vesselId);
-  const after = next.ships[gate.vesselId]?.nav.phase;
-  if (before !== 'spooling' || after !== 'docked') {
-    return { world: next, movement: pending, notice: 'NAV_denied' };
-  }
-  return { world: next, movement: pending, notice: 'NAV_ok' };
 }
 
 function routeClaim(

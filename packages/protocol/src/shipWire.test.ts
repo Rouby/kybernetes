@@ -45,30 +45,15 @@ describe('solo-ship wire (M1)', () => {
     expect(lost.tick).toBeGreaterThan(a.tick);
   });
 
-  it('validates console tune intents and rate-limits them at 8Hz', () => {
-    expect(
-      validateClientIntent({ type: 'REACTOR_TUNE', seq: 1, rodsDelta: 0.1, coolantDelta: -0.1 }).ok
-    ).toBe(true);
-    expect(
-      validateClientIntent({ type: 'REACTOR_TUNE', seq: 2, rodsDelta: 5, coolantDelta: 0 }).ok
-    ).toBe(false);
-    expect(validateClientIntent({ type: 'REACTOR_TUNE', seq: 3 }).ok).toBe(false);
+  it('rejects retired tune intents and validates fuel and restart', () => {
+    expect(validateClientIntent({ type: 'REACTOR_TUNE', seq: 1, rodsDelta: 0.1 }).ok).toBe(false);
+    expect(validateClientIntent({ type: 'ENGINE_TUNE', seq: 5, spoolCmd: 1 }).ok).toBe(false);
     expect(validateClientIntent({ type: 'REACTOR_RESTART', seq: 4 }).ok).toBe(true);
-    expect(
-      validateClientIntent({ type: 'ENGINE_TUNE', seq: 5, spoolCmd: 1, tuneSet: 0.8 }).ok
-    ).toBe(true);
-    expect(validateClientIntent({ type: 'ENGINE_TUNE', seq: 6, spoolCmd: 1 }).ok).toBe(true);
-    expect(validateClientIntent({ type: 'ENGINE_TUNE', seq: 7, spoolCmd: 2 }).ok).toBe(false);
-    expect(validateClientIntent({ type: 'ENGINE_TUNE', seq: 8, spoolCmd: 0, tuneSet: 9 }).ok).toBe(
-      false
-    );
     expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 9, op: 'load' }).ok).toBe(true);
     expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 10, op: 'unload' }).ok).toBe(true);
     expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 11, op: 'vent' }).ok).toBe(false);
     expect(validateClientIntent({ type: 'ENGINE_FUEL', seq: 12 }).ok).toBe(false);
-    expect(INTENT_RATE_LIMIT_PER_SECOND.REACTOR_TUNE).toBe(8);
     expect(INTENT_RATE_LIMIT_PER_SECOND.REACTOR_RESTART).toBe(8);
-    expect(INTENT_RATE_LIMIT_PER_SECOND.ENGINE_TUNE).toBe(8);
     expect(INTENT_RATE_LIMIT_PER_SECOND.ENGINE_FUEL).toBe(4);
   });
 
@@ -82,13 +67,8 @@ describe('solo-ship wire (M1)', () => {
         rods: 0.333,
         coolant: 0.5,
         outputMW: 31.05,
-        demandMW: 28,
         scrammed: false,
         warned: false,
-        spool: 1,
-        tune: 0.666,
-        wear: 0,
-        brownout: false,
         condition: 99.95,
         fuel: 1450,
         fuelMax: 2000,
@@ -147,11 +127,10 @@ describe('solo-ship wire (M1)', () => {
         waypointIds: ['a', 'b', 'c', 'd', 'e'],
       }).ok
     ).toBe(false);
-    expect(validateClientIntent({ type: 'NAV_CANCEL', seq: 4 }).ok).toBe(true);
+    expect(validateClientIntent({ type: 'NAV_CANCEL', seq: 4 }).ok).toBe(false);
     expect(validateClientIntent({ type: 'DISTRESS', seq: 5 }).ok).toBe(true);
     expect(validateClientIntent({ type: 'DISTRESS' }).ok).toBe(false);
     expect(INTENT_RATE_LIMIT_PER_SECOND.NAV_PLOT).toBe(2);
-    expect(INTENT_RATE_LIMIT_PER_SECOND.NAV_CANCEL).toBe(2);
     expect(INTENT_RATE_LIMIT_PER_SECOND.DISTRESS).toBe(2);
   });
 

@@ -9,18 +9,17 @@
 
 import type { ChartNodeState } from '@kybernetes/protocol';
 import { planTripLeg, torchAccel } from '../../astro/guidance.js';
-import { effectiveTune, fuelCostForLeg, HEAT_EXTRA_FUEL, speedFactor } from './engine.js';
+import { fuelCostForLeg } from './engine.js';
 import {
   checksEngineFuel,
   clampThrust01,
   DOCKED_NAV,
   hopScaledS,
-  LOW_TUNE_BURN,
   legDurationSeconds,
+  legWindowS,
   type NavState,
   type PlotChecks,
   type PlotReject,
-  SPOOL_S,
   thrustTimeFactor,
 } from './navTransit.js';
 import { chartLaneFraction, POI_KESTREL, POI_VIGIL } from './ports.js';
@@ -131,8 +130,6 @@ export interface VoyageRequest {
   readonly fromId: string;
   readonly stops: readonly string[];
   readonly tier: EngineTier;
-  readonly tune: number;
-  readonly wear: number;
   /** Node ids already surveyed; omit for hub-only math (hubs known). */
   readonly knownIds?: readonly string[];
   /** Throttle 0.1-1.0 of the 1g band; omit for full thrust. */
@@ -154,7 +151,6 @@ export interface VoyagePlan {
   readonly totalS: number;
   readonly fuelNeeded: number;
   readonly unknowns: readonly string[];
-  readonly heatRisk: boolean;
   readonly destId: string;
 }
 
@@ -186,12 +182,11 @@ function planHop(
   }
   // Uncharted pairs default to a full leg so free plotting stays projectable.
   const fraction = chartLaneFraction(fromId, toId) ?? 1;
-  const tuneWear = saneTuneWear(req.tune, req.wear);
   const thrust = clampThrust01(req.thrust01 ?? 1);
   const planned = planTripLeg(fromId, toId, torchAccel(req.tier, thrust), req.atSeconds ?? 0);
   const legS =
     planned?.totalS ??
-    Math.max(1, Math.round(hopLegS(fraction, req.tier, tuneWear) * thrustTimeFactor(thrust)));
+    Math.max(1, Math.round(hopLegS(fraction, req.tier) * thrustTimeFactor(thrust)));
   return {
     hop: {
       fromId,
@@ -204,10 +199,8 @@ function planHop(
 }
 
 function summarizeVoyage(hops: readonly ChartHop[], req: VoyageRequest): VoyagePlan {
-  const tuneWear = saneTuneWear(req.tune, req.wear);
-  const heatRisk = effectiveTune(tuneWear) < LOW_TUNE_BURN;
   let totalS = 0;
-  let fuelNeeded = heatRisk ? HEAT_EXTRA_FUEL : 0;
+  let fuelNeeded = 0;
   const unknowns: string[] = [];
   for (const hop of hops) {
     totalS += hop.legS;
@@ -220,25 +213,12 @@ function summarizeVoyage(hops: readonly ChartHop[], req: VoyageRequest): VoyageP
     totalS,
     fuelNeeded,
     unknowns,
-    heatRisk,
     destId: last === undefined ? req.fromId : last.toId,
   };
 }
 
-function hopLegS(
-  fraction: number,
-  tier: EngineTier,
-  tuneWear: { tune: number; wear: number }
-): number {
-  const factor = speedFactor(tuneWear);
-  return Math.max(1, Math.round((fraction * legDurationSeconds(tier)) / factor));
-}
-
-function saneTuneWear(tune: number, wear: number): { tune: number; wear: number } {
-  return {
-    tune: Number.isFinite(tune) ? tune : 1,
-    wear: Number.isFinite(wear) ? wear : 0,
-  };
+function hopLegS(fraction: number, tier: EngineTier): number {
+  return Math.max(1, Math.round(fraction * legDurationSeconds(tier)));
 }
 
 /**
@@ -252,7 +232,8 @@ export function plotChartCourse(
   stops: readonly string[],
   checks: PlotChecks,
   thrust01 = 1,
-  engineTier = 0 as import('./shipRecord.js').EngineTier
+  engineTier = 0 as import('./shipRecord.js').EngineTier,
+  nowS?: number
 ): { nav: NavState } | { reject: PlotReject } {
   if (nav.phase !== 'docked') return { reject: 'already-underway' };
   if (stops.length === 0) return { reject: 'empty-voyage' };
@@ -272,17 +253,19 @@ export function plotChartCourse(
     hopScaledS(nav.portHubId, first, engineTier, thrust)
   );
   if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
+  const legS = legWindowS(nav.portHubId, first, engineTier, thrust, nowS);
   return {
     nav: {
       ...DOCKED_NAV,
-      phase: 'spooling',
+      phase: 'in_transit',
       destHubId: last,
       stops: [...stops],
       legIndex: 0,
-      remainingS: SPOOL_S,
+      remainingS: legS,
       legId: nav.legId + 1,
       portHubId: nav.portHubId,
       thrust01: thrust,
+      legTotalS: legS,
     },
   };
 }

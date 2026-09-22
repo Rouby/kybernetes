@@ -8,20 +8,11 @@
  */
 
 import { planTripLeg, torchAccel } from '../../astro/guidance.js';
-import {
-  type EngineState,
-  effectiveTune,
-  engineSpecFor,
-  fuelCostForLeg,
-  fuelMaxForTier,
-  fuelRateForLeg,
-  HEAT_EXTRA_FUEL,
-  speedFactor,
-} from './engine.js';
+import { fuelCostForLeg, fuelMaxForTier, fuelRateForLeg } from './engine.js';
 import { chartLaneFraction, HUB_A, isHubId } from './ports.js';
 import type { EngineTier } from './shipRecord.js';
 
-export type NavPhase = 'docked' | 'spooling' | 'in_transit' | 'docking';
+export type NavPhase = 'docked' | 'in_transit' | 'docking';
 
 export interface NavState {
   readonly phase: NavPhase;
@@ -34,8 +25,6 @@ export interface NavState {
   readonly flameout: boolean;
   /** Rescue-drone countdown from a HAIL; 0 means none outstanding. */
   readonly hailS: number;
-  /** Mid-leg extra burn already resolved, so it fires exactly once. */
-  readonly extraBurned: boolean;
   /** Committed stop chain (POI flybys + final hub); empty while docked. */
   readonly stops: readonly string[];
   /** Index into stops of the live hop. */
@@ -46,14 +35,10 @@ export interface NavState {
   readonly legTotalS?: number;
 }
 
-/** Spool-up hold at the dock: visible departure burn before the ship pulls away. */
-export const SPOOL_S = 3;
 /** Docking approach: the hull eases into the destination mate before unsealing. */
 export const DOCKING_S = 5;
 /** A hailed rescue drone answers after a little over a minute adrift. */
 export const HAIL_WAIT_S = 75;
-export const SPOOL_READY = 0.8;
-export const LOW_TUNE_BURN = 0.4;
 
 const LEG_S: Readonly<Record<EngineTier, number>> = { 0: 150, 1: 110, 2: 80 };
 
@@ -69,7 +54,6 @@ export const DOCKED_NAV: NavState = {
   portHubId: HUB_A,
   flameout: false,
   hailS: 0,
-  extraBurned: false,
   stops: [],
   legIndex: 0,
   thrust01: 1,
@@ -87,21 +71,6 @@ export function clampThrust01(value: number): number {
 /** Brachistochrone clock: time scales with the inverse square root. */
 export function thrustTimeFactor(thrust01: number): number {
   return 1 / Math.sqrt(clampThrust01(thrust01));
-}
-
-/** Near-linear fuel burn per burn event at the given throttle. */
-export function thrustBurnCells(tier: EngineTier, thrust01: number): number {
-  return engineSpecFor(tier).fuelPerLeg * clampThrust01(thrust01);
-}
-
-/** Fuel-value cost of one hop at throttle for a known leg duration. */
-export function thrustBurnFuel(tier: EngineTier, thrust01: number, legS: number): number {
-  return fuelCostForLeg(tier, thrust01, legS);
-}
-
-/** Heat penalty in fuel-value (cold tune mid-leg extra burn). */
-export function heatBurnFuel(thrust01: number): number {
-  return Math.max(1, Math.round(HEAT_EXTRA_FUEL * clampThrust01(thrust01)));
 }
 
 /** Leg seconds from guidance when clocked, else the lane-table nominal. */
@@ -131,7 +100,7 @@ export function hopScaledS(
 
 /** M1 helper: true while the ship is committed to a leg. */
 export function isUnderway(nav: NavState): boolean {
-  return nav.phase === 'spooling' || nav.phase === 'in_transit' || nav.phase === 'docking';
+  return nav.phase === 'in_transit' || nav.phase === 'docking';
 }
 
 export interface PlotChecks {
@@ -164,7 +133,8 @@ export function plotCourse(
   nav: NavState,
   destHubId: string,
   checks: PlotChecks,
-  engineTier: EngineTier = 0
+  engineTier: EngineTier = 0,
+  nowS?: number
 ): { nav: NavState } | { reject: PlotReject } {
   if (nav.phase !== 'docked') return { reject: 'already-underway' };
   if (!isHubId(destHubId)) return { reject: 'unknown-hub' };
@@ -173,27 +143,22 @@ export function plotCourse(
   const fuel = checksEngineFuel(checks);
   const need = fuelCostForLeg(engineTier, 1, hopScaledS(nav.portHubId, destHubId, engineTier, 1));
   if (!Number.isFinite(fuel) || fuel < need) return { reject: 'no-fuel' };
+  const legS = legWindowS(nav.portHubId, destHubId, engineTier, 1, nowS);
   return {
     nav: {
-      phase: 'spooling',
+      phase: 'in_transit',
       destHubId,
-      remainingS: SPOOL_S,
+      remainingS: legS,
       legId: nav.legId + 1,
       portHubId: nav.portHubId,
       flameout: false,
       hailS: 0,
-      extraBurned: false,
       stops: [destHubId],
       legIndex: 0,
       thrust01: 1,
+      legTotalS: legS,
     },
   };
-}
-
-/** Abort before departure; committed legs fly (DISTRESS is the way home). */
-export function cancelLeg(nav: NavState): NavState {
-  if (nav.phase !== 'spooling') return nav;
-  return { ...DOCKED_NAV, portHubId: nav.portHubId, legId: nav.legId };
 }
 
 /**
@@ -243,7 +208,6 @@ export interface ReactorPower {
 
 export function tickNavLeg(
   nav: NavState,
-  engine: EngineState,
   reactor: ReactorPower,
   engineTier: EngineTier,
   engineFuel: number,
@@ -252,12 +216,8 @@ export function tickNavLeg(
 ): { nav: NavState; engineFuel: number; fuelCells: number } {
   if (!Number.isFinite(dtSeconds) || dtSeconds <= 0)
     return { nav, engineFuel, fuelCells: engineFuel };
-  if (nav.phase === 'spooling') {
-    const out = tickSpooling(nav, engine, reactor, engineTier, engineFuel, dtSeconds, nowS);
-    return { nav: out.nav, engineFuel: out.engineFuel, fuelCells: out.engineFuel };
-  }
   if (nav.phase === 'in_transit') {
-    const out = tickTransit(nav, engine, reactor, engineTier, engineFuel, dtSeconds, nowS);
+    const out = tickTransit(nav, reactor, engineTier, engineFuel, dtSeconds, nowS);
     return { nav: out.nav, engineFuel: out.engineFuel, fuelCells: out.engineFuel };
   }
   if (nav.phase === 'docking') {
@@ -267,37 +227,8 @@ export function tickNavLeg(
   return { nav, engineFuel, fuelCells: engineFuel };
 }
 
-function tickSpooling(
-  nav: NavState,
-  engine: EngineState,
-  reactor: ReactorPower,
-  engineTier: EngineTier,
-  engineFuel: number,
-  dtSeconds: number,
-  nowS: number | undefined
-): { nav: NavState; engineFuel: number } {
-  if (!reactor.hot || reactor.scrammed) return { nav, engineFuel };
-  const remaining = nav.remainingS - dtSeconds;
-  if (remaining > 0) return { nav: { ...nav, remainingS: remaining }, engineFuel };
-  const firstLegS = legWindowS(nav.portHubId, hopTo(nav), engineTier, nav.thrust01, nowS);
-  const need = fuelCostForLeg(engineTier, nav.thrust01, firstLegS);
-  if (engine.spool < SPOOL_READY || engineFuel < need) {
-    return { nav: { ...nav, remainingS: 0 }, engineFuel };
-  }
-  return {
-    nav: {
-      ...nav,
-      phase: 'in_transit',
-      remainingS: firstLegS,
-      legTotalS: firstLegS,
-    },
-    engineFuel,
-  };
-}
-
 function tickTransit(
   nav: NavState,
-  engine: EngineState,
   reactor: ReactorPower,
   engineTier: EngineTier,
   engineFuel: number,
@@ -306,17 +237,14 @@ function tickTransit(
 ): { nav: NavState; engineFuel: number } {
   if (nav.flameout) return tickStranded(nav, reactor, engineTier, engineFuel, dtSeconds);
   if (reactor.scrammed) return { nav, engineFuel };
-  const burned = burnExtraFuel(nav, engine, engineTier, engineFuel);
-  if (burned.nav.flameout) return burned;
   const stepBurn = fuelRateForLeg(engineTier, nav.thrust01) * dtSeconds;
-  const fuelAfter = burned.engineFuel - stepBurn;
+  const fuelAfter = engineFuel - stepBurn;
   if (fuelAfter <= 0) {
-    return { nav: { ...burned.nav, flameout: true }, engineFuel: 0 };
+    return { nav: { ...nav, flameout: true }, engineFuel: 0 };
   }
-  const remaining = burned.nav.remainingS - dtSeconds * speedFactor(engine);
-  if (remaining > 0)
-    return { nav: { ...burned.nav, remainingS: remaining }, engineFuel: fuelAfter };
-  return finishHop(burned.nav, engineTier, fuelAfter, nowS);
+  const remaining = nav.remainingS - dtSeconds;
+  if (remaining > 0) return { nav: { ...nav, remainingS: remaining }, engineFuel: fuelAfter };
+  return finishHop(nav, engineTier, fuelAfter, nowS);
 }
 
 /**
@@ -396,24 +324,6 @@ function advanceHop(
   };
 }
 
-function burnExtraFuel(
-  nav: NavState,
-  engine: EngineState,
-  engineTier: EngineTier,
-  engineFuel: number
-): { nav: NavState; engineFuel: number } {
-  const halfHop =
-    (nav.legTotalS ?? hopScaledS(hopFrom(nav), hopTo(nav), engineTier, nav.thrust01)) / 2;
-  if (nav.extraBurned || nav.remainingS > halfHop) {
-    return { nav, engineFuel };
-  }
-  const claimed = { ...nav, extraBurned: true };
-  if (effectiveTune(engine) >= LOW_TUNE_BURN) return { nav: claimed, engineFuel };
-  const burn = heatBurnFuel(nav.thrust01);
-  if (engineFuel >= burn) return { nav: claimed, engineFuel: engineFuel - burn };
-  return { nav: { ...claimed, flameout: true }, engineFuel: 0 };
-}
-
 function tickDocking(
   nav: NavState,
   engineFuel: number,
@@ -430,7 +340,6 @@ function tickDocking(
       portHubId: nav.destHubId ?? nav.portHubId,
       flameout: false,
       hailS: 0,
-      extraBurned: false,
       stops: [],
       legIndex: 0,
       thrust01: 1,

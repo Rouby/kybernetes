@@ -4,21 +4,11 @@
  * No DOM, no randomness: the WebGL layer adds flicker/seed on top.
  */
 
-export type ExhaustPhase =
-  | 'docked'
-  | 'spooling'
-  | 'in_transit'
-  | 'docking'
-  | 'inbound'
-  | 'departing';
+export type ExhaustPhase = 'docked' | 'in_transit' | 'docking' | 'inbound' | 'departing';
 
 export interface ExhaustInput {
   readonly thrust01?: number;
-  readonly spool?: number;
-  readonly tune?: number;
-  readonly wear?: number;
   readonly flameout?: boolean;
-  readonly brownout?: boolean;
   readonly phase?: string;
 }
 
@@ -50,20 +40,9 @@ export const TIER_LENGTH_BIAS: Readonly<Record<number, number>> = {
   2: 1.3,
 };
 
-function clamp01(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
-
 function clampThrust(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return 1;
   return Math.min(1, Math.max(0.1, value));
-}
-
-function effectiveTune(tune: number, wear: number): number {
-  return Math.max(0, tune * (1 - wear * 0.5));
 }
 
 function lengthBiasForTier(tier: number | undefined): number {
@@ -99,12 +78,7 @@ function deadParams(): ExhaustParams {
   };
 }
 
-const MANEUVER_PHASES: ReadonlySet<string> = new Set([
-  'docking',
-  'spooling',
-  'inbound',
-  'departing',
-]);
+const MANEUVER_PHASES: ReadonlySet<string> = new Set(['docking', 'inbound', 'departing']);
 
 export function isManeuverPhase(phase: string | undefined): boolean {
   if (phase === undefined) return false;
@@ -112,28 +86,21 @@ export function isManeuverPhase(phase: string | undefined): boolean {
 }
 
 /**
- * Pure burn mapping. Docking/spooling hold a maneuver burn at ~35% even
- * when the cruise throttle reads high; flameout always kills the plume.
+ * Pure burn mapping. Docking holds a maneuver burn at ~35% even when the
+ * cruise throttle reads high; flameout always kills the plume.
  */
 export function exhaustParamsFor(input: ExhaustInput, engineTier?: number): ExhaustParams {
   if (input.flameout === true) return deadParams();
   const phase = input.phase ?? 'docked';
-  const spool = clamp01(input.spool, phase === 'docked' ? 0 : 1);
-  if (spool <= 0.02 && phase === 'docked') return idleParams();
+  if (phase === 'docked') return idleParams();
 
-  const tune = clamp01(input.tune, 1);
-  const wear = clamp01(input.wear, 0);
-  const effTune = effectiveTune(tune, wear);
-  const tuneFactor = 0.55 + 0.45 * effTune;
   const thrust = isManeuverPhase(phase) ? 0.35 : clampThrust(input.thrust01);
-  const intensity = spool ** 1.15 * (0.35 + 0.65 * thrust) * tuneFactor;
+  const intensity = 0.35 + 0.65 * thrust;
   if (intensity <= 0.02) return idleParams();
 
-  const brownoutScale = input.brownout === true ? 0.55 : 1;
-  const rate = (EXHAUST_IDLE_RATE_PER_BELL + intensity * EXHAUST_MAX_RATE_PER_BELL) * brownoutScale;
+  const rate = EXHAUST_IDLE_RATE_PER_BELL + intensity * EXHAUST_MAX_RATE_PER_BELL;
   const speedMin = 220 + 170 * thrust;
-  const length =
-    (70 + 150 * thrust) * tuneFactor * (0.35 + 0.65 * spool) * lengthBiasForTier(engineTier);
+  const length = (70 + 150 * thrust) * lengthBiasForTier(engineTier);
   return {
     intensity01: Math.min(1, intensity),
     ratePerSecPerBell: Math.round(rate),
@@ -141,7 +108,7 @@ export function exhaustParamsFor(input: ExhaustInput, engineTier?: number): Exha
     speedMax: speedMin + 150,
     lengthPx: Math.round(length),
     spreadRad: 0.17 - 0.08 * thrust,
-    coreMix: Math.min(0.55, 0.14 + 0.38 * spool),
+    coreMix: 0.4,
     alpha: 0.55 + 0.4 * Math.min(1, intensity),
     glow: 0.2 + 1.6 * Math.min(1, intensity),
   };

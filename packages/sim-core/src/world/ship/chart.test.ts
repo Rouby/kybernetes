@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { chartNodeFor, hubNodeIds, isChartNodeId, planVoyage, plotChartCourse } from './chart.js';
-import { FUEL_PER_CELL, fuelCostForLeg, HEAT_EXTRA_FUEL } from './engine.js';
-import { DOCKED_NAV, SPOOL_S } from './navTransit.js';
+import { FUEL_PER_CELL, fuelCostForLeg } from './engine.js';
+import { DOCKED_NAV } from './navTransit.js';
 
 function req(over: Record<string, unknown> = {}) {
   return {
     fromId: 'hub_a',
     stops: ['hub_b'],
     tier: 0 as const,
-    tune: 1,
-    wear: 0,
     ...over,
   };
 }
@@ -38,7 +36,6 @@ describe('voyage chart (slice 1a projection)', () => {
     expect(result.plan.totalS).toBe(34);
     expect(result.plan.fuelNeeded).toBe(fuelCostForLeg(0, 1, 34));
     expect(result.plan.unknowns).toEqual([]);
-    expect(result.plan.heatRisk).toBe(false);
     expect(result.plan.destId).toBe('hub_b');
   });
 
@@ -65,11 +62,11 @@ describe('voyage chart (slice 1a projection)', () => {
     expect(fast.plan.totalS).toBe(17);
   });
 
-  it('adds heat reserve fuel and heat risk for cold tunes', () => {
-    const cold = planVoyage(req({ tune: 0.1 }));
-    if (!('plan' in cold)) throw new Error('cold plan should succeed');
-    expect(cold.plan.heatRisk).toBe(true);
-    expect(cold.plan.fuelNeeded).toBe(fuelCostForLeg(0, 1, 34) + HEAT_EXTRA_FUEL);
+  it('costs exactly the hop burn with no heat reserve', () => {
+    const result = planVoyage(req());
+    if (!('plan' in result)) throw new Error('plan should succeed');
+    expect(result.plan.fuelNeeded).toBe(fuelCostForLeg(0, 1, 34));
+    expect('heatRisk' in result.plan).toBe(false);
   });
 
   it('burns vary with distance: detour legs cost realistic fuel, not flat cells', () => {
@@ -87,11 +84,11 @@ describe('voyage chart (slice 1a projection)', () => {
       engineFuel: 2 * FUEL_PER_CELL,
     });
     if (!('nav' in result)) throw new Error('chain should commit');
-    expect(result.nav.phase).toBe('spooling');
+    expect(result.nav.phase).toBe('in_transit');
     expect(result.nav.destHubId).toBe('hub_b');
     expect(result.nav.stops).toEqual(['poi_kestrel', 'hub_b']);
     expect(result.nav.legIndex).toBe(0);
-    expect(result.nav.remainingS).toBe(SPOOL_S);
+    expect(result.nav.remainingS).toBe(60);
   });
 
   it('rejects uncharted, looping, and dockless chains by name', () => {

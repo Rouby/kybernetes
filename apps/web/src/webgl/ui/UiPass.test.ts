@@ -95,78 +95,33 @@ describe('selectSessionOverlayId', () => {
   });
 });
 describe('console intents', () => {
-  const systems = { spool: 0.2, tune: 0.5 } as import('@kybernetes/protocol').ShipSystemsBroadcast;
   const nav = { portHubId: 'hub_a' } as import('@kybernetes/protocol').NavStateBroadcast;
 
-  it('builds reactor tune steps and restart', () => {
-    expect(reactorConsoleIntent('rodsDown')).toEqual({
-      type: 'REACTOR_TUNE',
-      seq: 0,
-      rodsDelta: -0.1,
-      coolantDelta: 0,
-    });
-    expect(reactorConsoleIntent('rodsUp')).toEqual({
-      type: 'REACTOR_TUNE',
-      seq: 0,
-      rodsDelta: 0.1,
-      coolantDelta: 0,
-    });
-    expect(reactorConsoleIntent('coolantDown')).toEqual({
-      type: 'REACTOR_TUNE',
-      seq: 0,
-      rodsDelta: 0,
-      coolantDelta: -0.1,
-    });
-    expect(reactorConsoleIntent('coolantUp')).toEqual({
-      type: 'REACTOR_TUNE',
-      seq: 0,
-      rodsDelta: 0,
-      coolantDelta: 0.1,
-    });
+  it('builds reactor restart and rejects retired steps', () => {
     expect(reactorConsoleIntent('restart')).toEqual({ type: 'REACTOR_RESTART', seq: 0 });
+    expect(reactorConsoleIntent('rodsDown')).toBeNull();
+    expect(reactorConsoleIntent('rodsUp')).toBeNull();
+    expect(reactorConsoleIntent('coolantDown')).toBeNull();
+    expect(reactorConsoleIntent('coolantUp')).toBeNull();
     expect(reactorConsoleIntent('close')).toBeNull();
     expect(reactorConsoleIntent('bogus')).toBeNull();
   });
 
-  it('toggles spool and clamps tune steps', () => {
-    expect(engineConsoleIntent('spool', systems)).toEqual({
-      type: 'ENGINE_TUNE',
-      seq: 0,
-      spoolCmd: 1,
-    });
-    const hot = { spool: 0.9, tune: 0.5 } as import('@kybernetes/protocol').ShipSystemsBroadcast;
-    expect(engineConsoleIntent('spool', hot)).toEqual({ type: 'ENGINE_TUNE', seq: 0, spoolCmd: 0 });
-    expect(engineConsoleIntent('tuneUp', systems)).toEqual({
-      type: 'ENGINE_TUNE',
-      seq: 0,
-      spoolCmd: 0,
-      tuneSet: 0.6,
-    });
-    const capped = { spool: 1, tune: 0.95 } as import('@kybernetes/protocol').ShipSystemsBroadcast;
-    expect(engineConsoleIntent('tuneUp', capped)).toEqual({
-      type: 'ENGINE_TUNE',
-      seq: 0,
-      spoolCmd: 1,
-      tuneSet: 1,
-    });
-    const floored = { spool: 0, tune: 0.05 } as import('@kybernetes/protocol').ShipSystemsBroadcast;
-    expect(engineConsoleIntent('tuneDown', floored)).toEqual({
-      type: 'ENGINE_TUNE',
-      seq: 0,
-      spoolCmd: 0,
-      tuneSet: 0,
-    });
-    expect(engineConsoleIntent('loadFuel', systems)).toEqual({
+  it('loads fuel and rejects retired spool and tune steps', () => {
+    expect(engineConsoleIntent('loadFuel')).toEqual({
       type: 'ENGINE_FUEL',
       seq: 0,
       op: 'load',
     });
-    expect(engineConsoleIntent('unloadFuel', systems)).toEqual({
+    expect(engineConsoleIntent('unloadFuel')).toEqual({
       type: 'ENGINE_FUEL',
       seq: 0,
       op: 'unload',
     });
-    expect(engineConsoleIntent('close', systems)).toBeNull();
+    expect(engineConsoleIntent('spool')).toBeNull();
+    expect(engineConsoleIntent('tuneUp')).toBeNull();
+    expect(engineConsoleIntent('tuneDown')).toBeNull();
+    expect(engineConsoleIntent('close')).toBeNull();
   });
 
   it('drops, stows, and seals cargo from the hold panel', () => {
@@ -222,17 +177,14 @@ describe('console intents', () => {
     });
     expect(navConsoleIntent('via:nowhere', nav)).toBeNull();
     expect(navConsoleIntent('via:', nav)).toBeNull();
-    expect(navConsoleIntent('cancel', nav)).toEqual({
-      type: 'NAV_CANCEL',
-      seq: 0,
-    });
+    expect(navConsoleIntent('cancel', nav)).toBeNull();
+    expect(navConsoleIntent('spool', nav)).toBeNull();
     expect(navConsoleIntent('distress', nav)).toEqual({
       type: 'DISTRESS',
       seq: 0,
     });
     expect(navConsoleIntent('hail', nav)).toEqual({ type: 'HAIL', seq: 0 });
     expect(navConsoleIntent('loadFuel', nav)).toEqual({ type: 'ENGINE_FUEL', seq: 0, op: 'load' });
-    expect(navConsoleIntent('spool', nav)).toEqual({ type: 'ENGINE_TUNE', seq: 0, spoolCmd: 1 });
     expect(navConsoleIntent('close', nav)).toBeNull();
     expect(confirmPlotIntent(['poi_kestrel', 'hub_b'])).toEqual({
       type: 'NAV_PLOT',

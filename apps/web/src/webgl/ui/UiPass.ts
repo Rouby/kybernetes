@@ -5,7 +5,7 @@
  * them without a canvas; the GL calls stay in HudRenderer.
  */
 
-import type { ClientIntent, NavStateBroadcast, ShipSystemsBroadcast } from '@kybernetes/protocol';
+import type { ClientIntent, NavStateBroadcast } from '@kybernetes/protocol';
 import {
   DETOUR_BUTTON_PREFIX,
   navDetourOptions,
@@ -72,43 +72,17 @@ export interface GlAudioState {
 }
 export type { ConsoleKind };
 
-const REACTOR_STEPS: Record<string, { readonly rodsDelta: number; readonly coolantDelta: number }> =
-  {
-    rodsDown: { rodsDelta: -0.1, coolantDelta: 0 },
-    rodsUp: { rodsDelta: 0.1, coolantDelta: 0 },
-    coolantDown: { rodsDelta: 0, coolantDelta: -0.1 },
-    coolantUp: { rodsDelta: 0, coolantDelta: 0.1 },
-  };
-
-/** Mirror of ReactorConsole tune/restart (ShipConsolePanel). Null = unknown id. */
+/** Mirror of ReactorConsole restart (ShipConsolePanel). Null = unknown id. */
 export function reactorConsoleIntent(id: string): ClientIntent | null {
   if (id === 'restart') return { type: 'REACTOR_RESTART', seq: 0 };
-  const step = REACTOR_STEPS[id];
-  if (step === undefined) return null;
-  return {
-    type: 'REACTOR_TUNE',
-    seq: 0,
-    rodsDelta: step.rodsDelta,
-    coolantDelta: step.coolantDelta,
-  };
-}
-
-/** Mirror of EngineConsole spool/tune (ShipConsolePanel). Null = unknown id. */
-export function engineConsoleIntent(
-  id: string,
-  systems: ShipSystemsBroadcast
-): ClientIntent | null {
-  if (id === 'spool') return { type: 'ENGINE_TUNE', seq: 0, spoolCmd: systems.spool > 0.5 ? 0 : 1 };
-  if (id === 'tuneDown' || id === 'tuneUp') return engineTuneIntent(id, systems);
-  if (id === 'loadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'load' };
-  if (id === 'unloadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'unload' };
   return null;
 }
 
-function engineTuneIntent(id: string, systems: ShipSystemsBroadcast): ClientIntent {
-  const delta = id === 'tuneDown' ? -0.1 : 0.1;
-  const tuneSet = Math.min(1, Math.max(0, Math.round((systems.tune + delta) * 10) / 10));
-  return { type: 'ENGINE_TUNE', seq: 0, spoolCmd: systems.spool > 0.5 ? 1 : 0, tuneSet };
+/** Mirror of EngineConsole fuel ops (ShipConsolePanel). Null = unknown id. */
+export function engineConsoleIntent(id: string): ClientIntent | null {
+  if (id === 'loadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'load' };
+  if (id === 'unloadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'unload' };
+  return null;
 }
 
 export interface CargoConsoleStock {
@@ -158,11 +132,9 @@ export function marketConsoleIntent(id: string, stock: MarketConsoleStock): Clie
 /** Mirror of NavConsole plot/cancel/distress plus bridge pre-flight. Null = unknown id. */
 export function navConsoleIntent(id: string, _nav: NavStateBroadcast | null): ClientIntent | null {
   if (id === 'loadFuel') return { type: 'ENGINE_FUEL', seq: 0, op: 'load' };
-  if (id === 'spool') return { type: 'ENGINE_TUNE', seq: 0, spoolCmd: 1 };
   if (id.startsWith(PLOT_BUTTON_PREFIX) || id.startsWith(DETOUR_BUTTON_PREFIX)) {
     return plotIntent(id);
   }
-  if (id === 'cancel') return { type: 'NAV_CANCEL', seq: 0 };
   if (id === 'distress') return { type: 'DISTRESS', seq: 0 };
   if (id === 'hail') return { type: 'HAIL', seq: 0 };
   return null;

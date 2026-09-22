@@ -7,7 +7,7 @@ import { clickZone, NAV_CONSOLE, type UiWindow, uiZoneIds, waitUiZone, walkToTar
  * Star-chart draft smoke (fast, CI-blocking): open the nav console in the
  * live world and draft a POI visit up to the confirm preview.
  *
- * Deliberately stops before CONFIRM: committing needs bunker fuel plus spool
+ * Deliberately stops before CONFIRM: committing needs bunker fuel
  * and the departure/flight waits, which is what makes chart-course.spec.ts
  * (@slow) host-timing sensitive. This spec stays on the bridge, performs
  * no server-mutating intents, and is safe to retry against a shared daemon.

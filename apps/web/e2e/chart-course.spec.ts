@@ -55,8 +55,8 @@ test.describe('Star chart course plotting', { tag: '@slow' }, () => {
     await page.waitForTimeout(800);
     await clickUiZone(page, 'close');
     await page.waitForTimeout(800);
-    // Solo-ship trader loop: plots burn bunker fuel and departures need spool.
-    // Load the starter cell at the engine console, then latch spool before plotting.
+    // Solo-ship trader loop: plots burn bunker fuel and departures need a hot reactor.
+    // Load the starter cell at the engine console before plotting.
     // The engine sits 60px east in the same room; nudge east and tap E.
     // Both consoles are in reach here, so close the reactor screen if it reopens.
     let engineOpen = false;
@@ -79,8 +79,6 @@ test.describe('Star chart course plotting', { tag: '@slow' }, () => {
     expect(engineOpen || (await uiZoneIds(page)).includes('loadFuel')).toBe(true);
     await clickUiZone(page, 'loadFuel');
     await waitForHarbor(page, 'harbor-stores', (t) => t.includes('bunker 1000'), 20000);
-    await clickUiZone(page, 'spool');
-    await page.waitForTimeout(800);
     await clickUiZone(page, 'close');
     await page.waitForTimeout(800);
     expect(await walkRoute(page, TO_BRIDGE, { ...NAV_CONSOLE, zoneId: 'plot:hub_b' }, 400)).toBe(
@@ -115,7 +113,7 @@ test.describe('Star chart course plotting', { tag: '@slow' }, () => {
       null,
       { timeout: 15000 }
     );
-    // Departure proves the server accepted the draft (needs bunker fuel + spool).
+    // Departure proves the server accepted the draft (needs bunker fuel + hot reactor).
     // Plot buttons vanish as soon as the leg leaves docked.
     await page.waitForFunction(
       () => !((window as unknown as UiWindow).__uiZones ?? []).some((z) => z.id === 'plot:hub_b'),

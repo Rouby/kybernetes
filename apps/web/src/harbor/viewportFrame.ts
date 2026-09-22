@@ -891,9 +891,7 @@ function consoleIntentFor(
     return sellIntentWithCapture(id, sell, wiring.onSellCapture);
   }
   if (kind === 'reactor_console') return reactorConsoleIntent(id);
-  const systems = wiring.console?.systems;
-  if (systems === undefined) return null;
-  if (kind === 'engine_console') return engineConsoleIntent(id, systems);
+  if (kind === 'engine_console') return engineConsoleIntent(id);
   return navConsoleIntent(id, wiring.navState);
 }
 

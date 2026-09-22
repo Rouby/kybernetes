@@ -132,7 +132,6 @@ export interface ChartPreview {
   readonly fuelNeeded: number;
   /** Bunker fuel-value available (renamed from cells; now fuel units). */
   readonly fuelCells: number;
-  readonly heatRisk: boolean;
   readonly thrustPct: number;
   /** One ration/water/o2 per leg (settleLegFood). */
   readonly foodCost: FlightFoodCost;
@@ -171,12 +170,11 @@ export function appendDraft(
   return [...base, ...next];
 }
 
-/** Project a drafted course: times, fuel, and heat from the sim planner. */
+/** Project a drafted course: times and fuel from the sim planner. */
 export function previewCourse(
   selection: readonly string[] | null,
   nav: NavStateBroadcast | null,
   status: ShipStatusBroadcast | null,
-  systems: { tune: number; wear: number } | null,
   chart: ChartStateBroadcast | null,
   thrust01 = 1,
   atSeconds = 0
@@ -188,8 +186,6 @@ export function previewCourse(
     fromId: portHubId,
     stops: [...selection],
     tier,
-    tune: systems?.tune ?? 1,
-    wear: systems?.wear ?? 0,
     knownIds: [...knownIds(chart)],
     thrust01,
     atSeconds,
@@ -205,7 +201,6 @@ export function previewCourse(
     totalS: planned.plan.totalS,
     fuelNeeded: planned.plan.fuelNeeded,
     fuelCells: status?.engineFuel ?? 0,
-    heatRisk: planned.plan.heatRisk,
     thrustPct: Math.round(thrust01 * 100),
     foodCost,
     projectedStores,
@@ -364,7 +359,7 @@ export function chartMapView(
   );
   const positions = new Map(nodes.map((node) => [node.id, { x: node.x, y: node.y }]));
   const wells = gravityWells(center, halfMin, positions);
-  const hopping = nav?.phase === 'spooling' || nav?.phase === 'in_transit';
+  const hopping = nav?.phase === 'in_transit';
   const stops = hopping ? (nav?.stops ?? []) : [];
   const hop = liveHop(nav, portHubId, positions);
   const starR = Math.max(10, Math.round(halfMin * 0.055));
@@ -1804,7 +1799,7 @@ function liveTransferHop(
 }
 
 function isTransferPhase(phase: NavStateBroadcast['phase']): boolean {
-  return phase === 'spooling' || phase === 'in_transit' || phase === 'docking';
+  return phase === 'in_transit' || phase === 'docking';
 }
 
 function tierOf(status: ShipStatusBroadcast | null): 0 | 1 | 2 {

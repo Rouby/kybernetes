@@ -46,13 +46,8 @@ function makeSystems(over: Partial<ShipSystemsBroadcast> = {}): ShipSystemsBroad
     rods: 0.5,
     coolant: 0.5,
     outputMW: 4,
-    demandMW: 3,
     scrammed: false,
     warned: false,
-    spool: 0.2,
-    tune: 0.5,
-    wear: 0.1,
-    brownout: false,
     condition: 100,
     fuel: 1500,
     fuelMax: 2000,
@@ -222,13 +217,14 @@ describe('console screens', () => {
     expectNoOverlap(layout.buttons);
   });
 
-  it('engine respects topClearance and flags brownout', () => {
+  it('engine respects topClearance with fuel bunker rows', () => {
     const m = uiVisorMargins(W, H);
-    const layout = layoutEngineScreen(W, H, makeSystems({ brownout: true }));
+    const layout = layoutEngineScreen(W, H, makeSystems());
     expect(layout.panel.y).toBeGreaterThanOrEqual(m.topClearance);
-    expect(layout.buttons.map((b) => b.id)).toContain('close');
+    expect(layout.buttons.map((b) => b.id)).toEqual(['loadFuel', 'unloadFuel', 'close']);
     expectContained(layout.panel, layout.buttons);
-    expect(layout.texts.map((t) => t.text)).toContain('BROWNOUT');
+    expect(layout.texts.map((t) => t.text)).toContain('ENGINE // TORCH');
+    expect(layout.texts.map((t) => t.text)).toContain('FUEL 1500/2000 SLOTS 2');
   });
 
   function nodeButtons(layout: { buttons: readonly { id: string }[] }): string[] {
@@ -255,10 +251,9 @@ describe('console screens', () => {
     expect(cruise.buttons.map((b) => b.id)).toContain('distress');
   });
 
-  it('nav surfaces a heat soft warning without hiding plot', () => {
-    const cold = makeSystems({ tune: 0.2, wear: 0 });
-    const layout = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), cold, makeStatus());
-    expect(layout.texts.map((t) => t.text)).toContain('HEAT RISK: TUNE LOW');
+  it('nav keeps plot actions without heat warnings', () => {
+    const layout = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), makeSystems(), makeStatus());
+    expect(layout.texts.map((t) => t.text)).not.toContain('HEAT RISK: TUNE LOW');
     expect(layout.buttons.map((b) => b.id)).toContain('plot:hub_b');
     expect(nodeButtons(layout)).toContain('via:poi_kestrel');
   });
@@ -282,7 +277,6 @@ describe('console screens', () => {
     const sys = makeSystems();
     const docked = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), sys, makeStatus());
     expect(docked.buttons.map((b) => b.id)).toEqual([
-      'spool',
       'plot:hub_b',
       'plot:hub_c',
       'plot:hub_d',
@@ -297,7 +291,6 @@ describe('console screens', () => {
       'close',
     ]);
     expect(docked.buttons.map((b) => b.label)).toEqual([
-      'SPOOL',
       'SOLACE',
       'CINDER',
       'VESPER',
@@ -338,7 +331,7 @@ describe('console screens', () => {
       if (node !== undefined) {
         expect(button.rect).toEqual(node.chip);
         expect(button.label).toBe(node.label);
-      } else if (button.id === 'loadFuel' || button.id === 'spool') {
+      } else if (button.id === 'loadFuel') {
         expectContained(docked.sidePanel ?? docked.panel, [button]);
       } else {
         expectContained(docked.panel, [button]);
@@ -395,11 +388,11 @@ describe('console screens', () => {
     expect(texts).toContain('PRE-FLIGHT //');
     expect(texts).toContain('[✓] REACTOR: ONLINE');
     expect(texts.some((text) => text.startsWith('BUNKER: '))).toBe(true);
-    expect(texts).toContain('ENGINE: IDLE');
+    expect(texts).toContain('ENGINE: TORCH READY');
     for (const button of docked.buttons) {
       if (nodeButtons({ buttons: docked.buttons }).includes(button.id))
         expectInsideCanvas(button.rect);
-      else if (button.id === 'loadFuel' || button.id === 'spool')
+      else if (button.id === 'loadFuel')
         expectContained(docked.sidePanel ?? docked.panel, [button]);
       else expectContained(docked.panel, [button]);
     }
@@ -486,8 +479,6 @@ describe('console screens', () => {
       fromId: 'hub_a',
       stops: [...draft],
       tier: 0,
-      tune: 1,
-      wear: 0,
       thrust01: 1,
       atSeconds: 1 * FIXED_DT,
     });
@@ -497,7 +488,6 @@ describe('console screens', () => {
     expect(texts).toContain('TRIP COST -2 RATION -2 WATER -2 O2');
     expect(texts.some((text) => text.startsWith('LOW STORES:'))).toBe(true);
     expect(layout.buttons.map((b) => b.id)).toEqual([
-      'spool',
       'plot:hub_b',
       'via:poi_kestrel',
       'via:poi_vigil',
@@ -583,12 +573,12 @@ describe('console screens', () => {
     );
   });
 
-  it('nav offers bridge load and spool actions when docked and needy', () => {
+  it('nav offers bridge load when docked and needy', () => {
     const needy = layoutNavScreen(
       W,
       H,
       makeNav({ phase: 'docked' }),
-      makeSystems({ spool: 0, fuel: 0, fuelMax: 2000 }),
+      makeSystems({ fuel: 0, fuelMax: 2000 }),
       {
         ...makeStatus(),
         stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 },
@@ -596,29 +586,19 @@ describe('console screens', () => {
       }
     );
     expect(needy.buttons.map((b) => b.id)).toContain('loadFuel');
-    expect(needy.buttons.map((b) => b.id)).not.toContain('spool');
     expect(needy.texts.map((t) => t.text)).toContain('[✓] REACTOR: ONLINE');
-    expect(needy.texts.map((t) => t.text)).toContain('ENGINE: IDLE');
+    expect(needy.texts.map((t) => t.text)).toContain('ENGINE: TORCH READY');
     expect(needy.sidePanel).toBeDefined();
     expectContained(
       needy.panel,
       needy.buttons.filter((b) => b.id === 'close')
     );
-    const preButtons = needy.buttons.filter((b) => b.id === 'loadFuel' || b.id === 'spool');
+    const preButtons = needy.buttons.filter((b) => b.id === 'loadFuel');
     expectContained(needy.sidePanel ?? needy.panel, preButtons);
     expectNoOverlap(preButtons);
     const ready = layoutNavScreen(W, H, makeNav({ phase: 'docked' }), makeSystems(), makeStatus());
     expect(ready.buttons.map((b) => b.id)).not.toContain('loadFuel');
-    expect(ready.buttons.map((b) => b.id)).toContain('spool');
-    const spooled = layoutNavScreen(
-      W,
-      H,
-      makeNav({ phase: 'docked' }),
-      makeSystems({ spool: 1 }),
-      makeStatus()
-    );
-    expect(spooled.texts.map((t) => t.text)).toContain('ENGINE: SPOOLED');
-    expect(spooled.buttons.map((b) => b.id)).not.toContain('spool');
+    expect(ready.texts.map((t) => t.text)).toContain('ENGINE: TORCH READY');
   });
 
   it('nav docks the pre-flight checklist in a top-left side panel', () => {
@@ -638,7 +618,7 @@ describe('console screens', () => {
     expect(docked.texts.map((t) => t.text)).toContain('PRE-FLIGHT //');
     expectContained(
       side,
-      docked.buttons.filter((b) => b.id === 'loadFuel' || b.id === 'spool')
+      docked.buttons.filter((b) => b.id === 'loadFuel')
     );
   });
 
@@ -917,7 +897,7 @@ describe('uiScreenButtonIds', () => {
       expect(uiScreenButtonIds('nav')).toContain(id);
     }
     expect(uiScreenButtonIds('nav')).toEqual(
-      expect.arrayContaining(['plot:hub_b', 'loadFuel', 'spool', 'close'])
+      expect.arrayContaining(['plot:hub_b', 'loadFuel', 'close'])
     );
     const audio = layoutSettingsScreen(W, H, 80, false, true);
     expect(audio.buttons.map((b) => b.id)).toEqual([...uiScreenButtonIds('settings')]);

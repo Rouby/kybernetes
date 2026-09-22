@@ -386,6 +386,6 @@ export class GameSession {
 
 /** True while the vessel is maneuvering: committed nav leg or harbor transit. */
 function isUnderway(navPhase: unknown, dockPhase: unknown): boolean {
-  if (navPhase === 'spooling' || navPhase === 'in_transit' || navPhase === 'docking') return true;
+  if (navPhase === 'in_transit' || navPhase === 'docking') return true;
   return dockPhase === 'inbound' || dockPhase === 'departing';
 }

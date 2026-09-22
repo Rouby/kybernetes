@@ -1,10 +1,11 @@
 /**
- * Solo-ship reactor (TRANSFORM M2). Two-dial balance: control rods set
- * output/heat, coolant flow removes heat, and a slow seeded flux drift
- * pushes temperature out of band during transit legs. Docked-cold reactors
- * sit drift-free. Neglect climbs a recoverable ladder: warning -> scram /
- * blackout -> hull damage -> ship loss at condition 0 (see systems.ts).
- * Pure + deterministic; transit noise is hash-based, never Math.random.
+ * Solo-ship reactor (TRANSFORM M2, self-trimming). No console dials: rods
+ * and coolant ease back to their balanced trims every tick, and a slow
+ * seeded flux drift still pushes temperature out of band during transit
+ * legs. Docked-cold reactors sit drift-free. Neglect climbs a recoverable
+ * ladder: warning -> scram / blackout -> hull damage -> ship loss at
+ * condition 0 (see systems.ts). Pure + deterministic; transit noise is
+ * hash-based, never Math.random.
  */
 
 import type { ReactorTier } from './shipRecord.js';
@@ -48,6 +49,8 @@ export const SCRAM_OVERHEAT_S = 15;
 export const SCRAM_CRITICAL_MARGIN_K = 60;
 export const DEFAULT_RODS = 0.3;
 export const DEFAULT_COOLANT = 0.5;
+/** Trim relaxation per second toward the balanced defaults. */
+export const TRIM_RATE_PER_S = 0.05;
 
 export interface ReactorState {
   readonly hot: boolean;
@@ -87,20 +90,6 @@ export function reactorOutputMw(state: Pick<ReactorState, 'rods'>, tier: Reactor
   return reactorSpecFor(tier).maxOutputMw * (1 - 0.75 * clamp01(state.rods));
 }
 
-/** Console tune step: rods/coolant deltas in +-0.1, clamped. */
-export function tuneReactor(
-  state: ReactorState,
-  rodsDelta: number,
-  coolantDelta: number
-): ReactorState {
-  if (!Number.isFinite(rodsDelta) || !Number.isFinite(coolantDelta)) return state;
-  return {
-    ...state,
-    rods: clamp01(state.rods + rodsDelta),
-    coolant: clamp01(state.coolant + coolantDelta),
-  };
-}
-
 /**
  * Light a cold reactor, or restart after a scram. Cold lights settle at
  * band center on default trims; restarts keep the operator's trims.
@@ -125,19 +114,39 @@ export function tickReactor(
   const spec = reactorSpecFor(tier);
   const band = reactorBandFor(tier);
   const flux = easeFlux(state, spec, dtSeconds, tick);
-  const output = reactorOutputMw(state, tier);
-  const tempVel = output * 0.55 - state.coolant * 34 * spec.coolingPerFlow + flux * 2.5;
+  const trimmed = autoTrim(state, tier, dtSeconds);
+  const output = reactorOutputMw(trimmed, tier);
+  const tempVel = output * 0.55 - trimmed.coolant * 34 * spec.coolingPerFlow + flux * 2.5;
   const tempK = state.tempK + tempVel * dtSeconds;
   const overheatS = tempK > band.hi ? state.overheatS + dtSeconds : 0;
   const scrammed = overheatS >= SCRAM_OVERHEAT_S || tempK >= band.hi + SCRAM_CRITICAL_MARGIN_K;
   return {
-    ...state,
+    ...trimmed,
     tempK,
     flux,
     overheatS: scrammed ? 0 : overheatS,
     scrammed,
     scramS: scrammed ? 0 : state.scramS,
     warned: scrammed || tempK > band.hi,
+  };
+}
+
+/**
+ * Self-trim: trims relax toward band-centered targets every tick. Hot
+ * reactors deepen rods and open coolant; cold ones do the reverse. Trim
+ * authority is capped, so the plant rides out drift hands-off without
+ * console dials.
+ */
+function autoTrim(state: ReactorState, tier: ReactorTier, dtSeconds: number): ReactorState {
+  const band = reactorBandFor(tier);
+  const mid = (band.lo + band.hi) / 2;
+  const width = Math.max(1, band.hi - band.lo);
+  const pull = Math.max(-0.2, Math.min(0.2, (state.tempK - mid) / width));
+  const step = TRIM_RATE_PER_S * dtSeconds;
+  return {
+    ...state,
+    rods: approach(state.rods, DEFAULT_RODS + pull, step),
+    coolant: approach(state.coolant, DEFAULT_COOLANT + pull, step),
   };
 }
 

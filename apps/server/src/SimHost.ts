@@ -146,7 +146,6 @@ function moveBunkerFuel(
 interface ShipEdgeMemory {
   readonly warned: boolean;
   readonly scrammed: boolean;
-  readonly brownout: boolean;
   readonly flameout: boolean;
   readonly phase: string;
 }
@@ -176,11 +175,8 @@ const KERNEL_INTENT_TYPES: ReadonlySet<string> = new Set([
   'HARVEST',
   'RECYCLE',
   'REPAIR',
-  'REACTOR_TUNE',
   'REACTOR_RESTART',
-  'ENGINE_TUNE',
   'NAV_PLOT',
-  'NAV_CANCEL',
   'HAIL',
   'CARGO_PICKUP',
   'CARGO_DROP',
@@ -720,9 +716,9 @@ export class SimHost {
   }
 
   /**
-   * Tick-edge ship notices (overheat warning, scram, brownout) plus hull
-   * mirroring: kernel condition flows into the aboard owners' records so
-   * SHIP_STATUS stays live. Daemon drains this after each slice.
+   * Tick-edge ship notices (overheat warning, scram) plus hull mirroring:
+   * kernel condition flows into the aboard owners' records so SHIP_STATUS
+   * stays live. Daemon drains this after each slice.
    */
   drainShipNotices(): ShipNotice[] {
     const notices: ShipNotice[] = [];
@@ -740,11 +736,7 @@ export class SimHost {
     const prev = this.shipEdges.get(vesselId) ?? freshEdgeMemory();
     this.shipEdges.set(vesselId, edgeMemoryOf(systems));
     const crew = this.aboardUserIds(vesselId);
-    return [
-      ...reactorEdgeNotices(systems, prev, crew),
-      ...engineEdgeNotices(systems, prev, crew),
-      ...voyageEdgeNotices(systems, prev, crew),
-    ];
+    return [...reactorEdgeNotices(systems, prev, crew), ...voyageEdgeNotices(systems, prev, crew)];
   }
 
   /** User ids crewed aboard a vessel: the scoped audience for ship telemetry. */
@@ -1162,14 +1154,13 @@ function nearestHub(nav: HopCursor & { remainingS: number }, engineTier: EngineT
 }
 
 function freshEdgeMemory(): ShipEdgeMemory {
-  return { warned: false, scrammed: false, brownout: false, flameout: false, phase: 'docked' };
+  return { warned: false, scrammed: false, flameout: false, phase: 'docked' };
 }
 
 function edgeMemoryOf(systems: ShipSystems): ShipEdgeMemory {
   return {
     warned: systems.reactor.warned,
     scrammed: systems.reactor.scrammed,
-    brownout: systems.engine.brownout,
     flameout: systems.nav.flameout,
     phase: systems.nav.phase,
   };
@@ -1182,29 +1173,12 @@ function reactorEdgeNotices(
 ): ShipNotice[] {
   if (systems.reactor.warned && !prev.warned) {
     return crew.map((userId) =>
-      warnNotice(
-        userId,
-        'Reactor hot',
-        'Temperature above the nominal band. Trim rods and coolant.'
-      )
+      warnNotice(userId, 'Reactor hot', 'Temperature above the nominal band. It self-trims.')
     );
   }
   if (systems.reactor.scrammed && !prev.scrammed) {
     return crew.map((userId) =>
       warnNotice(userId, 'REACTOR SCRAM', 'Blackout. Restart at the reactor console.', 'critical')
-    );
-  }
-  return [];
-}
-
-function engineEdgeNotices(
-  systems: ShipSystems,
-  prev: ShipEdgeMemory,
-  crew: readonly string[]
-): ShipNotice[] {
-  if (systems.engine.brownout && !prev.brownout) {
-    return crew.map((userId) =>
-      warnNotice(userId, 'Brownout', 'Load outgrows reactor output. Spool stalled.')
     );
   }
   return [];

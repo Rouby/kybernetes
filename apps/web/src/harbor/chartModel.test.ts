@@ -205,31 +205,30 @@ describe('appendDraft', () => {
 
 describe('previewCourse', () => {
   it('projects time and fuel for a drafted detour', () => {
-    const preview = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart());
+    const preview = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), chart());
     expect(preview).toMatchObject({
       routeLabel: '??>SOLACE',
       totalS: 58,
       fuelNeeded: 378,
       fuelCells: 2000,
-      heatRisk: false,
     });
     expect(preview?.stops).toEqual(['poi_kestrel', 'hub_b']);
   });
 
   it('scales time and fuel with draft throttle', () => {
-    const slow = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart(), 0.5);
+    const slow = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), chart(), 0.5);
     expect(slow).toMatchObject({ thrustPct: 50, totalS: 177, fuelNeeded: 921 });
-    const full = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart());
+    const full = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), chart());
     expect(full).toMatchObject({ thrustPct: 100, totalS: 58, fuelNeeded: 378 });
   });
 
   it('projects a direct hop without a via leg', () => {
-    const preview = previewCourse(['hub_b'], nav(), status(), null, chart());
+    const preview = previewCourse(['hub_b'], nav(), status(), chart());
     expect(preview).toMatchObject({ routeLabel: 'SOLACE', totalS: 34 });
   });
 
   it('projects food costs and remaining stores per leg', () => {
-    const preview = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), null, chart());
+    const preview = previewCourse(['poi_kestrel', 'hub_b'], nav(), status(), chart());
     expect(preview?.foodCost).toEqual({ rations: 2, water: 2, o2: 2 });
     expect(preview?.projectedStores).toEqual({
       rations: 0,
@@ -238,18 +237,16 @@ describe('previewCourse', () => {
       fuelCells: 2,
     });
     expect(preview?.lowStoresWarning).toContain('RATIONS');
-    const single = previewCourse(['hub_b'], nav(), status(), null, chart());
+    const single = previewCourse(['hub_b'], nav(), status(), chart());
     expect(single?.foodCost).toEqual({ rations: 1, water: 1, o2: 1 });
     expect(single?.lowStoresWarning).toBeNull();
   });
 
   it('rejects empty, underway, and unknown drafts', () => {
-    expect(previewCourse([], nav(), status(), null, chart())).toBeNull();
-    expect(previewCourse(['hub_b'], null, status(), null, chart())).toBeNull();
-    expect(
-      previewCourse(['hub_b'], nav({ phase: 'in_transit' }), status(), null, chart())
-    ).toBeNull();
-    expect(previewCourse(['nowhere'], nav(), status(), null, chart())).toBeNull();
+    expect(previewCourse([], nav(), status(), chart())).toBeNull();
+    expect(previewCourse(['hub_b'], null, status(), chart())).toBeNull();
+    expect(previewCourse(['hub_b'], nav({ phase: 'in_transit' }), status(), chart())).toBeNull();
+    expect(previewCourse(['nowhere'], nav(), status(), chart())).toBeNull();
   });
 });
 
@@ -641,12 +638,13 @@ describe('chartMapView', () => {
     expect(outward.burns[1]).toMatchObject({ kind: 'retro' });
   });
 
-  it('prices the torch plan from the port while spooling', () => {
+  it('prices the torch plan at departure', () => {
     const view = chartMapView(
       nav({
-        phase: 'spooling',
+        phase: 'in_transit',
         destHubId: 'poi_kestrel',
-        remainingS: 8,
+        remainingS: 60,
+        legTotalS: 60,
         stops: ['poi_kestrel'],
         legIndex: 0,
       }),

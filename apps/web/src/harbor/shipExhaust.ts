@@ -7,20 +7,12 @@ import type { NavStateBroadcast, ShipSystemsBroadcast, ThrusterTint } from '@kyb
 import { type ExhaustParams, exhaustParamsFor } from '@kybernetes/sim-core';
 import { type AccentRgb, thrusterPlume } from '../webgl/pawnAccents.js';
 
-export type ShipExhaustPhase =
-  | 'docked'
-  | 'spooling'
-  | 'in_transit'
-  | 'docking'
-  | 'inbound'
-  | 'departing';
+export type ShipExhaustPhase = 'docked' | 'in_transit' | 'docking' | 'inbound' | 'departing';
 
 export interface ShipExhaustView {
   readonly phase: ShipExhaustPhase;
   readonly thrust01: number;
-  readonly spool: number;
   readonly flameout: boolean;
-  readonly brownout: boolean;
   readonly tintName: ThrusterTint;
   readonly tint: AccentRgb;
   readonly params: ExhaustParams;
@@ -31,7 +23,6 @@ export const RCS_PULSE_PERIOD_S = 0.6;
 export const RCS_PULSE_WIDTH_S = 0.1;
 
 const PHASE_TABLE: Readonly<Record<string, ShipExhaustPhase>> = {
-  spooling: 'spooling',
   in_transit: 'in_transit',
   docking: 'docking',
   inbound: 'inbound',
@@ -62,11 +53,6 @@ function resolvePhase(navPhase: unknown, harborPhase: unknown): ShipExhaustPhase
   return normalizeExhaustPhase(harborPhase);
 }
 
-function resolveSpool(spool: unknown, phase: ShipExhaustPhase): number {
-  if (typeof spool === 'number' && Number.isFinite(spool)) return spool;
-  return phase === 'docked' ? 0 : 1;
-}
-
 function pickNumber(value: unknown, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   return fallback;
@@ -79,43 +65,31 @@ function pickFlag(value: unknown): boolean {
 interface ExhaustSource {
   readonly phase: ShipExhaustPhase;
   readonly thrust01: number;
-  readonly spool: number;
-  readonly tune: number;
-  readonly wear: number;
   readonly flameout: boolean;
-  readonly brownout: boolean;
 }
 
 function collectInput(
   nav: NavStateBroadcast | null | undefined,
-  systems: ShipSystemsBroadcast | null | undefined,
   harborPhase: unknown
 ): ExhaustSource {
   const phase = resolvePhase(nav?.phase, harborPhase);
   return {
     phase,
     thrust01: pickNumber(nav?.thrust01, 1),
-    spool: resolveSpool(systems?.spool, phase),
-    tune: pickNumber(systems?.tune, 1),
-    wear: pickNumber(systems?.wear, 0),
     flameout: pickFlag(nav?.flameout),
-    brownout: pickFlag(systems?.brownout),
   };
 }
 
 function buildView(
   input: ExhaustSource,
   nav: NavStateBroadcast | null | undefined,
-  systems: ShipSystemsBroadcast | null | undefined,
   tintName: ThrusterTint,
   engineTier?: number
 ): ShipExhaustView {
   return {
     phase: input.phase,
     thrust01: pickNumber(nav?.thrust01, 1),
-    spool: pickNumber(systems?.spool, 0),
     flameout: pickFlag(nav?.flameout),
-    brownout: pickFlag(systems?.brownout),
     tintName,
     tint: thrusterPlume(tintName),
     params: exhaustParamsFor(input, engineTier),
@@ -128,13 +102,13 @@ function buildView(
  */
 export function mapShipExhaust(
   nav: NavStateBroadcast | null | undefined,
-  systems: ShipSystemsBroadcast | null | undefined,
+  _systems: ShipSystemsBroadcast | null | undefined,
   ownerThruster: unknown,
   engineTier?: number,
   harborPhase?: unknown
 ): ShipExhaustView {
-  const input = collectInput(nav, systems, harborPhase);
-  return buildView(input, nav, systems, normalizeTint(ownerThruster), engineTier);
+  const input = collectInput(nav, harborPhase);
+  return buildView(input, nav, normalizeTint(ownerThruster), engineTier);
 }
 
 /** True inside a pulse window: nozzles fire crisply instead of streaming. */

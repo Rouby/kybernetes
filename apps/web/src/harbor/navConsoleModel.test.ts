@@ -47,13 +47,8 @@ function systems(over: Partial<ShipSystemsBroadcast> = {}): ShipSystemsBroadcast
     rods: 0.3,
     coolant: 0.5,
     outputMW: 31,
-    demandMW: 28,
     scrammed: false,
     warned: false,
-    spool: 1,
-    tune: 1,
-    wear: 0,
-    brownout: false,
     condition: 100,
     fuel: 1000,
     fuelMax: 2000,
@@ -97,7 +92,6 @@ describe('navConsoleModel (M3 panel)', () => {
     const vm = navViewModel(nav(), systems(), status());
     expect(vm.phase).toBe('docked');
     expect(vm.canPlot).toBe(true);
-    expect(vm.canCancel).toBe(false);
     expect(vm.canDistress).toBe(false);
     expect(vm.otherHubId).toBe('hub_b');
     expect(vm.destLabel).toBe('—');
@@ -106,7 +100,6 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(vm.fuel).toBe(1000);
     expect(vm.fuelNeeded).toBe(221);
     expect(vm.fuelWarning).toBeNull();
-    expect(vm.heatWarning).toBeNull();
   });
 
   it('warns softly on low fuel but keeps plot enabled', () => {
@@ -120,29 +113,15 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(empty.canPlot).toBe(true);
   });
 
-  it('projects extra burn when tune is cold', () => {
-    const cold = navViewModel(
+  it('ignores legacy tune fields when projecting fuel', () => {
+    const legacy = navViewModel(
       nav(),
-      systems({ tune: 0.2, wear: 0, fuel: 0, fuelMax: 2000 }),
+      systems({ fuel: 0, fuelMax: 2000 }),
       status({ engineFuel: 0 })
     );
-    expect(cold.fuelNeeded).toBe(521);
-    expect(cold.fuelWarning).toBe('LOW FUEL 521/0 LOAD CELLS');
-    expect(cold.heatWarning).toBe('HEAT RISK: TUNE LOW');
-    expect(cold.canPlot).toBe(true);
-  });
-
-  it('flags heat risk on a fueled cold leg', () => {
-    const cold = navViewModel(
-      nav(),
-      systems({ tune: 0.2, wear: 0, fuel: 2000, fuelMax: 2000 }),
-      status({
-        stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 2 },
-        engineFuel: 2000,
-      })
-    );
-    expect(cold.fuelWarning).toBeNull();
-    expect(cold.heatWarning).toBe('HEAT RISK: TUNE LOW');
+    expect(legacy.fuelNeeded).toBe(221);
+    expect(legacy.fuelWarning).toBe('LOW FUEL 221/0 LOAD CELLS');
+    expect(legacy.canPlot).toBe(true);
   });
 
   it('tracks the live hop on multi-stop chains', () => {
@@ -304,10 +283,9 @@ describe('navConsoleModel (M3 panel)', () => {
       status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 0 } })
     );
     expect(cruise.fuelWarning).toBeNull();
-    expect(cruise.heatWarning).toBeNull();
   });
 
-  it('counts down in transit and arms cancel and distress per phase', () => {
+  it('counts down in transit and arms distress per phase', () => {
     const cruise = navViewModel(
       nav({ phase: 'in_transit', destHubId: 'hub_b', remainingS: 87.4 }),
       systems(),
@@ -317,13 +295,6 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(cruise.canPlot).toBe(false);
     expect(cruise.canDistress).toBe(true);
     expect(cruise.destLabel).toBe('SOLACE YARDS');
-    const spooling = navViewModel(
-      nav({ phase: 'spooling', destHubId: 'hub_b', remainingS: 6 }),
-      systems(),
-      status()
-    );
-    expect(spooling.canCancel).toBe(true);
-    expect(spooling.canDistress).toBe(false);
     const flamed = navViewModel(
       nav({ phase: 'in_transit', destHubId: 'hub_b', remainingS: 60, flameout: true }),
       systems(),
@@ -333,62 +304,54 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(flamed.canDistress).toBe(true);
   });
 
-  it('exposes pre-flight readiness on a fueled spooled ship', () => {
+  it('exposes pre-flight readiness on a fueled ready ship', () => {
     const vm = navViewModel(nav(), systems(), status());
     expect(vm.reactorOnline).toBe(true);
     expect(vm.bunkerFuel).toBe(1000);
     expect(vm.bunkerFuelNeeded).toBe(vm.fuelNeeded);
     expect(vm.storesFuelCells).toBe(1);
-    expect(vm.engineSpooled).toBe(true);
     expect(vm.canLoadFuelFromBridge).toBe(true);
-    expect(vm.canSpoolFromBridge).toBe(false);
   });
 
-  it('offers bridge load and spool on an empty idle ship', () => {
+  it('offers bridge load on an empty idle ship', () => {
     const vm = navViewModel(
       nav(),
-      systems({ spool: 0, fuel: 0, fuelMax: 2000 }),
+      systems({ fuel: 0, fuelMax: 2000 }),
       status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 }, engineFuel: 0 })
     );
     expect(vm.reactorOnline).toBe(true);
-    expect(vm.engineSpooled).toBe(false);
     expect(vm.canLoadFuelFromBridge).toBe(true);
-    expect(vm.canSpoolFromBridge).toBe(false);
     const fueled = navViewModel(
       nav(),
-      systems({ spool: 0, fuel: 1000, fuelMax: 2000 }),
+      systems({ fuel: 1000, fuelMax: 2000 }),
       status({ stores: { rations: 2, waterL: 4, o2Cells: 2, fuelCells: 1 }, engineFuel: 1000 })
     );
-    expect(fueled.canSpoolFromBridge).toBe(true);
     expect(fueled.canLoadFuelFromBridge).toBe(true);
   });
 
   it('marks a cold unignited reactor offline despite healthy output', () => {
     const vm = navViewModel(
       nav(),
-      systems({ tempK: 300, fuel: 1000, fuelMax: 2000, spool: 0, outputMW: 31, demandMW: 8 }),
+      systems({ tempK: 300, fuel: 1000, fuelMax: 2000, outputMW: 31 }),
       status()
     );
     expect(vm.reactorOnline).toBe(false);
-    expect(vm.canSpoolFromBridge).toBe(false);
   });
 
   it('blocks bridge actions underway, offline, or without room', () => {
     const cruise = navViewModel(
       nav({ phase: 'in_transit' }),
-      systems({ spool: 0, fuel: 0, fuelMax: 2000 }),
+      systems({ fuel: 0, fuelMax: 2000 }),
       status()
     );
     expect(cruise.canLoadFuelFromBridge).toBe(false);
-    expect(cruise.canSpoolFromBridge).toBe(false);
     const dark = navViewModel(
       nav(),
-      systems({ spool: 0, fuel: 1000, fuelMax: 2000, scrammed: true, outputMW: 0, demandMW: 28 }),
+      systems({ fuel: 1000, fuelMax: 2000, scrammed: true, outputMW: 0 }),
       status()
     );
     expect(dark.reactorOnline).toBe(false);
-    expect(dark.canSpoolFromBridge).toBe(false);
-    const full = navViewModel(nav(), systems({ spool: 0, fuel: 1500, fuelMax: 2000 }), status());
+    const full = navViewModel(nav(), systems({ fuel: 1500, fuelMax: 2000 }), status());
     expect(full.canLoadFuelFromBridge).toBe(false);
   });
 
@@ -398,6 +361,5 @@ describe('navConsoleModel (M3 panel)', () => {
     expect(vm.etaS).toBe(0);
     expect(vm.canPlot).toBe(false);
     expect(vm.fuelWarning).toBeNull();
-    expect(vm.heatWarning).toBeNull();
   });
 });

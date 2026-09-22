@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { plotChartCourse } from './chart.js';
-import { coldEngine, FUEL_PER_CELL, fuelCostForLeg, fuelRateForLeg } from './engine.js';
+import { FUEL_PER_CELL, fuelCostForLeg, fuelRateForLeg } from './engine.js';
 import {
-  cancelLeg,
   clampThrust01,
   DOCKED_NAV,
   DOCKING_S,
   HAIL_WAIT_S,
   hailForRescue,
-  heatBurnFuel,
   hopBaseS,
   hopFrom,
   hopScaledS,
@@ -18,8 +16,6 @@ import {
   type NavState,
   plotCourse,
   resetLegTo,
-  SPOOL_S,
-  thrustBurnCells,
   thrustTimeFactor,
   tickNavLeg,
 } from './navTransit.js';
@@ -28,19 +24,14 @@ const DT = 0.05;
 const ONE_CELL = FUEL_PER_CELL;
 const TWO_CELLS = 2 * FUEL_PER_CELL;
 const POWERED = { hot: true, powered: true, engineFuel: ONE_CELL };
+const HOT = { hot: true, scrammed: false };
 
-function tickMany(
-  nav: NavState,
-  seconds: number,
-  engine: { spool: number; tune: number },
-  fuel: number
-) {
+function tickMany(nav: NavState, seconds: number, fuel: number) {
   let current = nav;
   let engineFuel = fuel;
-  const full = { ...coldEngine(), spool: engine.spool, tune: engine.tune };
   const ticks = Math.round(seconds / DT);
   for (let i = 0; i < ticks; i += 1) {
-    const stepped = tickNavLeg(current, full, { hot: true, scrammed: false }, 0, engineFuel, DT);
+    const stepped = tickNavLeg(current, HOT, 0, engineFuel, DT);
     current = stepped.nav;
     engineFuel = stepped.engineFuel;
   }
@@ -58,7 +49,7 @@ function hopOneBurn(chain: NavState): number {
   let nav = chain;
   let fuel = TWO_CELLS;
   for (let i = 0; i < 200 && nav.legIndex === 0; i += 1) {
-    const stepped = tickMany(nav, 1, { spool: 1, tune: 1 }, fuel);
+    const stepped = tickMany(nav, 1, fuel);
     nav = stepped.nav;
     fuel = stepped.engineFuel;
   }
@@ -75,8 +66,6 @@ describe('thrust throttle', () => {
     expect(clampThrust01(Number.NaN)).toBe(1);
     expect(thrustTimeFactor(1)).toBe(1);
     expect(thrustTimeFactor(0.25)).toBe(2);
-    expect(thrustBurnCells(0, 1)).toBe(1);
-    expect(thrustBurnCells(0, 0.5)).toBeCloseTo(0.5, 5);
   });
 
   it('scales leg clocks and fuel burns at half thrust', () => {
@@ -94,30 +83,25 @@ describe('thrust throttle', () => {
     expect(
       plotChartCourse(DOCKED_NAV, ['hub_b'], { hot: true, powered: true, engineFuel: 100 }, 0.5)
     ).toEqual({ reject: 'no-fuel' });
-    const first = tickNavLeg(
-      plottedHalf.nav,
-      { ...coldEngine(), spool: 1 },
-      { hot: true, scrammed: false },
-      0,
-      TWO_CELLS,
-      DT
-    );
-    expect(first.nav.phase).toBe('spooling');
-    expect(first.nav.remainingS).toBeCloseTo(SPOOL_S - DT, 5);
-    expect(first.engineFuel).toBe(TWO_CELLS);
-    const flown = tickMany(plottedHalf.nav, SPOOL_S + 2, { spool: 1, tune: 1 }, TWO_CELLS);
+    const first = tickNavLeg(plottedHalf.nav, HOT, 0, TWO_CELLS, DT);
+    expect(first.nav.phase).toBe('in_transit');
+    expect(first.nav.remainingS).toBeLessThanOrEqual(Math.round(150 / Math.SQRT1_2));
+    expect(first.engineFuel).toBeCloseTo(TWO_CELLS - fuelRateForLeg(0, 0.5) * DT, 6);
+    const flown = tickMany(plottedHalf.nav, 2, TWO_CELLS);
     expect(flown.nav.phase).toBe('in_transit');
-    expect(flown.engineFuel).toBeCloseTo(TWO_CELLS - fuelRateForLeg(0, 0.5) * (2 - DT), 6);
-    const longer = tickMany(plottedHalf.nav, SPOOL_S + 6, { spool: 1, tune: 1 }, TWO_CELLS);
+    expect(flown.engineFuel).toBeCloseTo(TWO_CELLS - fuelRateForLeg(0, 0.5) * 2, 6);
+    const longer = tickMany(plottedHalf.nav, 6, TWO_CELLS);
     expect(longer.engineFuel).toBeLessThan(flown.engineFuel);
-    expect(flown.nav.remainingS).toBeLessThanOrEqual(Math.round(150 / Math.SQRT1_2) + 40);
+    expect(flown.nav.remainingS).toBeLessThanOrEqual(Math.round(150 / Math.SQRT1_2));
     expect(flown.nav.remainingS).toBeGreaterThan(20);
   });
 });
 
-describe('nav legs (M3 plot to dock)', () => {
+describe('nav legs (plot straight to dock)', () => {
   it('rejects bad plots with named reasons', () => {
-    expect(plotCourse(DOCKED_NAV, 'hub_b', POWERED)).toMatchObject({ nav: { phase: 'spooling' } });
+    expect(plotCourse(DOCKED_NAV, 'hub_b', POWERED)).toMatchObject({
+      nav: { phase: 'in_transit' },
+    });
     expect(plotCourse(plotted(), 'hub_b', POWERED)).toEqual({ reject: 'already-underway' });
     expect(plotCourse(DOCKED_NAV, 'nowhere', POWERED)).toEqual({ reject: 'unknown-hub' });
     expect(plotCourse(DOCKED_NAV, 'hub_a', POWERED)).toEqual({ reject: 'same-hub' });
@@ -135,69 +119,24 @@ describe('nav legs (M3 plot to dock)', () => {
     expect(second.nav.legId).toBe(first.legId + 1);
   });
 
-  it('holds spooling without power and burns fuel on departure', () => {
-    const scored = tickNavLeg(
-      plotted(),
-      { ...coldEngine(), spool: 1 },
-      { hot: false, scrammed: false },
-      0,
-      ONE_CELL,
-      DT
-    );
-    expect(scored.nav.phase).toBe('spooling');
-    const departed = tickMany(plotted(), SPOOL_S + 1, { spool: 1, tune: 1 }, ONE_CELL);
+  it('commits straight into transit and burns fuel underway', () => {
+    const departed = tickMany(plotted(), 1, ONE_CELL);
     expect(departed.nav.phase).toBe('in_transit');
     expect(departed.nav.remainingS).toBeLessThanOrEqual(legDurationSeconds(0));
     expect(departed.engineFuel).toBeLessThan(ONE_CELL);
     expect(departed.engineFuel).toBeGreaterThan(ONE_CELL - fuelRateForLeg(0, 1) * 2);
   });
 
-  it('waits for spool before departing', () => {
-    const waiting = tickMany(plotted(), SPOOL_S + 5, { spool: 0.2, tune: 1 }, ONE_CELL);
-    expect(waiting.nav.phase).toBe('spooling');
-    expect(waiting.nav.remainingS).toBe(0);
-  });
-
   it('freezes the clock on scram and flameout', () => {
-    const underway = tickMany(plotted(), SPOOL_S + 1, { spool: 1, tune: 1 }, ONE_CELL).nav;
-    const frozen = tickNavLeg(
-      underway,
-      { ...coldEngine(), spool: 1 },
-      { hot: true, scrammed: true },
-      0,
-      0,
-      DT
-    );
+    const underway = tickMany(plotted(), 1, ONE_CELL).nav;
+    const frozen = tickNavLeg(underway, { hot: true, scrammed: true }, 0, 0, DT);
     expect(frozen.nav.remainingS).toBe(underway.remainingS);
-    const flamed = tickNavLeg(
-      { ...underway, flameout: true },
-      { ...coldEngine(), spool: 1 },
-      { hot: true, scrammed: false },
-      0,
-      0,
-      DT
-    );
+    const flamed = tickNavLeg({ ...underway, flameout: true }, HOT, 0, 0, DT);
     expect(flamed.nav.remainingS).toBe(underway.remainingS);
   });
 
-  it('burns extra fuel for detuned engines and flames out dry', () => {
-    const leg = plotted();
-    const half = SPOOL_S + 1 + legDurationSeconds(0) * 0.9;
-    const toHalf = tickMany(leg, half, { spool: 1, tune: 0.1 }, TWO_CELLS);
-    expect(toHalf.nav.extraBurned).toBe(true);
-    expect(toHalf.engineFuel).toBeLessThan(TWO_CELLS);
-    const dry = tickMany(leg, half, { spool: 1, tune: 0.1 }, 1000);
-    expect(dry.nav.flameout).toBe(true);
-    expect(isUnderway(dry.nav)).toBe(true);
-  });
-
   it('docks at the destination hub with a fresh leg state', () => {
-    const arrived = tickMany(
-      plotted(),
-      SPOOL_S + 1 + legDurationSeconds(0) + DOCKING_S + 2,
-      { spool: 1, tune: 1 },
-      ONE_CELL
-    );
+    const arrived = tickMany(plotted(), legDurationSeconds(0) + DOCKING_S + 2, ONE_CELL);
     expect(arrived.nav.phase).toBe('docked');
     expect(arrived.nav.portHubId).toBe('hub_b');
     expect(arrived.nav.destHubId).toBeUndefined();
@@ -205,10 +144,8 @@ describe('nav legs (M3 plot to dock)', () => {
     expect(isUnderway(arrived.nav)).toBe(false);
   });
 
-  it('cancels only while spooling and resets tows home', () => {
-    expect(cancelLeg(plotted()).phase).toBe('docked');
-    const underway = tickMany(plotted(), SPOOL_S + 1, { spool: 1, tune: 1 }, ONE_CELL).nav;
-    expect(cancelLeg(underway)).toBe(underway);
+  it('resets tows home with named rejects intact', () => {
+    const underway = tickMany(plotted(), 1, ONE_CELL).nav;
     const towed = resetLegTo({ ...underway, flameout: true }, 'hub_a');
     expect(towed.phase).toBe('docked');
     expect(towed.portHubId).toBe('hub_a');
@@ -236,15 +173,15 @@ describe('nav legs (M3 plot to dock)', () => {
       engineFuel: TWO_CELLS,
     });
     if (!('nav' in chain)) throw new Error('chain plot should succeed');
-    const departed = tickMany(chain.nav, SPOOL_S + 1, { spool: 1, tune: 1 }, TWO_CELLS);
+    const departed = tickMany(chain.nav, 1, TWO_CELLS);
     expect(departed.nav.phase).toBe('in_transit');
     expect(departed.nav.legIndex).toBe(0);
-    expect(departed.nav.remainingS).toBeLessThanOrEqual(60 + 40);
+    expect(departed.nav.remainingS).toBeLessThanOrEqual(60);
     expect(departed.engineFuel).toBeLessThan(TWO_CELLS);
     expect(departed.engineFuel).toBeGreaterThan(TWO_CELLS - fuelRateForLeg(0, 1) * 2);
-    const advanced = tickMany(chain.nav, SPOOL_S + 1 + 70, { spool: 1, tune: 1 }, TWO_CELLS);
+    const advanced = tickMany(chain.nav, 1 + 70, TWO_CELLS);
     expect(advanced.nav.legIndex).toBe(1);
-    expect(advanced.nav.remainingS).toBeLessThanOrEqual(120 + 40);
+    expect(advanced.nav.remainingS).toBeLessThanOrEqual(120);
     expect(advanced.engineFuel).toBeLessThan(departed.engineFuel);
     expect(hopFrom(advanced.nav)).toBe('poi_kestrel');
     expect(hopTo(advanced.nav)).toBe('hub_b');
@@ -257,12 +194,7 @@ describe('nav legs (M3 plot to dock)', () => {
       engineFuel: TWO_CELLS,
     });
     if (!('nav' in chain)) throw new Error('chain plot should succeed');
-    const arrived = tickMany(
-      chain.nav,
-      SPOOL_S + 2 + 60 + 120 + DOCKING_S + 2,
-      { spool: 1, tune: 1 },
-      TWO_CELLS
-    );
+    const arrived = tickMany(chain.nav, 2 + 60 + 120 + DOCKING_S + 2, TWO_CELLS);
     expect(arrived.nav.phase).toBe('docked');
     expect(arrived.nav.portHubId).toBe('hub_b');
     expect(arrived.nav.stops).toEqual([]);
@@ -276,12 +208,7 @@ describe('nav legs (M3 plot to dock)', () => {
       engineFuel: ONE_CELL,
     });
     if (!('nav' in visit)) throw new Error('visit plot should succeed');
-    const arrived = tickMany(
-      visit.nav,
-      SPOOL_S + 2 + 60 + DOCKING_S + 2,
-      { spool: 1, tune: 1 },
-      ONE_CELL
-    );
+    const arrived = tickMany(visit.nav, 2 + 60 + DOCKING_S + 2, ONE_CELL);
     expect(arrived.nav.phase).toBe('docked');
     expect(arrived.nav.portHubId).toBe('poi_kestrel');
     expect(arrived.nav.destHubId).toBeUndefined();
@@ -296,12 +223,7 @@ describe('nav legs (M3 plot to dock)', () => {
     });
     if (!('nav' in full)) throw new Error('chain plot should succeed');
     const oneHopFuel = hopOneBurn(full.nav);
-    const dry = tickMany(
-      full.nav,
-      SPOOL_S + 1 + 70,
-      { spool: 1, tune: 1 },
-      oneHopFuel + fuelRateForLeg(0, 1) * 5
-    );
+    const dry = tickMany(full.nav, 1 + 70, oneHopFuel + fuelRateForLeg(0, 1) * 5);
     expect(dry.nav.legIndex).toBe(1);
     expect(dry.nav.flameout).toBe(true);
     expect(dry.engineFuel).toBe(0);
@@ -315,12 +237,7 @@ describe('nav legs (M3 plot to dock)', () => {
     });
     if (!('nav' in full)) throw new Error('chain plot should succeed');
     const oneHopFuel = hopOneBurn(full.nav);
-    const dry = tickMany(
-      full.nav,
-      SPOOL_S + 1 + 70,
-      { spool: 1, tune: 1 },
-      oneHopFuel + fuelRateForLeg(0, 1) * 5
-    );
+    const dry = tickMany(full.nav, 1 + 70, oneHopFuel + fuelRateForLeg(0, 1) * 5);
     expect(dry.nav.flameout).toBe(true);
     const hailed = hailForRescue(dry.nav);
     expect(hailed.hailS).toBe(HAIL_WAIT_S);
@@ -336,14 +253,9 @@ describe('nav legs (M3 plot to dock)', () => {
     });
     if (!('nav' in full)) throw new Error('chain plot should succeed');
     const oneHopFuel = hopOneBurn(full.nav);
-    const dry = tickMany(
-      full.nav,
-      SPOOL_S + 1 + 70,
-      { spool: 1, tune: 1 },
-      oneHopFuel + fuelRateForLeg(0, 1) * 5
-    );
+    const dry = tickMany(full.nav, 1 + 70, oneHopFuel + fuelRateForLeg(0, 1) * 5);
     const hailed = hailForRescue(dry.nav);
-    const rescued = tickMany(hailed, HAIL_WAIT_S + 1, { spool: 1, tune: 1 }, 0);
+    const rescued = tickMany(hailed, HAIL_WAIT_S + 1, 0);
     expect(rescued.nav.flameout).toBe(false);
     expect(rescued.nav.hailS).toBe(0);
     expect(rescued.nav.phase).toBe('in_transit');
@@ -358,32 +270,19 @@ describe('nav legs (M3 plot to dock)', () => {
     });
     if (!('nav' in full)) throw new Error('chain plot should succeed');
     const oneHopFuel = hopOneBurn(full.nav);
-    const dry = tickMany(
-      full.nav,
-      SPOOL_S + 1 + 70,
-      { spool: 1, tune: 1 },
-      oneHopFuel + fuelRateForLeg(0, 1) * 5
-    );
-    const engine = { ...coldEngine(), spool: 1, tune: 1 };
-    const hot = { hot: true, scrammed: false };
-    const resumed = tickNavLeg(dry.nav, engine, hot, 0, 50, DT);
+    const dry = tickMany(full.nav, 1 + 70, oneHopFuel + fuelRateForLeg(0, 1) * 5);
+    const resumed = tickNavLeg(dry.nav, HOT, 0, 50, DT);
     expect(resumed.nav.flameout).toBe(false);
     expect(resumed.engineFuel).toBe(50);
-    const cold = tickNavLeg(dry.nav, engine, { hot: false, scrammed: false }, 0, 50, DT);
+    const cold = tickNavLeg(dry.nav, { hot: false, scrammed: false }, 0, 50, DT);
     expect(cold.nav.flameout).toBe(true);
     expect(cold.engineFuel).toBe(50);
   });
 
-  it('heat penalty scales in fuel-value, not cells', () => {
-    expect(heatBurnFuel(1)).toBe(300);
-    expect(heatBurnFuel(0.5)).toBe(150);
-  });
-
   it('ignores invalid ticks', () => {
     const nav = plotted();
-    const idle = { ...coldEngine(), spool: 1 };
-    const power = { hot: true, scrammed: false };
-    expect(tickNavLeg(nav, idle, power, 0, ONE_CELL, 0).nav).toBe(nav);
-    expect(tickNavLeg(nav, idle, power, 0, ONE_CELL, Number.NaN).nav).toBe(nav);
+    const power = HOT;
+    expect(tickNavLeg(nav, power, 0, ONE_CELL, 0).nav).toBe(nav);
+    expect(tickNavLeg(nav, power, 0, ONE_CELL, Number.NaN).nav).toBe(nav);
   });
 });

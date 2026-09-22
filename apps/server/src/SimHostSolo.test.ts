@@ -1,9 +1,4 @@
-import {
-  buildHarborWorld,
-  buildSoloShipWorld,
-  restartShipReactor,
-  tuneShipReactor,
-} from '@kybernetes/sim-core';
+import { buildHarborWorld, buildSoloShipWorld, restartShipReactor } from '@kybernetes/sim-core';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CLOCKS, SimHost } from './SimHost.js';
 
@@ -54,7 +49,18 @@ describe('SimHost solo spawn (M1)', () => {
     const host = new SimHost(buildHarborWorld(), DEFAULT_CLOCKS, null);
     host.spawnAboardOwnShip('c1', 'Rook', '#fff', 'u1');
     let world = restartShipReactor(host.currentWorld, 'ship');
-    world = tuneShipReactor(world, 'ship', -1, -1);
+    const boat = world.ships.ship;
+    if (boat === undefined) throw new Error('missing ship systems');
+    world = {
+      ...world,
+      ships: {
+        ...world.ships,
+        ship: {
+          ...boat,
+          reactor: { ...boat.reactor, tempK: 730, rods: 0.5, coolant: 0.5, flux: 0.8 },
+        },
+      },
+    };
     host.debugSetWorld(world);
     for (let i = 0; i < 40; i += 1) host.slice(1000 + i * 50, 50);
     const first = host.drainShipNotices();
@@ -92,7 +98,6 @@ describe('SimHost solo spawn (M1)', () => {
             legId: 1,
             portHubId: 'hub_a',
             flameout: true,
-            extraBurned: true,
             stops: ['hub_b'],
             legIndex: 0,
           },
@@ -128,7 +133,6 @@ describe('SimHost solo spawn (M1)', () => {
               legId: 1,
               portHubId: 'hub_a',
               flameout: true,
-              extraBurned: true,
               stops: ['poi_kestrel', 'hub_b'],
               legIndex: 1,
             },
@@ -169,7 +173,6 @@ describe('SimHost solo spawn (M1)', () => {
               legId: 1,
               portHubId,
               flameout: true,
-              extraBurned: true,
               stops,
               legIndex: 0,
             },
@@ -204,7 +207,6 @@ describe('SimHost solo spawn (M1)', () => {
         ...host.currentWorld.ships,
         ship: {
           ...systems,
-          engine: { ...systems.engine, tune: 0 },
           engineFuel: 1000,
           nav: {
             phase: 'in_transit',
@@ -213,7 +215,6 @@ describe('SimHost solo spawn (M1)', () => {
             legId: 1,
             portHubId: 'hub_a',
             flameout: false,
-            extraBurned: false,
             stops: ['hub_b'],
             legIndex: 0,
           },
@@ -223,8 +224,8 @@ describe('SimHost solo spawn (M1)', () => {
     for (let i = 0; i < 3; i += 1) host.slice(1000 + i * 50, 50);
     host.drainShipNotices();
     const kernelFuel = host.currentWorld.ships.ship?.engineFuel ?? Number.NaN;
-    expect(kernelFuel).toBeLessThan(700);
-    expect(kernelFuel).toBeGreaterThan(690);
+    expect(kernelFuel).toBeLessThan(1000);
+    expect(kernelFuel).toBeGreaterThan(990);
     expect(host.shipRecordFor('u1')?.engineFuel).toBe(kernelFuel);
     expect(host.shipRecordFor('u1')?.stores.fuelCells).toBe(1);
     host.stop();
@@ -248,7 +249,6 @@ describe('SimHost solo spawn (M1)', () => {
             legId: 1,
             portHubId: 'hub_a',
             flameout: true,
-            extraBurned: true,
             stops: ['hub_b'],
             legIndex: 0,
           },

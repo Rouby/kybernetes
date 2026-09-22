@@ -47,7 +47,7 @@ describe('dock gate door discipline', () => {
   });
 });
 
-describe('console tune intents', () => {
+describe('console intents', () => {
   async function consoleWorld(pawnId: string, x: number, y: number) {
     const core = await import('@kybernetes/sim-core');
     return core.spawnPawn(core.buildHarborWorld(), {
@@ -61,18 +61,6 @@ describe('console tune intents', () => {
     });
   }
 
-  it('tunes the reactor at the reactor console', async () => {
-    const world = await consoleWorld('pawn:op', 120, 500);
-    const result = routeIntent(
-      world,
-      'pawn:op',
-      { type: 'REACTOR_TUNE', seq: 1, rodsDelta: 0.1, coolantDelta: 0 },
-      []
-    );
-    expect(result.notice).toBe('REACTOR_ok');
-    expect(result.world.ships.ship?.reactor.rods).toBeCloseTo(0.4, 6);
-  });
-
   it('refuses console verbs from across the map or without a pawn', async () => {
     const core = await import('@kybernetes/sim-core');
     const world = core.spawnPawn(core.buildHarborWorld(), {
@@ -84,26 +72,17 @@ describe('console tune intents', () => {
       y: 100,
       color: '#fff',
     });
-    const far = routeIntent(world, 'pawn:away', { type: 'ENGINE_TUNE', seq: 1, spoolCmd: 1 }, []);
-    expect(far.notice).toBe('ENGINE_too-far');
+    const far = routeIntent(world, 'pawn:away', { type: 'REACTOR_RESTART', seq: 1 }, []);
+    expect(far.notice).toBe('REACTOR_too-far');
     const ghost = routeIntent(world, 'pawn:ghost', { type: 'REACTOR_RESTART', seq: 2 }, []);
     expect(ghost.notice).toBe('REACTOR_no-pawn');
   });
 
-  it('restarts a cold reactor and latches engine spool at the consoles', async () => {
+  it('restarts a cold reactor at the console', async () => {
     const world = await consoleWorld('pawn:op', 140, 500);
     const lit = routeIntent(world, 'pawn:op', { type: 'REACTOR_RESTART', seq: 1 }, []);
     expect(lit.notice).toBe('REACTOR_ok');
     expect(lit.world.ships.ship?.reactor.hot).toBe(true);
-    const spooled = routeIntent(
-      lit.world,
-      'pawn:op',
-      { type: 'ENGINE_TUNE', seq: 2, spoolCmd: 1, tuneSet: 0.8 },
-      []
-    );
-    expect(spooled.notice).toBe('ENGINE_ok');
-    expect(spooled.world.ships.ship?.engine.spoolCmd).toBe(1);
-    expect(spooled.world.ships.ship?.engine.tune).toBe(0.8);
   });
 });
 
@@ -123,29 +102,10 @@ describe('nav console intents', () => {
     world = core.ensureShipSystems(world, 'ship');
     world = core.syncEngineFuel(world, 'ship', 2000);
     world = core.restartShipReactor(world, 'ship');
-    return core.tuneShipEngine(world, 'ship', 1, 1);
+    return world;
   }
 
-  it('latches spool from the bridge but keeps tune in the engine room', async () => {
-    const world = await bridgeWorld();
-    const spooled = routeIntent(
-      world,
-      'pawn:nav',
-      { type: 'ENGINE_TUNE', seq: 5, spoolCmd: 1 },
-      []
-    );
-    expect(spooled.notice).toBe('ENGINE_ok');
-    expect(spooled.world.ships.ship?.engine.spoolCmd).toBe(1);
-    const tuned = routeIntent(
-      world,
-      'pawn:nav',
-      { type: 'ENGINE_TUNE', seq: 6, spoolCmd: 1, tuneSet: 0.8 },
-      []
-    );
-    expect(tuned.notice).toBe('ENGINE_too-far');
-  });
-
-  it('plots and cancels a leg at the nav console', async () => {
+  it('plots a leg straight into transit at the nav console', async () => {
     const world = await bridgeWorld();
     const plotted = routeIntent(
       world,
@@ -154,20 +114,15 @@ describe('nav console intents', () => {
       []
     );
     expect(plotted.notice).toBe('NAV_ok');
-    expect(plotted.world.ships.ship?.nav.phase).toBe('spooling');
-    const cancelled = routeIntent(plotted.world, 'pawn:nav', { type: 'NAV_CANCEL', seq: 2 }, []);
-    expect(cancelled.notice).toBe('NAV_ok');
-    expect(cancelled.world.ships.ship?.nav.phase).toBe('docked');
+    expect(plotted.world.ships.ship?.nav.phase).toBe('in_transit');
     const throttled = routeIntent(
-      cancelled.world,
+      world,
       'pawn:nav',
       { type: 'NAV_PLOT', seq: 4, destHubId: 'hub_b', waypointIds: [], thrust01: 0.5 },
       []
     );
     expect(throttled.notice).toBe('NAV_ok');
     expect(throttled.world.ships.ship?.nav.thrust01).toBe(0.5);
-    const idle = routeIntent(cancelled.world, 'pawn:nav', { type: 'NAV_CANCEL', seq: 3 }, []);
-    expect(idle.notice).toBe('NAV_denied');
   });
 
   it('hails rescue drones only while flamed-out adrift', async () => {
@@ -291,13 +246,8 @@ describe('cargo hauling intents (M4)', () => {
       []
     );
     expect(picked.notice).toBe('CARGO_ok');
-    const blocked = routeIntent(
-      picked.world,
-      'pawn:haul',
-      { type: 'ENGINE_TUNE', seq: 2, spoolCmd: 1 },
-      []
-    );
-    expect(blocked.notice).toBe('ENGINE_hands-full');
+    const blocked = routeIntent(picked.world, 'pawn:haul', { type: 'REACTOR_RESTART', seq: 2 }, []);
+    expect(blocked.notice).toBe('REACTOR_hands-full');
     const dropped = routeIntent(picked.world, 'pawn:haul', { type: 'CARGO_DROP', seq: 3 }, []);
     expect(dropped.notice).toBe('CARGO_ok');
   });

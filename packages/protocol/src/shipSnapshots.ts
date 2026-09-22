@@ -87,13 +87,8 @@ export interface ShipSystemsSource {
   readonly rods: number;
   readonly coolant: number;
   readonly outputMW: number;
-  readonly demandMW: number;
   readonly scrammed: boolean;
   readonly warned: boolean;
-  readonly spool: number;
-  readonly tune: number;
-  readonly wear: number;
-  readonly brownout: boolean;
   readonly condition: number;
   readonly fuel?: number;
   readonly fuelMax?: number;
@@ -112,13 +107,8 @@ export interface ShipSystemsBroadcast {
   readonly rods: number;
   readonly coolant: number;
   readonly outputMW: number;
-  readonly demandMW: number;
   readonly scrammed: boolean;
   readonly warned: boolean;
-  readonly spool: number;
-  readonly tune: number;
-  readonly wear: number;
-  readonly brownout: boolean;
   readonly condition: number;
   readonly fuel: number;
   readonly fuelMax: number;
@@ -142,13 +132,8 @@ export function makeShipSystems(
     rods: q2(systems.rods),
     coolant: q2(systems.coolant),
     outputMW: q1(systems.outputMW),
-    demandMW: q1(systems.demandMW),
     scrammed: systems.scrammed,
     warned: systems.warned,
-    spool: q2(systems.spool),
-    tune: q2(systems.tune),
-    wear: q2(systems.wear),
-    brownout: systems.brownout,
     condition: q1(systems.condition),
     fuel: Math.floor(systems.fuel ?? 0),
     fuelMax: Math.floor(systems.fuelMax ?? 0),

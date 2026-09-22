@@ -251,25 +251,6 @@ export function validateSpawnAboard(raw: Record<string, unknown>): ValidateResul
   };
 }
 
-function isTrimDelta(value: unknown): value is number {
-  return isFiniteNumber(value) && Math.abs(value) <= 1;
-}
-
-export function validateReactorTune(raw: Record<string, unknown>): ValidateResult {
-  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
-  if (!isTrimDelta(raw.rodsDelta)) return fail('bad-field', 'rodsDelta');
-  if (!isTrimDelta(raw.coolantDelta)) return fail('bad-field', 'coolantDelta');
-  return {
-    ok: true,
-    intent: {
-      type: 'REACTOR_TUNE',
-      seq: raw.seq as number,
-      rodsDelta: raw.rodsDelta as number,
-      coolantDelta: raw.coolantDelta as number,
-    },
-  };
-}
-
 export function validateReactorRestart(raw: Record<string, unknown>): ValidateResult {
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   return { ok: true, intent: { type: 'REACTOR_RESTART', seq: raw.seq as number } };
@@ -308,11 +289,6 @@ export function validateNavPlot(raw: Record<string, unknown>): ValidateResult {
       ...(raw.thrust01 === undefined ? {} : { thrust01: raw.thrust01 as number }),
     },
   };
-}
-
-export function validateNavCancel(raw: Record<string, unknown>): ValidateResult {
-  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
-  return { ok: true, intent: { type: 'NAV_CANCEL', seq: raw.seq as number } };
 }
 
 export function validateDistress(raw: Record<string, unknown>): ValidateResult {
@@ -420,22 +396,4 @@ export function validateEngineFuel(raw: Record<string, unknown>): ValidateResult
   if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
   if (raw.op !== 'load' && raw.op !== 'unload') return fail('bad-field', 'op');
   return { ok: true, intent: { type: 'ENGINE_FUEL', seq: raw.seq as number, op: raw.op } };
-}
-
-export function validateEngineTune(raw: Record<string, unknown>): ValidateResult {
-  if (!isSeq(raw.seq)) return fail('bad-field', 'seq');
-  if (raw.spoolCmd !== 0 && raw.spoolCmd !== 1) return fail('bad-field', 'spoolCmd');
-  if (raw.tuneSet !== undefined) {
-    if (!isFiniteNumber(raw.tuneSet) || raw.tuneSet < 0 || raw.tuneSet > 1) {
-      return fail('bad-field', 'tuneSet');
-    }
-  }
-  const tuneSet = typeof raw.tuneSet === 'number' ? (raw.tuneSet as number) : undefined;
-  return {
-    ok: true,
-    intent:
-      tuneSet === undefined
-        ? { type: 'ENGINE_TUNE', seq: raw.seq as number, spoolCmd: raw.spoolCmd as 0 | 1 }
-        : { type: 'ENGINE_TUNE', seq: raw.seq as number, spoolCmd: raw.spoolCmd as 0 | 1, tuneSet },
-  };
 }

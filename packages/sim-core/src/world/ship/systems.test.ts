@@ -13,8 +13,6 @@ import {
   syncEngineFuel,
   syncShipTiers,
   tickShipSystems,
-  tuneShipEngine,
-  tuneShipReactor,
 } from './systems.js';
 
 const DT = 0.05;
@@ -53,19 +51,14 @@ describe('ship systems (M2 container tick)', () => {
     expect(ensureShipSystems(world, 'ghost')).toBe(world);
   });
 
-  it('syncs tiers and applies console actions', () => {
+  it('syncs tiers and lights the reactor', () => {
     let world = ensureShipSystems(vesselWorld(), 'ship');
     world = syncShipTiers(world, 'ship', 1, 1);
     expect(world.ships.ship?.reactorTier).toBe(1);
     expect(world.ships.ship?.engineTier).toBe(1);
-    world = tuneShipReactor(world, 'ship', 0.2, -0.1);
-    expect(world.ships.ship?.reactor.rods).toBeCloseTo(0.5, 6);
     world = restartShipReactor(world, 'ship');
     expect(world.ships.ship?.reactor.hot).toBe(true);
-    world = tuneShipEngine(world, 'ship', 1, 0.8);
-    expect(world.ships.ship?.engine.spoolCmd).toBe(1);
-    expect(world.ships.ship?.engine.tune).toBe(0.8);
-    expect(tuneShipEngine(world, 'ghost', 1)).toBe(world);
+    expect(restartShipReactor(world, 'ghost')).toBe(world);
   });
 
   it('leaves cold docked ships alone across long ticks', () => {
@@ -75,18 +68,13 @@ describe('ship systems (M2 container tick)', () => {
     expect(world.ships.ship?.condition).toBe(100);
   });
 
-  it('spoils a hot spool into brownout-free cruise, then scrams to blackout', () => {
+  it('runs a lit reactor hot without operator trims', () => {
     let world = ensureShipSystems(vesselWorld(), 'ship');
     world = restartShipReactor(world, 'ship');
-    world = tuneShipEngine(world, 'ship', 1);
     world = tickMany(world, 10);
-    expect(world.ships.ship?.engine.spool ?? 0).toBeGreaterThan(0.9);
-    expect(world.ships.ship?.engine.brownout).toBe(false);
-    world = tuneShipReactor(world, 'ship', -1, -1);
-    world = tickMany(world, 30);
-    expect(world.ships.ship?.reactor.scrammed).toBe(true);
-    const stalled = tickMany(world, 10);
-    expect(stalled.ships.ship?.engine.spool ?? 1).toBeLessThan(0.5);
+    expect(world.ships.ship?.reactor.hot).toBe(true);
+    expect(world.ships.ship?.reactor.scrammed).toBe(false);
+    expect(world.ships.ship?.condition).toBe(100);
   });
 
   it('damages the hull only for scrammed transit past grace, floored at zero', () => {
@@ -105,7 +93,6 @@ describe('ship systems (M2 container tick)', () => {
         portHubId: 'hub_a',
         flameout: false,
         hailS: 0,
-        extraBurned: true,
         stops: ['hub_b'],
         legIndex: 0,
       },
@@ -138,13 +125,6 @@ describe('voyage side effects (M3 abstract transit)', () => {
   function hotBoat(): World {
     let world = ensureShipSystems(buildSoloShipWorld(), 'ship');
     world = restartShipReactor(world, 'ship');
-    return tuneShipEngine(world, 'ship', 1, 1);
-  }
-
-  function steadyTrim(world: World): World {
-    const tempK = world.ships.ship?.reactor.tempK ?? 660;
-    if (tempK > 690) return tuneShipReactor(world, 'ship', 0.1, 0.1);
-    if (tempK < 630) return tuneShipReactor(world, 'ship', -0.1, -0.1);
     return world;
   }
 
@@ -152,10 +132,6 @@ describe('voyage side effects (M3 abstract transit)', () => {
     let current = world;
     const ticks = Math.round(seconds / DT);
     for (let i = 0; i < ticks; i += 1) {
-      if (i % 20 === 0) {
-        current = steadyTrim(current);
-        current = tuneShipEngine(current, 'ship', 1, 1);
-      }
       current = tickShipSystems(current, DT);
     }
     return current;
@@ -281,7 +257,6 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: 3920 });
     expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
     expect(dockWalkable(world, 'harbor')).toBe(false);
-    expect(world.ships.ship?.engine.wear).toBeCloseTo(0.15, 6);
     expect(world.ships.ship?.engineFuel ?? 0).toBeLessThan(2 * FUEL_PER_CELL);
   });
 
@@ -307,7 +282,10 @@ describe('voyage side effects (M3 abstract transit)', () => {
   it('kills a totally neglected transit through the scram ladder', () => {
     let world = driveAttentive(plotToHubB(hotBoat()), 12);
     expect(world.ships.ship?.nav.phase).toBe('in_transit');
-    world = tuneShipReactor(world, 'ship', -1, -1);
+    const ship = world.ships.ship;
+    if (ship === undefined) throw new Error('missing ship systems');
+    const scrammed = { ...ship, reactor: { ...ship.reactor, scrammed: true, scramS: 0 } };
+    world = { ...world, ships: { ...world.ships, ship: scrammed } };
     let guard = 0;
     while ((world.ships.ship?.condition ?? 0) > 0 && guard < Math.round(400 / DT)) {
       world = tickShipSystems(world, DT);

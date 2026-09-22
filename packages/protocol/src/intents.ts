@@ -143,23 +143,9 @@ export interface SpawnAboardIntent {
   readonly userId?: string;
 }
 
-export interface ReactorTuneIntent {
-  readonly type: 'REACTOR_TUNE';
-  readonly seq: number;
-  readonly rodsDelta: number;
-  readonly coolantDelta: number;
-}
-
 export interface ReactorRestartIntent {
   readonly type: 'REACTOR_RESTART';
   readonly seq: number;
-}
-
-export interface EngineTuneIntent {
-  readonly type: 'ENGINE_TUNE';
-  readonly seq: number;
-  readonly spoolCmd: 0 | 1;
-  readonly tuneSet?: number;
 }
 
 export interface EngineFuelIntent {
@@ -176,11 +162,6 @@ export interface NavPlotIntent {
   readonly waypointIds: readonly string[];
   /** Throttle 0-1 of the 1g torch band; omit for full thrust. */
   readonly thrust01?: number;
-}
-
-export interface NavCancelIntent {
-  readonly type: 'NAV_CANCEL';
-  readonly seq: number;
 }
 
 export interface DistressIntent {
@@ -257,12 +238,9 @@ export type ClientIntent =
   | RepairIntent
   | RestartIntent
   | SpawnAboardIntent
-  | ReactorTuneIntent
   | ReactorRestartIntent
-  | EngineTuneIntent
   | EngineFuelIntent
   | NavPlotIntent
-  | NavCancelIntent
   | DistressIntent
   | HailIntent
   | CargoPickupIntent
@@ -296,12 +274,9 @@ export const INPUT_INTENT_TYPES: readonly ClientIntentType[] = [
   'REPAIR',
   'RESTART',
   'SPAWN_ABOARD',
-  'REACTOR_TUNE',
   'REACTOR_RESTART',
-  'ENGINE_TUNE',
   'ENGINE_FUEL',
   'NAV_PLOT',
-  'NAV_CANCEL',
   'DISTRESS',
   'HAIL',
   'CARGO_PICKUP',

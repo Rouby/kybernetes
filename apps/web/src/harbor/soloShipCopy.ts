@@ -12,7 +12,7 @@ export interface SoloIntroStep {
 export const SOLO_INTRO_TITLE = 'This is your ship';
 
 export const SOLO_INTRO_STEPS: readonly SoloIntroStep[] = [
-  { title: 'Power', body: 'Stabilize the reactor before spooling the engine.' },
+  { title: 'Power', body: 'Ignite the reactor, load fuel, and fly.' },
   { title: 'Plot', body: 'Set a nav course for the next trade hub.' },
   { title: 'Haul', body: 'Carry crates from the cargo bay to your racks.' },
   { title: 'Trade', body: 'Sell high, buy supplies, keep flying.' },
