@@ -700,7 +700,13 @@ describe('render-state mapping', () => {
     });
     const views = mapLivingFixtures(snap, frameOrigins(snap));
     expect(views).toHaveLength(2);
-    expect(views[0]).toMatchObject({ id: 'station.bar_counter', x: 350, y: 340 });
+    expect(views[0]).toMatchObject({
+      id: 'station.bar_counter',
+      frame: 'station',
+      x: 350,
+      y: 340,
+    });
+    expect(views[1]).toMatchObject({ id: 'ship.stove', frame: 'ship' });
     expect(views[1]).toMatchObject({
       id: 'ship.stove',
       x: 110 + 1400,
@@ -786,6 +792,8 @@ describe('render-state mapping', () => {
     });
     const views = mapCargoCrates(base, frameOrigins(base));
     expect(views).toHaveLength(2);
+    expect(views[0]).toMatchObject({ id: 'c1', frameId: 'station' });
+    expect(views[1]).toMatchObject({ id: 'c2', frameId: 'ship', carried: true });
     expect(views[1]?.carried).toBe(true);
     expect(views[0]?.angle).toBe(0.5);
     const ticked = mergeSnapshotDelta(base, {

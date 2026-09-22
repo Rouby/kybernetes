@@ -8,6 +8,7 @@
  */
 
 import type { WallSegment } from '@kybernetes/protocol';
+import { validateDockSpine, validateVariant } from './content/schema.js';
 import type { PortalEdge, Rect, RoomNode, Vec2 } from './types.js';
 
 export interface RoomSpec {
@@ -256,7 +257,17 @@ function checkHull(
   errors.push(...checkWallContacts(spec));
   errors.push(...checkConnectivity(spec, portals));
   errors.push(...checkSealedHull(spec));
+  errors.push(...validateDockSpine(spec));
   return errors;
+}
+
+/**
+ * Strike 3 dock-spine invariant across variants: the east dock spine
+ * rooms and portals must stay geometrically identical to the base so the
+ * tube mouth never drifts. A moved dock mouth fails compile here.
+ */
+export function checkVariantSpine(base: HullSpec, variant: HullSpec): string[] {
+  return validateVariant(base, variant);
 }
 
 function checkRoomRefs(spec: HullSpec, rooms: readonly RoomNode[]): string[] {

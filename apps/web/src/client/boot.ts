@@ -4,7 +4,7 @@
  * menu through game-over. main.tsx flips to this once proven.
  */
 
-import { buildHarborWorld } from '@kybernetes/sim-core';
+import { buildSoloShipWorld } from '@kybernetes/sim-core';
 import { DebugView } from '../harbor/DebugView';
 import { ScreenManager } from './ScreenManager';
 import { mountSoundboard } from './Soundboard';
@@ -31,7 +31,10 @@ export function startBoot(): () => void {
 
 function startDebugView(root: HTMLElement, beacon: string): () => void {
   const store = createObserverStore(beacon);
-  const view = new DebugView(root, { staticWorld: buildHarborWorld(), store });
+  // Solo world: the debug canvas needs every hub's geometry. The daemon serves
+  // buildSoloShipWorld by default and the game renders all four hubs; a harbor
+  // static world would leave hub_b/c/d (and their docks) invisible here.
+  const view = new DebugView(root, { staticWorld: buildSoloShipWorld(), store });
   store.connect();
   view.attach();
   return () => {

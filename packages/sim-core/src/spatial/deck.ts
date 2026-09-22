@@ -19,11 +19,10 @@ import type {
   WallSegment,
 } from '@kybernetes/protocol';
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
-import { StationHubSpec } from '../world/content/StationHub.hull.js';
-import { stationHullFor } from '../world/content/StationVariants.hull.js';
+import { compileHubGeometry } from '../world/content/hubGeometry.js';
 import { compileHull, toLegacyWalls } from '../world/hullCompiler.js';
 import { SHIP_ORIGIN } from '../world/schedule.js';
-import { HUB_PORTS, stationOriginFor } from '../world/ship/ports.js';
+import { HUB_PORTS } from '../world/ship/ports.js';
 
 export interface RoomDefinition {
   id: string;
@@ -76,7 +75,15 @@ function titleize(id: string): string {
     .join(' ');
 }
 
-const stationHull = compileHull({ ...StationHubSpec, frameId: 'station' });
+/**
+ * Strike 3 single compile path: every hub station (home 'station' plus
+ * hub_b/c/d) comes from compileHubGeometry, shared with sim assembly.
+ * The ship keeps its direct compile; it is not a hub frame.
+ */
+const ALL_HUB_GEOMETRY = compileHubGeometry();
+const stationEntry = ALL_HUB_GEOMETRY.find((entry) => entry.frame === 'station');
+if (stationEntry === undefined) throw new Error('missing station hub geometry');
+const stationHull = stationEntry.compiled;
 const shipHull = compileHull({ ...HesperiaV2Spec, frameId: 'ship' });
 
 const LOCAL_ROOMS: LocalRoom[] = [
@@ -105,33 +112,8 @@ const SHIP_WALLS_LOCAL: WallSegment[] = toLegacyWalls(shipHull);
 
 const SHIP_WALL_IDS = new Set(SHIP_WALLS_LOCAL.map((wall) => wall.id));
 
-/** Compiled per-hub geometry (local coords) for every non-home station frame. */
-interface HubFrameTable {
-  readonly frame: string;
-  readonly originX: number;
-  readonly originY: number;
-  readonly rooms: readonly { id: string; rect: { x: number; y: number; w: number; h: number } }[];
-  readonly walls: readonly WallSegment[];
-}
-
-function hubFrameTables(): HubFrameTable[] {
-  const tables: HubFrameTable[] = [];
-  for (const port of Object.values(HUB_PORTS)) {
-    if (port.stationFrame === 'station') continue;
-    const compiled = compileHull({ ...stationHullFor(port.hubId), frameId: port.stationFrame });
-    const origin = stationOriginFor(port.stationFrame);
-    tables.push({
-      frame: port.stationFrame,
-      originX: origin.x,
-      originY: origin.y,
-      rooms: compiled.rooms.map((room) => ({ id: room.id, rect: { ...room.rect } })),
-      walls: toLegacyWalls(compiled),
-    });
-  }
-  return tables;
-}
-
-const HUB_TABLES = hubFrameTables();
+/** Non-home hub geometry from the single shared compile path. */
+const HUB_TABLES = ALL_HUB_GEOMETRY.filter((entry) => entry.frame !== 'station');
 
 function hubRoomEntries(): RoomDefinition[] {
   const entries: RoomDefinition[] = [];
@@ -1102,7 +1084,7 @@ export function harborStatic(): HarborStaticFrame[] {
       })),
       walls: STATION_WALLS,
       portals: staticPortals(stationHull, 'station'),
-      spawns: { ...(StationHubSpec.spawns ?? {}) },
+      spawns: { ...stationHull.spawns },
     },
     {
       frameId: 'ship',

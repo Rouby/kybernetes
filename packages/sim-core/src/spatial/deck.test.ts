@@ -28,6 +28,15 @@ function breachSeg(
 }
 
 describe('station hub fixtures', () => {
+  it('tags every console with a loadable frame so the renderer cull resolves', () => {
+    for (const station of HESPERIA_STATIONS) {
+      const tag = station.deckId;
+      const loadable = tag === 'station' || tag === 'ship' || tag.startsWith('hub_');
+      expect(loadable, station.id).toBe(true);
+      expect(keepLoaded(new Set(['ship', tag]), tag)).toBe(true);
+    }
+  });
+
   it('stages harbor fixtures with frame-aware world offsets', () => {
     const board = HESPERIA_STATIONS.find((s) => s.id === 'korridor_job_board');
     expect(board?.stationType).toBe('job_board');

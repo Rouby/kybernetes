@@ -6,6 +6,7 @@ export * from './envelope';
 export * from './intents';
 export * from './intentValidators';
 export * from './living';
+export * from './persistence';
 export * from './quant';
 export * from './seq';
 export * from './shipIntents';

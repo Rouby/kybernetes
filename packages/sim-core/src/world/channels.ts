@@ -130,13 +130,25 @@ export function snapshotShotsOf(world: World): SnapshotBroadcast['projectiles'] 
   }));
 }
 
+/**
+ * Strike 2: every frame hits the wire, vessels and stations alike, sorted
+ * by id for byte-stable snapshots. Stations ride angle 0 (static); the
+ * client used to rebake station positions from render tables instead.
+ */
 export function snapshotFramesOf(world: World): SnapshotFrame[] {
-  return Object.values(world.vessels).map((frame) => ({
+  const vessels = Object.values(world.vessels).map((frame) => ({
     id: frame.id,
     originX: q2(frame.origin.x),
     originY: q2(frame.origin.y),
     angle: q2(frame.angle),
   }));
+  const stations = Object.values(world.stations).map((frame) => ({
+    id: frame.id,
+    originX: q2(frame.origin.x),
+    originY: q2(frame.origin.y),
+    angle: 0,
+  }));
+  return [...vessels, ...stations].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 function fixtureExtras(fix: World['fixtures'][string]): {

@@ -74,6 +74,7 @@ export function frameOrigins(
 /** Physical cargo crate in world coords (frame origin applied). */
 export interface CargoCrateView {
   readonly id: string;
+  readonly frameId: string;
   readonly x: number;
   readonly y: number;
   readonly angle: number;
@@ -91,6 +92,7 @@ export function mapCargoCrates(
     const carried = crate.where === 'carriedBy';
     return {
       id: crate.id,
+      frameId: crate.frameId,
       x: crate.x + origin.x,
       y: crate.y + origin.y,
       angle: crate.angle,
@@ -130,6 +132,7 @@ export function mapLivingFixtures(
     const origin = origins.get(frame) ?? { x: 0, y: 0 };
     return {
       id: fixture.id,
+      frame,
       kind: fixture.kind,
       x: fixture.x + origin.x,
       y: fixture.y + origin.y,

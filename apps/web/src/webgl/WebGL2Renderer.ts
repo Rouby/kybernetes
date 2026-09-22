@@ -566,7 +566,11 @@ export class WebGL2Renderer {
       timeSec
     );
 
+    // Static consoles obey the same frame cull as rooms/walls/lights: without
+    // it, unloaded hubs keep their furniture floating in space. deckId tags
+    // the owning frame ('station' stays fixed, 'ship' rides the offset).
     for (const st of getWorldStations(shipOffset)) {
+      if (!keepLoaded(visible, st.deckId)) continue;
       const isNear = st.id === nearestId;
       if (isNear) {
         renderStationInteractionAura(ctx, st, timeSec);
@@ -598,8 +602,20 @@ export class WebGL2Renderer {
         renderJobBoard(ctx, st, isNear, timeSec);
       }
     }
-    renderLivingFixtures(ctx, living, nearestLivingId, timeSec);
-    renderFloorCrates(ctx, cargo, nearestCargoId, timeSec);
+    // Live overlays cull to loaded frames too; carried crates stay glued to
+    // their carrier regardless of frame visibility.
+    renderLivingFixtures(
+      ctx,
+      living.filter((view) => keepLoaded(visible, view.frame)),
+      nearestLivingId,
+      timeSec
+    );
+    renderFloorCrates(
+      ctx,
+      cargo.filter((view) => view.carried || keepLoaded(visible, view.frameId)),
+      nearestCargoId,
+      timeSec
+    );
     this.gl.bindVertexArray(null);
   }
 

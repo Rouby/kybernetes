@@ -15,7 +15,7 @@ import {
   clearFracFor,
   gravityAt,
   SYSTEM_BODIES,
-  systemBodyOrDefault,
+  trySystemBody,
 } from './system.js';
 
 export interface IntegratedLeg {
@@ -560,8 +560,9 @@ export function planTripLeg(
   epochS: number,
   timeoutS = 3000
 ): { totalS: number } | null {
-  const from = systemBodyOrDefault(fromId);
-  const to = systemBodyOrDefault(toId);
+  const from = trySystemBody(fromId);
+  const to = trySystemBody(toId);
+  if (from === undefined || to === undefined) return null;
   const gains = { kp: 2.0, kd: 3.0, accelMax: Math.max(1e-6, accel) };
   const solved = solveFlight(
     bodyPosAt(from, epochS),

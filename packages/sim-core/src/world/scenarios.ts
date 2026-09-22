@@ -4,13 +4,14 @@
  * the playable preview, and the loop tests all start here.
  */
 
+import { requireHub } from '../universe/registry.js';
 import { type AirAuthorityState, bindAirFrame } from './airAuthority.js';
 import { assembleWorld, spawnPawn } from './assemble.js';
 import { ensureBot } from './bots.js';
 import { HesperiaV2Spec } from './content/HesperiaV2.hull.js';
-import { StationHubSpec } from './content/StationHub.hull.js';
-import { stationHullFor } from './content/StationVariants.hull.js';
+import { frameSpecsForHubs, mirrorFixturesToFrame } from './content/hubGeometry.js';
 import { ensureCaptain } from './crew.js';
+import { listFrameIds } from './frames.js';
 import { type DockLink, initialTransit, SHIP_ORIGIN } from './schedule.js';
 import { spawnCrate } from './ship/cargo.js';
 import { stationOriginFor } from './ship/ports.js';
@@ -37,13 +38,38 @@ export const HARBOR_DOCK: DockLink = {
   mouthWorld: { x1: 1210, y1: 240, x2: 1210, y2: 280 },
 };
 
-export function buildHarborWorld(): World {
+export interface BuildWorldOpts {
+  /** Hub ids from the universe catalog; hub_a maps to the legacy station frame. */
+  readonly hubs?: readonly string[];
+  readonly vesselName?: string;
+  readonly vesselBeacon?: string;
+  /** Legacy auto-tour transit record (harbor demo). Nav owns ships vessels. */
+  readonly withTransit?: boolean;
+  readonly withCaptain?: boolean;
+  readonly withCrew?: boolean;
+  readonly withCrowd?: boolean;
+  readonly withFixtures?: boolean;
+  readonly mirrorFixtures?: boolean;
+  readonly seedCrates?: boolean;
+}
+
+/**
+ * Strike 2 canonical builder: one code path for every world. Hub frames,
+ * origins, hulls, and dock ids resolve from the universe catalog so a new
+ * hub is one catalog row, not a new builder fork. Unknown hub ids throw.
+ */
+export function buildWorld(opts: BuildWorldOpts = {}): World {
+  const hubIds = opts.hubs ?? ['hub_a'];
+  const vesselName = opts.vesselName ?? 'CSS Hesperia';
+  const vesselBeacon = opts.vesselBeacon ?? HARBOR_BEACON;
+  // Shared compile path: hull frameIds are overridden to the station frame
+  // so sim wall ids match render (heals the legacy station_hub.* divergence).
   let world = assembleWorld([
-    { frameId: HARBOR_STATION, hull: StationHubSpec },
+    ...frameSpecsForHubs(hubIds),
     {
       frameId: HARBOR_SHIP,
       hull: HesperiaV2Spec,
-      vessel: { name: 'CSS Hesperia', beacon: HARBOR_BEACON },
+      vessel: { name: vesselName, beacon: vesselBeacon },
     },
   ]);
   const ship = world.vessels[HARBOR_SHIP];
@@ -53,15 +79,38 @@ export function buildHarborWorld(): World {
       vessels: { ...world.vessels, [HARBOR_SHIP]: { ...ship, origin: { ...SHIP_ORIGIN } } },
     };
   }
+  const docks: Record<string, DockLink> = {};
+  for (const hubId of hubIds) {
+    const hub = requireHub(hubId);
+    const dock = hubDock(hub.dockId as string, hub.stationFrame as string, { ...hub.origin });
+    docks[dock.id] = dock;
+  }
   world = {
     ...world,
-    transit: { ...world.transit, [HARBOR_SHIP]: initialTransit(HARBOR_SHIP) },
-    docks: { ...world.docks, [HARBOR_DOCK.id]: HARBOR_DOCK },
+    transit:
+      opts.withTransit === true
+        ? { ...world.transit, [HARBOR_SHIP]: initialTransit(HARBOR_SHIP) }
+        : world.transit,
+    docks: { ...world.docks, ...docks },
   };
-  world = ensureCaptain(world, HARBOR_SHIP);
-  world = ensureLivingFixtures(world);
-  world = ensureLivingCrew(world);
-  return ensureStationCrowd(world);
+  if (opts.withCaptain === true) world = ensureCaptain(world, HARBOR_SHIP);
+  if (opts.withFixtures === true) world = ensureLivingFixtures(world);
+  if (opts.mirrorFixtures === true) world = mirrorStationFixtures(world);
+  if (opts.withCrew === true) world = ensureLivingCrew(world);
+  if (opts.withCrowd === true) world = ensureStationCrowd(world);
+  if (opts.seedCrates === true) world = seedSoloBayCrates(world);
+  return world;
+}
+
+export function buildHarborWorld(): World {
+  return buildWorld({
+    hubs: ['hub_a'],
+    withTransit: true,
+    withCaptain: true,
+    withFixtures: true,
+    withCrew: true,
+    withCrowd: true,
+  });
 }
 
 /**
@@ -108,39 +157,14 @@ export const HUB_C_DOCK: DockLink = hubDock('hub_c_harbor', HUB_C_STATION, HUB_C
 export const HUB_D_DOCK: DockLink = hubDock('hub_d_harbor', HUB_D_STATION, HUB_D_ORIGIN);
 
 export function buildSoloShipWorld(): World {
-  let world = assembleWorld([
-    { frameId: HARBOR_STATION, hull: StationHubSpec },
-    { frameId: HUB_B_STATION, hull: stationHullFor(HUB_B_STATION), origin: { ...HUB_B_ORIGIN } },
-    { frameId: HUB_C_STATION, hull: stationHullFor(HUB_C_STATION), origin: { ...HUB_C_ORIGIN } },
-    { frameId: HUB_D_STATION, hull: stationHullFor(HUB_D_STATION), origin: { ...HUB_D_ORIGIN } },
-    {
-      frameId: HARBOR_SHIP,
-      hull: HesperiaV2Spec,
-      vessel: { name: 'CSS Hesperia', beacon: HARBOR_BEACON },
-    },
-  ]);
-  const ship = world.vessels[HARBOR_SHIP];
-  if (ship !== undefined) {
-    world = {
-      ...world,
-      vessels: { ...world.vessels, [HARBOR_SHIP]: { ...ship, origin: { ...SHIP_ORIGIN } } },
-    };
-  }
-  // No transit record: tickSchedule skips vessels without one, so the solo
-  // ship never auto-departs. Transit returns in M3 as a player-plotted leg.
-  world = {
-    ...world,
-    docks: {
-      ...world.docks,
-      [HARBOR_DOCK.id]: HARBOR_DOCK,
-      [HUB_B_DOCK.id]: HUB_B_DOCK,
-      [HUB_C_DOCK.id]: HUB_C_DOCK,
-      [HUB_D_DOCK.id]: HUB_D_DOCK,
-    },
-  };
-  world = ensureLivingFixtures(world);
-  world = mirrorStationFixtures(world);
-  return seedSoloBayCrates(world);
+  // No transit record: the solo ship never auto-departs. Transit returns
+  // in M3 as a player-plotted nav leg (nav authority owns ships vessels).
+  return buildWorld({
+    hubs: ['hub_a', 'hub_b', 'hub_c', 'hub_d'],
+    withFixtures: true,
+    mirrorFixtures: true,
+    seedCrates: true,
+  });
 }
 
 /** M5 trade needs: every hub mirrors the home station fixtures (own market stall). */
@@ -152,25 +176,9 @@ function mirrorStationFixtures(world: World): World {
   return next;
 }
 
+/** Strike 3: fixture mirroring funnels through the shared hub helper. */
 function mirrorFixturesTo(world: World, frame: string): World {
-  let next = world;
-  for (const fix of Object.values(world.fixtures)) {
-    if (!fix.id.startsWith('station.')) continue;
-    const twinId = `${frame}.${fix.id.slice('station.'.length)}`;
-    if (next.fixtures[twinId] !== undefined) continue;
-    const roomId = fix.roomId.startsWith('station.')
-      ? `${frame}.${fix.roomId.slice('station.'.length)}`
-      : fix.roomId;
-    if (next.rooms[roomId] === undefined) continue;
-    next = {
-      ...next,
-      fixtures: {
-        ...next.fixtures,
-        [twinId]: { ...fix, id: twinId, roomId, claimedBy: undefined },
-      },
-    };
-  }
-  return next;
+  return mirrorFixturesToFrame(world, frame);
 }
 
 /** M4 drill stock: two demo crates on the home bay floor, no market needed. */
@@ -339,7 +347,7 @@ function ensureStationCrowd(world: World): World {
 }
 
 export function bindWorldAir(auth: AirAuthorityState, world: World): void {
-  const frameIds = new Set<string>([...Object.keys(world.vessels), ...Object.keys(world.stations)]);
+  const frameIds = new Set<string>(listFrameIds(world));
   for (const frameId of frameIds) {
     bindAirFrame(
       auth,

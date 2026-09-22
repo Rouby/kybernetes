@@ -4,6 +4,7 @@ import type { RenderContext } from './StationModels';
 /** Living fixture view in world coords (HarborViewport applies the ship offset). */
 export interface LivingView {
   readonly id: string;
+  readonly frame: string;
   readonly kind: FixtureKind;
   readonly x: number;
   readonly y: number;

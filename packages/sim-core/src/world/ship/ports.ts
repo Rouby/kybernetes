@@ -4,7 +4,21 @@
  * world geometry; the hull eases between dock mouths and far holding
  * (abstract transit, no flyable ship). Dependency-free on purpose: schedule,
  * dockStatus, and systems all read this table without import cycles.
+ *
+ * Strike 1: values are derived from the universe catalog
+ * (universe/catalog.ts). Do not extend here: add a hub/lane to UNIVERSE
+ * instead so astro, ports, chart, and guidance stay in agreement.
+ * Lookups throw on unknown ids; use the try* variants for probes.
  */
+
+import { UNIVERSE_HUBS, UNIVERSE_LANES } from '../../universe/catalog.js';
+import {
+  isUniverseHubId,
+  hubForStation as registryHubForStation,
+  laneFraction as registryLaneFraction,
+  requireStationOrigin,
+  tryStationOrigin,
+} from '../../universe/registry.js';
 
 export const HUB_A = 'hub_a';
 export const HUB_B = 'hub_b';
@@ -25,15 +39,20 @@ export interface HubPort {
   readonly dockId: string;
 }
 
-export const HUB_PORTS: Readonly<Record<string, HubPort>> = {
-  [HUB_A]: { hubId: HUB_A, stationFrame: 'station', dockId: 'harbor' },
-  [HUB_B]: { hubId: HUB_B, stationFrame: 'hub_b', dockId: 'hub_b_harbor' },
-  [HUB_C]: { hubId: HUB_C, stationFrame: 'hub_c', dockId: 'hub_c_harbor' },
-  [HUB_D]: { hubId: HUB_D, stationFrame: 'hub_d', dockId: 'hub_d_harbor' },
-};
+/** Derived view over UNIVERSE_HUBS. Add hubs to the catalog, not here. */
+export const HUB_PORTS: Readonly<Record<string, HubPort>> = Object.fromEntries(
+  Object.values(UNIVERSE_HUBS).map((hub) => [
+    hub.hubId as string,
+    {
+      hubId: hub.hubId as string,
+      stationFrame: hub.stationFrame as string,
+      dockId: hub.dockId as string,
+    },
+  ])
+) as Readonly<Record<string, HubPort>>;
 
 export function isHubId(value: unknown): value is string {
-  return typeof value === 'string' && HUB_PORTS[value] !== undefined;
+  return isUniverseHubId(value);
 }
 
 export interface StationOrigin {
@@ -41,17 +60,22 @@ export interface StationOrigin {
   readonly y: number;
 }
 
-/** Station-frame origins in world px; render tables bake these in. */
-export const STATION_ORIGINS: Readonly<Record<string, StationOrigin>> = {
-  station: { x: 0, y: 0 },
-  hub_b: { x: 0, y: 4000 },
-  hub_c: { x: 0, y: 8000 },
-  hub_d: { x: 0, y: 12000 },
-};
+/** Derived view over UNIVERSE_HUBS origins; render tables bake these in. */
+export const STATION_ORIGINS: Readonly<Record<string, StationOrigin>> = Object.fromEntries(
+  Object.values(UNIVERSE_HUBS).map((hub) => [hub.stationFrame as string, { ...hub.origin }])
+) as Readonly<Record<string, StationOrigin>>;
 
-/** Origin for a station frame; unknown frames sit at the origin. */
+/**
+ * Origin for a station frame; unknown frames throw (was: silent {0,0}).
+ * Use tryStationOriginFor when probing bare/ship ids is expected.
+ */
 export function stationOriginFor(frameId: string): StationOrigin {
-  return STATION_ORIGINS[frameId] ?? { x: 0, y: 0 };
+  return requireStationOrigin(frameId);
+}
+
+/** Optional origin for legacy probes (bare ids, ship frames, empty ids). */
+export function tryStationOriginFor(frameId: string): StationOrigin | undefined {
+  return tryStationOrigin(frameId);
 }
 
 export interface ChartLane {
@@ -62,50 +86,27 @@ export interface ChartLane {
 }
 
 /**
- * Charted lanes between voyage nodes (hubs + drift POIs). Fractions scale
- * a standard leg so detours cost extra time. Uncharted pairs default to a
- * full leg at projection/execution time so free plotting stays flyable.
+ * Derived view over UNIVERSE_LANES. Fractions scale a standard leg so
+ * detours cost extra time. Uncharted pairs stay undefined so callers
+ * fall back explicitly instead of silently flying a full leg.
  */
-export const CHART_LANES: readonly ChartLane[] = [
-  { a: HUB_A, b: HUB_B, fraction: 1 },
-  { a: HUB_A, b: HUB_C, fraction: 0.9 },
-  { a: HUB_A, b: HUB_D, fraction: 1.1 },
-  { a: HUB_B, b: HUB_C, fraction: 1.2 },
-  { a: HUB_B, b: HUB_D, fraction: 0.9 },
-  { a: HUB_C, b: HUB_D, fraction: 1 },
-  { a: HUB_A, b: POI_KESTREL, fraction: 0.4 },
-  { a: POI_KESTREL, b: HUB_B, fraction: 0.8 },
-  { a: HUB_A, b: POI_VIGIL, fraction: 0.5 },
-  { a: POI_VIGIL, b: HUB_B, fraction: 0.7 },
-  { a: POI_KESTREL, b: POI_VIGIL, fraction: 0.3 },
-  { a: HUB_C, b: POI_KESTREL, fraction: 0.3 },
-  { a: HUB_D, b: POI_KESTREL, fraction: 0.6 },
-  { a: HUB_C, b: POI_VIGIL, fraction: 0.8 },
-  { a: HUB_D, b: POI_VIGIL, fraction: 0.6 },
-  { a: HUB_C, b: POI_LUMEN, fraction: 0.9 },
-  { a: HUB_D, b: POI_LUMEN, fraction: 0.5 },
-  { a: HUB_B, b: POI_LUMEN, fraction: 0.4 },
-  { a: HUB_D, b: POI_NADIR, fraction: 0.8 },
-  { a: HUB_B, b: POI_NADIR, fraction: 1 },
-  { a: POI_KESTREL, b: MOON_WISP, fraction: 0.15 },
-  { a: POI_VIGIL, b: MOON_MOTH, fraction: 0.15 },
-  { a: POI_LUMEN, b: MOON_RILL, fraction: 0.15 },
-  { a: POI_NADIR, b: MOON_TARN, fraction: 0.15 },
-  { a: HUB_A, b: MOON_WISP, fraction: 0.5 },
-  { a: HUB_B, b: MOON_MOTH, fraction: 0.8 },
-];
+export const CHART_LANES: readonly ChartLane[] = UNIVERSE_LANES.map((lane) => ({
+  a: lane.a as string,
+  b: lane.b as string,
+  fraction: lane.fraction,
+}));
 
 /** Lane fraction either direction; undefined when the pair is uncharted. */
 export function chartLaneFraction(fromId: string, toId: string): number | undefined {
-  const lane = CHART_LANES.find(
-    (entry) => (entry.a === fromId && entry.b === toId) || (entry.a === toId && entry.b === fromId)
-  );
-  return lane?.fraction;
+  return registryLaneFraction(fromId, toId);
 }
 
 export function hubPortForStation(stationFrame: string): HubPort | undefined {
-  for (const port of Object.values(HUB_PORTS)) {
-    if (port.stationFrame === stationFrame) return port;
-  }
-  return undefined;
+  const hub = registryHubForStation(stationFrame);
+  if (hub === undefined) return undefined;
+  return {
+    hubId: hub.hubId as string,
+    stationFrame: hub.stationFrame as string,
+    dockId: hub.dockId as string,
+  };
 }

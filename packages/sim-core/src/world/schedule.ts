@@ -1,7 +1,14 @@
 /**
- * Vessel schedule: docked -> departing -> in_transit -> inbound -> docked.
- * Phase entries seal and unseal the Andockschleuse dock portals; while docked,
- * pawns walk the tube in world space with no teleport (see dockCrossing.ts).
+ * Legacy vessel auto-tour (harbor demo): docked -> departing -> in_transit
+ * -> inbound -> docked. Phase entries seal and unseal the Andockschleuse
+ * dock portals; while docked, pawns walk the tube in world space with no
+ * teleport (see dockCrossing.ts).
+ *
+ * Strike 2 motion authority: nav owns every vessel carrying ShipSystems
+ * (player-plotted legs in systems/tickShipSystems). This legacy schedule
+ * owns transit-only vessels (harbor auto-tour) and skips nav vessels so
+ * the two clocks never fight over one hull. New code must not add
+ * transit records to nav vessels; plot via systems.plotVoyage instead.
  */
 
 import { sealPortal, unsealPortal } from './doors.js';
@@ -72,17 +79,27 @@ export function dockGateIds(world: World): Set<string> {
   return ids;
 }
 
-/** The dock link owning a gate portal, if any. */
+/**
+ * The dock link owning a gate portal, if any. The vessel mouth leaf is
+ * shared by every hub dock, so among candidates prefer the dock at the
+ * vessel's current port: first-match order would pin the mouth to the
+ * home dock and shut it (plus its colliders) at every other hub.
+ */
 export function dockLinkForPortal(world: World, portalId: string): DockLink | undefined {
+  let fallback: DockLink | undefined;
   for (const dock of Object.values(world.docks)) {
     if (
-      dock.stationPortal === portalId ||
-      dock.tubePortal === portalId ||
-      dock.vesselPortal === portalId
+      dock.stationPortal !== portalId &&
+      dock.tubePortal !== portalId &&
+      dock.vesselPortal !== portalId
     )
-      return dock;
+      continue;
+    if (fallback === undefined) fallback = dock;
+    if (world.vessels[dock.vesselFrame] === undefined) continue;
+    const hub = hubPortForStation(dock.stationFrame);
+    if (hub !== undefined && currentPortOf(world, dock.vesselFrame) === hub.hubId) return dock;
   }
-  return undefined;
+  return fallback;
 }
 
 /**
@@ -143,6 +160,9 @@ export function tickSchedule(world: World, dtSeconds: number): World {
   if (!(dtSeconds > 0)) return world;
   let next = world;
   for (const vessel of Object.values(world.vessels)) {
+    // Nav authority owns vessels carrying ShipSystems; legacy auto-tour
+    // skips them so plotted legs keep a single mover (see vesselMotion).
+    if (next.ships[vessel.id] !== undefined) continue;
     next = tickVesselTransit(next, vessel.id, dtSeconds);
   }
   return tickVesselMotion(next, dtSeconds);
@@ -160,7 +180,9 @@ export function tickVesselMotion(world: World, dtSeconds: number): World {
   for (const vessel of Object.values(world.vessels)) {
     // Only scenario vessels with a transit record hold docking station-
     // keeping; bare hulls in unit rigs stay exactly where they are built.
+    // Nav vessels are skipped: vesselMotion eases them toward hub mates.
     if (world.transit[vessel.id] === undefined) continue;
+    if (world.ships[vessel.id] !== undefined) continue;
     const target = originTargetFor(vessel.schedule);
     const dx = target.x - vessel.origin.x;
     const dy = target.y - vessel.origin.y;

@@ -4,6 +4,7 @@
  * Used by the M3 playable preview now and the SimHost session registry in M5.
  */
 
+import { frameSpecsForHubs } from './content/hubGeometry.js';
 import { compileHull, type HullSpec, toLegacyWalls } from './hullCompiler.js';
 import { createEmptyWorld, type PawnBody, type World } from './types.js';
 
@@ -117,6 +118,15 @@ export interface SpawnRequest {
   readonly color: string;
   readonly trim?: string;
   readonly thruster?: string;
+}
+
+/**
+ * Strike 3 shared universe compile path: station FrameSpecs for hub ids
+ * via hubGeometry (same hulls/origins render compiles). Additive only:
+ * existing addFrame/assembleWorld behavior is unchanged.
+ */
+export function universeFrameSpecs(hubIds: readonly string[]): FrameSpec[] {
+  return frameSpecsForHubs(hubIds);
 }
 
 export function spawnPawn(world: World, request: SpawnRequest): World {

@@ -4,7 +4,14 @@
  * perturbations are negligible next to the star and omitted), so periods
  * follow Kepler third law exactly and every velocity is retained,
  * never reset, when vessels switch references.
+ *
+ * Strike 1: bodies are owned by the universe catalog
+ * (universe/catalog.ts). This module derives SYSTEM_BODIES from it and
+ * keeps the Kepler math; lookups throw instead of inventing dummy bodies.
  */
+
+import { UNIVERSE_BODIES } from '../universe/catalog.js';
+import { requireBody, tryBody } from '../universe/registry.js';
 
 export interface AstroVec {
   readonly x: number;
@@ -37,28 +44,56 @@ export function clearFracFor(body: Pick<SystemBody, 'moonOf'>): number {
   return body.moonOf !== undefined ? MOON_CLEAR_FRAC : BODY_CLEAR_FRAC;
 }
 
-export const SYSTEM_BODIES: readonly SystemBody[] = [
-  { id: 'hub_a', radiusFrac: 0.42, phase0: 0.6 },
-  { id: 'hub_b', radiusFrac: 0.62, phase0: 2.8 },
-  { id: 'hub_c', radiusFrac: 0.34, phase0: 1.9 },
-  { id: 'hub_d', radiusFrac: 0.52, phase0: 4.6 },
-  { id: 'poi_kestrel', radiusFrac: 0.26, phase0: 4.2 },
-  { id: 'poi_vigil', radiusFrac: 0.78, phase0: 1.5 },
-  { id: 'poi_lumen', radiusFrac: 0.7, phase0: 0.2 },
-  { id: 'poi_nadir', radiusFrac: 0.86, phase0: 2.6 },
-  { id: 'moon_wisp', radiusFrac: 0.06, phase0: 1.1, moonOf: 'poi_kestrel', moonPeriodS: 42 },
-  { id: 'moon_moth', radiusFrac: 0.06, phase0: 3.3, moonOf: 'poi_vigil', moonPeriodS: 55 },
-  { id: 'moon_rill', radiusFrac: 0.055, phase0: 5.0, moonOf: 'poi_lumen', moonPeriodS: 48 },
-  { id: 'moon_tarn', radiusFrac: 0.065, phase0: 2.4, moonOf: 'poi_nadir', moonPeriodS: 63 },
-];
+/**
+ * Derived view over the universe catalog. Do not extend here: add a body
+ * to UNIVERSE_BODIES instead so astro, ports, chart, and guidance agree.
+ */
+export const SYSTEM_BODIES: readonly SystemBody[] = UNIVERSE_BODIES.map((entry) => ({
+  id: entry.id as string,
+  radiusFrac: entry.radiusFrac,
+  phase0: entry.phase0,
+  ...(entry.moonOf === undefined ? {} : { moonOf: entry.moonOf as string }),
+  ...(entry.moonPeriodS === undefined ? {} : { moonPeriodS: entry.moonPeriodS }),
+}));
 
 /** True for planet-centered moon bodies. */
 export function isMoon(body: Pick<SystemBody, 'moonOf'>): boolean {
   return body.moonOf !== undefined;
 }
 
+/** Throwing lookup; unknown ids throw instead of inventing a dummy orbit. */
+export function requireSystemBody(id: string): SystemBody {
+  return toSystemBody(requireBody(id));
+}
+
+/** Optional lookup for probes that must branch on unknown ids. */
+export function trySystemBody(id: string): SystemBody | undefined {
+  const found = tryBody(id);
+  return found === undefined ? undefined : toSystemBody(found);
+}
+
+/**
+ * Strike 1 compat: throws on unknown ids (was: dummy {0.25, 0} orbit).
+ * Use trySystemBody when unknown ids are expected (UI probes).
+ */
 export function systemBodyOrDefault(id: string): SystemBody {
-  return SYSTEM_BODIES.find((body) => body.id === id) ?? { id, radiusFrac: 0.25, phase0: 0 };
+  return requireSystemBody(id);
+}
+
+function toSystemBody(entry: {
+  id: string;
+  radiusFrac: number;
+  phase0: number;
+  moonOf?: string;
+  moonPeriodS?: number;
+}): SystemBody {
+  return {
+    id: entry.id,
+    radiusFrac: entry.radiusFrac,
+    phase0: entry.phase0,
+    ...(entry.moonOf === undefined ? {} : { moonOf: entry.moonOf }),
+    ...(entry.moonPeriodS === undefined ? {} : { moonPeriodS: entry.moonPeriodS }),
+  };
 }
 
 /** Kepler period in seconds: outer bodies are stately, as physics demands.

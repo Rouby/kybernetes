@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { spawnPawn } from './assemble.js';
 import { pawnWorldPos, stepCrossFrame, tryCrossDock } from './dockCrossing.js';
 import { buildHarborWorld, buildSoloShipWorld } from './scenarios.js';
+import { isDockGateWalkable } from './schedule.js';
 import { FUEL_PER_CELL } from './ship/engine.js';
 import {
   ensureShipSystems,
@@ -113,12 +114,16 @@ describe('seamless dock crossing', () => {
     expect(world.pawns.p1?.frameId).toBe('station');
   });
 
-  it('opens the tube leaves on arrival', () => {
+  it('unseals the tube leaves vacuum-safe on arrival', () => {
     const world = arriveHubB();
     expect(world.ships.ship?.nav.phase).toBe('docked');
-    expect(world.portals['hub_b.korridor_ost_andock']?.state).toBe('open');
-    expect(world.portals['hub_b.andock_tube_mund']?.state).toBe('open');
-    expect(world.portals['ship.schiff_mund']?.state).toBe('open');
+    // Shut but walkable: both mouths mate onto vacuum, so 'open' leaves
+    // would vent the ship corridor and the station tube to space.
+    expect(world.portals['hub_b.korridor_ost_andock']?.state).toBe('closed');
+    expect(world.portals['hub_b.andock_tube_mund']?.state).toBe('closed');
+    expect(world.portals['ship.schiff_mund']?.state).toBe('closed');
+    expect(isDockGateWalkable(world, 'hub_b.korridor_ost_andock')).toBe(true);
+    expect(isDockGateWalkable(world, 'ship.schiff_mund')).toBe(true);
   });
 
   it('walks the crew ashore with no world jump', () => {

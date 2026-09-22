@@ -9,6 +9,8 @@
 
 import type { ChartNodeState } from '@kybernetes/protocol';
 import { planTripLeg, torchAccel } from '../../astro/guidance.js';
+import { type ChartNodeKind, UNIVERSE_CHART } from '../../universe/catalog.js';
+import { isUniverseChartNodeId } from '../../universe/registry.js';
 import { fuelCostForLeg } from './engine.js';
 import {
   checksEngineFuel,
@@ -21,10 +23,10 @@ import {
   type PlotReject,
   thrustTimeFactor,
 } from './navTransit.js';
-import { chartLaneFraction, POI_KESTREL, POI_VIGIL } from './ports.js';
+import { chartLaneFraction } from './ports.js';
 import type { EngineTier } from './shipRecord.js';
 
-export type ChartNodeKind = 'hub' | 'poi';
+export type { ChartNodeKind };
 
 export interface ChartNode {
   readonly id: string;
@@ -36,75 +38,21 @@ export interface ChartNode {
   readonly rumor?: string;
 }
 
-export const CHART_NODES: readonly ChartNode[] = [
-  { id: 'hub_a', kind: 'hub', label: 'MERIDIAN GATE', short: 'MERIDIAN' },
-  { id: 'hub_b', kind: 'hub', label: 'SOLACE YARDS', short: 'SOLACE' },
-  { id: 'hub_c', kind: 'hub', label: 'CINDER DOCK', short: 'CINDER' },
-  { id: 'hub_d', kind: 'hub', label: 'VESPER PORT', short: 'VESPER' },
-  {
-    id: POI_KESTREL,
-    kind: 'poi',
-    label: 'DERELICT "TERN"',
-    short: 'TERN',
-    rumor: 'Distress echo near the Tern hulk.',
-  },
-  {
-    id: POI_VIGIL,
-    kind: 'poi',
-    label: 'BEACON "HALCYON"',
-    short: 'HALCYON',
-    rumor: 'Survey cache pings from Halcyon beacon.',
-  },
-  {
-    id: 'poi_lumen',
-    kind: 'poi',
-    label: 'CRYSTAL "LUMEN"',
-    short: 'LUMEN',
-    rumor: 'Lightfall refraction over the Lumen spires.',
-  },
-  {
-    id: 'poi_nadir',
-    kind: 'poi',
-    label: 'SILENT "NADIR"',
-    short: 'NADIR',
-    rumor: 'No transponder answers from Nadir deep.',
-  },
-  {
-    id: 'moon_wisp',
-    kind: 'poi',
-    label: 'WISP (TERN MOON)',
-    short: 'WISP',
-    rumor: 'Ice glint tracks Wisp around Tern.',
-  },
-  {
-    id: 'moon_moth',
-    kind: 'poi',
-    label: 'MOTH (HALCYON MOON)',
-    short: 'MOTH',
-    rumor: 'Moth shadows the Halcyon beacon.',
-  },
-  {
-    id: 'moon_rill',
-    kind: 'poi',
-    label: 'RILL (LUMEN MOON)',
-    short: 'RILL',
-    rumor: 'Rill runoff feeds the Lumen spires.',
-  },
-  {
-    id: 'moon_tarn',
-    kind: 'poi',
-    label: 'TARN (NADIR MOON)',
-    short: 'TARN',
-    rumor: 'Tarn holds station over Nadir deep.',
-  },
-];
+/** Derived view over UNIVERSE_CHART. Add nodes to the catalog, not here. */
+export const CHART_NODES: readonly ChartNode[] = UNIVERSE_CHART.map((entry) => ({
+  id: entry.id as string,
+  kind: entry.kind,
+  label: entry.label,
+  short: entry.short,
+  ...(entry.rumor === undefined ? {} : { rumor: entry.rumor }),
+}));
 
 export function chartNodeFor(id: string): ChartNode | undefined {
   return CHART_NODES.find((node) => node.id === id);
 }
 
 export function isChartNodeId(value: unknown): value is string {
-  return typeof value === 'string' && chartNodeFor(value) !== undefined;
+  return isUniverseChartNodeId(value);
 }
 
 /** Hub ids double as the default-known set for voyage projection. */

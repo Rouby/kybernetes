@@ -1,6 +1,9 @@
 /**
  * Vessel-frame motion for nav-driven boats: station-keeping targets,
  * eased origins, hull velocity, frame assignment, and dock sealing.
+ * Strike 2 motion authority: this is the SOLE mover for vessels carrying
+ * ShipSystems. Legacy schedule/tickVesselMotion skips these hulls, so a
+ * plotted leg never fights the harbor auto-tour over one origin.
  * Pure + deterministic; ticked through tickNavVesselMotion in systems.
  */
 
@@ -95,9 +98,12 @@ function dockSealed(world: World, dock: DockLink): boolean {
 }
 
 /**
- * Open the current-port dock once the hull sits in the mate: the tube
- * leaves swing open (not merely unsealed) so the crew walks straight
- * ashore with no door micro-management and no destruction detour.
+ * Unseal the current-port dock once the hull sits in the mate: the tube
+ * leaves return to shut (vacuum-safe) edges. The crew still walks straight
+ * ashore with no door micro-management — dock leaves are walkable while
+ * unsealed — but neither mouth vents to space. Never leave docked mouths
+ * 'open': both mate onto vacuum, not onto each other, and the air solver
+ * would drain the ship corridor and the station tube.
  */
 function unsealMatedDock(world: World, vesselId: string): World {
   const systems: ShipSystems | undefined = world.ships[vesselId];
@@ -105,31 +111,15 @@ function unsealMatedDock(world: World, vesselId: string): World {
   const port = HUB_PORTS[systems.nav.portHubId];
   const dock = port === undefined ? undefined : world.docks[port.dockId];
   if (dock === undefined || !dockSealed(world, dock)) return world;
-  return openDock(world, systems.nav.portHubId);
-}
-
-/** Swing a dock's tube leaves open for walk-off; no-op without a dock. */
-export function openDock(world: World, hubId: string): World {
-  const port = HUB_PORTS[hubId];
-  const dock = port === undefined ? undefined : world.docks[port.dockId];
-  if (dock === undefined) return world;
-  const portals = { ...world.portals };
-  let changed = false;
-  for (const portalId of [dock.stationPortal, dock.tubePortal, dock.vesselPortal]) {
-    const portal = portals[portalId];
-    if (portal === undefined || portal.state === 'open') continue;
-    portals[portalId] = { ...portal, state: 'open', cooldownUntilTick: world.tick };
-    changed = true;
-  }
-  return changed ? { ...world, portals } : world;
+  return sealDock(world, systems.nav.portHubId, true);
 }
 
 /** Ease one nav-driven vessel toward station-keeping and track its velocity. */
 export function easeNavVessel(world: World, vesselId: string, dtSeconds: number): World {
-  if (world.transit[vesselId] !== undefined) return world;
   const systems: ShipSystems | undefined = world.ships[vesselId];
+  if (systems === undefined) return world;
   const vessel = world.vessels[vesselId];
-  if (systems === undefined || vessel === undefined) return world;
+  if (vessel === undefined) return world;
   const target = navOriginTarget(world, vesselId, systems.nav);
   const stepped = stepToward(vessel.origin, target, VESSEL_CRUISE_PX_S * dtSeconds);
   let next = setVesselOrigin(world, vesselId, stepped);

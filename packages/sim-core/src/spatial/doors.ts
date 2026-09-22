@@ -7,10 +7,9 @@
 
 import type { DoorState, WallSegment } from '@kybernetes/protocol';
 import { HesperiaV2Spec } from '../world/content/HesperiaV2.hull.js';
-import { StationHubSpec } from '../world/content/StationHub.hull.js';
-import { stationHullFor } from '../world/content/StationVariants.hull.js';
+import { hubDoorSeeds } from '../world/content/hubGeometry.js';
 import { compileHull } from '../world/hullCompiler.js';
-import { HUB_PORTS, stationOriginFor } from '../world/ship/ports.js';
+import { tryStationOriginFor } from '../world/ship/ports.js';
 import type { PortalEdge } from '../world/types.js';
 import { closestPointOnSegment, resolvePawnMovement } from './collision';
 import {
@@ -57,21 +56,34 @@ function collectFrameSeeds(
   }
 }
 
+/**
+ * Strike 3 single compile path: hub door seeds come from hubGeometry
+ * (shared with sim assembly and deck render); only the ship still
+ * compiles here because it is not a hub frame. Legacy order is kept:
+ * home station, ship, then the far hubs in catalog order.
+ */
 function collectDoorSeeds(): CompiledDoorSeed[] {
   const seeds: CompiledDoorSeed[] = [];
-  const station = compileHull({ ...StationHubSpec, frameId: 'station' });
   const ship = compileHull({ ...HesperiaV2Spec, frameId: 'ship' });
-  collectFrameSeeds(station.portals, 'station', seeds);
+  const hubs = hubDoorSeeds();
+  pushHubSeeds(hubs, 'station', seeds);
   collectFrameSeeds(ship.portals, 'ship', seeds);
-  for (const port of Object.values(HUB_PORTS)) {
-    if (port.stationFrame === 'station') continue;
-    const variant = compileHull({
-      ...stationHullFor(port.hubId),
-      frameId: port.stationFrame,
-    });
-    collectFrameSeeds(variant.portals, port.stationFrame, seeds);
+  for (const seed of hubs) {
+    if (seed.frame === 'station') continue;
+    seeds.push({ ...seed });
   }
   return seeds;
+}
+
+function pushHubSeeds(
+  hubs: readonly CompiledDoorSeed[],
+  frame: string,
+  seeds: CompiledDoorSeed[]
+): void {
+  for (const seed of hubs) {
+    if (seed.frame !== frame) continue;
+    seeds.push({ ...seed });
+  }
 }
 
 function doorName(id: string, isAirlock: boolean): string {
@@ -136,8 +148,9 @@ export function getWorldDoors(doors: DoorState[], offset: DockFrameOffset): Door
 /** Station doors ride their frame origin (home passes through untouched). */
 function offsetStationDoor(door: DoorState): DoorState {
   const cut = door.roomA.indexOf('.');
-  const origin = stationOriginFor(cut < 0 ? '' : door.roomA.slice(0, cut));
-  if (origin.x === 0 && origin.y === 0) return door;
+  if (cut < 0) return door;
+  const origin = tryStationOriginFor(door.roomA.slice(0, cut));
+  if (origin === undefined || (origin.x === 0 && origin.y === 0)) return door;
   return {
     ...door,
     x1: door.x1 + origin.x,

@@ -178,10 +178,15 @@ function vesperHull(): HullSpec {
   );
 }
 
-/** Walkable interior per trade hub; Meridian keeps the classic harbor. */
+/**
+ * Walkable interior per trade hub; Meridian keeps the classic harbor.
+ * Strike 1: unknown hub ids throw instead of silently returning the
+ * classic hull (which masked typos and let hubs drift geometrically).
+ */
 export function stationHullFor(hubId: string): HullSpec {
   if (hubId === 'hub_b') return solaceHull();
   if (hubId === 'hub_c') return cinderHull();
   if (hubId === 'hub_d') return vesperHull();
-  return StationHubSpec;
+  if (hubId === 'hub_a' || hubId === 'station') return StationHubSpec;
+  throw new Error('unknown station hull hub: ' + hubId);
 }

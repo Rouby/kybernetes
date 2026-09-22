@@ -24,9 +24,13 @@ import { makeShipLost, makeShipStatus } from '@kybernetes/protocol';
 import {
   type AirAuthorityState,
   buildDeath,
+  createMemoryShipStore,
   creditShip,
   debitShip,
+  decodeShipStoreJson,
+  deserializeWorldJson,
   type EngineTier,
+  encodeShipStoreJson,
   FIXED_DT,
   type FuelTransfer,
   type HireOfferRecord,
@@ -47,6 +51,7 @@ import {
   roomContainingPoint,
   type ShipRecord,
   type ShipSystems,
+  serializeWorldJson,
   settleLegFood,
   spawnCrate,
   spawnPawn,
@@ -99,10 +104,19 @@ export interface HostCallbacks {
   onVitals: (world: World) => void;
 }
 
+export interface HostPersistConfig {
+  /** Minimum ms between sink fires; the host never persists on its own. */
+  everyMs?: number;
+  /** Receives versioned (worldJson, shipsJson) snapshots when due. */
+  sink?: (worldJson: string, shipsJson: string) => void;
+}
+
 export interface HostOptions {
   air?: AirAuthorityState;
   stationFrameId?: string;
   rng01?: () => number;
+  /** Strike 4 save hook: maybePersist fires sink at most every everyMs. */
+  persist?: HostPersistConfig;
 }
 
 export interface HostClient {
@@ -209,6 +223,7 @@ export class SimHost {
   private readonly msgCounts = new Map<string, { count: number; windowStartMs: number }>();
   private tickSamples: { atMs: number; durationMs: number }[] = [];
   private tickMsLast = 0;
+  private lastPersistMs = 0;
   private evictedClients: string[] = [];
   private readonly knownDead = new Set<string>();
 
@@ -702,6 +717,59 @@ export class SimHost {
   /** Owned-ship record for status snapshots; undefined until first spawn. */
   shipRecordFor(userId: string): ShipRecord | undefined {
     return getSoloShip(this.ships, userId);
+  }
+
+  /** Strike 4: versioned JSON snapshot of the live world (v3 envelope). */
+  snapshotWorld(nowMs = 0): string {
+    return serializeWorldJson(this.world, nowMs);
+  }
+
+  /**
+   * Strike 4: replace the live world from a snapshot. Client sessions and
+   * broadcast clocks are preserved; corrupt input is rejected with a code.
+   */
+  restoreWorld(json: string): { ok: true } | { ok: false; error: string } {
+    const loaded = deserializeWorldJson(json);
+    if (!loaded.ok) return { ok: false, error: persistCode(loaded.error) };
+    this.world = loaded.value;
+    return { ok: true };
+  }
+
+  /** Strike 4: versioned JSON snapshot of owned-ship records. */
+  exportShips(nowMs = 0): string {
+    const store = createMemoryShipStore([...this.ships.values()]);
+    return encodeShipStoreJson(store, nowMs);
+  }
+
+  /**
+   * Strike 4: load owned-ship records. Wiped records stay wiped; the next
+   * spawn restarts them fresh (hard-wipe-on-loss path preserved).
+   */
+  importShips(json: string): { ok: true; count: number } | { ok: false; error: string } {
+    const decoded = decodeShipStoreJson(json);
+    if (!decoded.ok) return { ok: false, error: persistCode(decoded.error) };
+    let count = 0;
+    for (const id of decoded.value.ids()) {
+      const record = decoded.value.get(id);
+      if (record === undefined) continue;
+      saveSoloShip(this.ships, record);
+      count += 1;
+    }
+    return { ok: true, count };
+  }
+
+  /**
+   * Strike 4: fire the persist sink when the save interval has elapsed.
+   * The daemon (or tests) drive this; tick/broadcast behavior is untouched.
+   */
+  maybePersist(nowMs: number): boolean {
+    const config = this.options.persist;
+    if (config?.sink === undefined) return false;
+    const everyMs = config.everyMs ?? 30_000;
+    if (nowMs - this.lastPersistMs < everyMs) return false;
+    this.lastPersistMs = nowMs;
+    config.sink(this.snapshotWorld(nowMs), this.exportShips(nowMs));
+    return true;
   }
 
   /** Versioned SHIP_STATUS payload for one owner's ship, if known. */
@@ -1210,6 +1278,10 @@ function flameoutNotice(userId: string): ShipNotice {
     'Adrift — flameout',
     'Bunker dry or burn stalled. HAIL a drone, refuel, or DISTRESS tow.'
   );
+}
+
+function persistCode(error: { readonly code: string; readonly message: string }): string {
+  return `${error.code}: ${error.message}`;
 }
 
 function joinDisplay(
