@@ -227,7 +227,7 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(dockWalkable(world, 'harbor')).toBe(false);
   });
 
-  it('glides into the destination mate before unsealing', { timeout: 30000 }, () => {
+  it('meets the destination mate with the leg and unseals promptly', { timeout: 30000 }, () => {
     let world = plotToHubB(hotBoat());
     let guard = 0;
     while (world.ships.ship?.nav.phase !== 'docked' && guard < 300) {
@@ -236,12 +236,31 @@ describe('voyage side effects (M3 abstract transit)', () => {
     }
     expect(world.ships.ship?.nav.phase).toBe('docked');
     expect(world.ships.ship?.nav.portHubId).toBe('hub_b');
-    expect(dockWalkable(world, 'hub_b_harbor')).toBe(false);
-    const enRoute = world.vessels.ship?.origin ?? { x: 0, y: 0 };
-    expect(Math.hypot(enRoute.x - 1210, enRoute.y - 3920)).toBeGreaterThan(1);
-    world = driveAttentive(world, 20);
     expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: 3920 });
     expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
+    world = driveAttentive(world, 5);
+    expect(world.vessels.ship?.schedule).toBe('docked');
+    expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
+  });
+
+  it('meets the far hub_d mate with the leg', { timeout: 30000 }, () => {
+    const fueled = syncEngineFuel(hotBoat(), 'ship', 2 * FUEL_PER_CELL);
+    const plotted = plotVoyage(fueled, 'ship', 'hub_d', {
+      hot: true,
+      powered: true,
+      engineFuel: 2 * FUEL_PER_CELL,
+    });
+    if (plotted.reject !== undefined) throw new Error(`far plot rejected: ${plotted.reject}`);
+    let world = plotted.world;
+    let guard = 0;
+    while (world.ships.ship?.nav.phase !== 'docked' && guard < 600) {
+      world = driveAttentive(world, 1);
+      guard += 1;
+    }
+    expect(world.ships.ship?.nav.phase).toBe('docked');
+    expect(world.ships.ship?.nav.portHubId).toBe('hub_d');
+    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: 11920 });
+    expect(dockWalkable(world, 'hub_d_harbor')).toBe(true);
   });
 
   it('flies a full leg: seal, depart far, dock at hub_b', () => {

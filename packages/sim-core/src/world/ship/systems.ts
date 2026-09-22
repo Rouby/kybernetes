@@ -13,6 +13,7 @@ import { FUEL_PER_CELL, fuelMaxForTier } from './engine.js';
 import {
   DOCKED_NAV,
   hailForRescue,
+  hopTo,
   type NavState,
   type PlotChecks,
   type PlotReject,
@@ -288,15 +289,35 @@ function currentOrigin(world: World, vesselId: string): Vec2 {
   return { ...(world.vessels[vesselId]?.origin ?? SHIP_ORIGIN) };
 }
 
+/** Approach slack (seconds): the hull meets the mate within this of leg end. */
+export const APPROACH_SLACK_S = 4;
+
 /**
  * Station-keeping target for nav-driven vessels: the origin mate while
- * docked/spooling, far holding in transit, and the destination mate on
- * the docking approach. POI stops have no dock, so the hull holds.
+ * docked, far holding in transit, the hop mate once it is reachable in
+ * the remaining leg time, and the destination mate on the docking
+ * approach. POI stops have no dock, so the hull holds.
  */
 function navOriginTarget(world: World, vesselId: string, nav: NavState): Vec2 {
-  if (nav.phase === 'in_transit') return { ...SHIP_FAR_ORIGIN };
+  if (nav.phase === 'in_transit' && !nav.flameout) {
+    const mate = approachMate(world, vesselId, nav);
+    if (mate !== undefined) return mate;
+    return { ...SHIP_FAR_ORIGIN };
+  }
   const hubId = nav.phase === 'docking' ? (nav.destHubId ?? nav.portHubId) : nav.portHubId;
   return mateOriginFor(world, hubId) ?? currentOrigin(world, vesselId);
+}
+
+/** Late-leg approach: steer for the hop mate once the remaining leg time
+ * brackets the flight time there, so arrival lands on the mate. */
+function approachMate(world: World, vesselId: string, nav: NavState): Vec2 | undefined {
+  const mate = mateOriginFor(world, hopTo(nav));
+  const origin = world.vessels[vesselId]?.origin;
+  if (mate === undefined || origin === undefined) return undefined;
+  const eta = Math.hypot(mate.x - origin.x, mate.y - origin.y) / VESSEL_CRUISE_PX_S;
+  const remaining = Math.max(0, nav.remainingS);
+  if (eta <= remaining + APPROACH_SLACK_S && eta >= remaining - APPROACH_SLACK_S) return mate;
+  return undefined;
 }
 
 function stepToward(from: Vec2, to: Vec2, maxStep: number): Vec2 {
