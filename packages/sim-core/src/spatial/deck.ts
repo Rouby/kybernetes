@@ -220,7 +220,40 @@ export const HESPERIA_WALLS: WallSegment[] = [
  * renderer offsets ship fixtures via getWorldStations). deckId tags the
  * frame: 'station' fixtures stay fixed, everything else rides the ship.
  */
-export const HESPERIA_STATIONS: StationFixture[] = [
+/** Home room (bare id) containing a point; undefined in walls and void. */
+function homeRoomAt(x: number, y: number): string | undefined {
+  for (const room of LOCAL_ROOMS) {
+    if (room.frame !== 'station') continue;
+    if (x >= room.x && x <= room.x + room.width && y >= room.y && y <= room.y + room.height) {
+      return room.id;
+    }
+  }
+  return undefined;
+}
+
+/** Hub copies of home console models, skipped where a variant moved the room. */
+function hubStationEntries(): StationFixture[] {
+  const entries: StationFixture[] = [];
+  for (const table of HUB_TABLES) {
+    for (const station of HOME_STATIONS) {
+      if (station.deckId !== 'station') continue;
+      const homeRoom = homeRoomAt(station.x, station.y);
+      if (homeRoom === undefined) continue;
+      const kept = table.rooms.some((room) => room.id === homeRoom);
+      if (!kept) continue;
+      entries.push({
+        ...station,
+        id: `${table.frame}.${station.id}`,
+        deckId: table.frame,
+        x: station.x + table.originX,
+        y: station.y + table.originY,
+      });
+    }
+  }
+  return entries;
+}
+
+const HOME_STATIONS: StationFixture[] = [
   {
     id: 'bridge_helm',
     deckId: 'ship',
@@ -382,6 +415,8 @@ export const HESPERIA_STATIONS: StationFixture[] = [
     prompt: '[E] Open Arms Locker',
   },
 ];
+
+export const HESPERIA_STATIONS: StationFixture[] = [...HOME_STATIONS, ...hubStationEntries()];
 
 export const HESPERIA_SPAWNS: Record<LegacyStartingRole, { x: number; y: number }> = {
   wiper: { x: 1035, y: 260 },
@@ -970,7 +1005,7 @@ export function getWorldRooms(offset: DockFrameOffset): RoomDefinition[] {
 
 export function getWorldStations(offset: DockFrameOffset): StationFixture[] {
   return HESPERIA_STATIONS.map((station) => {
-    if (station.deckId === 'station') return station;
+    if (station.deckId !== 'ship') return station;
     return { ...station, x: station.x + offset.x, y: station.y + offset.y };
   });
 }

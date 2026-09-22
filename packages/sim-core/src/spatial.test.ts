@@ -14,6 +14,7 @@ import {
   HESPERIA_LIGHTS,
   HESPERIA_ROOMS,
   HESPERIA_SPAWNS,
+  HESPERIA_STATIONS,
   HESPERIA_WALLS,
   ROOM_AMBIENTS,
 } from './spatial/deck';
@@ -32,7 +33,7 @@ describe('Deck Layout & Geometry', () => {
     expect(deck.width).toBe(2400);
     expect(deck.height).toBe(800);
     expect(deck.walls.length).toBeGreaterThan(15);
-    expect(deck.stations.length).toBe(16);
+    expect(deck.stations.length).toBe(49);
     expect(HESPERIA_ROOMS.length).toBe(56);
   });
 
@@ -80,6 +81,15 @@ describe('Spatial Collision & Sliding Math', () => {
     const b = { x: 100, y: 0 };
     expect(distanceToSegment({ x: 50, y: 20 }, a, b)).toBeCloseTo(20);
     expect(distanceToSegment({ x: 120, y: 0 }, a, b)).toBeCloseTo(20);
+  });
+
+  it('models consoles on every station frame', () => {
+    const helm = HESPERIA_STATIONS.find((station) => station.id === 'hub_c.kommando_helm');
+    expect(helm).toMatchObject({ deckId: 'hub_c', x: 70, y: 8380 });
+    const winch = HESPERIA_STATIONS.find((station) => station.id === 'hub_d.fracht_winch');
+    expect(winch).toMatchObject({ deckId: 'hub_d', x: 410, y: 12380 });
+    const ids = HESPERIA_STATIONS.map((station) => station.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('renders every station frame at world coords', () => {
