@@ -63,7 +63,8 @@ describe('debug status lines', () => {
     const models = buildDebugModels(buildSoloShipWorld(), null, null);
     expect(models.docks).toHaveLength(4);
     expect(models.docks[0]).toMatchObject({ x1: 1210, y1: 240, x2: 1210, y2: 280 });
-    expect(models.docks[3]).toMatchObject({ x1: 1210, y1: 12240, x2: 1210, y2: 12280 });
+    expect(models.docks[1]).toMatchObject({ x1: 2810, y1: 240, x2: 2810, y2: 280 });
+    expect(models.docks[3]).toMatchObject({ x1: 6010, y1: 240, x2: 6010, y2: 280 });
   });
 
   it('lists pawn links and server stats', () => {

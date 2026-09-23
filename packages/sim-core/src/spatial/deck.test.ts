@@ -119,6 +119,14 @@ describe('station loading by ship state', () => {
       legTotalS: 34,
     });
     expect(arrival).toEqual(new Set(['ship', 'hub_b']));
+    const short = visibleStationFrames({
+      phase: 'in_transit',
+      portHubId: 'hub_a',
+      destHubId: 'hub_b',
+      remainingS: 10,
+      legTotalS: 12,
+    });
+    expect(short).toEqual(new Set(['ship', 'hub_b']));
     const poi = visibleStationFrames({
       phase: 'docked',
       portHubId: 'poi_kestrel',

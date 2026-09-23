@@ -10,12 +10,9 @@
 import { sealPortal, unsealPortal } from '../doors.js';
 import { type DockLink, SHIP_FAR_ORIGIN, SHIP_ORIGIN, VESSEL_CRUISE_PX_S } from '../schedule.js';
 import type { Vec2, VesselSchedulePhase, World } from '../types.js';
-import { hopTo, type NavState } from './navTransit.js';
+import type { NavState } from './navTransit.js';
 import { HUB_PORTS } from './ports.js';
 import type { ShipSystems } from './systems.js';
-
-/** Approach slack (seconds): the hull meets the mate within this of leg end. */
-const APPROACH_SLACK_S = 4;
 
 /** Destination mate in world space for a hub; undefined for POIs and nowhere. */
 function mateOriginFor(world: World, hubId: string): Vec2 | undefined {
@@ -30,33 +27,34 @@ function currentOrigin(world: World, vesselId: string): Vec2 {
 }
 
 /**
- * Station-keeping target for nav-driven vessels: the origin mate while
- * docked, far holding in transit, the hop mate once it is reachable in
- * the remaining leg time, and the destination mate on the docking
- * approach. POI stops have no dock, so the hull holds.
+ * Cruise hold off the departure mouth: the same east push the legacy
+ * far hold gives home, re-anchored per port. Every hub shares one
+ * berth, so every hold coincides in open water east of the dock; the
+ * hull sits here for the whole leg (abstract cruise: stations unload,
+ * the chart owns the trip) and there is no cross-world path to clip
+ * through plates with.
  */
-function navOriginTarget(world: World, vesselId: string, nav: NavState): Vec2 {
-  if (nav.phase === 'in_transit' && !nav.flameout) {
-    const mate = approachMate(world, vesselId, nav);
-    if (mate !== undefined) return mate;
-    return { ...SHIP_FAR_ORIGIN };
-  }
-  const hubId = nav.phase === 'docking' ? (nav.destHubId ?? nav.portHubId) : nav.portHubId;
-  return mateOriginFor(world, hubId) ?? currentOrigin(world, vesselId);
+function cruiseHoldFor(world: World, nav: NavState): Vec2 {
+  const mate = mateOriginFor(world, nav.portHubId);
+  if (mate === undefined) return { ...SHIP_FAR_ORIGIN };
+  return {
+    x: mate.x + (SHIP_FAR_ORIGIN.x - SHIP_ORIGIN.x),
+    y: mate.y + (SHIP_FAR_ORIGIN.y - SHIP_ORIGIN.y),
+  };
 }
 
 /**
- * Late-leg approach: steer for the hop mate once the remaining leg time
- * brackets the flight time there, so arrival lands on the mate.
+ * Station-keeping target for nav-driven vessels: the origin mate while
+ * docked, the departure-relative cruise hold for the whole transit,
+ * and the destination mate on the docking approach (a short glide back
+ * into the shared berth). POI stops have no dock, so the hull holds.
  */
-function approachMate(world: World, vesselId: string, nav: NavState): Vec2 | undefined {
-  const mate = mateOriginFor(world, hopTo(nav));
-  const origin = world.vessels[vesselId]?.origin;
-  if (mate === undefined || origin === undefined) return undefined;
-  const eta = Math.hypot(mate.x - origin.x, mate.y - origin.y) / VESSEL_CRUISE_PX_S;
-  const remaining = Math.max(0, nav.remainingS);
-  if (eta <= remaining + APPROACH_SLACK_S && eta >= remaining - APPROACH_SLACK_S) return mate;
-  return undefined;
+function navOriginTarget(world: World, vesselId: string, nav: NavState): Vec2 {
+  if (nav.phase === 'in_transit' && !nav.flameout) {
+    return cruiseHoldFor(world, nav);
+  }
+  const hubId = nav.phase === 'docking' ? (nav.destHubId ?? nav.portHubId) : nav.portHubId;
+  return mateOriginFor(world, hubId) ?? currentOrigin(world, vesselId);
 }
 
 function stepToward(from: Vec2, to: Vec2, maxStep: number): Vec2 {

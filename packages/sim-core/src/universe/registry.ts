@@ -106,7 +106,7 @@ export function validateUniverse(): string[] {
     if (!chartIds.has(lane.b as string)) errors.push(`lane unknown endpoint ${lane.b}`);
     if (!(lane.fraction > 0)) errors.push(`lane non-positive fraction ${lane.a}`);
   }
-  const origins = Object.values(UNIVERSE_HUBS).map((hub) => `${hub.origin.x},${hub.origin.y}`);
-  if (new Set(origins).size !== origins.length) errors.push('hub origins overlap');
+  // Hub origins intentionally coincide on one shared berth (see catalog);
+  // overlap here is the abstract-dock design, not a data error.
   return errors;
 }

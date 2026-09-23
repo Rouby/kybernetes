@@ -126,11 +126,19 @@ export const UNIVERSE_BODIES: readonly UniverseBody[] = [
  * 'station' frame id (not 'hub_a') so existing saves/snapshots keep working.
  * Every other hub maps 1:1 hub id <-> station frame.
  */
+/**
+ * Canonical hubs. Every hub shares one abstract berth at the origin:
+ * transit is not flyable space (the hull holds off the dock while the
+ * chart owns the trip), so departure and arrival use the same
+ * coordinates and each leg swaps which station frame is loaded.
+ * Straight hold-to-mate lines across spread-out stations used to cut
+ * through plates; a shared berth leaves no path left to clip.
+ */
 export const UNIVERSE_HUBS: Readonly<Record<string, HubDesc>> = {
   hub_a: hub('hub_a', 'station', 'harbor', 'station-hub', { x: 0, y: 0 }),
-  hub_b: hub('hub_b', 'hub_b', 'hub_b_harbor', 'solace', { x: 0, y: 4000 }),
-  hub_c: hub('hub_c', 'hub_c', 'hub_c_harbor', 'cinder', { x: 0, y: 8000 }),
-  hub_d: hub('hub_d', 'hub_d', 'hub_d_harbor', 'vesper', { x: 0, y: 12000 }),
+  hub_b: hub('hub_b', 'hub_b', 'hub_b_harbor', 'solace', { x: 0, y: 0 }),
+  hub_c: hub('hub_c', 'hub_c', 'hub_c_harbor', 'cinder', { x: 0, y: 0 }),
+  hub_d: hub('hub_d', 'hub_d', 'hub_d_harbor', 'vesper', { x: 0, y: 0 }),
 };
 
 /** Canonical chart nodes: 4 hubs + 8 POIs/moons. */

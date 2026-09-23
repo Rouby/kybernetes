@@ -4,6 +4,7 @@ import {
   brakingFor,
   COAST_PX_S,
   directExhaustFor,
+  engineLitFor,
   flightSpeed01,
   isRcsPhase,
   isTranslatingPhase,
@@ -14,7 +15,13 @@ import {
   RCS_PULSE_WIDTH_S,
   rcsLane,
   rcsPulseOn,
-  scrollVectorFor,
+  rollTargetForAccel,
+  STAR_FORWARD,
+  STAR_ROLL_GAIN_RAD_PER_PX_S2,
+  STAR_ROLL_MAX_RAD,
+  starScrollRateFor,
+  starSpeedPxS,
+  stepStarRoll,
   stepStarScroll,
 } from './shipExhaust.js';
 
@@ -37,6 +44,11 @@ function nav(over: Partial<NavStateBroadcast> = {}): NavStateBroadcast {
     thrust01: 1,
     ...over,
   } as NavStateBroadcast;
+}
+
+function yOf(rate: { x: number; y: number } | null): number {
+  if (rate === null) throw new Error('expected a scroll rate');
+  return rate.y;
 }
 
 function sys(over: Partial<ShipSystemsBroadcast> = {}): ShipSystemsBroadcast {
@@ -91,11 +103,12 @@ describe('mapShipExhaust', () => {
     expect(view.params.intensity01).toBe(0);
   });
 
-  it('burns a maneuver plume on harbor inbound without nav', () => {
+  it('holds idle bells with RCS on harbor inbound without nav', () => {
     const view = mapShipExhaust(null, sys({ spool: 1 }), 'cyan', 0, 'inbound');
     expect(view.phase).toBe('inbound');
-    expect(view.params.intensity01).toBeGreaterThan(0.1);
-    expect(view.params.intensity01).toBeLessThan(0.8);
+    expect(view.engineLit).toBe(false);
+    expect(view.maneuvering).toBe(true);
+    expect(view.params.ratePerSecPerBell).toBe(6);
   });
 
   it('lets a committed nav phase win over the harbor phase', () => {
@@ -146,7 +159,7 @@ describe('mapShipExhaust', () => {
     expect(nozzleForVector({ x: 1, y: 0 }, [])).toBe(-1);
   });
 
-  it('ramps cruise scroll speed to the flip and holds it parked', () => {
+  it('clocks leg progress through the torch profile', () => {
     expect(legProgressFor(null)).toBeNull();
     expect(legProgressFor(nav({ phase: 'docked' }))).toBeNull();
     expect(legProgressFor(nav({ phase: 'in_transit', remainingS: 100, legTotalS: 100 }))).toBe(0);
@@ -157,19 +170,113 @@ describe('mapShipExhaust', () => {
     expect(flightSpeed01(0.5)).toBeCloseTo(1, 6);
     expect(flightSpeed01(1)).toBeCloseTo(0, 6);
     expect(flightSpeed01(0.25)).toBeGreaterThan(flightSpeed01(0.1));
-    const leg = nav({ phase: 'in_transit', remainingS: 75, legTotalS: 100 });
-    const rate = scrollVectorFor(leg, { velX: 340, velY: 0 }, 680);
-    expect(rate?.x).toBeCloseTo(480.8, 0);
-    expect(rate?.y).toBe(0);
+  });
+
+  it('streams against the vessel on departure and docking burns', () => {
+    // Undocking east streams west, against the vessel, at burn plus profile.
+    const leg = nav({ phase: 'in_transit', remainingS: 95, legTotalS: 100 });
+    const away = starScrollRateFor(leg, { velX: 340, velY: 0 }, 680);
+    expect(away?.x).toBeCloseTo(-446.4, 0);
+    expect(away?.y).toBeCloseTo(0, 6);
+    // Docking glide west streams east, against the vessel.
+    const dock = starScrollRateFor(nav({ phase: 'docking' }), { velX: -340, velY: 0 }, 680);
+    expect(dock?.x).toBeCloseTo(340, 0);
+    expect(dock?.y).toBeCloseTo(0, 6);
+  });
+
+  it('streams fore-aft and flips hard at the mid-leg turn', () => {
+    // Holding hull streams top-to-bottom through the accelerating half.
+    const cruise = nav({ phase: 'in_transit', remainingS: 75, legTotalS: 100 });
+    const held = starScrollRateFor(cruise, null, 680);
+    expect(held?.x).toBe(0);
+    expect(held?.y).toBeCloseTo(-STAR_FORWARD.y * 480.8, 0);
+    // Mid-leg flip: same speed, sudden reversal to bottom-to-top.
+    const before = starScrollRateFor(
+      nav({ phase: 'in_transit', remainingS: 51, legTotalS: 100 }),
+      null,
+      680
+    );
+    const after = starScrollRateFor(
+      nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 }),
+      null,
+      680
+    );
+    expect(yOf(before)).toBeGreaterThan(0);
+    expect(yOf(after)).toBeLessThan(0);
+    expect(Math.abs(yOf(after) + yOf(before))).toBeLessThan(30);
+  });
+
+  it('eases the braking stream to a stop and parks null', () => {
+    const leg = nav({ phase: 'in_transit', remainingS: 95, legTotalS: 100 });
     const brake = nav({ phase: 'in_transit', remainingS: 25, legTotalS: 100 });
-    const retro = scrollVectorFor(brake, { velX: 340, velY: 0 }, 680);
-    expect(retro?.x).toBeCloseTo(-480.8, 0);
-    expect(retro?.y).toBeCloseTo(0, 6);
-    expect(scrollVectorFor(nav({ phase: 'docked' }), { velX: 340, velY: 0 }, 680)).toBeNull();
-    expect(scrollVectorFor(leg, { velX: 1, velY: 0 }, 680)).toBeNull();
-    expect(scrollVectorFor(leg, null, 680)).toBeNull();
+    const eased = starScrollRateFor(brake, null, 680);
+    expect(eased?.x).toBe(0);
+    expect(eased?.y).toBeCloseTo(STAR_FORWARD.y * 480.8, 0);
+    expect(starScrollRateFor(nav({ phase: 'docked' }), { velX: 340, velY: 0 }, 680)).toBeNull();
+    expect(starScrollRateFor({ ...leg, flameout: true }, null, 680)).toBeNull();
+    expect(
+      starScrollRateFor(nav({ phase: 'in_transit', remainingS: 100, legTotalS: 100 }), null, 680)
+    ).toBeNull();
     expect(stepStarScroll({ x: 1, y: 2 }, { x: 100, y: 0 }, 50)).toEqual({ x: 6, y: 2 });
     expect(stepStarScroll({ x: 1, y: 2 }, null, 50)).toEqual({ x: 1, y: 2 });
+  });
+
+  it('lights the torch clear of the dock and cuts it ahead of the glide', () => {
+    expect(engineLitFor(null)).toBe(false);
+    expect(engineLitFor(nav({ phase: 'docked' }))).toBe(false);
+    expect(engineLitFor(nav({ phase: 'docking' }))).toBe(false);
+    expect(engineLitFor(nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 }))).toBe(true);
+    expect(engineLitFor(nav({ phase: 'in_transit', remainingS: 98, legTotalS: 100 }))).toBe(false);
+    expect(engineLitFor(nav({ phase: 'in_transit', remainingS: 5, legTotalS: 100 }))).toBe(false);
+    expect(
+      engineLitFor({
+        ...nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 }),
+        flameout: true,
+      })
+    ).toBe(false);
+    expect(engineLitFor(nav({ phase: 'in_transit', remainingS: 50 }))).toBe(true);
+    const early = mapShipExhaust(
+      nav({ phase: 'in_transit', remainingS: 98, legTotalS: 100 }),
+      null,
+      undefined
+    );
+    expect(early.engineLit).toBe(false);
+    expect(early.maneuvering).toBe(true);
+    expect(early.params.ratePerSecPerBell).toBeLessThan(20);
+    const cruise = mapShipExhaust(
+      nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 }),
+      null,
+      undefined
+    );
+    expect(cruise.engineLit).toBe(true);
+    expect(cruise.maneuvering).toBe(false);
+    expect(cruise.params.ratePerSecPerBell).toBeGreaterThan(100);
+    const docking = mapShipExhaust(nav({ phase: 'docking' }), null, undefined);
+    expect(docking.engineLit).toBe(false);
+    expect(docking.maneuvering).toBe(true);
+  });
+
+  it('sums hull and cruise speed, freezing the profile on flameout', () => {
+    const leg = nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 });
+    expect(starSpeedPxS({ velX: 340, velY: 0 }, leg, 680)).toBeCloseTo(1020, 0);
+    expect(starSpeedPxS(null, leg, 680)).toBeCloseTo(680, 0);
+    expect(starSpeedPxS({ velX: 0, velY: -340 }, nav({ phase: 'docked' }), 680)).toBe(340);
+    expect(starSpeedPxS({ velX: 340, velY: 0 }, { ...leg, flameout: true }, 680)).toBe(340);
+    expect(starSpeedPxS(null, nav({ phase: 'docked' }), 680)).toBe(0);
+    expect(starSpeedPxS(null, leg, -10)).toBe(0);
+    expect(starSpeedPxS(null, null, 680)).toBe(0);
+  });
+
+  it('leans the roll cue with acceleration and against braking', () => {
+    expect(rollTargetForAccel(200)).toBeCloseTo(200 * STAR_ROLL_GAIN_RAD_PER_PX_S2, 6);
+    expect(rollTargetForAccel(-200)).toBeCloseTo(-200 * STAR_ROLL_GAIN_RAD_PER_PX_S2, 6);
+    expect(rollTargetForAccel(0)).toBe(0);
+    expect(rollTargetForAccel(Number.NaN)).toBe(0);
+    expect(rollTargetForAccel(1e9)).toBe(STAR_ROLL_MAX_RAD);
+    expect(rollTargetForAccel(-1e9)).toBe(-STAR_ROLL_MAX_RAD);
+    expect(stepStarRoll(0, 200)).toBeCloseTo(200 * STAR_ROLL_GAIN_RAD_PER_PX_S2 * 0.12, 6);
+    expect(stepStarRoll(STAR_ROLL_MAX_RAD, 1e9)).toBe(STAR_ROLL_MAX_RAD);
+    expect(stepStarRoll(Number.NaN, 200)).toBeCloseTo(200 * STAR_ROLL_GAIN_RAD_PER_PX_S2 * 0.12, 6);
   });
 
   it('binds camera and scroll to translating hulls only', () => {

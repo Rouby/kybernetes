@@ -130,7 +130,9 @@ import {
   directExhaustFor,
   isTranslatingPhase,
   type ShipExhaustView,
-  scrollVectorFor,
+  starScrollRateFor,
+  starSpeedPxS,
+  stepStarRoll,
   stepStarScroll,
 } from './shipExhaust.js';
 
@@ -296,6 +298,10 @@ export interface ViewportSession {
   frameMotion: FrameMotion | null;
   shipInterp: FocusOrigin | null;
   starScroll: { x: number; y: number };
+  /** Screen-space roll cue in radians; leans with acceleration. */
+  starRoll: number;
+  /** Previous combined speed sample for the roll-cue accel estimate. */
+  cruiseSpeedPrev: number | null;
   lastPawnFrame: string | null;
   doors: DoorState[];
   seenImpacts: Set<string>;
@@ -341,6 +347,8 @@ export function createViewportSession(): ViewportSession {
     frameMotion: null,
     shipInterp: null,
     starScroll: { x: 0, y: 0 },
+    starRoll: 0,
+    cruiseSpeedPrev: null,
     lastPawnFrame: null,
     doors: createInitialDoors(),
     seenImpacts: new Set<string>(),
@@ -417,12 +425,17 @@ export function renderViewport(
     now
   );
   session.frameMotion = motion;
-  const scrollRate = scrollVectorFor(
-    view.glOverlay?.navState ?? null,
-    motion,
-    STAR_SCROLL_MAX_PX_S
-  );
+  // Fore-aft streaming at honest speed; the roll cue below carries accel.
+  const navState = view.glOverlay?.navState ?? null;
+  const scrollRate = starScrollRateFor(navState, motion, STAR_SCROLL_MAX_PX_S);
   session.starScroll = stepStarScroll(session.starScroll, scrollRate, now - session.lastFrameMs);
+  // Roll cue from longitudinal accel: lean with the burn, against the brake.
+  const dtS = Math.min(Math.max((now - session.lastFrameMs) / 1000, 0), 0.1);
+  const speed = starSpeedPxS(motion, navState, STAR_SCROLL_MAX_PX_S);
+  const prevSpeed = session.cruiseSpeedPrev;
+  session.cruiseSpeedPrev = speed;
+  const accel = prevSpeed === null || !(dtS > 0) ? 0 : (speed - prevSpeed) / dtS;
+  session.starRoll = stepStarRoll(session.starRoll, accel);
   const translating = isTranslatingPhase(view.shipExhaust?.phase);
   const look = translating ? at : leadLookTarget(at, aim, motion, own.frameId);
   stepCamera(session, look, translating);
@@ -1082,6 +1095,7 @@ function viewportRenderState(args: {
     shipUnderway: view.shipUnderway,
     shipExhaust: directExhaustFor(view.shipExhaust, session.frameMotion),
     starScroll: { ...session.starScroll },
+    starRoll: session.starRoll,
     visibleFrames: visibleStationFrames(view.glOverlay?.navState ?? null),
     screenWidth: args.canvas.clientWidth,
     screenHeight: args.canvas.clientHeight,

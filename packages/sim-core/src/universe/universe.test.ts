@@ -24,6 +24,12 @@ describe('universe catalog (Strike 1 single source)', () => {
     expect(validateUniverse()).toEqual([]);
   });
 
+  it('berths every hub on one shared origin for abstract transit', () => {
+    for (const hub of Object.values(UNIVERSE_HUBS)) {
+      expect(hub.origin).toEqual({ x: 0, y: 0 });
+    }
+  });
+
   it('keeps the home hub on the legacy station frame', () => {
     expect(UNIVERSE_HUBS.hub_a?.stationFrame).toBe('station');
     expect(UNIVERSE_HUBS.hub_b?.stationFrame).toBe('hub_b');

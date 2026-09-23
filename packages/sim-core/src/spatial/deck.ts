@@ -930,8 +930,13 @@ function transitFrames(frames: Set<string>, nav: NavFrameCursor): void {
   const total = nav.legTotalS ?? 0;
   const remaining = nav.remainingS ?? total;
   const elapsed = total > 0 ? Math.min(total, Math.max(0, total - Math.max(0, remaining))) : 0;
+  // Arrival owns the berth: every hub shares one origin, so co-loading
+  // port and dest on short legs would stack two plates on the viewport.
+  if (remaining <= ARRIVAL_APPROACH_S) {
+    addHubFrame(frames, nav.destHubId);
+    return;
+  }
   if (elapsed < DEPARTURE_TAIL_S) addHubFrame(frames, nav.portHubId);
-  if (remaining <= ARRIVAL_APPROACH_S) addHubFrame(frames, nav.destHubId);
 }
 
 /**

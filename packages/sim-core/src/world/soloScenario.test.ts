@@ -36,11 +36,11 @@ describe('buildSoloShipWorld (M1 solo start)', () => {
     expect(world.transit[HARBOR_SHIP]).toBeUndefined();
   });
 
-  it('berths a second hub far south with its own dock', () => {
+  it('berths a second hub on the shared dock', () => {
     const world = buildSoloShipWorld();
     expect(world.stations[HUB_B_STATION]?.origin).toEqual({ ...HUB_B_ORIGIN });
     expect(world.docks[HUB_B_DOCK.id]).toBeDefined();
-    expect(HUB_B_DOCK.mouthWorld.y1).toBeGreaterThan(4000);
+    expect(HUB_B_DOCK.mouthWorld).toEqual({ x1: 1210, y1: 240, x2: 1210, y2: 280 });
     expect(dockWalkable(world, HUB_B_DOCK.id)).toBe(false);
     expect(dockWalkable(world, 'harbor')).toBe(true);
     const local = { x: 100, y: 100 };
@@ -59,7 +59,7 @@ describe('buildSoloShipWorld (M1 solo start)', () => {
       say: '',
       sayUntilTick: 0,
     });
-    expect(pos).toEqual({ x: 100, y: 4100 });
+    expect(pos).toEqual({ x: 100, y: 100 });
   });
 
   it('never auto-departs: the ship holds docked station-keeping', () => {

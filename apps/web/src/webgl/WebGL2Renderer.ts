@@ -66,7 +66,6 @@ const RETRO_NOZZLES: ReadonlyArray<{ x: number; y: number; dx: number; dy: numbe
 ];
 
 import {
-  isRcsPhase,
   nozzleForVector,
   RCS_PULSE_PERIOD_S,
   rcsLane,
@@ -148,6 +147,8 @@ export interface WebGLRenderState extends HudDrawState {
   shipOffset?: { x: number; y: number };
   /** Cruise starfield scroll offset in world px; zeroed while parked. */
   starScroll?: { x: number; y: number };
+  /** Screen-space starfield roll cue in radians; leans with acceleration. */
+  starRoll?: number;
   /** Station frames loaded in the world scene; undefined keeps everything. */
   visibleFrames?: ReadonlySet<string>;
   /** True while the vessel is underway (in transit); exhaust burns full. */
@@ -1047,7 +1048,7 @@ export class WebGL2Renderer {
         1
       );
     }
-    if (isRcsPhase(exhaust.phase)) this.emitDockingRcs(offset, tint, timeSec, exhaust);
+    if (exhaust.maneuvering) this.emitDockingRcs(offset, tint, timeSec, exhaust);
   }
 
   private emitLegacyExhaust(offset: { x: number; y: number }, underway: boolean, dt: number): void {
@@ -1362,7 +1363,14 @@ export class WebGL2Renderer {
     gl.clearColor(0.015, 0.02, 0.04, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    this.starfieldPass.render(width, height, state.camera, state.starScroll ?? null, timeSec);
+    this.starfieldPass.render(
+      width,
+      height,
+      state.camera,
+      state.starScroll ?? null,
+      state.starRoll ?? 0,
+      timeSec
+    );
     if (state.chartOpen === true) {
       // Chart screen owns the frame: deep-space backdrop only, no ship interior.
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);

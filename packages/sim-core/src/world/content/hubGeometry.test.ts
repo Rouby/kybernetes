@@ -59,8 +59,7 @@ describe('hub geometry shared compile path', () => {
       expect(world.portals[frame + '.korridor_ost_andock']).toBeDefined();
     }
     expect(world.docks.harbor?.mouthWorld).toEqual({ x1: 1210, y1: 240, x2: 1210, y2: 280 });
-    expect(world.docks.hub_b_harbor?.mouthWorld.x1).toBe(1210);
-    expect(world.docks.hub_b_harbor?.mouthWorld.y1).toBeGreaterThan(4000);
+    expect(world.docks.hub_b_harbor?.mouthWorld).toEqual({ x1: 1210, y1: 240, x2: 1210, y2: 280 });
     const harbor = buildWorld({ hubs: ['hub_a'], withFixtures: true });
     expect(harbor.rooms['station.habitat']).toBeDefined();
     expect(harbor.docks.harbor?.stationPortal).toBe('station.korridor_ost_andock');
@@ -74,6 +73,6 @@ describe('hub geometry shared compile path', () => {
     expect(specs[1]?.hull.frameId).toBe('hub_b');
     expect(specs[1]?.hull.rooms).toEqual(stationHullFor('hub_b').rooms);
     expect(specs[0]?.origin).toEqual({ x: 0, y: 0 });
-    expect(specs[1]?.origin).toEqual({ x: 0, y: 4000 });
+    expect(specs[1]?.origin).toEqual({ x: 0, y: 0 });
   });
 });

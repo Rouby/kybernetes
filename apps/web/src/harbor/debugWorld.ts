@@ -58,6 +58,22 @@ export interface DebugBounds {
   readonly maxY: number;
 }
 
+/**
+ * Debug-only display spread: every hub shares one sim berth, so the debug
+ * canvas lays station frames out side by side instead of stacking them.
+ * Display only — sim and game render never see these offsets.
+ */
+export const DEBUG_FRAME_STEP_PX = 1600;
+
+const DEBUG_FRAME_ORDER: readonly string[] = ['station', 'hub_b', 'hub_c', 'hub_d'];
+
+/** Display offset for a station frame in the debug canvas; zero elsewhere. */
+export function debugSpreadFor(frameId: string): { x: number; y: number } {
+  const index = DEBUG_FRAME_ORDER.indexOf(frameId);
+  if (index <= 0) return { x: 0, y: 0 };
+  return { x: index * DEBUG_FRAME_STEP_PX, y: 0 };
+}
+
 export function debugOrigins(
   snapshot: SnapshotBroadcast | null
 ): Map<string, { x: number; y: number }> {
@@ -65,7 +81,13 @@ export function debugOrigins(
   origins.set('station', { x: 0, y: 0 });
   origins.set('ship', { ...SHIP_ORIGIN });
   for (const frame of snapshot?.frames ?? []) {
-    origins.set(frame.id, { x: frame.originX, y: frame.originY });
+    const spread = debugSpreadFor(frame.id);
+    origins.set(frame.id, { x: frame.originX + spread.x, y: frame.originY + spread.y });
+  }
+  for (const frameId of DEBUG_FRAME_ORDER) {
+    if (origins.has(frameId)) continue;
+    const spread = debugSpreadFor(frameId);
+    origins.set(frameId, { x: spread.x, y: spread.y });
   }
   return origins;
 }

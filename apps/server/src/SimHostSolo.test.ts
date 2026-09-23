@@ -108,7 +108,7 @@ describe('SimHost solo spawn (M1)', () => {
     expect(result.notice).toBe('DISTRESS_ok');
     expect(host.currentWorld.ships.ship?.nav.phase).toBe('docked');
     expect(host.currentWorld.ships.ship?.nav.portHubId).toBe('hub_b');
-    expect(host.currentWorld.vessels.ship?.origin).toEqual({ x: 1210, y: 3920 });
+    expect(host.currentWorld.vessels.ship?.origin).toEqual({ x: 1210, y: -80 });
     expect(host.shipRecordFor('u1')?.credits).toBe(25);
     host.stop();
   });

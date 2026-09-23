@@ -30,6 +30,7 @@ import {
   type DebugPawn,
   type DebugPortal,
   type DebugRoom,
+  debugSpreadFor,
   portalColor,
   roomOverlayColor,
 } from './debugWorld';
@@ -65,7 +66,16 @@ export function buildDebugModels(
     rooms: buildDebugRooms(staticWorld, snapshot, telemetry),
     portals: buildDebugPortals(staticWorld, snapshot, telemetry),
     pawns: buildDebugPawns(snapshot, null),
-    docks: Object.values(staticWorld.docks).map((dock) => ({ ...dock.mouthWorld })),
+    docks: Object.values(staticWorld.docks).map((dock) => {
+      const spread = debugSpreadFor(dock.stationFrame);
+      const mouth = dock.mouthWorld;
+      return {
+        x1: mouth.x1 + spread.x,
+        y1: mouth.y1 + spread.y,
+        x2: mouth.x2 + spread.x,
+        y2: mouth.y2 + spread.y,
+      };
+    }),
   };
 }
 

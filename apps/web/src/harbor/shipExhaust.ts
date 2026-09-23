@@ -4,7 +4,12 @@
  */
 
 import type { NavStateBroadcast, ShipSystemsBroadcast, ThrusterTint } from '@kybernetes/protocol';
-import { type ExhaustParams, exhaustParamsFor } from '@kybernetes/sim-core';
+import {
+  DEPARTURE_TAIL_S,
+  DOCKING_S,
+  type ExhaustParams,
+  exhaustParamsFor,
+} from '@kybernetes/sim-core';
 import { type AccentRgb, thrusterPlume } from '../webgl/pawnAccents.js';
 
 export type ShipExhaustPhase = 'docked' | 'in_transit' | 'docking' | 'inbound' | 'departing';
@@ -24,6 +29,10 @@ export interface ShipExhaustView {
   readonly thrustSpeed: number;
   /** True while holding still (coasting visuals, no directed burn). */
   readonly coast: boolean;
+  /** Main torch lit: cold-gas RCS alone while false. */
+  readonly engineLit: boolean;
+  /** Cold-gas maneuvering active: dock phases plus torch-off windows. */
+  readonly maneuvering: boolean;
 }
 
 /** Elapsed fraction of the live leg; null unless flying a timed leg. */
@@ -42,22 +51,80 @@ export function flightSpeed01(progress: number | null): number {
 }
 
 /**
- * World-space scroll rate px/s for the cruise starfield; null when parked.
- * Past the flip the drive end swaps: the scroll inverts so the braking
- * read comes from the starfield, never from moving the engine plume.
+ * Combined speed through space: measured hull speed plus the abstract
+ * cruise profile. The frozen cruise hull reports no motion, so the
+ * profile keeps the mid-leg honest; burns add their true hull speed.
  */
-export function scrollVectorFor(
+export function starSpeedPxS(
+  motion: { velX: number; velY: number } | null | undefined,
+  nav: NavStateBroadcast | null | undefined,
+  maxPxS: number
+): number {
+  const hull = Math.hypot(motion?.velX ?? 0, motion?.velY ?? 0);
+  const cruise =
+    nav?.phase === 'in_transit' && !(nav?.flameout ?? false) && maxPxS > 0
+      ? maxPxS * flightSpeed01(legProgressFor(nav))
+      : 0;
+  const total = (Number.isFinite(hull) ? hull : 0) + (Number.isFinite(cruise) ? cruise : 0);
+  return total > 0 ? total : 0;
+}
+
+/**
+ * Ship-forward axis on screen: nose-up hulls fly up-screen, so cruise
+ * streaming runs fore-aft. World-space bearings (the east dock push)
+ * read as sideways sliding here, and the ship-centered camera eats the
+ * world translation anyway — the fiction owns the axis.
+ */
+export const STAR_FORWARD = { x: 0, y: -1 } as const;
+
+/**
+ * Cruise starfield rate px/s; null when parked. Torch-ship choreography:
+ * while the hull burns the stream runs against vessel motion (undock
+ * east reads west, docking glide west reads east); while it holds, the
+ * stream runs fore-aft — top-to-bottom through the accelerating half,
+ * then a hard flip at mid-leg to bottom-to-top as the ship rotates to
+ * brake, easing to a stop. Speed mirrors the ship through space
+ * (measured hull plus abstract cruise) throughout.
+ */
+export function starScrollRateFor(
   nav: NavStateBroadcast | null | undefined,
   motion: { velX: number; velY: number } | null | undefined,
   maxPxS: number
 ): { x: number; y: number } | null {
-  const speed01 = flightSpeed01(legProgressFor(nav));
-  if (!(speed01 > 0) || motion === null || motion === undefined) return null;
-  const mag = Math.hypot(motion.velX, motion.velY);
-  if (!(mag > COAST_PX_S)) return null;
-  const flip = brakingFor(nav) ? -1 : 1;
-  const speed = flip * maxPxS * speed01;
-  return { x: (motion.velX / mag) * speed, y: (motion.velY / mag) * speed };
+  if (nav?.phase !== 'in_transit' && nav?.phase !== 'docking') return null;
+  const hullMag = Math.hypot(motion?.velX ?? 0, motion?.velY ?? 0);
+  if (motion !== null && motion !== undefined && hullMag > COAST_PX_S) {
+    const speed = starSpeedPxS(motion, nav, maxPxS);
+    if (!(speed > 0)) return null;
+    return { x: (-motion.velX / hullMag) * speed, y: (-motion.velY / hullMag) * speed };
+  }
+  const cruise = starSpeedPxS(null, nav, maxPxS);
+  if (!(cruise > 0)) return null;
+  const flipped = brakingFor(nav);
+  return { x: 0, y: (flipped ? STAR_FORWARD.y : -STAR_FORWARD.y) * cruise };
+}
+
+/** Screen-space roll cue: lean with acceleration, against braking. */
+export const STAR_ROLL_MAX_RAD = 0.07;
+/** Roll per px/s^2 of longitudinal accel; departure burns lean a few degrees. */
+export const STAR_ROLL_GAIN_RAD_PER_PX_S2 = 0.00025;
+/** Easing per frame toward the roll target; accel spikes settle, not slam. */
+const STAR_ROLL_SMOOTH = 0.12;
+/** Accel sample clamp: touchdown/flameout steps cue a jolt, not a spin. */
+const STAR_ACCEL_CLAMP_PX_S2 = 1200;
+
+/** Roll target for a longitudinal acceleration sample (bank-indicator style). */
+export function rollTargetForAccel(accelPxS2: number): number {
+  if (!Number.isFinite(accelPxS2)) return 0;
+  const clamped = Math.min(STAR_ACCEL_CLAMP_PX_S2, Math.max(-STAR_ACCEL_CLAMP_PX_S2, accelPxS2));
+  const target = clamped * STAR_ROLL_GAIN_RAD_PER_PX_S2;
+  return Math.min(STAR_ROLL_MAX_RAD, Math.max(-STAR_ROLL_MAX_RAD, target));
+}
+
+/** Ease the roll cue toward its acceleration target. */
+export function stepStarRoll(prevRoll: number, accelPxS2: number): number {
+  const prev = Number.isFinite(prevRoll) ? prevRoll : 0;
+  return prev + (rollTargetForAccel(accelPxS2) - prev) * STAR_ROLL_SMOOTH;
 }
 
 /** Advance the starfield scroll offset; null rate holds it in place. */
@@ -181,12 +248,31 @@ function collectInput(
   };
 }
 
+/**
+ * Main-torch lit windows: the torch lights once the ship is clear of the
+ * dock (past the departure tail) and cuts ahead of the docking glide, so
+ * undocking and docking fly on cold-gas RCS alone. Legacies without a
+ * leg clock keep the old always-burn behavior.
+ */
+export function engineLitFor(nav: NavStateBroadcast | null | undefined): boolean {
+  if (nav?.phase !== 'in_transit' || (nav?.flameout ?? false)) return false;
+  const total = nav?.legTotalS ?? 0;
+  const remaining = nav?.remainingS ?? 0;
+  if (!(total > 0) || !Number.isFinite(remaining)) return true;
+  const elapsed = Math.min(total, Math.max(0, total - Math.max(0, remaining)));
+  return elapsed >= DEPARTURE_TAIL_S && remaining > DOCKING_S;
+}
+
 function buildView(
   input: ExhaustSource,
   nav: NavStateBroadcast | null | undefined,
   tintName: ThrusterTint,
   engineTier?: number
 ): ShipExhaustView {
+  const engineLit = engineLitFor(nav);
+  const params = engineLit
+    ? exhaustParamsFor(input, engineTier)
+    : exhaustParamsFor(input.flameout === true ? { flameout: true } : { phase: 'docked' });
   return {
     phase: input.phase,
     thrust01: pickNumber(nav?.thrust01, 1),
@@ -194,10 +280,12 @@ function buildView(
     braking: brakingFor(nav),
     tintName,
     tint: thrusterPlume(tintName),
-    params: exhaustParamsFor(input, engineTier),
+    params,
     thrustVec: null,
     thrustSpeed: 0,
     coast: true,
+    engineLit,
+    maneuvering: isRcsPhase(input.phase) || (input.phase === 'in_transit' && !engineLit),
   };
 }
 

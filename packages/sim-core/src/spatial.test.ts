@@ -85,24 +85,24 @@ describe('Spatial Collision & Sliding Math', () => {
 
   it('models consoles on every station frame', () => {
     const helm = HESPERIA_STATIONS.find((station) => station.id === 'hub_c.kommando_helm');
-    expect(helm).toMatchObject({ deckId: 'hub_c', x: 70, y: 8380 });
+    expect(helm).toMatchObject({ deckId: 'hub_c', x: 70, y: 380 });
     const winch = HESPERIA_STATIONS.find((station) => station.id === 'hub_d.fracht_winch');
-    expect(winch).toMatchObject({ deckId: 'hub_d', x: 410, y: 12380 });
+    expect(winch).toMatchObject({ deckId: 'hub_d', x: 410, y: 380 });
     const ids = HESPERIA_STATIONS.map((station) => station.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('renders every station frame at world coords', () => {
     const cinder = HESPERIA_ROOMS.find((room) => room.id === 'hub_c.frachthalle');
-    expect(cinder).toMatchObject({ x: 300, y: 8280, width: 220, height: 200 });
+    expect(cinder).toMatchObject({ x: 300, y: 280, width: 220, height: 200 });
     expect(HESPERIA_ROOMS.some((room) => room.id === 'hub_b.hangar')).toBe(true);
     expect(HESPERIA_ROOMS.some((room) => room.id === 'hub_c.labor')).toBe(true);
     expect(HESPERIA_ROOMS.some((room) => room.id === 'hub_d.observatorium')).toBe(true);
     const cinderWalls = HESPERIA_WALLS.filter((wall) => wall.id.startsWith('hub_c.frachthalle.'));
     expect(cinderWalls.length).toBeGreaterThan(0);
     for (const wall of cinderWalls) {
-      expect(wall.y1).toBeGreaterThanOrEqual(8280);
-      expect(wall.y2).toBeGreaterThanOrEqual(8280);
+      expect(wall.y1).toBeGreaterThanOrEqual(280);
+      expect(wall.y2).toBeGreaterThanOrEqual(280);
     }
     const cinderLamp = HESPERIA_LIGHTS.find((light) => light.id === 'light_hub_c.frachthalle');
     expect(cinderLamp?.room).toBe('hub_c.frachthalle');

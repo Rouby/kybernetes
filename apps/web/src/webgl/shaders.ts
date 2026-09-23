@@ -50,6 +50,7 @@ in vec2 v_uv;
 uniform vec2 u_resolution;
 uniform vec2 u_camera;
 uniform vec2 u_scroll;
+uniform float u_roll;
 uniform float u_time;
 out vec4 fragColor;
 
@@ -60,19 +61,28 @@ float hash(vec2 p) {
 }
 
 void main() {
-  vec2 worldCoord = (v_uv * u_resolution + (u_camera + u_scroll) * 0.25);
+  // Screen-space roll cue around the frame center; zero roll is identity.
+  vec2 center = u_resolution * 0.5;
+  float c = cos(u_roll);
+  float s = sin(u_roll);
+  vec2 rel = v_uv * u_resolution - center;
+  vec2 base = vec2(c * rel.x - s * rel.y, s * rel.x + c * rel.y) + center;
+  // Near field rides the full drift; the far field lags for parallax.
+  vec2 drift = (u_camera + u_scroll) * 0.25;
+  vec2 worldCoord = base + drift;
+  vec2 farCoord = base + drift * 0.45;
   vec3 bg = vec3(0.015, 0.02, 0.04);
 
   // Subtle nebula clouds
   float neb = sin(worldCoord.x * 0.0015) * cos(worldCoord.y * 0.0015);
   bg += vec3(0.01, 0.02, 0.035) * max(0.0, neb + 0.5);
 
-  // Layer 1: Distant small stars
-  vec2 cell1 = floor(worldCoord / 60.0);
+  // Layer 1: Distant small stars (slower parallax drift)
+  vec2 cell1 = floor(farCoord / 60.0);
   float h1 = hash(cell1);
   if (h1 > 0.88) {
     vec2 pos1 = (cell1 + vec2(hash(cell1 + 1.0), hash(cell1 + 2.0))) * 60.0;
-    float d1 = length(worldCoord - pos1);
+    float d1 = length(farCoord - pos1);
     float twinkle = 0.7 + 0.3 * sin(u_time * 2.0 + h1 * 6.28);
     bg += vec3(0.9, 0.95, 1.0) * max(0.0, 1.0 - d1 / 1.5) * twinkle;
   }

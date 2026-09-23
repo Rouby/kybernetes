@@ -10,6 +10,7 @@ import {
   type DockFrameOffset,
   HESPERIA_WALLS,
   partitionFrameWalls,
+  stationFrameOf,
 } from './deck';
 import { getWorldDoors } from './doors';
 
@@ -44,18 +45,61 @@ function gapsForFrame(breaches: readonly FramedBreachSegment[], ship: boolean): 
  * Cut breach gaps only into their own frame's walls. Ship cuts are
  * frame-local like ship walls, so carving the mixed wall soup with raw
  * segments punched holes into station bulkheads (and poisoned sight).
- * Puncture decals never carve; only full breaches open walls for sight.
+ * Sharing one berth across hubs makes this exact: co-located hub walls
+ * must not scar each other. Puncture decals never carve; only full
+ * breaches open walls for sight.
  */
 export function carveWallsByFrame(
   walls: readonly WallSegment[],
   breaches: readonly FramedBreachSegment[]
 ): WallSegment[] {
   if (breaches.length === 0) return [...walls];
+  if (breaches.every((breach) => breach.frameId === undefined)) return carveBySide(walls, breaches);
+  return carveByExactFrame(walls, breaches);
+}
+
+/** Legacy side-based carve for untagged segments (broadcast behavior). */
+function carveBySide(
+  walls: readonly WallSegment[],
+  breaches: readonly FramedBreachSegment[]
+): WallSegment[] {
   const { ship, station } = partitionFrameWalls([...walls]);
   return [
     ...carveWallsAtBreachSegments(station, gapsForFrame(breaches, false)),
     ...carveWallsAtBreachSegments(ship, gapsForFrame(breaches, true)),
   ];
+}
+
+/** Exact-frame carve: tagged gaps cut only their own frame's walls. */
+function carveByExactFrame(
+  walls: readonly WallSegment[],
+  breaches: readonly FramedBreachSegment[]
+): WallSegment[] {
+  const groups = new Map<string, WallSegment[]>();
+  for (const wall of walls) groupWall(groups, wall);
+  const out: WallSegment[] = [];
+  for (const [frame, group] of groups) {
+    out.push(...carveWallsAtBreachSegments(group, gapsForWall(breaches, frame)));
+  }
+  return out;
+}
+
+function groupWall(groups: Map<string, WallSegment[]>, wall: WallSegment): void {
+  const frame = stationFrameOf(wall.id);
+  const group = groups.get(frame);
+  if (group === undefined) groups.set(frame, [wall]);
+  else group.push(wall);
+}
+
+/** Gaps for one wall frame: its tagged breaches plus legacy untagged side gaps. */
+function gapsForWall(breaches: readonly FramedBreachSegment[], frame: string): BreachSegment[] {
+  const gaps: BreachSegment[] = [];
+  for (const breach of breaches) {
+    if (breach.frameId !== undefined && breach.frameId !== frame) continue;
+    if (breach.areaM2 !== undefined && breach.areaM2 < PUNCTURE_MAX_M2) continue;
+    gaps.push({ x1: breach.x1, y1: breach.y1, x2: breach.x2, y2: breach.y2 });
+  }
+  return gaps;
 }
 
 export function getOpaqueWallSegments(

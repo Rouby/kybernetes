@@ -148,10 +148,10 @@ function hubDock(id: string, stationFrame: string, origin: { x: number; y: numbe
   };
 }
 
-/** Second trade-hub dock: same tube geometry, carried 4000px south. */
+/** Second trade-hub dock: same tube geometry on the shared berth. */
 export const HUB_B_DOCK: DockLink = hubDock('hub_b_harbor', HUB_B_STATION, HUB_B_ORIGIN);
 
-/** Third and fourth trade-hub docks: same tube geometry, further south. */
+/** Third and fourth trade-hub docks: same tube geometry on the shared berth. */
 export const HUB_C_DOCK: DockLink = hubDock('hub_c_harbor', HUB_C_STATION, HUB_C_ORIGIN);
 
 export const HUB_D_DOCK: DockLink = hubDock('hub_d_harbor', HUB_D_STATION, HUB_D_ORIGIN);

@@ -6,6 +6,7 @@ import {
   buildDebugPawns,
   buildDebugPortals,
   buildDebugRooms,
+  DEBUG_FRAME_STEP_PX,
   debugBounds,
   debugOrigins,
   debugRoom,
@@ -83,6 +84,15 @@ describe('debug world mapping', () => {
     expect(origins.get('station')).toEqual({ x: 0, y: 0 });
     expect(origins.get('ship')).toEqual({ x: 1700, y: 0 });
     expect(debugOrigins(null).get('ship')).toBeDefined();
+  });
+
+  it('lays shared-berth stations out side by side for debug display', () => {
+    const origins = debugOrigins(snapshot());
+    expect(origins.get('station')).toEqual({ x: 0, y: 0 });
+    expect(origins.get('hub_b')).toEqual({ x: DEBUG_FRAME_STEP_PX, y: 0 });
+    expect(origins.get('hub_c')).toEqual({ x: 2 * DEBUG_FRAME_STEP_PX, y: 0 });
+    expect(origins.get('hub_d')).toEqual({ x: 3 * DEBUG_FRAME_STEP_PX, y: 0 });
+    expect(origins.get('ship')).toEqual({ x: 1700, y: 0 });
   });
 
   it('places rooms in world space with atmos readings', () => {

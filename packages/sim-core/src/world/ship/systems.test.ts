@@ -236,7 +236,7 @@ describe('voyage side effects (M3 abstract transit)', () => {
     }
     expect(world.ships.ship?.nav.phase).toBe('docked');
     expect(world.ships.ship?.nav.portHubId).toBe('hub_b');
-    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: 3920 });
+    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: -80 });
     expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
     world = driveAttentive(world, 5);
     expect(world.vessels.ship?.schedule).toBe('docked');
@@ -268,7 +268,7 @@ describe('voyage side effects (M3 abstract transit)', () => {
     }
     expect(world.ships.ship?.nav.phase).toBe('docked');
     expect(world.ships.ship?.nav.portHubId).toBe('hub_d');
-    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: 11920 });
+    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: -80 });
     expect(dockWalkable(world, 'hub_d_harbor')).toBe(true);
   });
 
@@ -282,10 +282,27 @@ describe('voyage side effects (M3 abstract transit)', () => {
     expect(world.ships.ship?.nav.phase).toBe('docked');
     expect(world.ships.ship?.nav.portHubId).toBe('hub_b');
     expect(world.vessels.ship?.schedule).toBe('docked');
-    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: 3920 });
+    expect(world.vessels.ship?.origin).toEqual({ x: 1210, y: -80 });
     expect(dockWalkable(world, 'hub_b_harbor')).toBe(true);
     expect(dockWalkable(world, 'harbor')).toBe(false);
     expect(world.ships.ship?.engineFuel ?? 0).toBeLessThan(2 * FUEL_PER_CELL);
+  });
+
+  it('holds the shared berth across consecutive legs', () => {
+    let world = driveAttentive(plotToHubB(hotBoat()), 212);
+    expect(world.ships.ship?.nav.portHubId).toBe('hub_b');
+    world = syncEngineFuel(world, 'ship', 2 * FUEL_PER_CELL);
+    const onward = plotVoyage(world, 'ship', 'hub_c', {
+      hot: true,
+      powered: true,
+      engineFuel: 2 * FUEL_PER_CELL,
+    });
+    if (onward.reject !== undefined) throw new Error(`onward plot rejected: ${onward.reject}`);
+    world = driveAttentive(onward.world, 12);
+    expect(world.ships.ship?.nav.phase).toBe('in_transit');
+    // One berth for every hub: the second departure holds the same point
+    // instead of dragging the hull across the world toward another station.
+    expect(world.vessels.ship?.origin).toEqual({ ...SHIP_FAR_ORIGIN });
   });
 
   it('flies straight back: two consecutive legs end home', () => {

@@ -39,9 +39,9 @@ describe('framed doors', () => {
     });
     expect(getWorldDoors([cinder], { x: 9, y: 9 })[0]).toMatchObject({
       x1: 100,
-      y1: 8200,
+      y1: 200,
       x2: 140,
-      y2: 8200,
+      y2: 200,
     });
     const ship = door({ roomA: 'ship.bruecke', roomB: 'ship.korridor_schiff' });
     expect(getWorldDoors([ship], { x: 9, y: 9 })[0]).toMatchObject({ x1: 109, y1: 209 });

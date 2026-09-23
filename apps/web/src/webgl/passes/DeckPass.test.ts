@@ -13,10 +13,9 @@ describe('DeckPass helpers', () => {
       expect(tubeOrigin({ x1: 1210, y1: 240 })).toEqual({ x: 0, y: 0 });
     });
 
-    it('calculates the true world offset for far hub mouths', () => {
-      expect(tubeOrigin({ x1: 1210, y1: 4240 })).toEqual({ x: 0, y: 4000 });
-      expect(tubeOrigin({ x1: 1210, y1: 8240 })).toEqual({ x: 0, y: 8000 });
-      expect(tubeOrigin({ x1: 1210, y1: 12240 })).toEqual({ x: 0, y: 12000 });
+    it('resolves every hub mouth to the shared berth origin', () => {
+      // All hubs coincide at the origin; any hub mouth maps back to zero.
+      expect(tubeOrigin({ x1: 1210, y1: 240 })).toEqual({ x: 0, y: 0 });
     });
   });
 
@@ -24,12 +23,12 @@ describe('DeckPass helpers', () => {
     it('returns all hub origins when visibleFrames is undefined', () => {
       const all = visibleStationOrigins(undefined);
       expect(all.map((item) => item.frame)).toEqual(['station', 'hub_b', 'hub_c', 'hub_d']);
-      expect(all.find((item) => item.frame === 'hub_b')?.origin).toEqual({ x: 0, y: 4000 });
+      expect(all.find((item) => item.frame === 'hub_b')?.origin).toEqual({ x: 0, y: 0 });
     });
 
     it('filters origins strictly to visible station frames', () => {
       const hubBOnly = visibleStationOrigins(new Set(['ship', 'hub_b']));
-      expect(hubBOnly).toEqual([{ frame: 'hub_b', origin: { x: 0, y: 4000 } }]);
+      expect(hubBOnly).toEqual([{ frame: 'hub_b', origin: { x: 0, y: 0 } }]);
 
       const stationOnly = visibleStationOrigins(new Set(['ship', 'station']));
       expect(stationOnly).toEqual([{ frame: 'station', origin: { x: 0, y: 0 } }]);
@@ -37,7 +36,7 @@ describe('DeckPass helpers', () => {
       const transitBoth = visibleStationOrigins(new Set(['ship', 'station', 'hub_b']));
       expect(transitBoth).toEqual([
         { frame: 'station', origin: { x: 0, y: 0 } },
-        { frame: 'hub_b', origin: { x: 0, y: 4000 } },
+        { frame: 'hub_b', origin: { x: 0, y: 0 } },
       ]);
     });
   });
@@ -49,7 +48,7 @@ describe('DeckPass helpers', () => {
     });
 
     it('maps mouthWorld into the render dock view', () => {
-      const mouthWorld = { x1: 1210, y1: 4240, x2: 1210, y2: 4280 };
+      const mouthWorld = { x1: 1210, y1: 240, x2: 1210, y2: 280 };
       const view = dockRenderView({
         type: 'DOCK_STATUS',
         v: 2,
