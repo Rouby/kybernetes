@@ -33,6 +33,14 @@ export interface SoundboardEngine {
   readonly playSealStamp: () => void;
   readonly playCashRegister: () => void;
   readonly playPackReject: () => void;
+  readonly startTechno: (intensity?: number, freak?: number) => void;
+  readonly stopTechno: () => void;
+  readonly setTechnoFreak: (freak: number) => void;
+  readonly isTechnoPlaying: () => boolean;
+  readonly previewAlert: (level: 'nominal' | 'yellow' | 'red') => void;
+  readonly playTrack: (id: string) => void;
+  readonly crossfadeOther: () => void;
+  readonly transitionDropTo: (id: string) => void;
 }
 
 export interface SoundboardButton {
@@ -78,7 +86,34 @@ export function soundboardButtons(engine: SoundboardEngine): SoundboardButton[] 
     },
     { group: 'Weapons', label: 'Kinetic impact', play: () => engine.playImpact(0, 0, 'kinetic') },
     { group: 'Weapons', label: 'Laser impact', play: () => engine.playImpact(0, 0, 'laser') },
+    { group: 'Music', label: 'Freaky techno: drop', play: () => engine.startTechno(0.85, 0.9) },
+    { group: 'Music', label: 'Freaky techno: stripped', play: () => engine.startTechno(0.4, 0.4) },
+    { group: 'Music', label: 'Freaky techno: full freak', play: () => engine.setTechnoFreak(1.0) },
+    { group: 'Music', label: 'Freaky techno: toggle', play: () => toggleTechno(engine) },
+    { group: 'Music', label: 'Freaky techno: cut', play: () => engine.stopTechno() },
+    { group: 'Music', label: 'Iron Chapel: drop', play: () => engine.playTrack('iron-chapel') },
+    { group: 'Music', label: 'Rave 99: drop', play: () => engine.playTrack('rave-99') },
+    { group: 'Music', label: 'DJ xfade to next track', play: () => engine.crossfadeOther() },
+    { group: 'Music', label: 'DROP to Rave 99', play: () => engine.transitionDropTo('rave-99') },
+
+    {
+      group: 'Alert',
+      label: 'Alert nominal (music chills)',
+      play: () => engine.previewAlert('nominal'),
+    },
+    {
+      group: 'Alert',
+      label: 'Alert yellow (music lifts)',
+      play: () => engine.previewAlert('yellow'),
+    },
+    { group: 'Alert', label: 'Alert red (full freak)', play: () => engine.previewAlert('red') },
   ];
+}
+
+/** Toggle audition: stops a running loop, otherwise drops the full-freak loop. */
+function toggleTechno(engine: SoundboardEngine): void {
+  if (engine.isTechnoPlaying()) engine.stopTechno();
+  else engine.startTechno(0.85, 0.9);
 }
 
 const SOUNDBOARD_CSS =

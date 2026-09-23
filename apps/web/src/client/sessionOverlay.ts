@@ -37,9 +37,13 @@ export interface OverlayAudio {
   readonly ready: boolean;
   readonly muted: boolean;
   readonly masterPct: number;
+  readonly musicPct: number;
+  readonly musicOn: boolean;
   readonly enable: () => void;
   readonly setMasterPct: (pct: number) => void;
   readonly setMuted: (muted: boolean) => void;
+  readonly setMusicPct: (pct: number) => void;
+  readonly setMusicOn: (on: boolean) => void;
 }
 
 export interface OverlayConsoles {
@@ -133,11 +137,20 @@ export function buildGlOverlayWiring(args: GlOverlayBuildArgs): GlSessionWiring 
     onVolumeDown: () => args.audio.setMasterPct(Math.max(0, args.audio.masterPct - 10)),
     onVolumeUp: () => args.audio.setMasterPct(Math.min(100, args.audio.masterPct + 10)),
     onToggleMute: () => args.audio.setMuted(!args.audio.muted),
+    onMusicDown: () => args.audio.setMusicPct(Math.max(0, args.audio.musicPct - 10)),
+    onMusicUp: () => args.audio.setMusicPct(Math.min(100, args.audio.musicPct + 10)),
+    onToggleMusic: () => args.audio.setMusicOn(!args.audio.musicOn),
   };
 }
 
 function audioSnapshotOf(audio: OverlayAudio): GlAudioState {
-  return { ready: audio.ready, muted: audio.muted, masterPct: audio.masterPct };
+  return {
+    ready: audio.ready,
+    muted: audio.muted,
+    masterPct: audio.masterPct,
+    musicPct: audio.musicPct,
+    musicOn: audio.musicOn,
+  };
 }
 
 function marketWiringOf(

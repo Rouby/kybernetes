@@ -69,6 +69,8 @@ export interface GlAudioState {
   readonly ready: boolean;
   readonly muted: boolean;
   readonly masterPct: number;
+  readonly musicPct: number;
+  readonly musicOn: boolean;
 }
 export type { ConsoleKind };
 

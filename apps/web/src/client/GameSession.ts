@@ -339,9 +339,13 @@ export class GameSession {
         ready: audioSnap.ready,
         muted: audioSnap.muted,
         masterPct: audioSnap.masterPct,
+        musicPct: audioSnap.musicPct,
+        musicOn: audioSnap.musicOn,
         enable: () => this.audio.enable(),
         setMasterPct: (pct) => this.audio.setMasterPct(pct),
         setMuted: (muted) => this.audio.setMuted(muted),
+        setMusicPct: (pct) => this.audio.setMusicPct(pct),
+        setMusicOn: (on) => this.audio.setMusicOn(on),
       },
       consoles: {
         consoleOpen: consoleSnap.consoleOpen,

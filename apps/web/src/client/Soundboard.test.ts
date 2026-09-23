@@ -22,7 +22,9 @@ describe('soundboardButtons', () => {
     const buttons = soundboardButtons(engine);
     expect(buttons.length).toBeGreaterThan(15);
     const groups = new Set(buttons.map((button) => button.group));
-    expect(groups).toEqual(new Set(['Pack bench', 'Trade', 'UI', 'Ship', 'Weapons']));
+    expect(groups).toEqual(
+      new Set(['Pack bench', 'Trade', 'UI', 'Ship', 'Weapons', 'Music', 'Alert'])
+    );
     for (const button of buttons) button.play();
     const fired = Object.values(engine).filter((fn) => fn.mock.calls.length > 0).length;
     expect(fired).toBe(Object.keys(engine).length);

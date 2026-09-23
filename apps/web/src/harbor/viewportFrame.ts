@@ -243,6 +243,9 @@ export interface GlSessionWiring {
   readonly onVolumeDown: () => void;
   readonly onVolumeUp: () => void;
   readonly onToggleMute: () => void;
+  readonly onMusicDown: () => void;
+  readonly onMusicUp: () => void;
+  readonly onToggleMusic: () => void;
 }
 
 /** Framework-free mutable cell (replaces React RefObject post-removal). */
@@ -680,6 +683,9 @@ const SETTINGS_ACTIONS: Record<string, OverlayHandler> = {
   volup: (wiring) => wiring.onVolumeUp(),
   mute: (wiring) => wiring.onToggleMute(),
   enable: (wiring) => wiring.onEnableAudio(),
+  musdn: (wiring) => wiring.onMusicDown(),
+  musup: (wiring) => wiring.onMusicUp(),
+  musicon: (wiring) => wiring.onToggleMusic(),
 };
 
 /** Session overlay: death, audio, pause, consoles; sized to the live canvas. */
@@ -769,7 +775,9 @@ function overlayLayoutFor(
       height,
       wiring.audio.masterPct,
       wiring.audio.muted,
-      wiring.audio.ready
+      wiring.audio.ready,
+      wiring.audio.musicPct,
+      wiring.audio.musicOn
     );
   }
   if (selected === 'pause') return layoutPauseScreen(width, height);

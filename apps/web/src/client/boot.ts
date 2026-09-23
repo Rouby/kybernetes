@@ -6,6 +6,7 @@
 
 import { buildSoloShipWorld } from '@kybernetes/sim-core';
 import { DebugView } from '../harbor/DebugView';
+import { mountMusicView } from './MusicView';
 import { ScreenManager } from './ScreenManager';
 import { mountSoundboard } from './Soundboard';
 import { createObserverStore } from './stores/ObserverStore';
@@ -18,6 +19,7 @@ export function startBoot(): () => void {
     return startDebugView(root, params.get('beacon') ?? 'HESP01');
   }
   if (params.get('soundboard') === '1') return mountSoundboard(root);
+  if (params.get('music') === '1') return mountMusicView(root);
   const manager = new ScreenManager({
     root,
     storage: window.localStorage,

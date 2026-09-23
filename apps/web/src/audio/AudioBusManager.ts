@@ -4,6 +4,7 @@ export interface BusVolumes {
   foley: number;
   ui: number;
   crisis: number;
+  music: number;
   isMuted: boolean;
 }
 
@@ -15,6 +16,7 @@ const DEFAULT_VOLUMES: BusVolumes = {
   foley: 0.8,
   ui: 0.75,
   crisis: 0.9,
+  music: 0.7,
   isMuted: false,
 };
 
@@ -51,6 +53,7 @@ export class AudioBusManager {
   public foleyGain: GainNode;
   public uiGain: GainNode;
   public crisisGain: GainNode;
+  public musicGain: GainNode;
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
@@ -63,6 +66,7 @@ export class AudioBusManager {
     this.foleyGain = ctx.createGain();
     this.uiGain = ctx.createGain();
     this.crisisGain = ctx.createGain();
+    this.musicGain = ctx.createGain();
 
     this.setupNodeGraph();
     this.applyVolumes();
@@ -83,6 +87,7 @@ export class AudioBusManager {
     this.ambienceGain.connect(this.masterCrisisFilter);
     this.foleyGain.connect(this.masterCrisisFilter);
     this.crisisGain.connect(this.masterCrisisFilter);
+    this.musicGain.connect(this.masterCrisisFilter);
 
     // UI connects directly to master gain to keep UI audible even during in-game audio trauma
     this.uiGain.connect(this.masterGain);
@@ -129,6 +134,7 @@ export class AudioBusManager {
     this.foleyGain.gain.setTargetAtTime(this.volumes.foley, t, 0.03);
     this.uiGain.gain.setTargetAtTime(this.volumes.ui, t, 0.03);
     this.crisisGain.gain.setTargetAtTime(this.volumes.crisis, t, 0.03);
+    this.musicGain.gain.setTargetAtTime(this.volumes.music, t, 0.03);
     this.notify();
   }
 

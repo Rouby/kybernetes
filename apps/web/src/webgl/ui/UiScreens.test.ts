@@ -697,10 +697,26 @@ describe('settings screen', () => {
   it('toggles enable vs volume rows', () => {
     const off = layoutSettingsScreen(W, H, 80, false, false);
     expect(off.buttons.map((b) => b.id)).toContain('enable');
-    const on = layoutSettingsScreen(W, H, 80, false, true);
-    expect(on.buttons.map((b) => b.id)).toEqual(['voldn', 'volup', 'mute', 'close']);
+    const on = layoutSettingsScreen(W, H, 80, false, true, 70, true);
+    expect(on.buttons.map((b) => b.id)).toEqual([
+      'voldn',
+      'volup',
+      'mute',
+      'musdn',
+      'musup',
+      'musicon',
+      'close',
+    ]);
+    expect(on.texts.map((t) => t.text)).toContain('MUS 70%');
     const muted = layoutSettingsScreen(W, H, 80, true, true);
     expect(muted.buttons.find((b) => b.id === 'mute')?.label).toBe('MUTED');
+  });
+
+  it('labels the music toggle from its persisted state', () => {
+    const playing = layoutSettingsScreen(W, H, 80, false, true, 70, true);
+    expect(playing.buttons.find((b) => b.id === 'musicon')?.label).toBe('MUSIC ON');
+    const stopped = layoutSettingsScreen(W, H, 80, false, true, 70, false);
+    expect(stopped.buttons.find((b) => b.id === 'musicon')?.label).toBe('MUSIC OFF');
   });
 });
 

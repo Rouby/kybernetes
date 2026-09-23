@@ -1593,18 +1593,20 @@ export function layoutPackScreen(
 }
 
 function settingsPanelFor(w: number, h: number): UiRect {
-  return centerPanelFor(w, h, 400, 320);
+  return centerPanelFor(w, h, 400, 520);
 }
 
-function settingsTextsFor(panel: UiRect, masterPct: number): readonly UiText[] {
+function settingsTextsFor(panel: UiRect, masterPct: number, musicPct: number): readonly UiText[] {
   const tx = panel.x + PAD;
   const ky = panel.y + PAD;
   const ty = ky + KICKER_SIZE + 8;
   const vy = ty + TITLE_SIZE + 12;
+  const my = vy + BODY_SIZE + 8;
   return [
     textAt('HARBOR CONTROL // AUDIO', tx, ky, KICKER_SIZE, 'dim'),
     textAt('SHIP AUDIO', tx, ty, TITLE_SIZE, 'cyan'),
     textAt(`VOL ${masterPct}%`, tx, vy, BODY_SIZE, 'primary'),
+    textAt(`MUS ${musicPct}%`, tx, my, BODY_SIZE, 'primary'),
   ];
 }
 
@@ -1612,7 +1614,8 @@ function settingsButtonsFor(
   panel: UiRect,
   masterPct: number,
   muted: boolean,
-  audioReady: boolean
+  audioReady: boolean,
+  musicOn: boolean
 ): readonly UiButton[] {
   if (!audioReady) {
     const top = panel.y + panel.h - PAD - (2 * BTN_H + GAP);
@@ -1625,9 +1628,19 @@ function settingsButtonsFor(
     );
   }
   const muteLabel = muted ? 'MUTED' : `VOL ${masterPct}%`;
-  const top = panel.y + panel.h - PAD - (4 * BTN_H + 3 * GAP);
-  const labels = { voldn: 'VOL -', volup: 'VOL +', mute: muteLabel, close: 'CLOSE' };
-  return columnFor(panel, top, ['voldn', 'volup', 'mute', 'close'], labels, undefined);
+  const musicLabel = musicOn ? 'MUSIC ON' : 'MUSIC OFF';
+  const ids = ['voldn', 'volup', 'mute', 'musdn', 'musup', 'musicon', 'close'] as const;
+  const top = panel.y + panel.h - PAD - (ids.length * BTN_H + (ids.length - 1) * GAP);
+  const labels = {
+    voldn: 'VOL -',
+    volup: 'VOL +',
+    mute: muteLabel,
+    musdn: 'MUS -',
+    musup: 'MUS +',
+    musicon: musicLabel,
+    close: 'CLOSE',
+  };
+  return columnFor(panel, top, [...ids], labels, undefined);
 }
 
 export function layoutSettingsScreen(
@@ -1635,11 +1648,17 @@ export function layoutSettingsScreen(
   h: number,
   masterPct: number,
   muted: boolean,
-  audioReady: boolean
+  audioReady: boolean,
+  musicPct = 70,
+  musicOn = true
 ): UiScreenLayout {
   const panel = settingsPanelFor(w, h);
-  const texts = settingsTextsFor(panel, masterPct);
-  return { panel, texts, buttons: settingsButtonsFor(panel, masterPct, muted, audioReady) };
+  const texts = settingsTextsFor(panel, masterPct, musicPct);
+  return {
+    panel,
+    texts,
+    buttons: settingsButtonsFor(panel, masterPct, muted, audioReady, musicOn),
+  };
 }
 
 export function navigateUi(current: number, key: string, count: number): number {
@@ -1674,7 +1693,7 @@ const UI_BUTTON_IDS: Record<UiScreenId, readonly string[]> = {
   pause: ['resume', 'restart', 'quit', 'audio'],
   death: ['restart', 'quit'],
   gameover: ['restart'],
-  settings: ['voldn', 'volup', 'mute', 'close'],
+  settings: ['voldn', 'volup', 'mute', 'musdn', 'musup', 'musicon', 'close'],
 };
 
 export function uiScreenButtonIds(screen: UiScreenId): readonly string[] {

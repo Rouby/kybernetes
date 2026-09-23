@@ -25,6 +25,7 @@ describe('AudioPrefs bus subscription', () => {
       foley: 0.8,
       ui: 0.75,
       crisis: 0.9,
+      music: 0.7,
       isMuted: false,
     };
     return {
@@ -63,12 +64,69 @@ describe('AudioPrefs bus subscription', () => {
       const fake = fakeBus();
       engine.busManager = fake.bus as unknown as typeof engine.busManager;
       prefs.enable();
-      fake.emit({ master: 0.5, ambience: 0.6, foley: 0.8, ui: 0.75, crisis: 0.9, isMuted: false });
+      fake.emit({
+        master: 0.5,
+        ambience: 0.6,
+        foley: 0.8,
+        ui: 0.75,
+        crisis: 0.9,
+        music: 0.7,
+        isMuted: false,
+      });
       expect(seen.length).toBeGreaterThan(0);
       expect(prefs.getSnapshot().masterPct).toBe(50);
       expect(prefs.getSnapshot().ready).toBe(true);
     } finally {
       engine.busManager = prior;
+    }
+  });
+});
+
+describe('AudioPrefs background music', () => {
+  it('defaults music on at 70% without a context', () => {
+    const prefs = new AudioPrefs();
+    expect(prefs.getSnapshot().musicOn).toBe(true);
+    expect(prefs.getSnapshot().musicPct).toBe(70);
+  });
+
+  it('routes music volume through the music bus', () => {
+    const engine = ShipAudioEngine.getInstance();
+    const prior = engine.busManager;
+    let volumes: BusVolumes = {
+      master: 0.7,
+      ambience: 0.6,
+      foley: 0.8,
+      ui: 0.75,
+      crisis: 0.9,
+      music: 0.7,
+      isMuted: false,
+    };
+    engine.busManager = {
+      getVolumes: () => volumes,
+      setVolume: (bus: string, value: number) => {
+        volumes = { ...volumes, [bus]: value };
+      },
+    } as unknown as typeof engine.busManager;
+    try {
+      const prefs = new AudioPrefs();
+      prefs.setMusicPct(40);
+      expect(prefs.getSnapshot().musicPct).toBe(40);
+    } finally {
+      engine.busManager = prior;
+    }
+  });
+
+  it('pushes the music toggle into the engine desired flag', () => {
+    const spy = vi.spyOn(ShipAudioEngine.prototype, 'setMusicDesired');
+    try {
+      const prefs = new AudioPrefs();
+      prefs.setMusicOn(false);
+      expect(spy).toHaveBeenCalledWith(false);
+      expect(prefs.getSnapshot().musicOn).toBe(false);
+      prefs.setMusicOn(true);
+      expect(spy).toHaveBeenCalledWith(true);
+    } finally {
+      spy.mockRestore();
     }
   });
 });

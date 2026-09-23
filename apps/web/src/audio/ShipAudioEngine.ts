@@ -6,13 +6,23 @@ import type {
 } from '@kybernetes/protocol';
 import { AcousticSpatializer } from './AcousticSpatializer';
 import { AudioBusManager } from './AudioBusManager';
+import {
+  bassSwap,
+  crossfadeLevels,
+  DJ_OUTPUT_LEVEL,
+  DJ_XFADE_BARS,
+  DJ_XFADE_TICK_MS,
+  tempoGlide,
+} from './djTransition';
 import { SpatialFoleyPool } from './SpatialFoleyPool';
 import { AlarmSynth } from './synths/AlarmSynth';
 import { BallisticsSynth } from './synths/BallisticsSynth';
 import { type DeckSurfaceType, MetallicPlateSynth } from './synths/MetallicPlateSynth';
 import { PneumaticSynth } from './synths/PneumaticSynth';
-import { ReactorDroneSynth } from './synths/ReactorDroneSynth';
+import { TechnoMusicSynth } from './synths/TechnoMusicSynth';
 import { TerminalUiSynth } from './synths/TerminalUiSynth';
+import { TECHNO_STEPS_PER_LOOP, type TechnoVoice } from './synths/technoPatterns';
+import { TECHNO_TRACKS, trackById } from './synths/technoTracks';
 import { VitalsMonitorSynth } from './synths/VitalsMonitorSynth';
 import {
   assessSuffocation,
@@ -20,6 +30,33 @@ import {
   mapperTelemetrySnapshot,
   type TelemetryAudioSnapshot,
 } from './TelemetryAudioMapper';
+
+interface DeckTransition {
+  readonly fromSynth: TechnoMusicSynth;
+  readonly toSynth: TechnoMusicSynth;
+  readonly matchScale: number;
+  readonly t0ms: number;
+  readonly durMs: number;
+  readonly timer: ReturnType<typeof setInterval>;
+}
+
+interface DropTransition {
+  readonly fromSynth: TechnoMusicSynth;
+  readonly toSynth: TechnoMusicSynth;
+  readonly t0ms: number;
+  readonly buildMs: number;
+  readonly targetScale: number;
+  readonly priorScale: number;
+  readonly priorMuted: readonly TechnoVoice[];
+  readonly timers: readonly ReturnType<typeof setTimeout>[];
+  readonly ramp: ReturnType<typeof setInterval> | null;
+}
+
+/** First strip wave at build start: musical voices go, groove stays. */
+const DROP_STRIP_WAVE_1: readonly TechnoVoice[] = ['lead', 'stab', 'chop', 'acid', 'siren'];
+
+/** Second wave at the halfway mark: kick, hats, bass and ride survive. */
+const DROP_STRIP_WAVE_2: readonly TechnoVoice[] = ['knock', 'clap', 'toms', 'crash'];
 
 export class ShipAudioEngine {
   private static instance: ShipAudioEngine | null = null;
@@ -31,11 +68,14 @@ export class ShipAudioEngine {
   // Synths
   public metalSynth: MetallicPlateSynth | null = null;
   public pneumaticSynth: PneumaticSynth | null = null;
-  public reactorSynth: ReactorDroneSynth | null = null;
   public ballisticsSynth: BallisticsSynth | null = null;
   public uiSynth: TerminalUiSynth | null = null;
   public vitalsSynth: VitalsMonitorSynth | null = null;
   public alarmSynth: AlarmSynth | null = null;
+  public technoSynth: TechnoMusicSynth | null = null;
+  private deckTransition: DeckTransition | null = null;
+  private dropTransition: DropTransition | null = null;
+  private driftTimer: ReturnType<typeof setInterval> | null = null;
 
   // Listener Coordinates & Spatial Context
   private listenerX = 0;
@@ -49,6 +89,7 @@ export class ShipAudioEngine {
   private lastHullGroanTime = 0;
   private lastDecompressionRoarTime = 0;
   private previousAlertLevel: 'nominal' | 'yellow' | 'red' = 'nominal';
+  private musicDesired = false;
 
   // Voice Concurrency Limiting
   private activeFoleyVoices = 0;
@@ -77,11 +118,11 @@ export class ShipAudioEngine {
       this.spatializer = new AcousticSpatializer(this.ctx);
       this.metalSynth = new MetallicPlateSynth(this.ctx);
       this.pneumaticSynth = new PneumaticSynth(this.ctx);
-      this.reactorSynth = new ReactorDroneSynth(this.ctx);
       this.ballisticsSynth = new BallisticsSynth(this.ctx);
       this.uiSynth = new TerminalUiSynth(this.ctx);
       this.vitalsSynth = new VitalsMonitorSynth(this.ctx);
       this.alarmSynth = new AlarmSynth(this.ctx);
+      this.technoSynth = new TechnoMusicSynth(this.ctx);
       return true;
     } catch {
       // AudioContext unavailable in environment
@@ -104,9 +145,29 @@ export class ShipAudioEngine {
   }
 
   private startAmbientLoop(): void {
-    if (this.busManager && this.reactorSynth) {
-      this.reactorSynth.start(this.busManager.ambienceGain);
-    }
+    this.startTechnoIfReady();
+  }
+
+  /** Background-music intent: starts now when unlocked, else on resume. */
+  public setMusicDesired(desired: boolean): void {
+    this.musicDesired = desired;
+    if (!desired) this.technoSynth?.stop();
+    else this.startTechnoIfReady();
+  }
+
+  private startTechnoIfReady(): void {
+    if (!this.musicDesired || !this.technoSynth) return;
+    this.startDeck(this.technoSynth);
+  }
+
+  private startDeck(synth: TechnoMusicSynth): void {
+    if (!this.ctx || !this.busManager) return;
+    if (this.ctx.state !== 'running' || synth.isPlaying()) return;
+    const track = synth.currentTrack;
+    synth.start(this.busManager.musicGain, {
+      intensity: track.defaultIntensity,
+      freak: track.defaultFreak,
+    });
   }
 
   private setupGestureUnlock(): void {
@@ -134,22 +195,10 @@ export class ShipAudioEngine {
     const now = performance.now();
     const mapped = mapperTelemetrySnapshot(telemetry, currentRoomId, this.previousAlertLevel);
     this.previousAlertLevel = mapped.alertLevel;
-    this.applyReactorSection(mapped.snapshot, currentRoomId);
     this.applyHullSection(mapped.snapshot, now);
     this.applyAlertSection(mapped.snapshot);
     this.applyVentSection(mapped.snapshot, now);
     this.processVitalsTrauma(vitals, mapped.snapshot, now);
-  }
-
-  private applyReactorSection(
-    snapshot: TelemetryAudioSnapshot,
-    currentRoomId: string | undefined
-  ): void {
-    this.reactorSynth?.updateTelemetry(
-      snapshot.reactorLoad,
-      snapshot.oxygen,
-      currentRoomId === 'bridge'
-    );
   }
 
   private applyHullSection(snapshot: TelemetryAudioSnapshot, now: number): void {
@@ -164,8 +213,12 @@ export class ShipAudioEngine {
     if (!this.busManager) return;
     if (snapshot.alertChanged === 'red') {
       this.alarmSynth?.playRedAlertKlaxon(this.busManager.crisisGain);
+      this.technoSynth?.setIntensity(1.0);
     } else if (snapshot.alertChanged === 'yellow') {
       this.alarmSynth?.playCautionChime(this.busManager.crisisGain);
+      this.technoSynth?.setIntensity(0.65);
+    } else if (snapshot.alertChanged === null) {
+      this.technoSynth?.setIntensity(0.45);
     }
   }
 
@@ -386,5 +439,253 @@ export class ShipAudioEngine {
   public playVisorToggle(sealed: boolean): void {
     if (!this.busManager || !this.vitalsSynth) return;
     this.vitalsSynth.playVisorSeal(this.busManager.foleyGain, sealed);
+  }
+
+  /** Freaky techno background loop through the dedicated music bus. */
+  public startTechno(intensity = 0.8, freak = 0.8): void {
+    if (!this.busManager || !this.technoSynth) return;
+    this.technoSynth.start(this.busManager.musicGain, { intensity, freak });
+  }
+
+  /** Hard cut to a track by id (unknown ids fall back to the main track). */
+  public playTrack(id: string): void {
+    if (!this.ctx || !this.busManager || !this.technoSynth) return;
+    this.cancelTransition();
+    this.cancelDropTransition();
+    this.technoSynth.stop();
+    this.technoSynth.loadTrack(trackById(id));
+    this.technoSynth.setTempoScale(1);
+    this.technoSynth.setBassCut(0);
+    this.technoSynth.setOutputLevel(DJ_OUTPUT_LEVEL);
+    this.startDeck(this.technoSynth);
+  }
+
+  /** Next track in registry order, wrapping around. */
+  public nextTrackId(): string {
+    const ids = TECHNO_TRACKS.map((track) => track.id);
+    const current = this.technoSynth?.currentTrack.id ?? 'freaky-main';
+    return ids[(ids.indexOf(current) + 1) % ids.length];
+  }
+
+  /** DJ crossfade to the next track in registry order. */
+  public crossfadeOther(bars = DJ_XFADE_BARS): void {
+    this.transitionTo(this.nextTrackId(), bars);
+  }
+
+  /**
+   * Drop transition, quantized to the phrase: the build starts on the next
+   * loop boundary, strips to kick, hats, bass and ride in two waves while
+   * gliding to the target tempo, rolls the final loop, then slams the new
+   * track in on the one with an impact.
+   */
+  public transitionDropTo(id: string, buildBars = 4): void {
+    if (!this.ctx || !this.busManager || !this.technoSynth) return;
+    const track = trackById(id);
+    if (track.id === this.technoSynth.currentTrack.id) return;
+    if (this.deckTransition !== null || this.dropTransition !== null) return;
+    this.clearTempoDrift();
+    const fromSynth = this.technoSynth;
+    const toSynth = new TechnoMusicSynth(this.ctx);
+    toSynth.loadTrack(track);
+    toSynth.setOutputLevel(0);
+    const loopSec = TECHNO_STEPS_PER_LOOP * fromSynth.effectiveStepDur();
+    const buildSec = Math.max(0.02, buildBars) * loopSec;
+    const delaySec = fromSynth.secondsToLoopStart();
+    const t0ms = performance.now() + delaySec * 1000;
+    this.dropTransition = {
+      fromSynth,
+      toSynth,
+      t0ms,
+      buildMs: buildSec * 1000,
+      targetScale: track.bpm / fromSynth.currentTrack.bpm,
+      priorScale: fromSynth.getTempoScale(),
+      priorMuted: fromSynth.getSnapshot().muted,
+      timers: [],
+      ramp: null,
+    };
+    const beginAt = setTimeout(() => this.beginDropBuild(), delaySec * 1000);
+    const wave2At = setTimeout(
+      () => this.muteWave(fromSynth, DROP_STRIP_WAVE_2, true),
+      (delaySec + buildSec / 2) * 1000
+    );
+    const rollAt = setTimeout(
+      () => fromSynth.playRoll(loopSec),
+      (delaySec + Math.max(0, buildSec - loopSec)) * 1000
+    );
+    const dropAt = setTimeout(() => this.finishDrop(), (delaySec + buildSec) * 1000);
+    const ramp = setInterval(() => this.tickDropBuild(), 250);
+    this.dropTransition = {
+      ...this.dropTransition,
+      timers: [beginAt, wave2At, rollAt, dropAt],
+      ramp,
+    };
+  }
+
+  private beginDropBuild(): void {
+    const drop = this.dropTransition;
+    if (!drop) return;
+    this.muteWave(drop.fromSynth, DROP_STRIP_WAVE_1, true);
+  }
+
+  private muteWave(synth: TechnoMusicSynth, voices: readonly TechnoVoice[], muted: boolean): void {
+    for (const voice of voices) synth.setVoiceMuted(voice, muted);
+  }
+
+  private tickDropBuild(): void {
+    const drop = this.dropTransition;
+    if (!drop) return;
+    const k = Math.min(1, Math.max(0, (performance.now() - drop.t0ms) / drop.buildMs));
+    drop.fromSynth.setOutputLevel(DJ_OUTPUT_LEVEL * (1 - 0.3 * k));
+    drop.fromSynth.setTempoScale(drop.priorScale + (drop.targetScale - drop.priorScale) * k);
+  }
+
+  private finishDrop(): void {
+    const drop = this.dropTransition;
+    if (!drop || !this.busManager) return;
+    this.clearDropTimers(drop);
+    this.restoreStrip(drop.fromSynth, drop.priorMuted, drop.priorScale);
+    drop.fromSynth.stop();
+    drop.toSynth.setOutputLevel(DJ_OUTPUT_LEVEL);
+    drop.toSynth.setBassCut(0);
+    drop.toSynth.setTempoScale(1);
+    drop.toSynth.start(this.busManager.musicGain);
+    drop.toSynth.playImpact();
+    this.technoSynth = drop.toSynth;
+    this.dropTransition = null;
+  }
+
+  /** Return a stripped deck to the exact mixer state the build found. */
+  private restoreStrip(
+    synth: TechnoMusicSynth,
+    priorMuted: readonly TechnoVoice[],
+    priorScale: number
+  ): void {
+    for (const voice of [...DROP_STRIP_WAVE_1, ...DROP_STRIP_WAVE_2]) {
+      synth.setVoiceMuted(voice, priorMuted.includes(voice));
+    }
+    synth.setOutputLevel(DJ_OUTPUT_LEVEL);
+    synth.setBassCut(0);
+    synth.setTempoScale(priorScale);
+  }
+
+  private clearDropTimers(drop: DropTransition): void {
+    for (const timer of drop.timers) clearTimeout(timer);
+    if (drop.ramp !== null) clearInterval(drop.ramp);
+  }
+
+  private cancelDropTransition(): void {
+    const drop = this.dropTransition;
+    this.dropTransition = null;
+    if (!drop) return;
+    this.clearDropTimers(drop);
+    drop.toSynth.stop();
+    this.restoreStrip(drop.fromSynth, drop.priorMuted, drop.priorScale);
+  }
+
+  /**
+   * Realistic DJ blend: the incoming deck beatmatches silently, floats its
+   * mids and highs in over a long phrase with tempo locked, swaps basslines
+   * at the midpoint, then drifts home to its printed BPM after the blend.
+   */
+  public transitionTo(id: string, bars = DJ_XFADE_BARS): void {
+    if (!this.ctx || !this.busManager || !this.technoSynth) return;
+    const track = trackById(id);
+    if (track.id === this.technoSynth.currentTrack.id) return;
+    if (this.deckTransition !== null || this.dropTransition !== null) return;
+    this.clearTempoDrift();
+    const toSynth = new TechnoMusicSynth(this.ctx);
+    toSynth.loadTrack(track);
+    const matchScale =
+      (this.technoSynth.currentTrack.bpm * this.technoSynth.getTempoScale()) / track.bpm;
+    toSynth.setTempoScale(matchScale);
+    toSynth.setOutputLevel(0);
+    toSynth.setBassCut(1);
+    const delaySec = this.technoSynth.secondsToLoopStart();
+    toSynth.start(this.busManager.musicGain, { when: this.ctx.currentTime + delaySec });
+    const fromStepDur = this.technoSynth.effectiveStepDur();
+    const timer = setInterval(() => this.tickTransition(), DJ_XFADE_TICK_MS);
+    this.deckTransition = {
+      fromSynth: this.technoSynth,
+      toSynth,
+      matchScale,
+      t0ms: performance.now() + delaySec * 1000,
+      durMs: Math.max(0.02, bars) * 32 * fromStepDur * 1000,
+      timer,
+    };
+  }
+
+  private tickTransition(): void {
+    const transition = this.deckTransition;
+    if (!transition) return;
+    const k = Math.max(0, Math.min(1, (performance.now() - transition.t0ms) / transition.durMs));
+    const [outLevel, inLevel] = crossfadeLevels(k);
+    const [outCut, inCut] = bassSwap(k);
+    transition.fromSynth.setOutputLevel(outLevel);
+    transition.fromSynth.setBassCut(outCut);
+    transition.toSynth.setOutputLevel(inLevel);
+    transition.toSynth.setBassCut(inCut);
+    if (k >= 1) this.finishTransition();
+  }
+
+  private finishTransition(): void {
+    const transition = this.deckTransition;
+    if (!transition) return;
+    clearInterval(transition.timer);
+    transition.fromSynth.stop();
+    transition.toSynth.setOutputLevel(DJ_OUTPUT_LEVEL);
+    transition.toSynth.setBassCut(0);
+    this.technoSynth = transition.toSynth;
+    this.deckTransition = null;
+    this.startTempoDrift(transition.toSynth, transition.matchScale);
+  }
+
+  /** Slow ride home to the printed BPM after the blend (8 loops). */
+  private startTempoDrift(synth: TechnoMusicSynth, fromScale: number): void {
+    this.clearTempoDrift();
+    if (Math.abs(fromScale - 1) < 0.001) return;
+    const baseStepDur = synth.effectiveStepDur() * fromScale;
+    const durMs = 8 * 32 * baseStepDur * 1000;
+    const t0ms = performance.now();
+    this.driftTimer = setInterval(() => {
+      const k = Math.min(1, (performance.now() - t0ms) / durMs);
+      synth.setTempoScale(tempoGlide(fromScale, k));
+      if (k >= 1) this.clearTempoDrift();
+    }, 250);
+  }
+
+  private clearTempoDrift(): void {
+    if (this.driftTimer === null) return;
+    clearInterval(this.driftTimer);
+    this.driftTimer = null;
+  }
+
+  private cancelTransition(): void {
+    const transition = this.deckTransition;
+    this.deckTransition = null;
+    this.clearTempoDrift();
+    if (!transition) return;
+    clearInterval(transition.timer);
+    transition.toSynth.stop();
+    transition.fromSynth.setOutputLevel(DJ_OUTPUT_LEVEL);
+    transition.fromSynth.setBassCut(0);
+  }
+
+  public stopTechno(): void {
+    this.cancelTransition();
+    this.cancelDropTransition();
+    this.technoSynth?.stop();
+  }
+
+  public setTechnoFreak(freak: number): void {
+    this.technoSynth?.setFreak(freak);
+  }
+
+  public isTechnoPlaying(): boolean {
+    return this.technoSynth?.isPlaying() ?? false;
+  }
+
+  /** Debug preview: push a fake alert transition (klaxon + music intensity). */
+  public previewAlert(level: 'nominal' | 'yellow' | 'red'): void {
+    this.updateTelemetry({ alertLevel: level } as TelemetryDeltaBroadcast, undefined, undefined);
   }
 }
