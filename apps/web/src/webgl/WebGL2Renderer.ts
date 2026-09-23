@@ -1023,10 +1023,11 @@ export class WebGL2Renderer {
       this.emitLegacyExhaust(offset, underway, dt);
       return;
     }
+    const tint: PlumeTint = { r: exhaust.tint[0], g: exhaust.tint[1], b: exhaust.tint[2] };
+    if (exhaust.maneuvering) this.emitDockingRcs(offset, tint, timeSec, exhaust);
     const rate = exhaust.params.ratePerSecPerBell * THRUSTER_BELLS.length;
     if (rate <= 0.5) return;
     this.exhaustAcc += dt * rate;
-    const tint: PlumeTint = { r: exhaust.tint[0], g: exhaust.tint[1], b: exhaust.tint[2] };
     const plume: MainPlumeParams = {
       speedMin: exhaust.params.speedMin,
       speedMax: exhaust.params.speedMax,
@@ -1048,7 +1049,6 @@ export class WebGL2Renderer {
         1
       );
     }
-    if (exhaust.maneuvering) this.emitDockingRcs(offset, tint, timeSec, exhaust);
   }
 
   private emitLegacyExhaust(offset: { x: number; y: number }, underway: boolean, dt: number): void {

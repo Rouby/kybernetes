@@ -64,7 +64,8 @@ function idleParams(): ExhaustParams {
   };
 }
 
-function deadParams(): ExhaustParams {
+/** Fully dark bells: no particles, no glow cone, no stern light. */
+export function deadExhaustParams(): ExhaustParams {
   return {
     intensity01: 0,
     ratePerSecPerBell: 0,
@@ -90,7 +91,7 @@ export function isManeuverPhase(phase: string | undefined): boolean {
  * cruise throttle reads high; flameout always kills the plume.
  */
 export function exhaustParamsFor(input: ExhaustInput, engineTier?: number): ExhaustParams {
-  if (input.flameout === true) return deadParams();
+  if (input.flameout === true) return deadExhaustParams();
   const phase = input.phase ?? 'docked';
   if (phase === 'docked') return idleParams();
 

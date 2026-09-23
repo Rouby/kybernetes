@@ -83,7 +83,8 @@ describe('mapShipExhaust', () => {
   it('reads cold docked without broadcasts', () => {
     const view = mapShipExhaust(null, null, undefined);
     expect(view.phase).toBe('docked');
-    expect(view.params.ratePerSecPerBell).toBe(6);
+    expect(view.params.ratePerSecPerBell).toBe(0);
+    expect(view.params.glow).toBe(0);
     expect(view.tintName).toBe('cyan');
   });
 
@@ -108,7 +109,7 @@ describe('mapShipExhaust', () => {
     expect(view.phase).toBe('inbound');
     expect(view.engineLit).toBe(false);
     expect(view.maneuvering).toBe(true);
-    expect(view.params.ratePerSecPerBell).toBe(6);
+    expect(view.params.ratePerSecPerBell).toBe(0);
   });
 
   it('lets a committed nav phase win over the harbor phase', () => {
@@ -242,7 +243,7 @@ describe('mapShipExhaust', () => {
     );
     expect(early.engineLit).toBe(false);
     expect(early.maneuvering).toBe(true);
-    expect(early.params.ratePerSecPerBell).toBeLessThan(20);
+    expect(early.params.ratePerSecPerBell).toBe(0);
     const cruise = mapShipExhaust(
       nav({ phase: 'in_transit', remainingS: 50, legTotalS: 100 }),
       null,

@@ -7,6 +7,7 @@ import type { NavStateBroadcast, ShipSystemsBroadcast, ThrusterTint } from '@kyb
 import {
   DEPARTURE_TAIL_S,
   DOCKING_S,
+  deadExhaustParams,
   type ExhaustParams,
   exhaustParamsFor,
 } from '@kybernetes/sim-core';
@@ -270,9 +271,7 @@ function buildView(
   engineTier?: number
 ): ShipExhaustView {
   const engineLit = engineLitFor(nav);
-  const params = engineLit
-    ? exhaustParamsFor(input, engineTier)
-    : exhaustParamsFor(input.flameout === true ? { flameout: true } : { phase: 'docked' });
+  const params = engineLit ? exhaustParamsFor(input, engineTier) : deadExhaustParams();
   return {
     phase: input.phase,
     thrust01: pickNumber(nav?.thrust01, 1),

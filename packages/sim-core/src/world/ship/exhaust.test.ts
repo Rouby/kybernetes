@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exhaustParamsFor, isManeuverPhase, rcsStrengthFor } from './exhaust.js';
+import { deadExhaustParams, exhaustParamsFor, isManeuverPhase, rcsStrengthFor } from './exhaust.js';
 
 describe('exhaustParamsFor', () => {
   it('idles docked with no burn', () => {
@@ -7,6 +7,15 @@ describe('exhaustParamsFor', () => {
     expect(p.intensity01).toBeLessThan(0.1);
     expect(p.ratePerSecPerBell).toBe(6);
     expect(p.glow).toBeGreaterThan(0);
+  });
+
+  it('reads fully dark with no glow when the torch is out', () => {
+    const p = deadExhaustParams();
+    expect(p.intensity01).toBe(0);
+    expect(p.ratePerSecPerBell).toBe(0);
+    expect(p.lengthPx).toBe(0);
+    expect(p.alpha).toBe(0);
+    expect(p.glow).toBe(0);
   });
 
   it('kills the plume on flameout', () => {
