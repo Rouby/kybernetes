@@ -433,4 +433,68 @@ describe('harbor socket merge guards', () => {
     expect(ui.setSnapshot).not.toHaveBeenCalled();
     expect(ui.setManifest).not.toHaveBeenCalled();
   });
+
+  it('drops version-mismatched packets before cache commit', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const ui = wire(store);
+    handleMessage(JSON.stringify({ ...fullSnapshot(12), v: 1 }), caches, ui);
+    expect(store.snapshot).toBeNull();
+    expect(store.calls.snapshot).toBe(0);
+  });
+
+  it('drops malformed numerics (NaN tick serializes to null) without committing', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const ui = wire(store);
+    handleMessage(
+      JSON.stringify({ type: 'SNAPSHOT', v: 2, tick: null, serverTimeMs: 10, pawns: [] }),
+      caches,
+      ui
+    );
+    expect(store.snapshot).toBeNull();
+    expect(store.calls.snapshot).toBe(0);
+  });
+
+  it('holds deltas whose baseTick misses the cached full until resync', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const ui = wire(store);
+    handleMessage(JSON.stringify(fullSnapshot(10)), caches, ui);
+    expect(store.snapshot?.tick).toBe(10);
+    handleMessage(
+      JSON.stringify({
+        type: 'SNAPSHOT_DELTA',
+        v: 2,
+        tick: 12,
+        serverTimeMs: 1200,
+        baseTick: 11,
+        full: false,
+        portalRev: 8,
+        frameRev: 3,
+        pawns: [],
+        impacts: [],
+        portals: [],
+        removedPortalIds: [],
+        projectiles: [],
+        frames: [],
+      }),
+      caches,
+      ui
+    );
+    expect(store.snapshot?.tick).toBe(10);
+    expect(store.calls.snapshot).toBe(1);
+  });
+
+  it('ignores unknown broadcast types without throwing', () => {
+    const caches: HarborCaches = createHarborCaches();
+    const store = setters();
+    const ui = wire(store);
+    handleMessage(
+      JSON.stringify({ type: 'FUTURE_CHANNEL', v: 2, tick: 1, serverTimeMs: 1 }),
+      caches,
+      ui
+    );
+    expect(store.calls.snapshot).toBe(0);
+  });
 });

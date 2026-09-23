@@ -15,7 +15,8 @@ Welcome to **Kybernetes** (*Κυβερνήτης*). This document defines the ar
 3. **Strict Wire Contracts**:
    * All client actions and server broadcasts must be strictly typed in `packages/protocol`. Never send untyped JSON over WebSockets.
 4. **Compile-Time Styling**:
-   * Use **Meta StyleX** (`@stylexjs/stylex`) with tokens from `@kybernetes/ui-tokens`.
+   * Use **Meta StyleX** (`@stylexjs/stylex`) with tokens from `@kybernetes/ui-tokens` for DOM chrome (splash/debug/settings/soundboard).
+   * WebGL2/canvas HUD is exempt from compiled StyleX: it reads the same token *values* (via `@kybernetes/ui-tokens/theme`) for canvas paint + inline debug styles.
    * **Never introduce Tailwind CSS or runtime CSS-in-JS libraries.**
 
 ---
@@ -51,7 +52,7 @@ Playwright is not a gate. To produce human-verification artifacts on demand:
 ```bash
 yarn --cwd apps/web build
 
-yarn --cwd apps/web playwright test harbor-scenes.spec.ts # screenshots
+yarn --cwd apps/web playwright test ui-gl-scenes.spec.ts # screenshots
 ```
 Screenshots land in `apps/web/test-results/` (gitignored); failure videos are retained automatically (see `playwright.config.ts`).
 

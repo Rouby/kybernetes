@@ -29,7 +29,8 @@ import type {
   VitalsBroadcast,
   WatchBroadcast,
 } from '@kybernetes/protocol';
-import { isNewerTick } from '@kybernetes/protocol';
+import { isNewerTick, isV2Packet } from '@kybernetes/protocol';
+import { BROADCAST_GUARDS, recordBroadcastDrop } from './broadcastGuards';
 import { deathTitle } from './deathNotice';
 import { mergeSnapshotDelta, mergeTelemetry } from './renderState';
 
@@ -97,6 +98,23 @@ export function createHarborCaches(): HarborCaches {
   };
 }
 
+/** Reset every tick cursor + rev guard (reconnect must not leave stale ship/nav). */
+export function resetHarborCaches(caches: HarborCaches): void {
+  caches.snapshot.current = null;
+  caches.telemetry.current = null;
+  caches.vitalsTick.current = -1;
+  caches.systemsTick.current = -1;
+  caches.statusTick.current = -1;
+  caches.navTick.current = -1;
+  caches.chartTick.current = -1;
+  caches.cargoTick.current = -1;
+  caches.marketTick.current = {};
+  caches.manifestRev.current = undefined;
+  caches.manifestSeen.current = false;
+  caches.watchRev.current = undefined;
+  caches.watchRemaining.current = undefined;
+}
+
 export interface SnapshotSetters {
   setSnapshot: (s: SnapshotBroadcast) => void;
   setTelemetry: (t: TelemetryBroadcast) => void;
@@ -141,6 +159,10 @@ const CHANNEL_HANDLERS: Record<string, ChannelHandler> = {
       return;
     }
     if (!isNewerTick(prev.tick, delta.tick)) return;
+    if (!delta.full && delta.baseTick !== prev.tick) {
+      recordBroadcastDrop('staleDeltaBase');
+      return;
+    }
     applyDelta(prev, delta, caches, setters);
   },
   TELEMETRY: (msg, caches, setters) => {
@@ -306,8 +328,23 @@ export function handleMessage(data: string, caches: HarborCaches, setters: Snaps
   try {
     msg = JSON.parse(data) as Record<string, unknown>;
   } catch {
+    recordBroadcastDrop('shape');
     return;
   }
-  const handler = typeof msg.type === 'string' ? CHANNEL_HANDLERS[msg.type] : undefined;
+  if (!isV2Packet(msg)) {
+    recordBroadcastDrop('version');
+    return;
+  }
+  const type = msg.type as string;
+  const guard = BROADCAST_GUARDS[type];
+  if (guard === undefined) {
+    recordBroadcastDrop('unknownType');
+    return;
+  }
+  if (!guard(msg)) {
+    recordBroadcastDrop('shape');
+    return;
+  }
+  const handler = CHANNEL_HANDLERS[type];
   if (handler !== undefined) handler(msg, caches, setters);
 }

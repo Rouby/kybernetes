@@ -5,6 +5,7 @@
  */
 
 import type { WeaponType } from '@kybernetes/protocol';
+import { hudFonts, hudTheme } from '@kybernetes/ui-tokens';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
 
 /** Structural engine surface the soundboard needs (real or fake). */
@@ -81,11 +82,11 @@ export function soundboardButtons(engine: SoundboardEngine): SoundboardButton[] 
 }
 
 const SOUNDBOARD_CSS =
-  '.soundboard{background:#06090f;color:#e0e8f5;font:13px/1.5 monospace;min-height:100vh;padding:24px;box-sizing:border-box}' +
-  '.soundboard h1{font-size:15px;color:#00e5ff;margin:0 0 4px}' +
-  '.soundboard p{color:#7d8aa0;margin:0 0 16px}' +
-  '.soundboard h2{font-size:12px;color:#7d8aa0;margin:18px 0 8px;text-transform:uppercase}' +
-  '.soundboard button{background:#0a1420;border:1px solid #00e5ff55;color:#e0e8f5;font:inherit;padding:10px 14px;margin:0 8px 8px 0;cursor:pointer}' +
+  `.soundboard{background:${hudTheme.bgVoid};color:${hudTheme.textPrimary};font:13px/1.5 ${hudFonts.fontMono};min-height:100vh;padding:24px;box-sizing:border-box}` +
+  `.soundboard h1{font-size:15px;color:${hudTheme.cyanTelemetry};margin:0 0 4px}` +
+  `.soundboard p{color:${hudTheme.textSecondary};margin:0 0 16px}` +
+  `.soundboard h2{font-size:12px;color:${hudTheme.textSecondary};margin:18px 0 8px;text-transform:uppercase}` +
+  `.soundboard button{background:${hudTheme.bgPanel};border:1px solid ${hudTheme.borderBright};color:${hudTheme.textPrimary};font:inherit;padding:10px 14px;margin:0 8px 8px 0;cursor:pointer}` +
   '.soundboard button:hover{background:#00333f;color:#fff}';
 
 /** Mounts the debug soundboard into root; returns a disposer. */

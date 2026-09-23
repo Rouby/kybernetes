@@ -34,6 +34,7 @@ import {
   type HarborCaches,
   type HarborIdentity,
   handleMessage,
+  resetHarborCaches,
   type SnapshotSetters,
 } from '../../harbor/socketCore';
 import {
@@ -220,10 +221,7 @@ export function createSocketStore(identity: HarborIdentity, factory?: SocketFact
     const socket = createSocket(harborWsUrl());
     ws = socket;
     seq = 0;
-    caches.snapshot.current = null;
-    caches.telemetry.current = null;
-    caches.vitalsTick.current = -1;
-    caches.manifestSeen.current = false;
+    resetHarborCaches(caches);
     const setters = buildSetters();
     socket.onopen = () => {
       if (disposed) return;

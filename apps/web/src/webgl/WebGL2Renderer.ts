@@ -293,6 +293,138 @@ export interface SceneLayerData {
   readonly nearestStationId: string | undefined;
 }
 
+type StationView = ReturnType<typeof getWorldStations>[number];
+
+type StationRenderer = (
+  ctx: RenderContext,
+  st: StationView,
+  isNear: boolean,
+  timeSec: number
+) => void;
+
+const STATION_RENDERERS: Readonly<Record<string, StationRenderer>> = {
+  bridge: (ctx, st, isNear, timeSec) => renderBridgeHelm(ctx, st, isNear, timeSec),
+  reactor: (ctx, st, isNear, timeSec) => renderReactorConsole(ctx, st, isNear, timeSec),
+  armory: (ctx, st, isNear, timeSec) => renderArmoryLocker(ctx, st, isNear, timeSec),
+  cargo: (ctx, st, isNear, timeSec) => renderCargoWinch(ctx, st, isNear, timeSec),
+  hydroponics: (ctx, st, isNear, timeSec) => renderHydroScrubber(ctx, st, isNear, timeSec),
+  bunk: (ctx, st, isNear, timeSec) => renderCrewBunk(ctx, st, isNear, timeSec),
+  avionics: (ctx, st, isNear, timeSec) => renderAvionicsTerminal(ctx, st, isNear, timeSec),
+  airlock: (ctx, st, isNear, timeSec) => renderAirlockConsole(ctx, st, isNear, timeSec),
+  job_board: (ctx, st, isNear, timeSec) => renderJobBoard(ctx, st, isNear, timeSec),
+};
+
+function renderStationByType(
+  ctx: RenderContext,
+  st: StationView,
+  isNear: boolean,
+  timeSec: number
+): void {
+  if (st.stationType === 'mess') {
+    if (st.id.includes('prep')) renderGalleyPrep(ctx, st, isNear, timeSec);
+    else renderDispenser(ctx, st, isNear, st.id.includes('water'), timeSec);
+    return;
+  }
+  STATION_RENDERERS[st.stationType]?.(ctx, st, isNear, timeSec);
+}
+
+interface ProjectileStyle {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+  readonly style: number;
+  readonly beamLen: number;
+  readonly halfW: number;
+}
+
+const DEFAULT_PROJECTILE_STYLE: ProjectileStyle = {
+  r: 0.0,
+  g: 0.95,
+  b: 1.0,
+  style: 1,
+  beamLen: 22,
+  halfW: 6.5,
+};
+
+function projectileStyleFor(proj: ProjectileState): ProjectileStyle {
+  if (proj.weaponType === 'kinetic_carbine') {
+    return { r: 1.0, g: 0.82, b: 0.25, style: 0, beamLen: 32, halfW: 2.0 };
+  }
+  if (proj.weaponType === 'railgun_pistol') {
+    return { r: 1.0, g: 0.95, b: 0.75, style: 0, beamLen: 45, halfW: 2.2 };
+  }
+  if (proj.weaponType === 'pulse_laser') {
+    const charge = proj.chargeRatio ?? 1.0;
+    return {
+      r: 0.0,
+      g: 0.95,
+      b: 1.0,
+      style: 1,
+      beamLen: Math.round(18 + charge * 24),
+      halfW: Number((4.5 + charge * 4.5).toFixed(1)),
+    };
+  }
+  if (proj.weaponType === 'raider_plasma' || proj.color === '#ff1744') {
+    return { r: 1.0, g: 0.09, b: 0.27, style: 3, beamLen: 22, halfW: 6.5 };
+  }
+  return DEFAULT_PROJECTILE_STYLE;
+}
+
+function projectileBeamQuad(proj: ProjectileState, beamLen: number, halfW: number): Float32Array {
+  const speed = Math.hypot(proj.vx, proj.vy);
+  const fx = speed > 0 ? proj.vx / speed : 1;
+  const fy = speed > 0 ? proj.vy / speed : 0;
+  const nx = -fy;
+  const ny = fx;
+  const headX = proj.x + fx * 4;
+  const headY = proj.y + fy * 4;
+  const tailX = proj.x - fx * beamLen;
+  const tailY = proj.y - fy * beamLen;
+  const c0x = tailX - nx * halfW;
+  const c0y = tailY - ny * halfW;
+  const c1x = tailX + nx * halfW;
+  const c1y = tailY + ny * halfW;
+  const c2x = headX - nx * halfW;
+  const c2y = headY - ny * halfW;
+  const c3x = headX + nx * halfW;
+  const c3y = headY + ny * halfW;
+  return new Float32Array([
+    c0x,
+    c0y,
+    -1.0,
+    -1.0,
+    c2x,
+    c2y,
+    1.0,
+    -1.0,
+    c1x,
+    c1y,
+    -1.0,
+    1.0,
+    c1x,
+    c1y,
+    -1.0,
+    1.0,
+    c2x,
+    c2y,
+    1.0,
+    -1.0,
+    c3x,
+    c3y,
+    1.0,
+    1.0,
+  ]);
+}
+
+function clutterViewsFor(
+  shipOffset: { x: number; y: number },
+  visible?: ReadonlySet<string>
+): { id: string; x: number; y: number; w: number; h: number }[] {
+  return getWorldRooms(shipOffset)
+    .filter((room) => keepLoaded(visible, stationFrameOf(room.id)))
+    .map((room) => ({ id: room.id, x: room.x, y: room.y, w: room.width, h: room.height }));
+}
+
 /** State-derived scene inputs (pure; keeps the GL pass under complexity limits). */
 export function resolveSceneLayers(state: WebGLRenderState): SceneLayerData {
   return {
@@ -314,7 +446,6 @@ export function resolveSceneLayers(state: WebGLRenderState): SceneLayerData {
   };
 }
 
-// fallow-ignore-next-line complexity
 function getRaycastIntersectionT(
   p1: { x: number; y: number },
   p2: { x: number; y: number },
@@ -537,7 +668,6 @@ export class WebGL2Renderer {
     this.bufferAndDraw(new Float32Array(verts));
   }
 
-  // fallow-ignore-next-line complexity
   private renderStations(
     matrix: Float32Array,
     nearestId?: string,
@@ -551,20 +681,7 @@ export class WebGL2Renderer {
   ): void {
     this.bindFlatProgram(matrix);
     const ctx = this.getRenderContext();
-
-    renderClutter(
-      ctx,
-      getWorldRooms(shipOffset)
-        .filter((room) => keepLoaded(visible, stationFrameOf(room.id)))
-        .map((room) => ({
-          id: room.id,
-          x: room.x,
-          y: room.y,
-          w: room.width,
-          h: room.height,
-        })),
-      timeSec
-    );
+    renderClutter(ctx, clutterViewsFor(shipOffset, visible), timeSec);
 
     // Static consoles obey the same frame cull as rooms/walls/lights: without
     // it, unloaded hubs keep their furniture floating in space. deckId tags
@@ -572,35 +689,8 @@ export class WebGL2Renderer {
     for (const st of getWorldStations(shipOffset)) {
       if (!keepLoaded(visible, st.deckId)) continue;
       const isNear = st.id === nearestId;
-      if (isNear) {
-        renderStationInteractionAura(ctx, st, timeSec);
-      }
-
-      if (st.stationType === 'bridge') {
-        renderBridgeHelm(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'reactor') {
-        renderReactorConsole(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'armory') {
-        renderArmoryLocker(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'cargo') {
-        renderCargoWinch(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'hydroponics') {
-        renderHydroScrubber(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'bunk') {
-        renderCrewBunk(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'mess') {
-        if (st.id.includes('prep')) {
-          renderGalleyPrep(ctx, st, isNear, timeSec);
-        } else {
-          renderDispenser(ctx, st, isNear, st.id.includes('water'), timeSec);
-        }
-      } else if (st.stationType === 'avionics') {
-        renderAvionicsTerminal(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'airlock') {
-        renderAirlockConsole(ctx, st, isNear, timeSec);
-      } else if (st.stationType === 'job_board') {
-        renderJobBoard(ctx, st, isNear, timeSec);
-      }
+      if (isNear) renderStationInteractionAura(ctx, st, timeSec);
+      renderStationByType(ctx, st, isNear, timeSec);
     }
     // Live overlays cull to loaded frames too; carried crates stay glued to
     // their carrier regardless of frame visibility.
@@ -679,7 +769,6 @@ export class WebGL2Renderer {
     this.gl.bindVertexArray(null);
   }
 
-  // fallow-ignore-next-line complexity
   private renderProjectiles(
     matrix: Float32Array,
     projectiles: ProjectileState[],
@@ -698,94 +787,16 @@ export class WebGL2Renderer {
       if (losPoly.length >= 3 && !isPointInPolygon({ x: proj.x, y: proj.y }, losPoly)) {
         continue;
       }
-      let r = 0.0;
-      let g = 0.95;
-      let b = 1.0;
-      let style = 1;
-      let beamLen = 22;
-      let halfW = 6.5;
-
-      if (proj.weaponType === 'kinetic_carbine') {
-        style = 0;
-        r = 1.0;
-        g = 0.82;
-        b = 0.25;
-        beamLen = 32;
-        halfW = 2.0;
-      } else if (proj.weaponType === 'railgun_pistol') {
-        style = 0;
-        r = 1.0;
-        g = 0.95;
-        b = 0.75;
-        beamLen = 45;
-        halfW = 2.2;
-      } else if (proj.weaponType === 'pulse_laser') {
-        const charge = proj.chargeRatio ?? 1.0;
-        style = 1;
-        r = 0.0;
-        g = 0.95;
-        b = 1.0;
-        beamLen = Math.round(18 + charge * 24);
-        halfW = Number((4.5 + charge * 4.5).toFixed(1));
-      } else if (proj.weaponType === 'raider_plasma' || proj.color === '#ff1744') {
-        style = 3;
-        r = 1.0;
-        g = 0.09;
-        b = 0.27;
-        beamLen = 22;
-        halfW = 6.5;
-      }
-
-      gl.uniform4f(gl.getUniformLocation(this.projProg, 'u_color'), r, g, b, 1.0);
-      gl.uniform1i(gl.getUniformLocation(this.projProg, 'u_style'), style);
-
-      const speed = Math.hypot(proj.vx, proj.vy);
-      const fx = speed > 0 ? proj.vx / speed : 1;
-      const fy = speed > 0 ? proj.vy / speed : 0;
-      const nx = -fy;
-      const ny = fx;
-
-      const headX = proj.x + fx * 4;
-      const headY = proj.y + fy * 4;
-      const tailX = proj.x - fx * beamLen;
-      const tailY = proj.y - fy * beamLen;
-
-      const c0x = tailX - nx * halfW;
-      const c0y = tailY - ny * halfW;
-      const c1x = tailX + nx * halfW;
-      const c1y = tailY + ny * halfW;
-      const c2x = headX - nx * halfW;
-      const c2y = headY - ny * halfW;
-      const c3x = headX + nx * halfW;
-      const c3y = headY + ny * halfW;
-
-      const verts = new Float32Array([
-        c0x,
-        c0y,
-        -1.0,
-        -1.0,
-        c2x,
-        c2y,
-        1.0,
-        -1.0,
-        c1x,
-        c1y,
-        -1.0,
-        1.0,
-        c1x,
-        c1y,
-        -1.0,
-        1.0,
-        c2x,
-        c2y,
-        1.0,
-        -1.0,
-        c3x,
-        c3y,
-        1.0,
-        1.0,
-      ]);
-
+      const appearance = projectileStyleFor(proj);
+      gl.uniform4f(
+        gl.getUniformLocation(this.projProg, 'u_color'),
+        appearance.r,
+        appearance.g,
+        appearance.b,
+        1.0
+      );
+      gl.uniform1i(gl.getUniformLocation(this.projProg, 'u_style'), appearance.style);
+      const verts = projectileBeamQuad(proj, appearance.beamLen, appearance.halfW);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.dynamicBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
       gl.drawArrays(gl.TRIANGLES, 0, 6);

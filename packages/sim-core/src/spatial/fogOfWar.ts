@@ -20,7 +20,11 @@ export interface ExplorationGrid {
 /**
  * Jordan curve ray-crossing test to check if a 2D point is inside a polygon.
  */
-// fallow-ignore-next-line complexity
+function edgeCrossesRay(pt: Point2D, xi: number, yi: number, xj: number, yj: number): boolean {
+  if (yi > pt.y === yj > pt.y) return false;
+  return pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi;
+}
+
 export function isPointInPolygon(pt: Point2D, polygon: Point2D[]): boolean {
   if (polygon.length < 3) return false;
   let inside = false;
@@ -29,9 +33,7 @@ export function isPointInPolygon(pt: Point2D, polygon: Point2D[]): boolean {
     const yi = polygon[i].y;
     const xj = polygon[j].x;
     const yj = polygon[j].y;
-
-    const intersect = yi > pt.y !== yj > pt.y && pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
+    if (edgeCrossesRay(pt, xi, yi, xj, yj)) inside = !inside;
   }
   return inside;
 }

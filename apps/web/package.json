@@ -17,6 +17,7 @@
   "dependencies": {
     "@kybernetes/protocol": "workspace:*",
     "@kybernetes/sim-core": "workspace:*",
+    "@kybernetes/ui-tokens": "workspace:*",
     "matter-js": "^0.20.0"
   },
   "devDependencies": {

@@ -5,6 +5,7 @@
  */
 
 import type { ManifestBroadcast, WatchBroadcast } from '@kybernetes/protocol';
+import { hudTheme } from '@kybernetes/ui-tokens';
 import type { InteractTarget } from '../harbor/interactTarget';
 import { dockChipText } from '../harbor/renderState';
 import {
@@ -68,7 +69,7 @@ export class DebugHud {
     box.style.left = '8px';
     box.style.zIndex = '10';
     box.style.pointerEvents = 'none';
-    box.style.color = '#cfd8e3';
+    box.style.color = hudTheme.textPrimary;
     const rows = {} as Record<HudRow, HTMLDivElement>;
     (Object.keys(ROW_TESTIDS) as HudRow[]).forEach((row) => {
       rows[row] = appendRow(box, ROW_TESTIDS[row]);

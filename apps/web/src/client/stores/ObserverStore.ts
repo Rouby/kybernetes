@@ -18,6 +18,7 @@ import {
   createHarborCaches,
   type HarborCaches,
   handleMessage,
+  resetHarborCaches,
   type SnapshotSetters,
 } from '../../harbor/socketCore';
 import {
@@ -87,8 +88,7 @@ export function createObserverStore(
     if (disposed) return;
     const socket = createSocket(harborWsUrl());
     ws = socket;
-    caches.snapshot.current = null;
-    caches.telemetry.current = null;
+    resetHarborCaches(caches);
     const active = setters();
     socket.onopen = () => {
       if (disposed) return;

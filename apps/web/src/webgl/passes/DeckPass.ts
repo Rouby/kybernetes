@@ -681,7 +681,38 @@ export class DeckPass {
     return gl;
   }
 
-  // fallow-ignore-next-line complexity
+  private bindDeckFloorFrame(
+    matrix: Float32Array,
+    time: number,
+    currentLights: Float32Array,
+    currentLightColors: Float32Array
+  ): void {
+    const gl = this.gl;
+    gl.useProgram(this.deckProg);
+    gl.bindVertexArray(this.deckVAO);
+    gl.uniformMatrix3fv(this.uMatrixLoc, false, matrix);
+    gl.uniform1f(this.uTimeLoc, time);
+    gl.uniform4fv(this.uProjLightsLoc, currentLights);
+    gl.uniform3fv(this.uProjColorsLoc, currentLightColors);
+    gl.uniform2f(this.uShipOffsetLoc, this.shipOffset.x, this.shipOffset.y);
+  }
+
+  private drawDeckRoom(room: {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): void {
+    const gl = this.gl;
+    const style = deckFloorStyle(room.id);
+    gl.uniform1i(this.uIsShipRoomLoc, isShipSideRoom(room.id) ? 1 : 0);
+    gl.uniform1i(this.uRoomTypeLoc, style.type);
+    gl.uniform4f(this.uRoomBoundsLoc, room.x, room.y, room.width, room.height);
+    gl.uniform3f(this.uFloorColorLoc, style.color[0], style.color[1], style.color[2]);
+    drawQuad(gl, this.dynamicBuffer, room.x, room.y, room.width, room.height);
+  }
+
   public renderDeckFloors(
     matrix: Float32Array,
     time: number,
@@ -689,27 +720,12 @@ export class DeckPass {
     currentLightColors: Float32Array,
     visible?: ReadonlySet<string>
   ): void {
-    const gl = this.gl;
-    gl.useProgram(this.deckProg);
-    gl.bindVertexArray(this.deckVAO);
-    gl.uniformMatrix3fv(this.uMatrixLoc, false, matrix);
-    gl.uniform1f(this.uTimeLoc, time);
-
-    gl.uniform4fv(this.uProjLightsLoc, currentLights);
-    gl.uniform3fv(this.uProjColorsLoc, currentLightColors);
-    gl.uniform2f(this.uShipOffsetLoc, this.shipOffset.x, this.shipOffset.y);
-
+    this.bindDeckFloorFrame(matrix, time, currentLights, currentLightColors);
     for (const room of getWorldRooms(this.shipOffset)) {
       if (!keepLoaded(visible, stationFrameOf(room.id))) continue;
-      const style = deckFloorStyle(room.id);
-      gl.uniform1i(this.uIsShipRoomLoc, isShipSideRoom(room.id) ? 1 : 0);
-      gl.uniform1i(this.uRoomTypeLoc, style.type);
-      gl.uniform4f(this.uRoomBoundsLoc, room.x, room.y, room.width, room.height);
-      gl.uniform3f(this.uFloorColorLoc, style.color[0], style.color[1], style.color[2]);
-
-      drawQuad(gl, this.dynamicBuffer, room.x, room.y, room.width, room.height);
+      this.drawDeckRoom(room);
     }
-    gl.bindVertexArray(null);
+    this.gl.bindVertexArray(null);
   }
 
   public renderBulkheads(

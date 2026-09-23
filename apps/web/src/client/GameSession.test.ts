@@ -203,7 +203,16 @@ describe('GameSession sync', () => {
   it('prefers the death overlay while dead', () => {
     const fake = makeFake();
     const s = liveSession(fake);
-    fake.onmessage?.({ data: JSON.stringify({ type: 'DEATH', v: 2, cause: 'combat' }) });
+    fake.onmessage?.({
+      data: JSON.stringify({
+        type: 'DEATH',
+        v: 2,
+        tick: 40,
+        serverTimeMs: 4000,
+        pawnId: 'pawn:u1',
+        cause: 'combat',
+      }),
+    });
     s.sync();
     expect(selected(s)).toBe('death');
     s.dispose();
@@ -213,7 +222,14 @@ describe('GameSession sync', () => {
     const fake = makeFake();
     const s = liveSession(fake);
     fake.onmessage?.({
-      data: JSON.stringify({ type: 'SHIP_SYSTEMS', v: 2, tick: 30, ...systems() }),
+      data: JSON.stringify({
+        type: 'SHIP_SYSTEMS',
+        v: 2,
+        tick: 30,
+        serverTimeMs: 3000,
+        vesselId: 'ship',
+        ...systems(),
+      }),
     });
     s.consoles.toggleConsole('reactor_console');
     s.sync();
