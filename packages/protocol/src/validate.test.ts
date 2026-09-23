@@ -65,6 +65,35 @@ describe('protocol v2 validate', () => {
     expect(validateClientIntent({ type: 'HELLO', callsign: 'Rook', color: '#fff' }).ok).toBe(false);
   });
 
+  it('passes trade items of any fitting size to the area check', () => {
+    expect(
+      validateClientIntent({
+        type: 'MARKET_BUY',
+        seq: 1,
+        hubId: 'hub_a',
+        items: [{ goodId: 'meds', qty: 19 }],
+      }).ok
+    ).toBe(true);
+    expect(
+      validateClientIntent({
+        type: 'CARGO_REPACK',
+        seq: 2,
+        items: Array.from({ length: 7 }, () => ({ goodId: 'meds', qty: 2 })),
+      }).ok
+    ).toBe(true);
+    expect(
+      validateClientIntent({
+        type: 'MARKET_BUY',
+        seq: 3,
+        hubId: 'hub_a',
+        items: [{ goodId: 'meds', qty: 0 }],
+      }).ok
+    ).toBe(false);
+    expect(validateClientIntent({ type: 'MARKET_BUY', seq: 4, hubId: 'hub_a', items: [] }).ok).toBe(
+      false
+    );
+  });
+
   it('round-trips hire intents through JSON', () => {
     const raw = { type: 'HIRE', seq: 7, offerId: 'offer_1', job: 'engineer' };
     const parsed = JSON.parse(JSON.stringify(raw));

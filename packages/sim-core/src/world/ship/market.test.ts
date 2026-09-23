@@ -82,7 +82,7 @@ describe('market ledger', () => {
     });
     expect(tryBuy(ledger, 'hub_a', [{ goodId: 'scrap', qty: 60 }], 10_000, 0)).toEqual({
       ok: false,
-      reason: 'bad-qty',
+      reason: 'overfilled',
     });
     expect(tryBuy(ledger, 'hub_a', [{ goodId: 'scrap', qty: 10 }], 10_000, 0)).toEqual({
       ok: false,
@@ -108,6 +108,28 @@ describe('market ledger', () => {
     expect(tryBuy(ledger, 'hub_a', [{ goodId: 'spice', qty: 1 }], 10_000, 0)).toEqual({
       ok: false,
       reason: 'unknown-good',
+    });
+  });
+
+  it('seals any load that fits the crate area, regardless of unit count', () => {
+    const ledger = createMarketLedger();
+    const fitting = tryBuy(ledger, 'hub_a', [{ goodId: 'meds', qty: 19 }], 10_000, 0);
+    expect(fitting.ok).toBe(true);
+    if (!fitting.ok) return;
+    expect(fitting.cost).toBe(285);
+    const exact = tryBuy(ledger, 'hub_a', [{ goodId: 'rations', qty: 16 }], 10_000, 0);
+    expect(exact.ok).toBe(true);
+    const split = tryBuy(
+      ledger,
+      'hub_a',
+      Array.from({ length: 7 }, () => ({ goodId: 'meds', qty: 2 })),
+      10_000,
+      0
+    );
+    expect(split.ok).toBe(true);
+    expect(tryBuy(ledger, 'hub_a', [{ goodId: 'meds', qty: 20 }], 10_000, 0)).toEqual({
+      ok: false,
+      reason: 'overfilled',
     });
   });
 

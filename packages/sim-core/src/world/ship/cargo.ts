@@ -15,10 +15,9 @@ export interface CrateItem {
   readonly qty: number;
 }
 
-export const MAX_ITEMS_PER_CRATE = 6;
-
+/** A crate seals iff its footprint area fits: no per-line or per-unit caps. */
 export function validCrateItems(items: readonly CrateItem[]): boolean {
-  if (!Array.isArray(items) || items.length < 1 || items.length > MAX_ITEMS_PER_CRATE) return false;
+  if (!Array.isArray(items) || items.length < 1) return false;
   return items.every((item) => validId(item.goodId) && validQty(item.qty));
 }
 
@@ -71,7 +70,6 @@ export type CargoResult =
   | { readonly ok: true; readonly hold: CargoState }
   | { readonly ok: false; readonly reason: CargoReject };
 
-export const MAX_QTY_PER_CRATE = 10;
 export const PICKUP_RADIUS_PX = 120;
 export const CARRY_SPEED_MULT = 0.75;
 export const DROP_NUDGE_PX = 40;
@@ -133,7 +131,7 @@ export function crateQty(crate: Crate): number {
 }
 
 function validQty(qty: number): boolean {
-  return Number.isInteger(qty) && qty >= 1 && qty <= MAX_QTY_PER_CRATE;
+  return Number.isInteger(qty) && qty >= 1;
 }
 
 function validId(id: string): boolean {

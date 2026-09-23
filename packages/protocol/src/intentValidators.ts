@@ -302,7 +302,6 @@ export function validateHail(raw: Record<string, unknown>): ValidateResult {
 }
 
 const MAX_CRATE_IDS = 8;
-const MAX_CARGO_QTY = 10;
 
 function isGoodId(value: unknown): value is string {
   return isShortId(value);
@@ -341,15 +340,16 @@ export function validateCargoUnpack(raw: Record<string, unknown>): ValidateResul
   };
 }
 
+/** Wire shape only: any positive integer qty passes; fit is decided server-side by crate area. */
 function isTradeItems(value: unknown): value is { goodId: string; qty: number }[] {
   if (!Array.isArray(value)) return false;
-  if (value.length < 1 || value.length > 6) return false;
+  if (value.length < 1) return false;
   return value.every((entry) => {
     if (!isRecord(entry)) return false;
     if (!isGoodId(entry.goodId)) return false;
     if (!isFiniteNumber(entry.qty)) return false;
     const qty = entry.qty as number;
-    return Number.isInteger(qty) && qty >= 1 && qty <= MAX_CARGO_QTY;
+    return Number.isInteger(qty) && qty >= 1;
   });
 }
 

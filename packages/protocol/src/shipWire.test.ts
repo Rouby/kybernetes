@@ -144,10 +144,11 @@ describe('solo-ship wire (M1)', () => {
       validateClientIntent({ type: 'CARGO_REPACK', seq: 6, items: [{ goodId: 'scrap', qty: 3 }] })
         .ok
     ).toBe(true);
+    // Wire shape only: fit is decided server-side by crate area (overfilled), not qty caps.
     expect(
       validateClientIntent({ type: 'CARGO_REPACK', seq: 7, items: [{ goodId: 'scrap', qty: 99 }] })
         .ok
-    ).toBe(false);
+    ).toBe(true);
     expect(validateClientIntent({ type: 'CARGO_REPACK', seq: 8, items: [] }).ok).toBe(false);
     expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_PICKUP).toBe(8);
     expect(INTENT_RATE_LIMIT_PER_SECOND.CARGO_DROP).toBe(8);
@@ -180,6 +181,7 @@ describe('solo-ship wire (M1)', () => {
         ],
       }).ok
     ).toBe(true);
+    // Wire shape only: fit is decided server-side by crate area (overfilled), not qty caps.
     expect(
       validateClientIntent({
         type: 'MARKET_BUY',
@@ -187,7 +189,7 @@ describe('solo-ship wire (M1)', () => {
         hubId: 'hub_a',
         items: [{ goodId: 'scrap', qty: 99 }],
       }).ok
-    ).toBe(false);
+    ).toBe(true);
     expect(validateClientIntent({ type: 'MARKET_BUY', seq: 3, hubId: 'hub_a', items: [] }).ok).toBe(
       false
     );

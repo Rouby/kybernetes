@@ -99,6 +99,45 @@ describe('cargo hauling (M4 floor model)', () => {
     });
   });
 
+  it('seals any fitting load regardless of unit or line count', () => {
+    const fitting = spawnCrate(emptyCargo(), {
+      id: 'fit',
+      items: [{ goodId: 'meds', qty: 19 }],
+      where: 'bayFloor',
+      frameId: 'station',
+      x: 0,
+      y: 0,
+    });
+    expect(fitting.ok).toBe(true);
+    const split = spawnCrate(emptyCargo(), {
+      id: 'split',
+      items: Array.from({ length: 7 }, () => ({ goodId: 'meds', qty: 2 })),
+      where: 'bayFloor',
+      frameId: 'station',
+      x: 0,
+      y: 0,
+    });
+    expect(split.ok).toBe(true);
+    expect(
+      spawnCrate(emptyCargo(), {
+        id: 'burst',
+        items: [{ goodId: 'meds', qty: 20 }],
+        where: 'bayFloor',
+        frameId: 'station',
+        x: 0,
+        y: 0,
+      })
+    ).toEqual({ ok: false, reason: 'overfilled' });
+    const secured = { ...emptyCargo(), secured: { ship: { meds: 19 } } };
+    const repacked = repackCargo(secured, 'ship', 'ship', [{ goodId: 'meds', qty: 19 }], {
+      id: 'c-fit',
+      frameId: 'ship',
+      x: 1,
+      y: 1,
+    });
+    expect(repacked.ok).toBe(true);
+  });
+
   it('rejects double-pickup while hands are full', () => {
     let hold = holdWithBayCrate();
     const second = spawnCrate(hold, {

@@ -59,7 +59,6 @@ export const MARKET_HUBS: readonly string[] = ['hub_a', 'hub_b', 'hub_c', 'hub_d
 export const MARKET_MAX_STOCK = 50;
 export const MARKET_RESTOCK_PER_MIN = 1;
 export const MARKET_RESTOCK_MS = 60_000;
-export const MARKET_MAX_QTY = 10;
 
 export function isTradeGood(value: unknown): value is TradeGood {
   return typeof value === 'string' && (TRADE_GOODS as readonly string[]).includes(value);
@@ -127,16 +126,11 @@ export interface MarketItem {
   readonly qty: number;
 }
 
-export const MAX_ITEMS_PER_TRADE = 6;
-
+/** A trade seals iff its footprint area fits: no per-line or per-unit caps. */
 function validTradeItems(items: readonly MarketItem[]): boolean {
-  if (!Array.isArray(items) || items.length < 1 || items.length > MAX_ITEMS_PER_TRADE) return false;
+  if (!Array.isArray(items) || items.length < 1) return false;
   return items.every(
-    (item) =>
-      typeof item.goodId === 'string' &&
-      Number.isInteger(item.qty) &&
-      item.qty >= 1 &&
-      item.qty <= MARKET_MAX_QTY
+    (item) => typeof item.goodId === 'string' && Number.isInteger(item.qty) && item.qty >= 1
   );
 }
 
