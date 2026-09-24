@@ -1,5 +1,30 @@
 # @kybernetes/web
 
+## 0.7.0
+
+### Minor Changes
+
+- 773a645: Two-deck DJ transitions with tempo sync: quantized loop-start entry, equal-power crossfade with pitch-fader glide and slow drift home to the printed BPM, per-deck bass-cut filters with a bassSwap EQ at the phrase midpoint, and track cycling across Soundboard and lab. Drop transition builds from the next loop boundary in two mute waves while gliding to the target tempo, keeps kick, hats, bass, and ride standing through the build, rolls the final loop, and slams the new track on the one with impact plus full deck-state restore.
+- 773a645: Procedural techno engine with four tracks: Reactor Rave (F minor, 144 BPM), Iron Chapel (D minor, 140 BPM, 8th-note bass), Rave 99 (A minor, 138 BPM, offbeat bass via bassPhase), and Hymn (G minor, 142 BPM, sparse voice-led bed with high pluck answers and no lead, chops, acid, or stabs). Final arrangement is kick, clap, hats, ride, woody knock, accelerating tom runs with stick transients, loop-phrased crashes, rolling bass, restrained acid squelches, hoover stabs, detuned-saw industrial lead, formant vocal chops, a quiet UFO siren every 8th loop, plus first-class vox and pluck voices. Lookahead scheduler with intensity and freak gating, per-voice mute and solo plus activity snapshot; dedicated persisted music bus with autoplay-safe start, settings toggle, alert-reactive intensity, Soundboard audition, and TECHNO LAB debug view (?music=1) with transport, track selector, and alert preview. Reactor drone backdrop removed so the loop owns the ambience.
+- 773a645: Klatt-lite sung vocals as a first-class pre-rendered vox track voice with zero runtime DSP cost: LF-model glottal pulse through vowel resonators, 30 ms F2 locus glides from 2100 Hz velar starts, 25 ms VOT overlap, lip-radiation output, pressed falling-pitch shouts in chest range with saturation drive, and lab mute and solo row plus Soundboard audition. Hype-word recipes (GO, HEY, YES, RAVE, HIGH) with sealed stops bursting as pitched velar knocks, short voiced Y and R glides, faded H, and sung OH and AAAH hooks; Rave 99 carries OH stabs, double GO-GO hits, anthem AAAH, and HEY, while Hymn answers with high plucks.
+
+### Patch Changes
+
+- 9f54b8f: Validate inbound broadcasts: isV2Packet + per-channel shape guards with drop counters, baseTick continuity hold, and full cache reset on reconnect.
+- 773a645: Cruise starfield flies the torch-ship choreography from leg progress: the viewport latches the departure bearing and drives scroll from the trip (ramping off departure, fore-aft top-to-bottom while accelerating, hard mid-leg flip to bottom-to-top as the ship rotates to brake, easing to a stop, frozen on flameout). Speed sums measured hull velocity with the cruise profile throughout, running against vessel motion on dock pushes and glides. Adds a screen-space roll cue and slower far-layer parallax. The debug canvas lays shared-berth stations side by side with a display-only spread so all four hubs stay inspectable.
+- 773a645: Adjudicate Fallow suppressions in web: freeze + approval log, extract station-dispatch / projectile-style / deck-floor helpers and remove four complexity suppressions (WebGL2Renderer raycast, stations, projectiles; DeckPass floors).
+- 773a645: Adopt UI token values in DOM chrome (Soundboard, DebugHud); clarify AGENTS.md StyleX scope (WebGL HUD exempt, same token values).
+- 773a645: Render fully dark bells outside the lit torch window: no particles, glow cone, or stern light on RCS-only dock phases.
+- Updated dependencies [773a645]
+- Updated dependencies [773a645]
+- Updated dependencies [773a645]
+- Updated dependencies [d8c7e5a]
+- Updated dependencies [773a645]
+- Updated dependencies [773a645]
+  - @kybernetes/protocol@0.6.1
+  - @kybernetes/sim-core@0.6.1
+  - @kybernetes/ui-tokens@0.1.1
+
 ## 0.6.0
 
 ### Minor Changes

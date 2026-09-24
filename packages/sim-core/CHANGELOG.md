@@ -1,5 +1,16 @@
 # @kybernetes/sim-core
 
+## 0.6.1
+
+### Patch Changes
+
+- 773a645: Packing and sealing crates is no longer artificially limited: a crate seals iff its footprint area fits (`crateAreaOf <= CRATE_AREA`). Removed the 10-units-per-good and 6-lines-per-crate caps in cargo and market; overfilled loads still reject with `overfilled`.
+- 773a645: Adjudicate Fallow suppressions in sim-core: extract polygon-edge helper for fogOfWar isPointInPolygon and remove its complexity suppression; remaining grid and visibility suppressions stay logged as kept.
+- d8c7e5a: Dock-to-dock flights no longer cut through station plates. Every hub now shares one abstract berth at the origin, so departure and arrival use the same coordinates and each leg just swaps which station frame is loaded: undocking pushes east off the dock, the hull holds there for the whole leg while the chart owns the trip, and docking glides back into the berth. Transit visibility loads at most one station (arrival takes precedence on short legs) so co-located plates never double-render.
+- 773a645: Main torch lights once clear of the dock and cuts ahead of the docking glide: undocking and docking fly on cold-gas RCS alone. Adds `deadExhaustParams` for the dark state; short legs without room for a lit window stay thruster-only throughout.
+- Updated dependencies [773a645]
+  - @kybernetes/protocol@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes
