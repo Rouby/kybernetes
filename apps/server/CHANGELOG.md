@@ -1,5 +1,17 @@
 # @kybernetes/server
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [773a645]
+- Updated dependencies [773a645]
+- Updated dependencies [773a645]
+- Updated dependencies [d8c7e5a]
+- Updated dependencies [773a645]
+  - @kybernetes/protocol@0.6.1
+  - @kybernetes/sim-core@0.6.1
+
 ## 0.5.0
 
 ### Minor Changes

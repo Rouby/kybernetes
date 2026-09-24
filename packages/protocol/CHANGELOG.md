@@ -1,5 +1,11 @@
 # @kybernetes/protocol
 
+## 0.6.1
+
+### Patch Changes
+
+- 773a645: Accept area-fit crate loads in trade validators: drop the 10-units-per-good and 6-lines-per-crate caps to match sim-core sealing; overfilled loads still reject with `overfilled`.
+
 ## 0.6.0
 
 ### Minor Changes
