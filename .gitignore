@@ -37,3 +37,4 @@ biome-touched*.txt
 
 # Offline audio preview renders (regenerate locally, never commit binaries)
 techno-*-preview.wav
+voice-*-preview.wav

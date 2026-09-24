@@ -4,7 +4,7 @@
  * No DOM, no Web Audio — Vitest pins every decision without a context.
  */
 
-import type { TechnoTrack } from './technoTracks';
+import type { TechnoTrack, VoxHit } from './technoTracks';
 
 export const TECHNO_BPM = 144;
 export const TECHNO_STEPS_PER_LOOP = 32;
@@ -98,6 +98,19 @@ export function acidMidiForStep(track: TechnoTrack, step: number): number | null
   return track.acidAccents.find((accent) => accent[0] === loopStep(step))?.[1] ?? null;
 }
 
+export function pluckNoteAt(track: TechnoTrack, step: number): number | null {
+  return track.pluck.find((note) => note[0] === loopStep(step))?.[1] ?? null;
+}
+
+export function voxHitAt(track: TechnoTrack, step: number, loopIndex: number): VoxHit | null {
+  const idx = loopStep(step);
+  return (
+    track.vox.find(
+      (hit) => hit.step === idx && hit.everyLoops > 0 && loopIndex % hit.everyLoops === 0
+    ) ?? null
+  );
+}
+
 export type TechnoVoice =
   | 'kick'
   | 'hat'
@@ -111,7 +124,9 @@ export type TechnoVoice =
   | 'stab'
   | 'chop'
   | 'lead'
-  | 'siren';
+  | 'siren'
+  | 'vox'
+  | 'pluck';
 
 export const TECHNO_VOICES: readonly TechnoVoice[] = [
   'kick',
@@ -127,6 +142,8 @@ export const TECHNO_VOICES: readonly TechnoVoice[] = [
   'chop',
   'lead',
   'siren',
+  'vox',
+  'pluck',
 ];
 
 export const TECHNO_VOICE_LABELS: Record<TechnoVoice, string> = {
@@ -143,6 +160,8 @@ export const TECHNO_VOICE_LABELS: Record<TechnoVoice, string> = {
   chop: 'CHOP',
   lead: 'LEAD',
   siren: 'SIREN',
+  vox: 'VOX',
+  pluck: 'PLUCK',
 };
 
 /** Static hit steps per voice for a track and loop (toms/siren are loop-aware). */
@@ -174,6 +193,8 @@ const VOICE_HIT_TESTS: Record<TechnoVoice, HitTest> = {
   chop: (track, step) => vocalChopAt(track, step) !== null,
   lead: (track, step) => leadMidiForStep(track, step) !== null,
   siren: (track, step, loop) => step === 0 && sirenShouldSound(track, loop),
+  vox: (track, step, loop) => voxHitAt(track, step, loop) !== null,
+  pluck: (track, step) => pluckNoteAt(track, step) !== null,
 };
 
 function voiceHitsStep(

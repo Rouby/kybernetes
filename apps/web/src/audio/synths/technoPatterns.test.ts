@@ -21,8 +21,9 @@ import {
   vocalChopAt,
   vocalMidiForChop,
   voiceHitSteps,
+  voxHitAt,
 } from './technoPatterns';
-import { FREAKY_MAIN_TRACK, IRON_CHAPEL_TRACK, RAVE_99_TRACK } from './technoTracks';
+import { FREAKY_MAIN_TRACK, HYMN_TRACK, IRON_CHAPEL_TRACK, RAVE_99_TRACK } from './technoTracks';
 
 const MAIN = FREAKY_MAIN_TRACK;
 const CHAPEL = IRON_CHAPEL_TRACK;
@@ -154,6 +155,19 @@ describe('technoPatterns groove', () => {
     expect(acidMidiForStep(MAIN, 7)).toBeNull();
     expect(acidMidiForStep(CHAPEL, 14)).toBe(50);
     expect(acidMidiForStep(CHAPEL, 6)).toBeNull();
+    expect(voiceHitSteps(MAIN, 'vox', 0)).toEqual([]);
+    expect(voiceHitSteps(RAVE_99_TRACK, 'vox', 0)).toEqual([0, 8, 10, 16, 24]);
+    expect(voiceHitSteps(HYMN_TRACK, 'vox', 0)).toEqual([0, 8, 12, 16, 24]);
+    expect(voiceHitSteps(HYMN_TRACK, 'lead', 0)).toEqual([]);
+    expect(voiceHitSteps(HYMN_TRACK, 'chop', 0)).toEqual([]);
+    expect(voiceHitSteps(HYMN_TRACK, 'pluck', 0)).toEqual([4, 20, 28]);
+    expect(voiceHitSteps(RAVE_99_TRACK, 'vox', 1)).toEqual([]);
+    expect(voiceHitSteps(RAVE_99_TRACK, 'vox', 4)).toEqual([0, 8]);
+    expect(voiceHitSteps(RAVE_99_TRACK, 'vox', 1)).toEqual([]);
+    expect(voxHitAt(RAVE_99_TRACK, 0, 0)).toEqual({ step: 0, kind: 'oh', everyLoops: 2 });
+    expect(voxHitAt(RAVE_99_TRACK, 16, 0)).toEqual({ step: 16, kind: 'aah', everyLoops: 8 });
+    expect(voxHitAt(RAVE_99_TRACK, 0, 1)).toBeNull();
+    expect(voxHitAt(RAVE_99_TRACK, 8, 1)).toBeNull();
   });
 
   it('pitches vocal chops off the track root', () => {

@@ -23,7 +23,7 @@ describe('soundboardButtons', () => {
     expect(buttons.length).toBeGreaterThan(15);
     const groups = new Set(buttons.map((button) => button.group));
     expect(groups).toEqual(
-      new Set(['Pack bench', 'Trade', 'UI', 'Ship', 'Weapons', 'Music', 'Alert'])
+      new Set(['Pack bench', 'Trade', 'UI', 'Ship', 'Weapons', 'Music', 'Alert', 'Vocals'])
     );
     for (const button of buttons) button.play();
     const fired = Object.values(engine).filter((fn) => fn.mock.calls.length > 0).length;

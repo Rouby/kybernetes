@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TechnoMusicSynth } from './TechnoMusicSynth';
-import { RAVE_99_TRACK } from './technoTracks';
+import { HYMN_TRACK, RAVE_99_TRACK } from './technoTracks';
 
 function mockParam() {
   return {
@@ -183,6 +183,22 @@ describe('TechnoMusicSynth scheduler', () => {
     synth.stop();
   });
 
+  it('shouts vox hooks from the track data', () => {
+    const { ctx } = mockCtx();
+    const synth = new TechnoMusicSynth(ctx as unknown as AudioContext);
+    synth.loadTrack(RAVE_99_TRACK);
+    synth.start({} as AudioNode, { intensity: 1, freak: 1 });
+    const sources = ctx.createBufferSource as ReturnType<typeof vi.fn>;
+    synth.setSoloVoice('vox');
+    const before = sources.mock.calls.length;
+    synth.scheduleStep(0, 100, 0);
+    expect(sources.mock.calls.length).toBe(before + 1);
+    expect(synth.getSnapshot().lastHit.vox).toEqual({ step: 0, loop: 0, at: 100 });
+    synth.scheduleStep(1, 100, 0);
+    expect(sources.mock.calls.length).toBe(before + 1);
+    synth.stop();
+  });
+
   it('loads tracks with their default energy', () => {
     const { ctx } = mockCtx();
     const synth = new TechnoMusicSynth(ctx as unknown as AudioContext);
@@ -205,6 +221,22 @@ describe('TechnoMusicSynth scheduler', () => {
       synth.playImpact();
     }).not.toThrow();
     expect(synth.getSnapshot().playing).toBe(true);
+    synth.stop();
+  });
+
+  it('chimes plucks that answer the voice', () => {
+    const { ctx, oscs } = mockCtx();
+    const synth = new TechnoMusicSynth(ctx as unknown as AudioContext);
+    synth.loadTrack(HYMN_TRACK);
+    synth.start({} as AudioNode, { intensity: 1, freak: 1 });
+    synth.setSoloVoice('pluck');
+    const before = oscs.length;
+    synth.scheduleStep(4, 100, 0);
+    expect(oscs.length).toBe(before + 1);
+    const pluck = oscs[oscs.length - 1] as unknown as { type: string };
+    expect(pluck.type).toBe('triangle');
+    synth.scheduleStep(5, 100, 0);
+    expect(oscs.length).toBe(before + 1);
     synth.stop();
   });
 

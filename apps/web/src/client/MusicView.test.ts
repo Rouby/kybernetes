@@ -1,20 +1,11 @@
 /** @vitest-environment node */
 import { describe, expect, it } from 'vitest';
 import type { TechnoMusicSnapshot } from '../audio/synths/TechnoMusicSynth';
-import type { TechnoVoice } from '../audio/synths/technoPatterns';
+import { TECHNO_VOICES, type TechnoVoice } from '../audio/synths/technoPatterns';
 import { FREAKY_MAIN_TRACK, IRON_CHAPEL_TRACK } from '../audio/synths/technoTracks';
 import { describeMusicRow } from './MusicView';
 
-const VOICES: readonly TechnoVoice[] = [
-  'kick',
-  'hat',
-  'clap',
-  'bass',
-  'stab',
-  'chop',
-  'lead',
-  'siren',
-];
+const VOICES: readonly TechnoVoice[] = TECHNO_VOICES;
 
 function snapshot(over: Partial<TechnoMusicSnapshot> = {}): TechnoMusicSnapshot {
   const lastHit = {} as TechnoMusicSnapshot['lastHit'];

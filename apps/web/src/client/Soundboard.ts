@@ -7,6 +7,7 @@
 import type { WeaponType } from '@kybernetes/protocol';
 import { hudFonts, hudTheme } from '@kybernetes/ui-tokens';
 import { ShipAudioEngine } from '../audio/ShipAudioEngine';
+import type { ChantKind } from '../audio/synths/VocalChantSynth';
 
 /** Structural engine surface the soundboard needs (real or fake). */
 export interface SoundboardEngine {
@@ -41,6 +42,7 @@ export interface SoundboardEngine {
   readonly playTrack: (id: string) => void;
   readonly crossfadeOther: () => void;
   readonly transitionDropTo: (id: string) => void;
+  readonly playVocalChant: (kind: ChantKind) => void;
 }
 
 export interface SoundboardButton {
@@ -93,8 +95,16 @@ export function soundboardButtons(engine: SoundboardEngine): SoundboardButton[] 
     { group: 'Music', label: 'Freaky techno: cut', play: () => engine.stopTechno() },
     { group: 'Music', label: 'Iron Chapel: drop', play: () => engine.playTrack('iron-chapel') },
     { group: 'Music', label: 'Rave 99: drop', play: () => engine.playTrack('rave-99') },
+    { group: 'Music', label: 'Hymn: drop', play: () => engine.playTrack('hymn') },
     { group: 'Music', label: 'DJ xfade to next track', play: () => engine.crossfadeOther() },
     { group: 'Music', label: 'DROP to Rave 99', play: () => engine.transitionDropTo('rave-99') },
+    { group: 'Vocals', label: 'OH chant', play: () => engine.playVocalChant('oh4') },
+    { group: 'Vocals', label: 'AAAH anthem', play: () => engine.playVocalChant('aah') },
+    { group: 'Vocals', label: 'GO!', play: () => engine.playVocalChant('go') },
+    { group: 'Vocals', label: 'HEY!', play: () => engine.playVocalChant('hey') },
+    { group: 'Vocals', label: 'YES!', play: () => engine.playVocalChant('yes') },
+    { group: 'Vocals', label: 'RAVE!', play: () => engine.playVocalChant('rave') },
+    { group: 'Vocals', label: 'HIGH!', play: () => engine.playVocalChant('high') },
 
     {
       group: 'Alert',

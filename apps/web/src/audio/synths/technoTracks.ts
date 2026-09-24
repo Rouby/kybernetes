@@ -4,6 +4,7 @@
  */
 
 import type { VocalChop } from './technoPatterns';
+import type { ChantKind } from './VocalChantSynth';
 
 export interface TechnoTrack {
   readonly id: string;
@@ -22,10 +23,18 @@ export interface TechnoTrack {
   readonly knockSteps: readonly number[];
   readonly tomFill: readonly (readonly [number, number])[];
   readonly acidAccents: readonly (readonly [number, number])[];
+  readonly pluck: readonly (readonly [number, number])[];
   readonly crashEveryLoops: number;
   readonly sirenEveryLoops: number;
+  readonly vox: readonly VoxHit[];
   readonly defaultIntensity: number;
   readonly defaultFreak: number;
+}
+
+export interface VoxHit {
+  readonly step: number;
+  readonly kind: ChantKind;
+  readonly everyLoops: number;
 }
 
 /** Song 1: the original freaky hardgroove loop, F minor at 144 BPM. */
@@ -66,8 +75,10 @@ export const FREAKY_MAIN_TRACK: TechnoTrack = {
     [6, 53],
     [22, 54],
   ],
+  pluck: [],
   crashEveryLoops: 2,
   sirenEveryLoops: 8,
+  vox: [],
   defaultIntensity: 0.6,
   defaultFreak: 0.7,
 };
@@ -109,8 +120,10 @@ export const IRON_CHAPEL_TRACK: TechnoTrack = {
     [14, 50],
     [30, 49],
   ],
+  pluck: [],
   crashEveryLoops: 4,
   sirenEveryLoops: 0,
+  vox: [],
   defaultIntensity: 0.7,
   defaultFreak: 0.6,
 };
@@ -154,16 +167,94 @@ export const RAVE_99_TRACK: TechnoTrack = {
     [22, 45],
     [30, 43],
   ],
+  pluck: [],
   crashEveryLoops: 2,
   sirenEveryLoops: 0,
+  vox: [
+    { step: 0, kind: 'oh', everyLoops: 2 },
+    { step: 8, kind: 'go', everyLoops: 4 },
+    { step: 10, kind: 'go', everyLoops: 8 },
+    { step: 16, kind: 'aah', everyLoops: 8 },
+    { step: 24, kind: 'hey', everyLoops: 8 },
+  ],
   defaultIntensity: 0.75,
   defaultFreak: 0.7,
+};
+
+/**
+ * Song 4: a sparse G-minor bed built around the voice. No lead riffs,
+ * chops, acid or stabs fighting the formants — kick, hats, ride, a simple
+ * 8th bass, sparse knocks and toms, high pluck answers, and the vox hook
+ * as the lead instrument.
+ */
+export const HYMN_TRACK: TechnoTrack = {
+  id: 'hymn',
+  title: 'Hymn',
+  bpm: 142,
+  bassRoot: 31,
+  bassOffsets: [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 5, 0, 0, 0, 10,
+    0,
+  ],
+  bassStride: 2,
+  bassPhase: 0,
+  leadRoot: 79,
+  leadOffsets: [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+  ],
+  vocalRoot: 74,
+  chops: [],
+  stabMidis: [],
+  stabSteps: [],
+  knockSteps: [11, 27],
+  tomFill: [
+    [24, 43],
+    [26, 43],
+    [27, 41],
+    [28, 39],
+    [29, 41],
+    [30, 39],
+    [31, 31],
+  ],
+  acidAccents: [],
+  pluck: [
+    [4, 79],
+    [20, 86],
+    [28, 84],
+  ],
+  crashEveryLoops: 4,
+  sirenEveryLoops: 0,
+  vox: [
+    { step: 0, kind: 'oh', everyLoops: 2 },
+    { step: 8, kind: 'go', everyLoops: 4 },
+    { step: 12, kind: 'hey', everyLoops: 4 },
+    { step: 16, kind: 'aah', everyLoops: 8 },
+    { step: 24, kind: 'yes', everyLoops: 8 },
+  ],
+  defaultIntensity: 0.7,
+  defaultFreak: 0.5,
 };
 
 export const TECHNO_TRACKS: readonly TechnoTrack[] = [
   FREAKY_MAIN_TRACK,
   IRON_CHAPEL_TRACK,
   RAVE_99_TRACK,
+  HYMN_TRACK,
 ];
 
 export function trackById(id: string): TechnoTrack {

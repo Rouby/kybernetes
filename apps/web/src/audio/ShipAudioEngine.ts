@@ -24,6 +24,7 @@ import { TerminalUiSynth } from './synths/TerminalUiSynth';
 import { TECHNO_STEPS_PER_LOOP, type TechnoVoice } from './synths/technoPatterns';
 import { TECHNO_TRACKS, trackById } from './synths/technoTracks';
 import { VitalsMonitorSynth } from './synths/VitalsMonitorSynth';
+import { type ChantKind, VocalChantSynth } from './synths/VocalChantSynth';
 import {
   assessSuffocation,
   heartbeatTempo,
@@ -73,6 +74,7 @@ export class ShipAudioEngine {
   public vitalsSynth: VitalsMonitorSynth | null = null;
   public alarmSynth: AlarmSynth | null = null;
   public technoSynth: TechnoMusicSynth | null = null;
+  public vocalSynth: VocalChantSynth | null = null;
   private deckTransition: DeckTransition | null = null;
   private dropTransition: DropTransition | null = null;
   private driftTimer: ReturnType<typeof setInterval> | null = null;
@@ -123,6 +125,7 @@ export class ShipAudioEngine {
       this.vitalsSynth = new VitalsMonitorSynth(this.ctx);
       this.alarmSynth = new AlarmSynth(this.ctx);
       this.technoSynth = new TechnoMusicSynth(this.ctx);
+      this.vocalSynth = new VocalChantSynth(this.ctx);
       return true;
     } catch {
       // AudioContext unavailable in environment
@@ -682,6 +685,12 @@ export class ShipAudioEngine {
 
   public isTechnoPlaying(): boolean {
     return this.technoSynth?.isPlaying() ?? false;
+  }
+
+  /** Hype vocal hook through the music bus. */
+  public playVocalChant(kind: ChantKind = 'oh4'): void {
+    if (!this.busManager || !this.vocalSynth) return;
+    this.vocalSynth.playChant(this.busManager.musicGain, kind);
   }
 
   /** Debug preview: push a fake alert transition (klaxon + music intensity). */

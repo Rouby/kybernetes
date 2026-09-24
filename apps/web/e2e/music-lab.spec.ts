@@ -6,7 +6,7 @@ test('techno lab renders the voice grid and toggles', async ({ page }) => {
   await expect(page.getByTestId('musiclab')).toBeVisible();
 
   const rows = page.locator('.vrow');
-  await expect(rows).toHaveCount(13);
+  await expect(rows).toHaveCount(15);
   await expect(rows.first().locator('.mcell')).toHaveCount(32);
 
   const firstMute = rows.first().locator('.vbtn').first();

@@ -23,6 +23,7 @@ import {
   isStabStep,
   leadMidiForStep,
   midiToFreq,
+  pluckNoteAt,
   sirenShouldSound,
   TECHNO_STEPS_PER_LOOP,
   type TechnoVoice,
@@ -31,8 +32,10 @@ import {
   tomMidiForStep,
   vocalChopAt,
   vocalMidiForChop,
+  voxHitAt,
 } from './technoPatterns';
 import { FREAKY_MAIN_TRACK, type TechnoTrack } from './technoTracks';
+import { type ChantKind, VocalChantSynth } from './VocalChantSynth';
 
 export interface TechnoHitMark {
   readonly step: number;
@@ -69,6 +72,8 @@ function emptyHits(): Record<TechnoVoice, TechnoHitMark> {
     chop: EMPTY_MARK,
     lead: EMPTY_MARK,
     siren: EMPTY_MARK,
+    vox: EMPTY_MARK,
+    pluck: EMPTY_MARK,
   };
 }
 
@@ -121,10 +126,12 @@ export class TechnoMusicSynth {
   private mutedVoices = new Set<TechnoVoice>();
   private soloVoice: TechnoVoice | null = null;
   private lastHit: Record<TechnoVoice, TechnoHitMark> = emptyHits();
+  private readonly vocalSynth: VocalChantSynth;
 
   constructor(ctx: AudioContext, track: TechnoTrack = FREAKY_MAIN_TRACK) {
     this.ctx = ctx;
     this.noiseBuffer = createNoiseBuffer(ctx, 1.0, 'white');
+    this.vocalSynth = new VocalChantSynth(ctx);
     this.loadTrack(track);
   }
 
@@ -318,6 +325,8 @@ export class TechnoMusicSynth {
     this.scheduleAcid(step, time, loopIndex);
     this.scheduleStabSlot(step, time, loopIndex);
     this.scheduleHook(step, time, loopIndex);
+    this.scheduleVox(step, time, loopIndex);
+    this.schedulePluck(step, time, loopIndex);
     this.scheduleFreak(step, time, loopIndex);
   }
 
@@ -409,6 +418,46 @@ export class TechnoMusicSynth {
     if (chop === null) return;
     this.playVocalChop(vocalMidiForChop(this.track, chop), chop.vowel, time);
     this.markHit('chop', step, loop, time);
+  }
+
+  private scheduleVox(step: number, time: number, loop: number): void {
+    if (!this.voiceOn('vox') || this.intensity <= 0.5) return;
+    const hit = voxHitAt(this.track, step, loop);
+    if (hit === null) return;
+    this.playVox(hit.kind, time);
+    this.markHit('vox', step, loop, time);
+  }
+
+  private playVox(kind: ChantKind, time: number): void {
+    const out = this.musicGain;
+    if (!out) return;
+    this.vocalSynth.playChant(out, kind, 0.85, time);
+  }
+
+  private schedulePluck(step: number, time: number, loop: number): void {
+    if (!this.voiceOn('pluck') || this.intensity <= 0.4) return;
+    const note = pluckNoteAt(this.track, step);
+    if (note === null) return;
+    this.playPluck(note, time);
+    this.markHit('pluck', step, loop, time);
+  }
+
+  /** High triangle chime answering the voice, swimming in delay. */
+  private playPluck(midi: number, time: number): void {
+    const out = this.musicGain;
+    const send = this.delaySend;
+    if (!out || !send) return;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(midiToFreq(midi), time);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.12, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
+    osc.connect(gain);
+    gain.connect(out);
+    gain.connect(send);
+    osc.start(time);
+    osc.stop(time + 0.37);
   }
 
   private playVocalChop(midi: number, vowel: TechnoVowel, time: number): void {

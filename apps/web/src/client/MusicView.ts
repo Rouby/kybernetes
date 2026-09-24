@@ -142,6 +142,7 @@ function buildTransport(engine: ShipAudioEngine, page: HTMLElement): LabControls
     transportButton('TRACK 1', () => engine.playTrack('freaky-main')),
     transportButton('TRACK 2', () => engine.playTrack('iron-chapel')),
     transportButton('TRACK 3', () => engine.playTrack('rave-99')),
+    transportButton('TRACK 4', () => engine.playTrack('hymn')),
     transportButton('XFADE', () => engine.crossfadeOther()),
     transportButton('DROP', () => engine.transitionDropTo(engine.nextTrackId())),
     transportButton('NOMINAL', () => engine.previewAlert('nominal')),
